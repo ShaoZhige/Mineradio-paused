@@ -82,16 +82,16 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "XxHuberrr",
-        "repo": "Mineradio"
+        "owner": "ShaoZhige",
+        "repo": "Mineradio-paused"
       }
     ]
   },
   "mineradio": {
     "update": {
       "provider": "github",
-      "owner": "XxHuberrr",
-      "repo": "Mineradio",
+      "owner": "ShaoZhige",
+      "repo": "Mineradio-paused",
       "preview": false,
       "preferMirrors": true,
       "mirrors": [
