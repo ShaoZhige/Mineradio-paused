@@ -4347,10 +4347,9 @@ function normalizeNeteaseVip(profile, account, extra) {
   const vipExtra = extra.vipExtra || extra.vip_info || extra.vipInfoV2 || {};
   const vipData = vipExtra.data || vipExtra;
   const objects = [account, profile, vipInfo, extra, vipData];
+  // 只从 profile/account 的标准 vipType 字段取 VIP 类型，避免误读其他 numeric level 字段
   const vipType = firstPositiveNumberFrom(objects, [
-    'vipType', 'vip_type', 'viptype', 'musicVipType', 'music_vip_type',
-    'musicVipLevel', 'music_vip_level', 'redVipLevel', 'red_vip_level',
-    'blackVipLevel', 'black_vip_level', 'luxuryVipLevel', 'luxury_vip_level',
+    'vipType', 'vip_type', 'viptype',
   ]);
   const text = collectVipStringValues({ account, profile, vipInfo, extra, vipData }, [], 0).join(' ').toLowerCase();
   const redplus = vipData.redplus || vipData.redPlus || vipInfo.redplus || vipInfo.redPlus || extra.redplus || extra.redPlus;
