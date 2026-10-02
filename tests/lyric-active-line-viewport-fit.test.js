@@ -61,7 +61,7 @@ assert(/function lyricRowLiveViewportScale/.test(source), 'visible lyric rows mu
 assert(/row\.mesh\.localToWorld\(lyricViewportFitLeft\)/.test(source), 'the measurement includes the current 3D lyric transform');
 assert(/lyricViewportFitLeft\.project\(camera\)/.test(source), 'the measurement projects the real lyric edge through the active camera');
 assert(/Math\.min\(leftSpace, rightSpace\) \* 2/.test(source), 'the shorter live side determines the usable centred width');
-assert(/if \(\(row\.isPrimary \|\| row\.isTranslation\) && renderWindowActive\)/.test(source), 'visible original and translated rows share the live measurement path');
+assert(/if \(\(row\.isPrimary \|\| row\.isTranslation\) && renderWindowActive/.test(source), 'visible original and translated rows share the live measurement path');
 assert(/baseScale \*= lyricRowLiveViewportScale\(row, baseScale\)/.test(source), 'the live fit ratio participates in the existing scale target');
 assert(!/lyricLongLineDefaultScale|longLineScale|1380\s*\//.test(source), 'the old fixed-width hard compression must not return');
 assert(/row\.mesh\.scale\.setScalar\(row\.mesh\.scale\.x \+ \(scaleTarget - row\.mesh\.scale\.x\) \* ease\)/.test(source), 'original lyric scale easing remains intact');

@@ -29,6 +29,7 @@ var homePlatformRecommendationState = {
   feeds: {
     qishui: { loading: false, loaded: false, songs: [], error: '', message: '', mode: '', source: '', fallback: false, provenance: '' },
     kugou: { loading: false, loaded: false, songs: [], error: '', message: '', mode: '', source: '', fallback: false, provenance: '' },
+    spotify: { loading: false, loaded: false, songs: [], error: '', message: '', mode: '', source: '', fallback: false, provenance: '' },
   },
 };
 
@@ -879,6 +880,13 @@ function homePlatformRecommendationFeedConfig(source) {
       cardLabel: '酷狗推荐 FM',
       readyText: '来自酷狗 FM 推荐',
       playlistName: '酷狗推荐 FM',
+    },
+    spotify: {
+      endpoint: '/api/spotify/recommendations?limit=12',
+      sectionTitle: '推荐 Feed',
+      cardLabel: 'Spotify 推荐',
+      readyText: '来自 Spotify Web API 的推荐',
+      playlistName: 'Spotify 推荐',
     },
   }[source] || null;
 }
