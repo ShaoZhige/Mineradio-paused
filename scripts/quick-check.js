@@ -2,7 +2,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
-const { spawnSync } = require('child_process');
+const { spawnSync: baseSpawnSync } = require('child_process');
+
+// spawnSync() wires an anonymous stdin pipe by default. Security software on
+// some Windows machines rejects that pipe, so every child process fails with
+// EBUSY and healthy files get reported as broken. Pin stdin to 'ignore' to skip
+// the pipe entirely; stdout and stderr stay captured exactly as before.
+function spawnSync(command, args, options = {}) {
+  const stdio = options.stdio || ['ignore', 'pipe', 'pipe'];
+  return baseSpawnSync(command, args, { ...options, stdio });
+}
 
 const appRoot = path.resolve(__dirname, '..');
 const runElectron = process.argv.includes('--electron') || process.argv.includes('--full');
@@ -1499,7 +1508,10 @@ function checkLyricScrollPerformanceGuard() {
     !/function canResumePausedAudioFast/.test(controlsText) ||
     !/function resumePausedAudioFast/.test(controlsText) ||
     !/function schedulePausedAudioResumeMaintenance/.test(controlsText) ||
-    !/var fastResume = await resumePausedAudioFast\(opts\);[\s\S]{0,80}if \(fastResume === true\) return true;[\s\S]{0,140}if \(!audioGraphHealthy\(\)\) initAudio\(\);/.test(controlsText) ||
+    // The span between the fast-resume shortcut and the audio-graph health check
+    // is allowed to grow: it now also carries the "wait for canplay after a track
+    // switch" step. The anchors are what matter, not the exact character count.
+    !/var fastResume = await resumePausedAudioFast\(opts\);[\s\S]{0,80}if \(fastResume === true\) return true;[\s\S]{0,400}if \(!audioGraphHealthy\(\)\) initAudio\(\);/.test(controlsText) ||
     !/restorePlaybackGain\(\);[\s\S]{0,120}await awaitMediaPlayWithTimeout\(media, media\.play\(\), token\);/.test(controlsText) ||
     !/setTimeout\(async function \(\) \{[\s\S]{0,240}ensurePlaybackAudioGraph\(\(reason \|\| 'manual-resume-fast'\) \+ '-deferred-graph'\)/.test(controlsText)
   ) {
@@ -5591,7 +5603,7 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
     performanceBackground: 'release',
     performanceQuality: 'eco',
     memoryAutoSystemTrim: true,
-    memorySystemAutoElevate: true,
+    memorySystemAutoElevate: false,
     wallpaperFps: 60,
     shelfCameraMode: 'dynamic',
     shelfPresence: 'auto'

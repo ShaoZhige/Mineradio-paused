@@ -7,3 +7,6 @@
 *.ico binary
 *.png binary
 *.min.js text eol=lf
+# Windows batch files must stay CRLF; LF-only .bat files are mis-parsed by cmd.
+*.bat text eol=crlf
+*.cmd text eol=crlf
