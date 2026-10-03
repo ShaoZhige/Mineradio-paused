@@ -17,6 +17,7 @@ const {
 const { BuiltInPlaylistLibrary } = require('./built-in-playlist-library');
 const { WallpaperEngineRuntime } = require('./wallpaper-engine-runtime');
 const { FullDesktopModeRuntime } = require('./full-desktop-mode-runtime');
+const windowsGameMode = require('./windows-game-mode');
 const {
   LoginEasterEggGate,
   LOGIN_EASTER_EGG_GATE_VERSION,
@@ -4501,6 +4502,33 @@ ipcMain.handle('mineradio-wallpaper-engine-runtime-status', async (event, payloa
     return { ...probe, ...wallpaperEngineRuntime.getStatus(), pending: wallpaperEngineRuntime.pending != null };
   } catch (error) {
     return { ok: false, available: false, error: error.message || 'WALLPAPER_ENGINE_RUNTIME_PROBE_FAILED' };
+  }
+});
+
+// 「把本程序登记为 Windows 游戏」——整活功能。开启时先把 GameConfigStore 整棵子树备份到
+// userData，关闭时原样写回并删掉我们自己写的键；非 Windows 平台返回 supported:false，界面据此
+// 把开关置灰。任何失败都只是拿不到游戏模式的加成，绝不影响启动或播放。
+ipcMain.handle('minerado-windows-game-mode-status', async () => {
+  try {
+    return { ok: true, ...(await windowsGameMode.status()) };
+  } catch (error) {
+    return { ok: false, supported: windowsGameMode.isSupported(), registered: false, error: error.message || 'STATUS_FAILED' };
+  }
+});
+
+ipcMain.handle('minerado-windows-game-mode-enable', async () => {
+  try {
+    return await windowsGameMode.enable(STABLE_USER_DATA_PATH, process.execPath);
+  } catch (error) {
+    return { ok: false, supported: windowsGameMode.isSupported(), reason: 'UNEXPECTED', error: error.message || 'ENABLE_FAILED' };
+  }
+});
+
+ipcMain.handle('minerado-windows-game-mode-disable', async () => {
+  try {
+    return await windowsGameMode.disable(STABLE_USER_DATA_PATH);
+  } catch (error) {
+    return { ok: false, supported: windowsGameMode.isSupported(), reason: 'UNEXPECTED', error: error.message || 'DISABLE_FAILED' };
   }
 });
 

@@ -402,6 +402,7 @@ function readSavedLyricLayout() {
       wallpaperOpacity: clampRange(raw.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(raw.wallpaperOpacity), 0.35, 1),
       wallpaperFps: normalizeWallpaperFps(raw.wallpaperFps),
       wallpaperEngineSilentWindows: raw.wallpaperEngineSilentWindows !== false,
+      windowsGameMode: raw.windowsGameMode === true,
       wallpaperEngineGlassSampler: raw.wallpaperEngineGlassSampler == null
         ? wallpaperEngineBorderlessCaptureSupported() : raw.wallpaperEngineGlassSampler !== false,
       coverResolution: normalizeCoverResolution(raw.coverResolution),
@@ -575,6 +576,8 @@ function currentFxAutosaveTouchedKeys(reason, payload) {
     memorySystemIntervalMin: ['memorySystemIntervalMin'],
     memorySystemThresholdPercent: ['memorySystemThresholdPercent'],
     wallpaperEngineSilentWindows: ['wallpaperEngineSilentWindows'],
+    wallpaperEngineSilentWindows: ['wallpaperEngineSilentWindows'],
+    windowsGameMode: ['windowsGameMode'],
     wallpaperEngineGlassSampler: ['wallpaperEngineGlassSampler']
   };
   if (Object.prototype.hasOwnProperty.call(map, reason)) return map[reason];
@@ -896,6 +899,7 @@ function saveLyricLayout(opts) {
       wallpaperOpacity: clampRange(fx.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(fx.wallpaperOpacity), 0.35, 1),
       wallpaperFps: normalizeWallpaperFps(fx.wallpaperFps),
       wallpaperEngineSilentWindows: fx.wallpaperEngineSilentWindows !== false,
+      windowsGameMode: fx.windowsGameMode === true,
       wallpaperEngineGlassSampler: fx.wallpaperEngineGlassSampler == null
         ? wallpaperEngineBorderlessCaptureSupported() : fx.wallpaperEngineGlassSampler !== false,
       coverResolution: normalizeCoverResolution(fx.coverResolution),

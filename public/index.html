@@ -817,6 +817,12 @@
             <div class="fx-toggle" id="t-wallpaperEngineGlassSampler" onclick="toggleFx('wallpaperEngineGlassSampler')"
               title="抓壁纸真实像素给控制栏玻璃做底。Windows 10 无法关闭系统捕获黄框，因此默认关闭；手动打开后功能可用，但黄框会保留">
               <span>WE 玻璃采样</span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-windowsGameMode" onclick="toggleWindowsGameMode()"
+              title="把 Mineradio 登记为 Windows 游戏，系统游戏模式会给它更好的电源计划与调度优先级（整活功能，只写 HKCU 不需要管理员；关闭时按备份原样还原）">
+              <span>Windows 游戏模式<em class="fx-dev-badge">试验</em></span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-cuefieldAutoMix" onclick="toggleCuefieldAutoMix()"
+              title="按节拍分析当前队列的下一首并自动过渡；默认关闭，只在当前播放队列内生效">
+              <span>Cuefield AutoMix<em class="fx-dev-badge">试验</em></span><span class="dot"></span></div>
           </div>
           <div class="fx-section-label">桌面 / 壁纸</div>
           <div class="fx-slider"><label>桌面歌词大小</label><input id="fx-desktoplyricssize" type="range" min="0.72"
@@ -1367,14 +1373,6 @@
               <path d="M7 22l-4-4 4-4" />
               <path d="M21 13v2a4 4 0 0 1-4 4H3" />
             </svg></button>
-          <button id="cuefield-automix-btn" class="ctrl-btn" onclick="toggleCuefieldAutoMix()"
-            title="Cuefield AutoMix（实验功能，默认关闭）" aria-pressed="false">
-            <svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h4l3 5 3-5h6" />
-              <path d="M4 17h4l3-5 3 5h6" />
-              <path d="M18 4v6M15 7h6" />
-            </svg>
-          </button>
           <button id="prev-btn" class="ctrl-btn" onclick="prevTrack(true)" title="上一首"><svg width="18" height="18"
               fill="currentColor" viewBox="0 0 24 24">
               <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />

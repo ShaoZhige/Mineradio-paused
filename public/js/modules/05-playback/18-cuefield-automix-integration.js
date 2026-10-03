@@ -53,17 +53,23 @@ function cuefieldAutoMixStatusText(status) {
   }[status] || status || '待命';
 }
 
+// 开关现在挂在 DIY 面板的"实验功能"分组里（与完整桌面模式同处），不再是控制栏上的图标按钮，
+// 因此这里反映状态到那个 fx-toggle 的圆点上，并把运行状态写进 title 供悬停查看。
+// The switch now lives in the DIY panel's "实验功能" group (next to full desktop mode) instead of
+// an icon button on the transport bar, so reflect the state on that fx-toggle dot and put the
+// runtime status into its title for hover reading.
 function updateCuefieldAutoMixUi(status) {
-  var button = document.getElementById('cuefield-automix-btn');
-  if (!button) return;
+  var toggle = document.getElementById('t-cuefieldAutoMix');
+  if (!toggle) return;
   var snapshot = cuefieldAutoMix && cuefieldAutoMix.snapshot ? cuefieldAutoMix.snapshot() : null;
   var ready = !!(snapshot && snapshot.pending);
-  button.classList.toggle('cuefield-automix-on', !!cuefieldAutoMixEnabled);
-  button.classList.toggle('cuefield-automix-ready', !!cuefieldAutoMixEnabled && ready);
-  button.setAttribute('aria-pressed', cuefieldAutoMixEnabled ? 'true' : 'false');
-  button.title = cuefieldAutoMixEnabled
-    ? ('Cuefield AutoMix · ' + (ready ? '过渡已准备' : cuefieldAutoMixStatusText(status || (snapshot && snapshot.lastStatus))))
-    : 'Cuefield AutoMix（实验功能，默认关闭）';
+  var state = cuefieldAutoMixStatusText(status || (snapshot && snapshot.lastStatus));
+  toggle.classList.toggle('on', !!cuefieldAutoMixEnabled);
+  toggle.classList.toggle('cuefield-automix-ready', !!cuefieldAutoMixEnabled && ready);
+  toggle.setAttribute('aria-pressed', cuefieldAutoMixEnabled ? 'true' : 'false');
+  toggle.title = cuefieldAutoMixEnabled
+    ? ('Cuefield AutoMix · ' + (ready ? '过渡已准备' : state) + '（只在当前队列自动过渡）')
+    : '按节拍分析当前队列的下一首并自动过渡；默认关闭，只在当前播放队列内生效';
 }
 
 function cuefieldAutoMixAudioDescriptor(song) {

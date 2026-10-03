@@ -26,7 +26,14 @@ function serverFunctionSource(name, nextName) {
 }
 
 test('release update metadata accepts only a bounded HTTPS external page', () => {
-  assert.equal(packageData.version, '2.2.0');
+  // 版本号不再钉死：这个用例真正要验的是"更新页 URL 只接受受限的 HTTPS 外部页"，顺手写死一个
+  // 版本号只会让每次发版都红一次，而红的原因与本用例毫无关系。改为断言它是个合法的 semver，
+  // 既保住"版本号存在且合法"这层意思，又不会在发版时变成噪声。
+  // No longer pin an exact version: what this case actually verifies is that the update URL accepts
+  // only a bounded HTTPS external page. A hard-coded version only turned every release into a red
+  // run unrelated to what is under test. Assert a well-formed semver instead — that keeps the
+  // "a version exists and is sane" intent without becoming release-time noise.
+  assert.match(packageData.version, /^\d+\.\d+\.\d+$/);
   assert.equal(packageData.mineradio.update.preview, false);
   assert.match(serverText, /function safeExternalUpdateUrl\(value\)/);
   assert.match(serverText, /raw\.length > 2048/);

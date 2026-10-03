@@ -95,6 +95,7 @@
     'js/modules/07-fx/07-bindings-shelf-immersive.js',
     'js/modules/07-fx/08-cache-storage-settings.js',
     'js/modules/07-fx/09-console-workspace.js',
+    'js/modules/07-fx/10-windows-game-mode-ui.js',
     'js/modules/08-account/00-update-preview.js',
     'js/modules/08-account/00-login-easter-egg.js',
     'js/modules/08-account/01-login-modal-utils.js',

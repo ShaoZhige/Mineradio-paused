@@ -225,6 +225,12 @@ function setForegroundFpsMode(mode, silent) {
 }
 function updateFxInputs() {
   normalizeDevelopmentLockedFxState();
+  // 「Windows 游戏模式」的真实状态存在注册表里，不在 fx 里，所以每次同步输入都要重新读一次，
+  // 这样用户在系统侧手动改过、或换了 exe 路径（更新）之后界面依然与实际一致。
+  // This switch's real state lives in the registry rather than in fx, so re-read it on every input
+  // sync: that keeps the panel honest when the user changes it on the system side or after an
+  // update moves the executable path.
+  if (typeof refreshWindowsGameModeState === 'function') refreshWindowsGameModeState();
   applyShelfCameraDefaultAngle(false);
   setRange('fx-intensity', fx.intensity);
   setRange('fx-cineshake', fx.cinemaShake);

@@ -111,6 +111,12 @@ var fxDefaults = {
   // WE 窗口静默：把 Wallpaper Engine 的运行窗口从任务栏和 Alt+Tab 里摘掉，
   // 播放壁纸时不弹任务栏提醒。默认开启，可在设置里关闭。
   wallpaperEngineSilentWindows: true,
+  // 把本程序登记为 Windows 游戏（整活）：开启后系统游戏模式会给出更好的电源计划与调度
+  // 优先级。它只写 HKCU，不需要管理员权限；关闭时按备份原样还原注册表。默认关闭。
+  // Register this app as a Windows game (joke feature): the system game mode then favours it
+  // with a better power plan and scheduling priority. Writes HKCU only, so no elevation; the
+  // registry is restored from a backup when switched off. Defaults to off.
+  windowsGameMode: false,
   // WE 玻璃采样：抓壁纸真实像素给控制栏玻璃做底。基线取 false——这条链路走 Chromium 窗口
   // 捕获，Win10 必然留下一圈系统黄框。取不到系统版本、或读取走了兜底路径时，基线就是最终
   // 值，此时宁可少一个玻璃增强，也不要让用户无故看到黄框。Win11（build 22000+）由读取路径

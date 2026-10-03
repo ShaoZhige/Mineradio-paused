@@ -60,6 +60,7 @@
     "coverBackdropAdapt": true,
     "wallpaperEngineSilentWindows": true,
     "wallpaperEngineGlassSampler": false,
+    "windowsGameMode": false,
     "visualTintMode": "auto",
     "visualTintColor": "#9db8cf",
     "uiAccentColor": "#ffffff",

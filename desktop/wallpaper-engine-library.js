@@ -291,9 +291,27 @@ async function validateScenePackage(file) {
 
 function execFileText(file, args) {
   return new Promise((resolve) => {
-    execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: 2500, maxBuffer: 256 * 1024 }, (error, stdout) => {
-      resolve(error ? '' : String(stdout || ''));
-    });
+    // execFile 在 spawn 阶段失败（EPERM / EACCES / ENOENT，受安全策略或杀软拦截时）是**同步抛出**的，
+    // 根本不会走进 callback。上游那个 `error ? '' : stdout` 只兜住了"进程起来了但失败"的情况，
+    // 于是查询 Steam 注册表被拦时，异常会一路冒到 list()，整个识别弹窗直接空掉 —— 而扫描失败
+    // 本该只是"少一个来源"，不是"功能全废"。这里把同步抛出也吃掉，让调用方继续用其他候选根。
+    // execFile throws **synchronously** when it fails at spawn time (EPERM / EACCES / ENOENT, which
+    // is what security software or a policy block produces), so the callback never runs. The previous
+    // `error ? '' : stdout` only covered "started but failed", letting the exception escape into
+    // list() and blanking the whole picker — while a blocked registry query should merely cost one
+    // discovery candidate. Swallow the synchronous throw too so the remaining candidates still apply.
+    let child;
+    try {
+      child = execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: 2500, maxBuffer: 256 * 1024 }, (error, stdout) => {
+        resolve(error ? '' : String(stdout || ''));
+      });
+    } catch (_) {
+      resolve('');
+      return;
+    }
+    if (child && typeof child.on === 'function') {
+      child.on('error', () => resolve(''));
+    }
   });
 }
 

@@ -9,12 +9,18 @@ var FX_CONSOLE_TABS = [
   { key: 'system', label: '系统' }
 ];
 
-function fxConsoleItem(ref, title, aliases, history) {
+// `child: true` 把该项渲染成上一个 toggle 的从属控件（缩进 + 左侧导线），用于"开关 + 它的参数"
+// 这种层级：参数在语义上依附于那个开关，而不是组里的并列项。
+// `child: true` renders the item as a subordinate of the preceding toggle (indent plus a lead-in
+// line), for a "switch and its parameters" hierarchy where the parameters depend on that switch
+// rather than standing as peers in the group.
+function fxConsoleItem(ref, title, aliases, history, child) {
   return {
     ref: ref,
     title: title,
     aliases: aliases || '',
-    history: history !== false
+    history: history !== false,
+    child: child === true
   };
 }
 
@@ -36,16 +42,30 @@ var FX_CONSOLE_LAYOUT = [
   {
     key: 'interface',
     groups: [
-      { key: 'background', title: '背景媒体', hint: '颜色、封面、图片、视频与 Wallpaper Engine', open: true, items: [
+      { key: 'background', title: '背景媒体', hint: '颜色、封面、图片与视频', open: true, items: [
         fxConsoleItem('bg-color-picker', '背景颜色', '纯色 封面取色'),
         fxConsoleItem('bg-media-preview', '背景媒体', '封面 图片 视频 上传 裁切 清除', false),
-        fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false),
-        fxConsoleItem('t-wallpaperEngineSilentWindows', 'WE 窗口静默', '任务栏 隐藏 Alt+Tab 进程提醒 静默'),
-        fxConsoleItem('t-wallpaperEngineGlassSampler', 'WE 玻璃采样', '捕获 黄框 玻璃 像素 采样 Win10'),
         fxConsoleItem('fx-bgopacity', '背景透明度', '背景强度'),
         fxConsoleItem('fx-bgcropx', '裁切左右', '背景水平 位置'),
         fxConsoleItem('fx-bgcropy', '裁切上下', '背景垂直 位置'),
         fxConsoleItem('fx-bgzoom', '裁切缩放', '背景放大 缩小')
+      ] },
+      // Wallpaper Engine 独立成组：它自带一个识别/导入/恢复的状态行和两个行为开关，
+      // 再加一组只在壁纸为背景时才生效的构图滑块，混在"背景媒体"里既互相干扰也不好找。
+      // 那 4 个 WE 滑块此前没有任何分组登记，会被 fallback 收进"其他设置"；一并登记到这里。
+      // Wallpaper Engine gets its own group: it carries a status row (identify / import / restore),
+      // two behaviour switches, and a set of framing sliders that only apply while a wallpaper is
+      // the background. Mixed into "背景媒体" they crowd each other and are hard to find. Those four
+      // WE sliders had no group registration at all and were being swept into "其他设置" by the
+      // residual fallback; register them here as well.
+      { key: 'wallpaper-engine', title: 'Wallpaper Engine', hint: '识别导入、窗口行为与壁纸构图', items: [
+        fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false),
+        fxConsoleItem('t-wallpaperEngineSilentWindows', 'WE 窗口静默', '任务栏 隐藏 Alt+Tab 进程提醒 静默'),
+        fxConsoleItem('t-wallpaperEngineGlassSampler', 'WE 玻璃采样', '捕获 黄框 玻璃 像素 采样 Win10'),
+        fxConsoleItem('wallpaper-engine-opacity', 'WE 壁纸透明度', 'WE 透明 壁纸 淡'),
+        fxConsoleItem('wallpaper-engine-position-x', 'WE 水平位置', 'WE 左右 水平 位移'),
+        fxConsoleItem('wallpaper-engine-position-y', 'WE 垂直位置', 'WE 上下 垂直 位移'),
+        fxConsoleItem('wallpaper-engine-scale', 'WE 壁纸缩放', 'WE 缩放 放大 缩小')
       ] },
       { key: 'colors', title: '界面配色', hint: '界面高亮、视觉主色与图标颜色', items: [
         fxConsoleItem('ui-accent-picker', '界面高亮', '主题色 强调色'),
@@ -293,7 +313,22 @@ var FX_CONSOLE_LAYOUT = [
         fxConsoleItem('cache-storage-panel', '本地缓存', '缓存路径 缓存目录 占用 歌词 封面 音频 更新', false)
       ] },
       { key: 'experimental', title: '实验功能', hint: '尚未开放或需要谨慎使用的能力', items: [
-        fxConsoleItem('t-wallpaperMode', '完整桌面模式', '完整 Mineradio 进入桌面层 Ctrl Shift M 切换操作层 本次启动有效', false)
+        fxConsoleItem('t-wallpaperMode', '完整桌面模式', '完整 Mineradio 进入桌面层 Ctrl Shift M 切换操作层 本次启动有效', false),
+        // 完整桌面模式的两项配套参数，标成 child 以缩进挂在那个开关下面：整个 Mineradio 作为桌面
+        // 壁纸时的透明度与帧率。它们在代码里与该模式共用一把锁、同一套 disabled 逻辑，此前没有
+        // 分组登记，被兜底收进「其他设置」。
+        //
+        // html 上它们带着 hidden，但作者样式表的 .fx-slider{display:grid} / .fx-seg{display:flex}
+        // 优先级高于 UA 的 [hidden]{display:none}，所以一直是可见的 —— 别被属性误导当成死项。
+        // The two parameters of full desktop mode, marked as children so they sit indented under that
+        // switch: the opacity and frame rate of Mineradio-as-desktop-wallpaper. They share the mode's
+        // lock and disabled logic and had no group registration, so the residual sweep took them.
+        // Their markup carries `hidden`, but the author-level .fx-slider{display:grid} /
+        // .fx-seg{display:flex} rules outrank the UA [hidden]{display:none}, so they are visible.
+        fxConsoleItem('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡', true, true),
+        fxConsoleItem('wallpaper-fps-seg', '壁纸帧数', '24 30 60 FPS 帧率', true, true),
+        fxConsoleItem('t-windowsGameMode', 'Windows 游戏模式', '登记为游戏 电源计划 调度优先级 整活 非 Windows 置灰', false),
+        fxConsoleItem('t-cuefieldAutoMix', 'Cuefield AutoMix', '自动混音 过渡 节拍分析 下一首 预载 交叉淡化')
       ] }
     ]
   }
@@ -401,14 +436,28 @@ function fxConsoleAppendItem(body, tabMeta, groupMeta, item, state) {
     return;
   }
   if (node.classList.contains('fx-toggle')) {
-    if (!state.toggleGrid) {
+    // 从属块之后的开关必须另起一个 grid。child 分支不会清空 state.toggleGrid，所以若直接复用，
+    // 下一个开关会被追加到上一个的 grid 里，DOM 顺序变成 "grid[开关A, 开关B] + childNest[参数]" ——
+    // 参数就跑到了两个开关下面，分隔线（相邻兄弟选择器）也永远匹配不上。
+    // 命中 childNest 说明刚处理过从属项，此时强制新建。
+    if (!state.toggleGrid || state.childNest) {
       state.toggleGrid = document.createElement('div');
       state.toggleGrid.className = 'fx-toggle-grid fx-console-toggle-grid';
       body.appendChild(state.toggleGrid);
     }
+    state.childNest = null;
     state.toggleGrid.appendChild(node);
+  } else if (item.child) {
+    // 从属控件：套一层缩进容器，并画一条左侧导线接到上面那个开关，读起来是"它的参数"而不是新的一项。
+    if (!state.childNest) {
+      state.childNest = document.createElement('div');
+      state.childNest.className = 'fx-console-child-nest';
+      body.appendChild(state.childNest);
+    }
+    state.childNest.appendChild(node);
   } else {
     state.toggleGrid = null;
+    state.childNest = null;
     body.appendChild(node);
   }
   var entry = {
@@ -484,7 +533,7 @@ function organizeFxConsoleWorkspace() {
     if (!tabMeta || !pages[tabMeta.key]) return;
     tabLayout.groups.forEach(function (groupMeta) {
       var body = fxConsoleMakeGroup(pages[tabMeta.key], tabMeta, groupMeta);
-      var state = { toggleGrid: null };
+      var state = { toggleGrid: null, childNest: null };
       groupMeta.items.forEach(function (item) {
         fxConsoleAppendItem(body, tabMeta, groupMeta, item, state);
       });
@@ -500,7 +549,7 @@ function organizeFxConsoleWorkspace() {
         title: String(node.textContent || '兼容设置').trim().slice(0, 40) || '兼容设置',
         aliases: '其他 兼容',
         history: true
-      }, { toggleGrid: null });
+      }, { toggleGrid: null, childNest: null });
     });
     console.warn('[FxConsole] residual controls:', residual.length);
   }

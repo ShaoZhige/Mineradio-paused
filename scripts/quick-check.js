@@ -3050,8 +3050,26 @@ function checkCuefieldAutoMixGuard() {
   if (!packageJson.build.files.includes('cuefield/**/*') || !(beta.files || []).includes('cuefield/**/*')) {
     fail('Cuefield runtime files must be included in regular and internal-beta packages');
   }
-  if (!/16-cuefield-automix-core\.js/.test(loaderText) || !/17-cuefield-timeline-executor\.js/.test(loaderText) || !/18-cuefield-automix-integration\.js/.test(loaderText) || !/id="cuefield-automix-btn"/.test(htmlText) || !/id="cuefield-feedback"/.test(htmlText) || !/#cuefield-automix-btn\.cuefield-automix-on/.test(cssText)) {
-    fail('Cuefield AutoMix needs loaded runtime modules, a default-off control, and local feedback UI');
+  // 开关已从控制栏图标按钮搬进 DIY 面板的"实验功能"分组（与完整桌面模式同处），所以这里钉的是
+  // 面板内那个 fx-toggle 的 id，而不是已经不存在的 transport 按钮。
+  // The switch moved off the transport bar into the DIY panel's "实验功能" group (next to full
+  // desktop mode), so pin that fx-toggle id rather than the transport button that no longer exists.
+  if (!/16-cuefield-automix-core\.js/.test(loaderText) || !/17-cuefield-timeline-executor\.js/.test(loaderText) || !/18-cuefield-automix-integration\.js/.test(loaderText) || !/id="t-cuefieldAutoMix"/.test(htmlText) || !/id="cuefield-feedback"/.test(htmlText) || !/#t-cuefieldAutoMix\.cuefield-automix-ready/.test(cssText) || !/id="t-cuefieldAutoMix"/.test(htmlText)) {
+    fail('Cuefield AutoMix needs loaded runtime modules, a default-off DIY panel control, and local feedback UI');
+  }
+  // 分组登记必须在控制台布局里，否则面板里点不到它。
+  // The group registration must exist in the console layout, otherwise the panel cannot reach it.
+  const cuefieldConsoleText = fs.readFileSync(
+    path.join(appRoot, 'public', 'js', 'modules', '07-fx', '09-console-workspace.js'), 'utf8'
+  );
+  // 按分组切片再判断，固定的 {0,400} 窗口会被组内注释长度顶穿。
+  // Slice the group out before testing: a fixed {0,400} window gets overrun by the group's comments.
+  const experimentalGroup = (cuefieldConsoleText.split("key: 'experimental'")[1] || '').split('] }')[0] || '';
+  if (!/fxConsoleItem\('t-cuefieldAutoMix'/.test(experimentalGroup)) {
+    fail('Cuefield AutoMix must be listed in the DIY console experimental group so it is reachable from the panel');
+  }
+  if (/id="cuefield-automix-btn"/.test(htmlText) || /#cuefield-automix-btn/.test(cssText)) {
+    fail('the transport-bar Cuefield AutoMix button must stay removed now that the switch lives in the DIY panel');
   }
   if (!/var cuefieldAutoMixEnabled = false/.test(integrationText) || !/CUEFIELD_AUTOMIX_STORE_KEY/.test(integrationText) || !/if \(!cuefieldAutoMixEnabled \|\| !audio/.test(integrationText) || !/function toggleCuefieldAutoMix/.test(integrationText)) {
     fail('Cuefield AutoMix must be opt-in and must not prepare while disabled');
@@ -5609,6 +5627,154 @@ function checkFxConsoleWorkspaceGuard() {
   const labels = ['常用', '界面', '歌词', '动效', '歌单架', '系统'];
   if (!labels.every(label => workspace.includes(`label: '${label}'`))) fail('task-first visual console tabs are incomplete');
   if (!loader.includes("js/modules/07-fx/09-console-workspace.js")) fail('visual console workspace module is not loaded');
+  // Wallpaper Engine 自成一组，那 4 个构图滑块必须一并登记 —— 它们此前没有登记，会被 fallback
+  // 收进「其他设置」。这里钉住分组归属与选择器白名单，防止将来又漂回去。
+  // Wallpaper Engine owns its own group, and the four framing sliders must be registered with it —
+  // they had no registration and were being swept into "其他设置" by the residual fallback. Pin both
+  // the group membership and the selector whitelist so they cannot drift back.
+  if (!/key: 'wallpaper-engine', title: 'Wallpaper Engine'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('wallpaper-engine-value'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('t-wallpaperEngineSilentWindows'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('t-wallpaperEngineGlassSampler'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('wallpaper-engine-opacity'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('wallpaper-engine-position-x'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('wallpaper-engine-position-y'/.test(workspace)
+    || !/key: 'wallpaper-engine'[^\]]*fxConsoleItem\('wallpaper-engine-scale'/.test(workspace)) {
+    fail('Wallpaper Engine must keep its own console group with the status row, both switches, and the four framing sliders');
+  }
+  // 逐分组切片再判断，否则跨组正则会一路匹配到后面的 Wallpaper Engine 组，把"已移走"误报成"还在"。
+  // Slice the background group out first: a cross-group regex runs past the closing bracket and
+  // matches the Wallpaper Engine group instead, reporting a moved item as still present.
+  const backgroundGroup = (workspace.split("key: 'background'")[1] || '').split('] }')[0] || '';
+  if (/wallpaper|wallpaperEngine/i.test(backgroundGroup)) {
+    fail('Wallpaper Engine items must not stay in the background-media group once they have their own');
+  }
+  // 逐个登记后单个 .fx-slider 已命中白名单，容器不该再加进去 —— 加进去反而会让
+  // "登记整个容器" 这种写法悄悄可行，把四个滑块当成一个块搬走。
+  // With per-slider registration each .fx-slider already matches the whitelist, so the wrapper must
+  // stay out of it — otherwise registering the whole container silently becomes viable again and the
+  // four sliders travel as one opaque block.
+  if (/\.wallpaper-engine-visual-controls/.test(workspace.split('var selector = ')[1] || '')) {
+    fail('register the four WE sliders individually; keeping the wrapper in the selector whitelist allows the opaque-block form');
+  }
+  if (!/\.wallpaper-engine-visual-controls:empty/.test(css)) {
+    fail('the emptied WE slider container must collapse, or it leaves an empty bordered box in the panel');
+  }
+  // 完整桌面模式的两项配套（壁纸透明度 / 壁纸帧数）必须与它们的开关同组。它们的 html 上带着
+  // hidden，但作者样式表的 .fx-slider{display:grid} / .fx-seg{display:flex} 优先级高于 UA 的
+  // [hidden]{display:none}，所以它们一直是可见的 —— 别被 hidden 属性误导当成死项。
+  // Both desktop-wallpaper companions must sit in the same group as their toggle. Their markup
+  // carries `hidden`, but the author-level .fx-slider{display:grid} / .fx-seg{display:flex} rules
+  // outrank the UA [hidden]{display:none}, so they have always been visible — do not mistake the
+  // attribute for a dead control.
+  // 这两项是桌面层设置，归属「桌面歌词」组（那里已有同类的透明度/帧率），不是实验功能 ——
+  // 实验功能里只留完整桌面模式那个开关本身。
+  // These two are desktop-layer settings and belong to the 桌面歌词 group (which already has the same
+  // kind of opacity and frame-rate controls), not 实验功能 — that group keeps only the switch itself.
+  // 完整桌面模式的两个参数必须作为 child 挂在该开关下面（缩进 + 导线），而不是组里的并列项。
+  // 顺序也重要：child 项要跟在 t-wallpaperMode 之后，否则会挂到上一个开关（桌面歌词）下面 ——
+  // fxConsoleAppendItem 遇到新的 fx-toggle 会重置从属容器。
+  // Both parameters must be registered as children right after the switch (indent + lead-in line),
+  // never as peers. Order matters: a child lands under whichever fx-toggle came last, so following
+  // t-wallpaperMode is what attaches them to it — fxConsoleAppendItem resets the nest on a new toggle.
+  if (!/fxConsoleItem\('t-wallpaperMode'[\s\S]{0,900}fxConsoleItem\('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡', true, true\)/.test(workspace)
+    || !/fxConsoleItem\('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡', true, true\)[\s\S]{0,200}fxConsoleItem\('wallpaper-fps-seg', '壁纸帧数', '24 30 60 FPS 帧率', true, true\)/.test(workspace)) {
+    fail('full desktop mode opacity and frame rate must be registered as children directly after its switch');
+  }
+  const experimentalConsoleGroup2 = (workspace.split("key: 'experimental'")[1] || '').split('] }')[0] || '';
+  if (/fxConsoleItem\('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡'\)/.test(experimentalConsoleGroup2)) {
+  // 「Windows 游戏模式」是一整条跨进程链路：主进程模块 → preload 桥 → 界面模块 → 开关元素 →
+  // 分组登记 → 默认值与持久化 → 打包快照。任一环断掉都会让开关点了没反应或状态显示错，而这类
+  // 失效全部是静默的，所以逐环钉住。**还原是这项功能的核心承诺**（关闭时按备份写回注册表），
+  // 必须与写入路径同时存在，否则可能出现"关不掉"。
+  // The Windows game mode switch is a cross-process chain: main module → preload bridge → UI module
+  // → toggle element → group registration → defaults/persistence → packaged snapshot. A break in any
+  // link makes the switch silently inert or its state wrong. Pin each link. The restore path is this
+  // feature's core promise (write the registry back from the backup) and must ship together with the
+  // write path, or the switch could become impossible to turn off.
+  const wgmModule = fs.readFileSync(path.join(appRoot, 'desktop', 'windows-game-mode.js'), 'utf8');
+  const wgmUi = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '10-windows-game-mode-ui.js'), 'utf8');
+  const wgmPreload = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
+  const wgmMain = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const wgmLoader = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
+  if (!/HKCU/.test(wgmModule) || !/GameConfigStore/.test(wgmModule)) {
+    fail('the Windows game mode module must target HKCU System GameConfigStore');
+  }
+  if (!/function readSubtree/.test(wgmModule) || !/BACKUP_FAILED/.test(wgmModule)) {
+    fail('enabling the Windows game mode must back up the registry subtree first and refuse to write without a snapshot');
+  }
+  if (!/Remove-Item -LiteralPath/.test(wgmModule) || !/parentKeyName/.test(wgmModule)) {
+    fail('disabling the Windows game mode must remove the keys it wrote, including the computed parents entry');
+  }
+  // 状态判定的两个输出必须互不包含：/REGISTERED/ 会命中 NOT_REGISTERED，把「从未注册」读成「已注册」，
+  // 那样关闭后就无法确认是否真的还原了。
+  // The two status tokens must not contain one another: /REGISTERED/ also matches NOT_REGISTERED,
+  // reading "never registered" as "registered" and hiding a failed restore.
+  if (!/MR_GAME_REGISTERED/.test(wgmModule) || !/MR_GAME_ABSENT/.test(wgmModule)) {
+    fail('the Windows game mode status tokens must be mutually exclusive so a failed restore stays visible');
+  }
+  if (!/function regKeyPath/.test(wgmModule)) {
+    fail('registry paths must be built by regKeyPath; hand-written escaping emits double backslashes and targets the wrong key');
+  }
+  if (!/minerado-windows-game-mode-status/.test(wgmMain) || !/minerado-windows-game-mode-enable/.test(wgmMain) || !/minerado-windows-game-mode-disable/.test(wgmMain)) {
+    fail('the main process must expose status/enable/disable IPC for the Windows game mode switch');
+  }
+  if (!/require\('\.\/windows-game-mode'\)/.test(wgmMain)) {
+    fail('the main process must require the Windows game mode module');
+  }
+  if (!/getWindowsGameModeStatus/.test(wgmPreload) || !/enableWindowsGameMode/.test(wgmPreload) || !/disableWindowsGameMode/.test(wgmPreload)) {
+    fail('the preload bridge must expose the Windows game mode APIs to the renderer');
+  }
+  if (!/07-fx\/10-windows-game-mode-ui\.js/.test(wgmLoader)) {
+    fail('the Windows game mode UI module must be loaded by the index loader');
+  }
+  if (!/id="t-windowsGameMode"/.test(html)) {
+    fail('the Windows game mode toggle must exist in the DIY panel');
+  }
+  if (!/function toggleWindowsGameMode/.test(wgmUi) || !/function refreshWindowsGameModeState/.test(wgmUi)) {
+    fail('the Windows game mode UI module must provide the toggle action and the state refresh');
+  }
+  // 不支持的平台必须置灰，而不是让用户点了才发现用不了。
+  // Unsupported platforms must grey the switch out rather than let the user discover it on click.
+  if (!/supported === false/.test(wgmUi) || !/dev-locked/.test(wgmUi)) {
+    fail('the Windows game mode switch must grey out where the platform is unsupported');
+  }
+  if (!/typeof refreshWindowsGameModeState === 'function'/.test(panel)) {
+    fail('input sync must refresh the Windows game mode state so the panel matches the real registry');
+  }
+  if (!/fxConsoleItem\('t-windowsGameMode'/.test(workspace)) {
+    fail('the Windows game mode switch must be registered in a console group so it is reachable from the panel');
+  }
+    fail('the desktop-wallpaper parameters must carry the child flag so they nest, not sit beside the switch');
+  }
+  if (!/className = 'fx-console-child-nest'/.test(workspace) || !/item\.child/.test(workspace)) {
+    fail('the console child-subordinate mechanism must exist so switch parameters can nest under their toggle');
+  }
+  if (!/\.fx-console-child-nest/.test(css)) {
+    fail('the child-subordinate container needs styling or nested parameters look like group peers');
+  }
+  // 从属块之后若还有独立开关（实验功能里是 Cuefield AutoMix），必须隔开：每个 fx-toggle 都会
+  // 新建自己的 .fx-toggle-grid，所以分隔线要加在紧随其后的那个 grid 上，否则它看起来像第三个参数。
+  // When a standalone switch follows a child block (Cuefield AutoMix in the experimental group), it
+  // must be set apart: every fx-toggle opens its own .fx-console-toggle-grid, so the rule belongs on
+  // the grid right after the nest or the switch reads as a third parameter of the block above.
+  if (!/\.fx-console-child-nest \+ \.fx-toggle-grid/.test(css)) {
+    fail('a standalone toggle after a child block needs a separator, or it looks like a nested parameter');
+  }
+  // 根因：基类 .fx-toggle-grid 是两列布局，两个开关会并排；从属块跟着哪个开关就说不清了。
+  // 控制台里必须覆盖成单列。
+  // Root cause: the base .fx-toggle-grid is two columns, so two switches sit side by side and a
+  // following child block cannot be attributed to either. The console must force a single column.
+  if (!/\.fx-console-toggle-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/.test(css)) {
+    fail('console toggle grid must be single-column, or switches with child parameters sit side by side');
+  }
+  // 光单列还不够：child 分支不清空 state.toggleGrid，Cuefield 会复用上一个 grid 追加到从属块之前。
+  // 所以从属块之后遇到开关必须强制新建 grid。
+  // Single column is not enough: the child branch leaves state.toggleGrid set, so the next switch
+  // would be appended into the same grid above the nest. A switch after a nest must force a new grid.
+  if (!/!state\.toggleGrid \|\| state\.childNest/.test(workspace)) {
+    fail('a switch following a child block must start a fresh grid, or the separator can never match');
+  }
   if (!/data-console-layout['"],\s*['"]task-first-v2/.test(workspace) && !/setAttribute\('data-console-layout', 'task-first-v2'\)/.test(workspace)) fail('visual console layout marker is missing');
   if (!/node\.parentNode === panel/.test(workspace)) fail('visual console old-shell cleanup can remove reparented controls');
   if (!/FX_CONSOLE_HISTORY_LIMIT\s*=\s*40/.test(workspace) || !/fxConsoleChangedKeys/.test(workspace)) fail('scoped session history guard is missing');

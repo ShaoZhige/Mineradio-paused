@@ -5680,14 +5680,19 @@ body.home-controls-locked #bottom-bar {
   animation: play-mode-pop .42s cubic-bezier(.16, 1, .3, 1)
 }
 
-#cuefield-automix-btn.cuefield-automix-on {
-  color: rgba(255, 221, 150, .98);
-  text-shadow: 0 0 14px rgba(255, 191, 100, .42)
+/* Cuefield AutoMix 的开关从控制栏图标按钮移到了 DIY 面板"实验功能"分组。开启态沿用
+   fx-toggle 既有的 .on 规则（这里不重复定义），只额外补"过渡已就绪"的薄荷绿呼吸提示。
+   The switch moved from a transport-bar icon button into the DIY panel's "实验功能" group. The
+   enabled state reuses fx-toggle's existing .on rules (not redefined here); only the "transition
+   armed" mint breathing hint is added. */
+#t-cuefieldAutoMix.cuefield-automix-ready {
+  border-color: rgba(153, 241, 211, .4);
+  background: rgba(153, 241, 211, .08)
 }
 
-#cuefield-automix-btn.cuefield-automix-ready {
-  color: rgba(153, 241, 211, 1);
-  text-shadow: 0 0 16px rgba(86, 255, 189, .52);
+#t-cuefieldAutoMix.cuefield-automix-ready .dot {
+  background: rgba(153, 241, 211, 1);
+  box-shadow: 0 0 14px rgba(86, 255, 189, .55);
   animation: cuefield-ready-pulse 1.8s ease-in-out infinite
 }
 
@@ -12678,6 +12683,17 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   margin: 0
 }
 
+/* 这四个滑块现在被逐个登记进 DIY 面板的「Wallpaper Engine」分组，会被搬离这里。
+   容器随之变空，而它自带边框与底色，留着就是一个空框。用 :empty 收掉，
+   万一将来又把滑块放回来（或分组登记被移除），样式照旧生效。
+   These four sliders are now registered one by one into the DIY panel's "Wallpaper Engine" group
+   and get moved out of here, leaving this container empty — but it carries a border and a fill, so
+   an empty box would remain. :empty removes it, while the styles still apply if the sliders ever
+   come back (or the group registration is dropped again). */
+.wallpaper-engine-visual-controls:empty {
+  display: none
+}
+
 @media (max-width: 540px) {
   .wallpaper-engine-visual-controls { grid-template-columns: 1fr }
 }
@@ -17283,8 +17299,53 @@ body.panel-reordering .mini-queue-item.is-reordering {
   background: rgba(255, 255, 255, .024)
 }
 
+/* 控制台里的开关一律单列。基类 .fx-toggle-grid 是两列布局，两个开关会并排 —— 短标题的组
+   （如「恢复与整理」里两个按钮）看着还行，但一旦某个开关带了从属参数，并排就说不清从属块
+   属于哪一个：实验功能里「完整桌面模式」和「Cuefield AutoMix」原本挤在同一行，纵线不知道该
+   接谁。单列让每个开关独占一行，从属块自然落在它下面。
+   Console switches are always single-column. The base .fx-toggle-grid is two columns, so two
+   switches sit side by side; that reads fine for a group of two short buttons, but as soon as one
+   switch has subordinate parameters the nesting becomes ambiguous — in the experimental group full
+   desktop mode and Cuefield AutoMix shared a row and the lead-in line belonged to neither. One
+   switch per row puts each child block unambiguously under its own toggle. */
 .fx-console-toggle-grid {
+  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 9px
+}
+
+/* 某个开关的从属控件（fxConsoleItem 的 child 标记）：整体左缩进并画一条从开关下方延伸的导线，
+   读起来是"这个开关的参数"而不是组里的并列项。导线用伪元素，避免给 DOM 加多余节点。
+   Subordinate controls of a switch (the item's `child` flag): indented as a block with a lead-in
+   line running down from the switch, so they read as "that switch's parameters" rather than peers.
+   The line is a pseudo-element so no extra nodes are needed in the DOM. */
+.fx-console-child-nest {
+  position: relative;
+  margin: -4px 0 14px 14px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0, 245, 212, .16)
+}
+
+/* 从属块之后若还有新的 toggle grid（下一个独立功能），隔一道横线再开始。当前实验功能里就是
+   完整桌面模式（含它的两个从属参数）之后跟 Cuefield AutoMix —— 两者都会各自新建一个
+   .fx-toggle-grid，所以分隔要加在"childNest 之后的第一个 grid"上，那个后面的独立开关才看得清
+   是新功能的起点，而不是从属块的第三个参数。
+   When another toggle grid follows a child block (a new standalone feature), start it below a rule.
+   In the experimental group that is full desktop mode with its two child parameters followed by
+   Cuefield AutoMix: each switch opens its own .fx-console-toggle-grid, so the rule goes on the first
+   grid after the nest — without it the next switch reads as a third parameter of the block above. */
+.fx-console-child-nest + .fx-toggle-grid {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .06)
+}
+
+.fx-console-child-nest>.fx-slider:first-child,
+.fx-console-child-nest>.fx-seg:first-child {
+  margin-top: 0
+}
+
+.fx-console-group-body>.fx-console-child-nest:first-child {
+  margin-top: 2px
 }
 
 .fx-console-group-body>.fx-slider:first-child,
