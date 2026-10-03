@@ -280,6 +280,45 @@ assert.ok(
   'the tier table must stay ordered from the lowest tier to the untouched top tier'
 );
 
+// ---------------------------------------------------------------------------
+// 覆盖完整性：每个散点系统都要接入预算，且会重建的系统必须能解除登记。
+// Coverage: every scattered system must join the budget, and rebuilt ones must be able to detach.
+// ---------------------------------------------------------------------------
+
+const lyricMeshText = readSource('public/js/modules/02-visual/13-lyrics-mesh-build.js');
+const shelfCoreText = readSource('public/js/modules/04-shelf/01-manager-core.js');
+
+// 登记数组只进不出是真实的泄漏：歌词网格随布局（换行、字号、窗口尺寸）反复重建，歌单架连线粒子
+// 随签名变化（登录状态、列表内容、合并方式）重建，每次都追加一个新闭包。预算重算要遍历那个数组，
+// 于是用得越久越慢 —— 正是"开一天之后开始卡"这类难以复现的问题。
+// A registry that only grows is a real leak: the lyric mesh is rebuilt on every layout change and the
+// shelf connectors on every signature change, each appending a fresh closure. The re-apply pass walks
+// that array, so the app slows the longer it stays open — exactly the "it started stuttering after a
+// day" report that is miserable to reproduce.
+assert.ok(
+  /function unregisterParticleBudgetRefresher/.test(budgetText),
+  'the budget module must expose an unregister hook; without it a rebuilt system cannot detach'
+);
+assert.ok(
+  /points\.detachParticleBudget/.test(budgetText),
+  'attachParticleDrawBudget must hand back a detach function instead of only registering'
+);
+assert.ok(
+  /attachParticleDrawBudget/.test(lyricMeshText),
+  'lyric mesh sparks must join the particle budget'
+);
+assert.ok(
+  /detachParticleBudget/.test(starRiverText),
+  'lyric mesh teardown must detach its registration, or the registry grows on every layout change'
+);
+assert.ok(
+  /attachParticleDrawBudget\(new THREE\.Points\(pgeo, pmat\)/.test(shelfCoreText),
+  'shelf connector particles must join the particle budget'
+);
+assert.ok(
+  /connectorParticles\.detachParticleBudget/.test(shelfCoreText),
+  'shelf connectors must unregister before being rebuilt, or the registry grows on every list change'
+);
 console.log('[OK] Particle population follows the existing performance tier: scattered systems are '
   + 'trimmed in place with setDrawRange, the cover lattice shrinks its side length through the '
   + 'existing rebuild path, the label reports what is actually drawn, and nothing re-applies unless '

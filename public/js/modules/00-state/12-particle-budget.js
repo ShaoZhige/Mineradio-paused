@@ -107,13 +107,23 @@ function applyParticleDrawBudget(points, baseCount, floor) {
 }
 
 // 建点对象时一次接线：立刻裁一次，并把"预算变了再裁一次"登记好，省得每个系统各写一遍。
+// points.detachParticleBudget() 可解除登记 —— **会随布局重建的系统必须在 dispose 时调用**。
 // Wire a scattered system in one call: trim it now and register the re-trim, so no system has to
-// repeat the boilerplate.
+// repeat the boilerplate. points.detachParticleBudget() unregisters again, which **any system that
+// is rebuilt must call from its dispose path**.
 function attachParticleDrawBudget(points, baseCount, floor) {
   applyParticleDrawBudget(points, baseCount, floor);
-  registerParticleBudgetRefresher(function () {
+  var refresher = function () {
     applyParticleDrawBudget(points, baseCount, floor);
-  });
+  };
+  registerParticleBudgetRefresher(refresher);
+  if (points && typeof points === 'object') {
+    try {
+      points.detachParticleBudget = function () {
+        unregisterParticleBudgetRefresher(refresher);
+      };
+    } catch (_) { }
+  }
   return points;
 }
 
@@ -123,6 +133,26 @@ function registerParticleBudgetRefresher(fn) {
   if (typeof fn !== 'function') return false;
   if (particleBudgetRefreshers.indexOf(fn) >= 0) return false;
   particleBudgetRefreshers.push(fn);
+  return true;
+}
+
+// 解除登记。**会随布局反复重建的系统必须用**：每次重建都 register 一个新闭包，
+// particleBudgetRefreshers 只进不出就会无限增长 —— 那是一次真实的内存泄漏，而且每帧的
+// 重算循环会遍历越来越长的数组，帧率随使用时长单调下降。
+//
+// 长期存在的系统（银河、封面点阵等）不需要它，它们在进程生命周期内只登记一次。
+//
+// Unregister a hook. **Systems that are rebuilt repeatedly must use this**: each rebuild registers a
+// fresh closure, and since particleBudgetRefreshers only ever grew, that was a real leak — and the
+// re-apply loop walked a longer array every time, so the frame rate decayed with uptime.
+//
+// Long-lived systems (the star river, the cover lattice) do not need it: they register once per
+// process.
+function unregisterParticleBudgetRefresher(fn) {
+  if (typeof fn !== 'function') return false;
+  var index = particleBudgetRefreshers.indexOf(fn);
+  if (index < 0) return false;
+  particleBudgetRefreshers.splice(index, 1);
   return true;
 }
 

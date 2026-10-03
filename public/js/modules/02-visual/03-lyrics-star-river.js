@@ -204,7 +204,21 @@ function disposeLyricMesh(mesh) {
   }
   if (mesh.parent) mesh.parent.remove(mesh);
   var objects = [];
-  mesh.traverse(function (obj) { objects.push(obj); });
+  mesh.traverse(function (obj) {
+    // 解除粒子预算登记。歌词网格会随布局（换行、字号、窗口尺寸）反复重建，每次重建都会往
+    // particleBudgetRefreshers 里追加一个新闭包；只进不出的话那个数组会单调增长，而预算重算
+    // 要遍历它 —— 于是用得越久越慢。摘在这里是因为它已经遍历了整棵子树，任何销毁路径都覆盖得到。
+    // Drop the particle-budget registration. The lyric mesh is rebuilt on every layout change (wrap,
+    // font size, window size) and each rebuild appends a fresh closure to particleBudgetRefreshers;
+    // if that array only ever grew, the re-apply pass would walk a longer and longer list and the
+    // frame rate would decay with uptime. Doing it here covers every teardown path, since this
+    // traverse already walks the whole subtree.
+    if (obj && typeof obj.detachParticleBudget === 'function') {
+      try { obj.detachParticleBudget(); } catch (_) { }
+      try { delete obj.detachParticleBudget; } catch (_) { }
+    }
+    objects.push(obj);
+  });
   lyricDisposeQueue.push({
     objects: objects,
     index: 0,

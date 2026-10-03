@@ -383,6 +383,14 @@ function makeShelfManager() {
     if (!group) return;
     cancelCardBuildQueue();
     if (connectorParticles) {
+      // 解除粒子预算登记：歌单架每次签名变化（登录状态、列表内容、合并方式）都会重建这套连线
+      // 粒子，重建前必须摘掉上一份登记，否则 particleBudgetRefreshers 只增不减。
+      // Drop the particle-budget registration first: the shelf rebuilds its connector particles on
+      // every signature change (login state, list contents, merge mode), and without unregistering
+      // the previous one particleBudgetRefreshers only ever grows.
+      if (typeof connectorParticles.detachParticleBudget === 'function') {
+        try { connectorParticles.detachParticleBudget(); } catch (_) { }
+      }
       if (connectorParticles.parent) connectorParticles.parent.remove(connectorParticles);
       if (connectorParticles.geometry) connectorParticles.geometry.dispose();
       if (connectorParticles.material) connectorParticles.material.dispose();
@@ -597,7 +605,7 @@ varying vec3 vC; varying float vA;
 void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard; gl_FragColor = vec4(vC, t.a * vA); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    connectorParticles = new THREE.Points(pgeo, pmat);
+    connectorParticles = attachParticleDrawBudget(new THREE.Points(pgeo, pmat), pcount);
     connectorParticles.frustumCulled = false;
     connectorParticles.renderOrder = 49;
     connectorParticles.position.set(0, -2.2, 0);
