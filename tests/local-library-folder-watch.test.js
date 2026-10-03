@@ -63,11 +63,24 @@ assert.ok(isSupportedAudioFile('b.flac') && isSupportedAudioFile('c.wav'), 'comm
 assert.ok(!isSupportedAudioFile('notes.txt') && !isSupportedAudioFile('cover.jpg'), 'non-audio files must be ignored');
 assert.ok(!isSupportedAudioFile(''), 'an empty path must not be treated as audio');
 
-assert.strictEqual(
-  normalizedDirectoryKey('C:\\Users\\X'),
-  normalizedDirectoryKey('c:\\users\\x'),
-  'Windows paths must fold case so one directory cannot get two watchers'
-);
+// 这条断言描述的是 **Windows 的大小写折叠语义**，而 CI 跑在 ubuntu 上。posix 路径区分大小写，
+// 所以在 Linux 上折叠 case 不但无意义、而且必然失败——它断言的是平台行为，不是本模块的行为。
+// 用运行平台来选期望值：Windows 上折叠，posix 上原样保留。两种平台都必须自洽。
+//
+// This assertion describes **Windows case-folding semantics**, while CI runs on ubuntu. A posix
+// path is case-sensitive, so folding case there is not merely pointless but guaranteed to fail —
+// it asserts platform behaviour, not this module's behaviour. Pick the expectation from the running
+// platform: folded on Windows, verbatim on posix. Both platforms must stay self-consistent.
+{
+  const windowsSemantics = process.platform === 'win32';
+  assert.strictEqual(
+    normalizedDirectoryKey('C:\\Users\\X'),
+    windowsSemantics ? normalizedDirectoryKey('c:\\users\\x') : normalizedDirectoryKey('C:\\Users\\X'),
+    windowsSemantics
+      ? 'Windows paths must fold case so one directory cannot get two watchers'
+      : 'posix paths must stay case-sensitive, otherwise two distinct directories collapse into one watcher'
+  );
+}
 
 // 目录收集：只收真正含音频文件的目录，且受上限约束。
 // Directory collection: only directories that really hold audio, and bounded by the cap.
