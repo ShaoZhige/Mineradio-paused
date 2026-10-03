@@ -136,13 +136,15 @@ test('Kugou renderer re-login options reach the main handler and retain the logi
     },
   });
   vm.runInNewContext(fs.readFileSync(path.join(root, 'desktop/preload.js'), 'utf8'), {
-    require: () => ({
-      contextBridge: { exposeInMainWorld: (_name, value) => { desktopApi = value; } },
-      ipcRenderer: { invoke: (channel, options) => {
-        assert.equal(channel, 'kugou-music-open-login');
-        return handler({}, options);
-      } },
-    }),
+    require: (name) => (name === 'os'
+      ? { release: () => '10.0.22631' }
+      : {
+        contextBridge: { exposeInMainWorld: (_name, value) => { desktopApi = value; } },
+        ipcRenderer: { invoke: (channel, options) => {
+          assert.equal(channel, 'kugou-music-open-login');
+          return handler({}, options);
+        } },
+      }),
     window: { addEventListener() {} },
   });
   await desktopApi.openKugouMusicLogin({ forceReauth: true });

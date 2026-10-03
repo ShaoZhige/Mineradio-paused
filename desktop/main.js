@@ -111,6 +111,8 @@ const STARTUP_SERVER_TIMEOUT_MS = 10000;
 const STARTUP_HTTP_TIMEOUT_MS = 8000;
 const STARTUP_NAVIGATION_TIMEOUT_MS = 15000;
 const STARTUP_SHOW_WATCHDOG_MS = 3500;
+// 非阻塞错误提示的兜底等待：提示被点掉或超时后都会继续收尾，避免进程挂在弹窗上。
+const ERROR_DIALOG_FALLBACK_MS = 20000;
 const RENDERER_RECOVERY_WINDOW_MS = 2 * 60 * 1000;
 const RENDERER_RECOVERY_MAX_ATTEMPTS = 3;
 const MAIN_WINDOW_VISIBILITY_CHECK_MS = 5000;
@@ -120,6 +122,16 @@ const MAIN_WINDOW_MINIMIZE_INTENT_TTL_MS = 3000;
 const FULLSCREEN_VISIBILITY_CHECK_MS = 5000;
 const WINDOWS_WM_SYSCOMMAND = 0x0112;
 const WINDOWS_SC_MINIMIZE = 0xF020;
+// 「显示桌面」（Win+D / 点任务栏最右下角）由资源管理器直接隐藏或最小化窗口，不经过
+// WM_SYSCOMMAND + SC_MINIMIZE，所以既有的用户意图判定拿不到任何信号，窗口会被当成
+// 「异常消失」被延时恢复和 5s 看门狗一起拉回来。这里改为识别「当前持有前台焦点的是
+// 桌面/任务栏」来判定这类主动行为。类名取自 user32 GetClassName 的窗口类。
+// 中英对照：The shell's "show desktop" action hides or minimizes windows directly without
+// sending WM_SYSCOMMAND/SC_MINIMIZE, so intent detection cannot observe it. Identify it
+// instead by the class name of the foreground window (desktop / taskbar shell windows).
+const SHELL_DESKTOP_WINDOW_CLASSES = ['Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd'];
+const SHELL_DESKTOP_PROBE_TIMEOUT_MS = 1600;
+const SHELL_DESKTOP_PROBE_COOLDOWN_MS = 2000;
 const CACHE_SETTINGS_FILE = 'cache-settings.json';
 const LYRIC_CACHE_VERSION = 1;
 const LYRIC_CACHE_MAX_BYTES = 96 * 1024 * 1024;
@@ -160,11 +172,32 @@ const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS.nativePath;
 fs.mkdirSync(NATIVE_HELPER_TEMP_PATH, { recursive: true });
 process.env.MINERADIO_NATIVE_TEMP_DIR = NATIVE_HELPER_TEMP_PATH;
 systemMemory.setNativeTempPath(NATIVE_HELPER_TEMP_PATH);
-const localMusicLibrary = new LocalMusicLibrary({ userDataPath: STABLE_USER_DATA_PATH });
+// 曲库监视到增删时通知渲染层刷新。渲染层本来就有拉取通道（mineradio-local-library-list），
+// 这里只发一个"变了"的信号，不重复推数据，两边不会各说各话。
+// The renderer already has a pull channel, so a change only sends a "something moved" signal rather
+// than pushing a second copy of the data that the two sides could then disagree about.
+const localMusicLibrary = new LocalMusicLibrary({
+  userDataPath: STABLE_USER_DATA_PATH,
+  onWatchChange: (change) => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('mineradio-local-library-changed', change);
+      }
+    } catch (error) {
+      console.warn('[LocalLibrary] change broadcast failed:', error && error.message || error);
+    }
+  },
+});
 const builtInPlaylistLibrary = new BuiltInPlaylistLibrary({ userDataPath: STABLE_USER_DATA_PATH });
 const localMusicImportCapabilities = new Map();
 const wallpaperEngineLibrary = new WallpaperEngineLibrary({ userDataPath: STABLE_USER_DATA_PATH });
 const wallpaperEngineRuntime = new WallpaperEngineRuntime({
+  // 诊断用：把发往 WE 的每一条控制命令落到用户数据目录，出问题时不必再去监听寿命只有几十
+  // 毫秒的控制进程。
+  // Diagnostics: every control command sent to the engine lands in the user data directory, so a
+  // problem like "why did the engine raise that dialog" no longer requires catching a control
+  // process that lives a few dozen milliseconds.
+  controlCommandLogPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-commands.log'),
   library: wallpaperEngineLibrary,
   desktopCapturer,
   hostElevationProbe: systemMemory.probeProcessElevation,
@@ -196,6 +229,15 @@ let wallpaperEngineHostVisibilityResumeTimer = null;
 let wallpaperEngineHostVisibilityOperation = 0;
 let wallpaperEngineHostVisibilityStopPromise = null;
 let wallpaperEngineHostVisibilityResidentMinimized = false;
+let wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
+// 渲染进程在最小化时也会自己走一遍 visibilitychange 拆台（prepare + stopWallpaperEngineScene）。
+// 常驻最小化期间这段拆台会打掉主进程刻意保留的原生表面，恢复时只能整轮重启。
+// 只在这段短窗口内忽略被限定到单个会话的停止请求，既覆盖住事件顺序竞争，又不会长期扣住会话。
+// The renderer tears the capture down from its own visibilitychange handler too. During a resident
+// minimize that teardown kills the native surface main deliberately preserved. Ignore scoped stop
+// requests only inside this short window, which covers the event-order race without pinning a
+// session indefinitely.
+const WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS = 3000;
 let fullDesktopModeHostVisibilityTransitionDepth = 0;
 let wallpaperEngineDesktopIconLayeringQueue = Promise.resolve(true);
 const WALLPAPER_ENGINE_CAPTURE_GRANT_MS = 12000;
@@ -222,6 +264,17 @@ function wallpaperEngineTargetFps(display, requestedFps) {
 function wallpaperEngineHostCornerRadius(win) {
   if (!win || win.isDestroyed() || win.isMaximized() || win.isFullScreen()
     || windowFullscreenActive || htmlFullscreenActive) return 0;
+  // #471 原生 WE 窗口圆角必须跟应用自身窗口外壳保持一致。
+  // index.css 的 `body.desktop-shell.desktop-maximized/-fullscreen/-wallpaper-mode #desktop-window-shell`
+  // 规则把窗口外壳的圆角与裁剪一并清零（壁纸模式整屏铺满，本来就该是直角），上面几项状态都已对齐，
+  // 唯独漏了「桌面壁纸模式」：该模式下 Electron 窗口被挂进资源管理器的 WorkerW，既不算最大化也不是
+  // 全屏，于是应用侧画的是直角、原生壁纸窗口却仍被切成 34px 圆角，四角对不上。
+  // 中英对照：The native WE window has to match the app shell's own corners. index.css zeroes the
+  // radius / clip-path for .desktop-maximized, .desktop-fullscreen and .desktop-wallpaper-mode; all
+  // but the last are mirrored above. In wallpaper mode the Electron window lives inside Explorer's
+  // WorkerW and is neither maximised nor fullscreen, so it used to draw square corners while the
+  // native wallpaper window was still clipped to 34px — the corners visibly disagreed.
+  if (fullDesktopModeRuntime.getStatus('wallpaper-engine-host-corner-radius').enabled === true) return 0;
   const bounds = win.getContentBounds();
   const display = screen.getDisplayMatching(bounds);
   const scaleFactor = Math.max(1, Number(display && display.scaleFactor) || 1);
@@ -1216,8 +1269,21 @@ function suspendWallpaperEngineForHiddenHost(win, reason = 'hidden') {
     // while Chromium is minimized. Stopping it here discards Scene state and
     // forces a visible reload on restore.
     wallpaperEngineHostVisibilityResidentMinimized = true;
+    wallpaperEngineHostVisibilityResidentMinimizedAt = Date.now();
     finishWallpaperEngineVisibleHostResume(win);
     cancelWallpaperEngineHostBoundsRestart();
+    // #406 明确告诉渲染进程「本次最小化不拆台」。渲染进程的 visibilitychange 拆台会把常驻的
+    // 原生 DWM 表面停掉，之后恢复只能整轮重启 → 先黑屏、后台刷新一阵子才重新出图。
+    // 中英对照：Tell the renderer that this minimize keeps the native surface resident, so its own
+    // visibilitychange teardown does not stop the very session we are preserving — otherwise the
+    // restore can only restart the whole Scene, which is the black gap reported in #406.
+    try {
+      win.webContents.send('mineradio-wallpaper-engine-host-bounds-changed', {
+        phase: 'hold',
+        reason: String(reason || 'hidden'),
+        sessionId: String(runtimeStatus.sessionId || ''),
+      });
+    } catch (_) { }
     return Promise.resolve({
       ok: true,
       stopped: false,
@@ -1226,6 +1292,7 @@ function suspendWallpaperEngineForHiddenHost(win, reason = 'hidden') {
     });
   }
   wallpaperEngineHostVisibilityResidentMinimized = false;
+  wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
   if (wallpaperEngineHostVisibilitySuspended) {
     return wallpaperEngineHostVisibilityStopPromise || Promise.resolve({ ok: true, stopped: true });
   }
@@ -1250,6 +1317,7 @@ function resumeWallpaperEngineForVisibleHost(win, reason = 'visible') {
   if (!wallpaperEngineHostVisibilitySuspended) {
     if (!wallpaperEngineHostVisibilityResidentMinimized) return;
     wallpaperEngineHostVisibilityResidentMinimized = false;
+    wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
     const residentStatus = wallpaperEngineRuntime.getStatus();
     if (!residentStatus || residentStatus.active !== true || residentStatus.captureMode !== 'dwm-thumbnail') return;
     setMainWindowBackgroundThrottling(win, false);
@@ -2171,6 +2239,32 @@ function startupErrorText(error) {
   return String(error.stack || error.message || error);
 }
 
+// 挂在错误对象上的诊断字段（原生失败阶段、关窗原因、start 失败阶段…）不在 message/stack 里，
+// 只打印 stack 的话它们会全部消失——日志里就只剩一个光秃秃的错误码，等于白落盘。
+// Diagnostic fields attached to the error (native stage, close reason, failing start stage, ...)
+// are not part of message/stack. Printing only the stack drops them, leaving a bare error code.
+function startupErrorDiagnostics(error) {
+  if (!error || typeof error !== 'object') return '';
+  const fields = [
+    'startStage',
+    'closeStage',
+    'closeReason',
+    'closeNotes',
+    'closeWaitMs',
+    'nativeStage',
+    'nativeDetail',
+    'errorStage',
+    'errorDetail',
+  ];
+  const lines = [];
+  for (const field of fields) {
+    const value = error[field];
+    if (value === undefined || value === null || value === '') continue;
+    lines.push(`${field}=${String(value).slice(0, 300)}`);
+  }
+  return lines.join('\n');
+}
+
 function resolveStartupErrorCode(context, error) {
   const text = `${context || ''}\n${startupErrorText(error)}`;
   if (/EADDRINUSE|address already in use|listen EADDRINUSE|端口/i.test(text)) return 'MR-BOOT-SERVER-PORT';
@@ -2218,6 +2312,7 @@ function writeStartupState(phase, detail = {}) {
 function writeStartupErrorLog(context, code, error) {
   const file = startupErrorLogPath();
   const detail = startupErrorText(error);
+  const diagnostics = startupErrorDiagnostics(error);
   const reportId = crypto.createHash('sha1')
     .update(`${Date.now()}:${code}:${context}:${detail}`)
     .digest('hex')
@@ -2237,6 +2332,7 @@ function writeStartupErrorLog(context, code, error) {
     `userData=${(() => { try { return app.getPath('userData'); } catch (_) { return ''; } })()}`,
     '',
     detail,
+    ...(diagnostics ? ['', '[diagnostics]', diagnostics] : []),
     '',
   ].join('\n');
   try {
@@ -2274,29 +2370,69 @@ function buildStartupErrorMessage(context, code, logInfo, error) {
   ].join('\n');
 }
 
+// dialog.showErrorBox 是同步阻塞模态：弹窗没被点掉之前主线程被冻住，排在后面的
+// app.quit() 永远轮不到，单实例锁也一直被占着 —— 用户再双击只会拿到"已有实例"然后什么都
+// 不发生（issue #274 的"要双击好几次才能打开"）。改用异步 showMessageBox，并留一个超时
+// 兜底，保证提示无论是否被点掉都不会拖住进程。
+// 中英对照：showErrorBox blocks the main thread, so a scheduled quit never runs and the
+// single-instance lock stays held. Use the async dialog plus a timeout fallback so an
+// unacknowledged notice can never wedge the process.
+function showNonBlockingErrorDialog(title, detail, options = {}) {
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs) || ERROR_DIALOG_FALLBACK_MS);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve();
+    };
+    timer = setTimeout(finish, timeoutMs);
+    try {
+      dialog.showMessageBox({
+        type: 'error',
+        title: String(title || 'Mineradio'),
+        message: String(title || 'Mineradio'),
+        detail: String(detail || ''),
+        buttons: [String(options.confirmText || '确定')],
+        noLink: true,
+      }).then(finish, finish);
+    } catch (error) {
+      console.error('[ErrorDialog] showMessageBox failed:', error && error.message || error);
+      finish();
+    }
+  });
+}
+
 function reportWindowCreationFailure(context, error) {
   const code = resolveStartupErrorCode(context, error);
   const logInfo = writeStartupErrorLog(context, code, error);
   writeStartupState('failed', { context: String(context || ''), code, error: startupErrorText(error).slice(0, 1200) });
   console.error(`[${code}] ${context} window creation failed:`, error);
+  let notice = Promise.resolve();
   if (!startupErrorReported) {
     startupErrorReported = true;
-    try {
-      // Keep this literal visible for startup dialog regression checks:
-      // dialog.showErrorBox('Mineradio 启动失败'
-      dialog.showErrorBox(`Mineradio 启动失败 (${code})`, buildStartupErrorMessage(context, code, logInfo, error));
-    } catch (_) {}
+    // Keep this literal visible for startup dialog regression checks:
+    // showNonBlockingErrorDialog(`Mineradio 启动失败 (${code})`, ...
+    notice = showNonBlockingErrorDialog(
+      `Mineradio 启动失败 (${code})`,
+      buildStartupErrorMessage(context, code, logInfo, error),
+      { confirmText: '记录完毕后退出' }
+    );
   }
-  if (!startupCompleted) {
-    // Never leave an invisible BrowserWindow holding the single-instance lock.
-    // The previous behavior kept a failed show:false window alive forever.
-    const failedWindow = mainWindow;
-    mainWindow = null;
-    if (failedWindow && !failedWindow.isDestroyed()) {
-      try { failedWindow.destroy(); } catch (_) {}
-    }
-    setImmediate(() => app.quit());
+  if (startupCompleted) return;
+  // Never leave an invisible BrowserWindow holding the single-instance lock.
+  // The previous behavior kept a failed show:false window alive forever.
+  const failedWindow = mainWindow;
+  mainWindow = null;
+  if (failedWindow && !failedWindow.isDestroyed()) {
+    try { failedWindow.destroy(); } catch (_) {}
   }
+  // The single-instance lock belongs to the process, not the window: destroying the window
+  // alone leaves a relaunch with nothing but "an instance is already running".
+  try { app.releaseSingleInstanceLock(); } catch (_) {}
+  notice.then(() => app.quit());
 }
 
 function bindStartupFailureHandlers() {
@@ -3891,6 +4027,92 @@ function hookMainWindowMinimizeIntent(win) {
   }
 }
 
+let lastShellDesktopProbeAt = 0;
+
+function probeShellDesktopForegroundWindow() {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  const script = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class MineradioForegroundWindow {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+  public static string ClassName() {
+    IntPtr handle = GetForegroundWindow();
+    if (handle == IntPtr.Zero) return "";
+    StringBuilder buffer = new StringBuilder(256);
+    GetClassName(handle, buffer, buffer.Capacity);
+    return buffer.ToString();
+  }
+}
+"@
+[MineradioForegroundWindow]::ClassName()
+`;
+  return new Promise((resolve) => {
+    const child = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      windowsHide: true,
+      timeout: SHELL_DESKTOP_PROBE_TIMEOUT_MS,
+      env: { ...process.env, TEMP: NATIVE_HELPER_TEMP_PATH, TMP: NATIVE_HELPER_TEMP_PATH },
+    }, (error, stdout) => {
+      if (error) { resolve(false); return; }
+      const className = String(stdout || '').trim();
+      resolve(SHELL_DESKTOP_WINDOW_CLASSES.indexOf(className) >= 0);
+    });
+    if (child && typeof child.on === 'function') child.on('error', () => resolve(false));
+  });
+}
+
+// 一次「隐藏—恢复」周期内只探测一次；轮询期间窗口被反复隐藏时用冷却窗口避免刷 powershell。
+function ensureMainWindowShellDesktopProbe(win, reason) {
+  if (!win || win.isDestroyed() || process.platform !== 'win32') return Promise.resolve(false);
+  if (win.__mineradioShellDesktopProbe) return win.__mineradioShellDesktopProbe;
+  const now = Date.now();
+  if (now - lastShellDesktopProbeAt < SHELL_DESKTOP_PROBE_COOLDOWN_MS) return Promise.resolve(false);
+  lastShellDesktopProbeAt = now;
+  win.__mineradioShellDesktopProbePending = true;
+  const probe = probeShellDesktopForegroundWindow().then((shellDesktopActive) => {
+    if (!win.isDestroyed()) win.__mineradioShellDesktopProbePending = false;
+    if (!shellDesktopActive || win.isDestroyed()) return false;
+    // 探测返回时窗口已经重新可见，说明这次隐藏并不是「看桌面」，不落下标记。
+    if (win.isVisible() && !win.isMinimized()) return false;
+    win.__mineradioShellDesktopReveal = true;
+    win.__mineradioShellDesktopRevealReason = String(reason || '');
+    console.log('[WindowRecovery] shell desktop action detected; keeping window backgrounded:', reason);
+    return true;
+  }).catch(() => {
+    if (!win.isDestroyed()) win.__mineradioShellDesktopProbePending = false;
+    return false;
+  });
+  win.__mineradioShellDesktopProbe = probe;
+  return probe;
+}
+
+function mainWindowShellDesktopProbePending(win) {
+  return !!(win && !win.isDestroyed() && win.__mineradioShellDesktopProbePending === true);
+}
+
+function mainWindowShellDesktopRevealActive(win) {
+  return !!(win && !win.isDestroyed() && win.__mineradioShellDesktopReveal === true);
+}
+
+function clearMainWindowShellDesktopReveal(win) {
+  if (!win || win.isDestroyed()) return;
+  win.__mineradioShellDesktopReveal = false;
+  win.__mineradioShellDesktopRevealReason = '';
+  win.__mineradioShellDesktopProbePending = false;
+  // 窗口重新可见即视为一轮周期结束，下一次隐藏重新探测。
+  win.__mineradioShellDesktopProbe = null;
+}
+
+function shouldScheduleMainWindowHideRecovery(win) {
+  if (!win || win.isDestroyed()) return false;
+  if (win.__mineradioIntentionalHide === true || win.__mineradioExpectedVisible === false) return false;
+  if (mainWindowShellDesktopRevealActive(win)) return false;
+  return !win.isMinimized();
+}
+
 function positionWallpaperWindow(reason = 'display-change') {
   reconcileFullDesktopMode(reason).catch((error) => {
     console.warn('[FullDesktopMode] display reconcile failed:', error && error.message || error);
@@ -4306,6 +4528,8 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
       fps: targetFps,
       x: physicalBounds.x,
       y: physicalBounds.y,
+      // 窗口静默由设置项决定，默认开启；关闭后恢复 Wallpaper Engine 默认的任务栏行为。
+      silentWindows: payload.silentWindows !== false,
     });
     startedSessionId = String(result && result.sessionId || '');
     if (operation !== wallpaperEngineCaptureOperation) {
@@ -4323,9 +4547,21 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
     } catch (embeddingError) {
       clearWallpaperEngineCaptureGrant(startedSessionId);
       await wallpaperEngineRuntime.stop(startedSessionId).catch(() => {});
+      const embedCode = embeddingError && (embeddingError.code || embeddingError.message)
+        || 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED';
+      // 嵌入 / 对齐阶段失败以前只回给渲染进程一个错误码，原生侧的真实原因（关窗超时、
+      // 标题或进程校验不通过、控制器根本起不来）在用户机器上完全看不到，只能靠猜。
+      // Embed/align failures used to surface as a bare code, leaving the real native cause
+      // (close timeout, title/process validation, controller spawn failure) invisible.
+      writeStartupErrorLog('Wallpaper Engine embed', embedCode, embeddingError);
       return {
         ok: false,
-        error: embeddingError && (embeddingError.code || embeddingError.message) || 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED',
+        error: embedCode,
+        // 把失败阶段一并交给渲染进程：超时可以再试，窗口校验失败则重试也没用。
+        // Forward the failing stage so the renderer can tell a transient teardown from a
+        // window-validation failure that retrying cannot fix.
+        errorStage: String(embeddingError && embeddingError.closeStage || ''),
+        errorDetail: String(embeddingError && (embeddingError.closeReason || embeddingError.nativeDetail) || '').slice(0, 300),
         capturePrepared: false,
         sessionId: startedSessionId,
       };
@@ -4368,7 +4604,17 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
     } else if (wallpaperEngineCaptureGrant && wallpaperEngineCaptureGrant.operation === operation) {
       clearWallpaperEngineCaptureGrant();
     }
-    return { ok: false, error: error.code || error.message || 'WALLPAPER_ENGINE_SCENE_START_FAILED', sessionId: startedSessionId };
+    const startCode = error.code || error.message || 'WALLPAPER_ENGINE_SCENE_START_FAILED';
+    // 原生会话在嵌入之前失败（启动、探测、pointer relay 初始化…）同样只回一个错误码，
+    // 落一份日志，避免这类失败在用户机器上没有任何痕迹。
+    // Pre-embed native failures are equally opaque; persist them so they leave a trace.
+    writeStartupErrorLog('Wallpaper Engine start', startCode, error);
+    return {
+      ok: false,
+      error: startCode,
+      errorDetail: String(error && (error.closeReason || error.nativeDetail) || '').slice(0, 300),
+      sessionId: startedSessionId,
+    };
   }
 });
 
@@ -4541,6 +4787,16 @@ ipcMain.handle('mineradio-wallpaper-engine-stop-scene', async (event, payload = 
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
     const sessionId = String(payload.sessionId || '');
     const stopAll = payload && payload.all === true || !sessionId;
+    // #406 常驻最小化期间渲染进程自己的 visibilitychange 拆台请求会打断主进程刻意保留的
+    // 原生表面。只在刚进入常驻状态的短窗口内保留现场（且只针对被限定到单个会话的请求），
+    // 窗口恢复后渲染进程会用 'resident' 阶段重新认领，不会留下无主会话。
+    // While the resident minimize hold is fresh, keep the scoped stop from the renderer's own
+    // visibilitychange from killing the preserved surface; the renderer re-claims it on restore.
+    if (!stopAll
+      && wallpaperEngineHostVisibilityResidentMinimized === true
+      && Date.now() - wallpaperEngineHostVisibilityResidentMinimizedAt <= WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS) {
+      return { ok: true, stopped: false, preserved: true, sessionId };
+    }
     // Invalidate pending preparation before awaiting the old source shutdown.
     // Otherwise a new start can begin during the close wait and then be
     // incorrectly superseded when this stop handler resumes.
@@ -4574,9 +4830,55 @@ ipcMain.handle('mineradio-built-in-playlists-list', async (event) => {
   return builtInPlaylistLibrary.listSync();
 });
 
+// 内置歌单里的本地曲目保存的是导入时刻的快照，localUrl / cover 里绑定着当时的媒体令牌；
+// 令牌轮换后快照 URL 会永久 404，即使文件仍在磁盘上。这里按 localFileId 回查本地曲库重新
+// 生成 URL，并把文件已失效的曲目标为 localMissing（localUrl 置空）。
+// 中英对照：Re-resolve local tracks of a built-in playlist against the live local library so
+// a rotated media token cannot leave permanently stale URLs in the saved snapshot.
+function resolveBuiltInPlaylistLocalTracks(page) {
+  if (!page || page.ok !== true || !Array.isArray(page.tracks)) return page;
+  let changed = false;
+  const tracks = page.tracks.map((track) => {
+    if (!track || typeof track !== 'object') return track;
+    if (track.provider !== 'local' && track.source !== 'local' && track.type !== 'local'
+      && !track.localFileId && !track.localKey) return track;
+    const current = localMusicLibrary.resolveTrack(track.localFileId || track.localKey || track.id);
+    if (!current) {
+      changed = true;
+      return { ...track, localUrl: '', cover: '', localMissing: true };
+    }
+    if (current.localUrl === track.localUrl
+      && !!current.localMissing === !!track.localMissing
+      && current.cover === track.cover) return track;
+    changed = true;
+    return {
+      ...track,
+      localUrl: current.localUrl,
+      cover: current.cover,
+      localMissing: current.localMissing,
+      localPath: current.localPath || track.localPath,
+      hasLyric: current.hasLyric,
+      lyricSource: current.lyricSource,
+    };
+  });
+  return changed ? { ...page, tracks } : page;
+}
+
 ipcMain.handle('mineradio-built-in-playlist-page', async (event, id, options = {}) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, playlist: null, tracks: [], error: 'UNTRUSTED_SENDER' };
-  return builtInPlaylistLibrary.page(id, options);
+  try {
+    return resolveBuiltInPlaylistLocalTracks(builtInPlaylistLibrary.page(id, options));
+  } catch (error) {
+    return {
+      ok: false,
+      playlist: null,
+      tracks: [],
+      total: 0,
+      nextOffset: 0,
+      hasMore: false,
+      error: error && (error.code || error.message) || 'BUILT_IN_PLAYLIST_PAGE_FAILED',
+    };
+  }
 });
 
 function builtInPlaylistMutationError(error) {
@@ -4678,7 +4980,17 @@ ipcMain.handle('mineradio-local-library-import', async (event, payload = {}) => 
   }
   localMusicImportCapabilities.delete(token);
   try {
-    return await localMusicLibrary.importFiles(capability.files, { replace: false });
+    const imported = await localMusicLibrary.importFiles(capability.files, { replace: false });
+    // 导入一次就把监视挂上：用户多半是"先导一批、以后继续往这个文件夹里放歌"，不监视等于
+    // 后半截功能不存在。
+    // Start watching right after an import: the usual flow is "import a batch, then keep adding to
+    // that folder", and not watching leaves the second half of the feature missing.
+    try {
+      localMusicLibrary.startWatching();
+    } catch (error) {
+      console.warn('[LocalLibrary] watcher start failed:', error && error.message || error);
+    }
+    return imported;
   } catch (error) {
     return { ok: false, count: 0, tracks: [], error: error.code || error.message || 'LOCAL_LIBRARY_IMPORT_FAILED' };
   }
@@ -5310,6 +5622,7 @@ function clearMainWindowFullscreenVisibilityGuard() {
 function shouldRestoreUnexpectedMainWindowVisibility(win) {
   if (!win || win.isDestroyed() || appQuitting || !startupCompleted) return false;
   if (win.__mineradioIntentionalHide === true || win.__mineradioExpectedVisible === false) return false;
+  if (mainWindowShellDesktopRevealActive(win) || mainWindowShellDesktopProbePending(win)) return false;
   if (fullDesktopModeHostVisibilityTransitionDepth > 0 || fullDesktopModeRuntime.getStatus('main-window-visibility-guard').enabled === true) return false;
   if (win.isMinimized() || win.isVisible()) return false;
   return true;
@@ -5319,12 +5632,14 @@ function shouldRestoreUnexpectedMainWindowMinimize(win) {
   if (!win || win.isDestroyed() || appQuitting || !startupCompleted) return false;
   if (win.__mineradioIntentionalHide === true || win.__mineradioExpectedVisible === false) return false;
   if (win.__mineradioIntentionalMinimize === true) return false;
+  if (mainWindowShellDesktopRevealActive(win) || mainWindowShellDesktopProbePending(win)) return false;
   if (fullDesktopModeHostVisibilityTransitionDepth > 0 || fullDesktopModeRuntime.getStatus('main-window-minimize-guard').enabled === true) return false;
   return win.isMinimized();
 }
 
 function shouldRestoreUnexpectedFullscreenVisibility(win) {
   if (!win || win.isDestroyed() || appQuitting || win.__mineradioIntentionalHide === true) return false;
+  if (mainWindowShellDesktopRevealActive(win) || mainWindowShellDesktopProbePending(win)) return false;
   if (fullDesktopModeHostVisibilityTransitionDepth > 0 || fullDesktopModeRuntime.getStatus('fullscreen-visibility-guard').enabled === true) return false;
   if (!win.isFullScreen() || win.isMinimized() || win.isVisible()) return false;
   return true;
@@ -5373,6 +5688,14 @@ function restoreUnexpectedFullscreenVisibility(win, reason = 'fullscreen-visibil
 }
 
 function restoreUnexpectedMainWindowVisibility(win, reason = 'main-window-visibility-guard') {
+  if (mainWindowShellDesktopProbePending(win)) {
+    // 探测还没回来就先不恢复，等结果落定再决定；否则「看桌面」会在探测期间被弹回来。
+    win.__mineradioShellDesktopProbe.then((shellDesktopActive) => {
+      if (shellDesktopActive || !win || win.isDestroyed()) return;
+      restoreUnexpectedMainWindowVisibility(win, String(reason || 'main-window-visibility-guard'));
+    });
+    return false;
+  }
   if (shouldRestoreUnexpectedMainWindowMinimize(win)) {
     return restoreUnexpectedMainWindowMinimize(win, reason);
   }
@@ -5475,7 +5798,9 @@ function recoverMainWindowAfterRendererGone(win, details = {}, cleanupPromise = 
   if (!attempt) {
     const error = new Error('renderer recovery limit reached');
     const log = writeStartupErrorLog('Runtime renderer recovery', 'MR-RUNTIME-RENDERER-LOOP', error);
-    dialog.showErrorBox('Mineradio 显示恢复失败', `前台界面连续异常退出，已停止自动重载。\n日志：${log.file}`);
+    // 运行期提示同样不能阻塞：此时进程还要为用户保留队列、缓存与设置。
+    // 中英对照：Runtime notices must not block either — the process still owns queue and cache.
+    showNonBlockingErrorDialog('Mineradio 显示恢复失败', `前台界面连续异常退出，已停止自动重载。\n日志：${log.file}`);
     return Promise.resolve(false);
   }
   const keepFullscreen = win.isFullScreen() || windowFullscreenActive;
@@ -5511,7 +5836,7 @@ function recoverMainWindowAfterRendererGone(win, details = {}, cleanupPromise = 
         try { win.show(); } catch (_) { }
       }
       if (attempt >= RENDERER_RECOVERY_MAX_ATTEMPTS) {
-        dialog.showErrorBox('Mineradio 显示恢复失败', `前台界面无法重新加载。\n日志：${log.file}`);
+        showNonBlockingErrorDialog('Mineradio 显示恢复失败', `前台界面无法重新加载。\n日志：${log.file}`);
       }
     }
     return false;
@@ -5715,13 +6040,19 @@ async function createWindowOnce() {
     if (mainWindowMinimizeRecoveryTimer) clearTimeout(mainWindowMinimizeRecoveryTimer);
     mainWindowMinimizeRecoveryTimer = setTimeout(() => {
       mainWindowMinimizeRecoveryTimer = null;
-      restoreUnexpectedMainWindowMinimize(win, 'minimize-event');
+      // 点任务栏最右下角（显示桌面）也会走到这里，但拿不到 SC_MINIMIZE 意图；
+      // 先用前台窗口类名确认是否为桌面/任务栏，避免把"要看桌面"当成异常最小化弹回来。
+      ensureMainWindowShellDesktopProbe(win, 'minimize-event').then((shellDesktopActive) => {
+        if (shellDesktopActive) return;
+        restoreUnexpectedMainWindowMinimize(win, 'minimize-event');
+      });
     }, MAIN_WINDOW_MINIMIZE_RECOVERY_DELAY_MS);
   });
   win.on('restore', () => {
     if (mainWindowMinimizeRecoveryTimer) clearTimeout(mainWindowMinimizeRecoveryTimer);
     mainWindowMinimizeRecoveryTimer = null;
     clearMainWindowMinimizeIntent(win);
+    clearMainWindowShellDesktopReveal(win);
     win.__mineradioIntentionalHide = false;
     markMainWindowExpectedVisible(win, true, 'restore');
     sendWindowState(win);
@@ -5730,6 +6061,7 @@ async function createWindowOnce() {
   win.on('show', () => {
     win.__mineradioIntentionalHide = false;
     markMainWindowExpectedVisible(win, true, 'show');
+    clearMainWindowShellDesktopReveal(win);
     if (fullDesktopModeHostVisibilityTransitionDepth > 0) return;
     sendWindowState(win);
     resumeWallpaperEngineForVisibleHost(win, 'show');
@@ -5738,7 +6070,8 @@ async function createWindowOnce() {
     if (fullDesktopModeHostVisibilityTransitionDepth > 0) return;
     sendWindowState(win);
     suspendWallpaperEngineForHiddenHost(win, 'hide');
-    if (win.__mineradioIntentionalHide !== true && win.__mineradioExpectedVisible !== false && !win.isMinimized()) {
+    if (shouldScheduleMainWindowHideRecovery(win)) {
+      ensureMainWindowShellDesktopProbe(win, 'hide-event');
       setTimeout(() => restoreUnexpectedMainWindowVisibility(win, 'hide-event'), MAIN_WINDOW_HIDE_RECOVERY_DELAY_MS);
     }
     scheduleAppMemoryTrim('hide', 2200);
@@ -6028,6 +6361,13 @@ if (!gotSingleInstanceLock) {
         forceDestroyQuitMainWindow(timedOut ? 'dispose timed out after 7000ms' : 'dispose incomplete', detail);
       }
     };
+    // fs.watch 的句柄是常驻的，不关进程退不出去，所以退出路径上必须先收掉。
+    // fs.watch handles are live and keep the process alive, so they must go before quitting.
+    try {
+      localMusicLibrary.stopWatching();
+    } catch (error) {
+      console.warn('[LocalLibrary] watcher stop failed:', error && error.message || error);
+    }
     let cleanupTimeout = null;
     const fullDesktopAndWallpaperEngineCleanup = (async () => {
       // A passive desktop host must become a verified top-level HWND before

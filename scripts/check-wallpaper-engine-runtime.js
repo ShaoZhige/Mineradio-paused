@@ -44,6 +44,18 @@ async function overwritePackageScene(file, scene) {
   }
 }
 
+// spawn 记录里现在混着引擎启动和常驻监视器的 shell 助手，任何"一个 spawn 都不该有"或"第 N 个
+// spawn 必须是 X"的断言都必须先按可执行文件收窄，否则加入无关辅助进程就会误报。
+// Spawn records now mix engine launches with the resident monitor's shell helper, so any
+// "no spawn may happen" or "spawn N must be X" assertion has to be narrowed by executable first —
+// otherwise adding an unrelated helper makes it misfire.
+function engineSpawnRecords(records) {
+  return (Array.isArray(records) ? records : []).filter((record) => {
+    const file = path.basename(String(record && record.file || '')).toLowerCase();
+    return file === 'wallpaper32.exe' || file === 'wallpaper64.exe';
+  });
+}
+
 function makeSpawnRecorder(records) {
   return (file, args, options) => {
     records.push({ file, args: [...args], options: { ...options } });
@@ -226,6 +238,7 @@ function makeWindowController(records = []) {
       closePosted: action === 'close',
       closed: action === 'close',
       missing: action === 'close',
+      taskbarIsolated: action === 'isolate',
       rounded: action === 'embed' && Number(details.cornerRadius) > 0,
       visibleWidth: action === 'embed' ? 1280 : (action === 'park' ? 1 : 0),
       visibleHeight: action === 'embed' ? 720 : (action === 'park' ? 1 : 0),
@@ -264,6 +277,14 @@ async function main() {
 
   const signatureCalls = [];
   const spawnCalls = [];
+  // 引擎 spawn 才是这个守卫关心的东西。常驻任务栏监视器也会 spawn（一个 shell 辅助进程），
+  // 它与 WE 启动顺序无关，混进同一条记录里会让"第 0 个 spawn 必须是 openWallpaper"这种
+  // 下标断言在加入无关辅助进程时误报——和 lateOpenSpawns 那条守卫犯的是同一个错。
+  // Only engine spawns matter here. The resident taskbar monitor spawns too (a separate shell
+  // helper), and it has nothing to do with WE ordering, so letting it into the same list makes an
+  // index-based "the first spawn must be openWallpaper" assertion misfire the moment an unrelated
+  // helper is added — the very mistake the lateOpenSpawns guard already made.
+  const engineSpawns = () => engineSpawnRecords(spawnCalls);
   const transientControlCalls = [];
   const libraryCalls = [];
   const windowControlCalls = [];
@@ -417,6 +438,7 @@ async function main() {
       y: 25000,
       sourceTimeoutMs: 15000,
       sourcePollMs: 60,
+      silentWindows: true,
     });
 
     const probe = await runtime.probe();
@@ -464,10 +486,13 @@ async function main() {
     assert.strictEqual(embeddedStarted.sourceWindowEmbedded, true);
     assert.strictEqual(embeddedStarted.sourceWindowRounded, true, 'the public session should report the native rounded source window');
     assert.strictEqual(embeddedStarted.audioMuted, true);
-    assert.strictEqual(windowControlCalls[0].action, 'embed');
+    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['isolate', 'embed', 'isolate'],
+      'the freshly opened source window must be pulled out of the shell before it can flash the taskbar, and embedding must re-assert it');
     assert.strictEqual(windowControlCalls[0].details.sourceId, 'window:4242:0');
     assert.strictEqual(windowControlCalls[0].details.executable, executable);
-    assert.strictEqual(windowControlCalls[0].details.cornerRadius, 28, 'the host corner radius must be forwarded to the native window controller');
+    assert.strictEqual(windowControlCalls[1].details.sourceId, 'window:4242:0');
+    assert.strictEqual(windowControlCalls[1].details.executable, executable);
+    assert.strictEqual(windowControlCalls[1].details.cornerRadius, 28, 'the host corner radius must be forwarded to the native window controller');
     assert.strictEqual(await runtime.updateDwmDesktopIconLayering(started.sessionId, true), false,
       'desktop icon layering must latch while the DWM helper is not ready');
 
@@ -476,7 +501,8 @@ async function main() {
     assert.strictEqual(runtime.getStatus().sourceWindowParked, false,
       'DWM composition must keep the real WE source aligned instead of parking it away from the Windows cursor');
     assert.strictEqual(runtime.getStatus().sourceWindowAligned, true);
-    assert.strictEqual(windowControlCalls.length, 1, 'DWM readiness must not issue the retired 1x1 parking action');
+    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['isolate', 'embed', 'isolate'],
+      'DWM readiness must not issue the retired 1x1 parking action, and embedding must re-assert shell isolation');
     assert.strictEqual(transientControlCalls.length, muteCallsBeforeCaptureReady + 1, 'capture readiness must immediately reassert the location-scoped mute');
     assert.strictEqual(dwmSurfaceSpawns.length, 1, 'capture readiness must start one persistent DWM surface helper');
     const firstDwmSurface = dwmSurfaceSpawns[0];
@@ -612,25 +638,46 @@ async function main() {
       (error) => error && error.code === 'WALLPAPER_ENGINE_SESSION_MISMATCH'
     );
 
-    const open = spawnCalls[0];
+    // 静音走 WE 自己的 applyProperties，**不**再把 project.json 和 Scene 包复制到临时目录改一遍。
+    // 改包的代价是 WE 认不出源，每次开壁纸都弹一次"未知来源"安全确认框等人点 OK；换成接口静音
+    // 之后启动过程干净，代价是开场到第一次 applyProperties 之间可能漏一点声音。
+    // 改回改包只要把 ENGINE_MUTE_VIA_INTERFACE 置 false，这里的断言也要跟着换回去。
+    //
+    // Silence goes through the engine's own applyProperties instead of rewriting project.json and
+    // the Scene package into a temp folder. Patching makes the engine treat the wallpaper as an
+    // unverified source and raise a confirmation on every start; the interface route keeps startup
+    // clean at the price of a sliver of audio before the first applyProperties lands. Flipping
+    // ENGINE_MUTE_VIA_INTERFACE back to false means restoring the staging assertions here too.
+    const open = engineSpawns()[0];
     assert.strictEqual(open.file, executable);
     assert.deepStrictEqual(open.args.slice(0, 3), ['-control', 'openWallpaper', '-file']);
-    const stagedProjectFile = open.args[3];
-    assert.notStrictEqual(stagedProjectFile, projectFile, 'a Scene with an audio property must launch through a silent cache manifest');
-    assert.strictEqual(path.dirname(path.dirname(stagedProjectFile)), path.join(temp, 'native', 'wallpaper-engine-scene-stage'));
-    const stagedProject = JSON.parse(fs.readFileSync(stagedProjectFile, 'utf8'));
-    assert.strictEqual(stagedProject.file, 'scene.json');
-    assert.strictEqual(stagedProject.general.properties.newproperty.value, 0);
-    const stagedPackageFile = path.join(path.dirname(stagedProjectFile), 'scene.pkg');
-    assert.strictEqual(fs.statSync(stagedPackageFile).size, fs.statSync(scenePackage).size);
-    const originalPackageScene = await readWallpaperPackageScene(scenePackage);
-    const stagedPackageScene = await readWallpaperPackageScene(stagedPackageFile);
-    assert.strictEqual(originalPackageScene.scene.objects[0].startsilent, false, 'the Workshop source package must stay untouched');
-    assert.deepStrictEqual(originalPackageScene.scene.objects[0].volume, { user: 'newproperty', value: 0.75 });
-    assert.strictEqual(stagedPackageScene.scene.objects[0].startsilent, true, 'the cached package copy must start embedded BGM silently');
-    assert.strictEqual(stagedPackageScene.scene.objects[0].volume, 0, 'the cached package copy must hard-zero the embedded sound object');
-    assert.strictEqual(started.sceneAudioPatched, true);
-    assert.strictEqual(started.patchedSceneAudioObjectCount, 1);
+    const launchedProjectFile = open.args[3];
+    assert.strictEqual(
+      launchedProjectFile,
+      projectFile,
+      'the engine must receive the project file untouched, otherwise it treats the wallpaper as an unknown source'
+    );
+    assert.ok(
+      !launchedProjectFile.includes('wallpaper-engine-scene-stage'),
+      'no staged copy may reach the engine while mute-via-interface is in effect'
+    );
+    const launchedProject = JSON.parse(fs.readFileSync(launchedProjectFile, 'utf8'));
+    assert.strictEqual(launchedProject.general.properties.newproperty.value, 0.75,
+      'the source project must keep its own property value; muting it in place would corrupt the user\'s project');
+    assert.ok(
+      !fs.existsSync(path.join(temp, 'native', 'wallpaper-engine-scene-stage', 'scene.pkg')),
+      'no patched package copy may be produced while mute-via-interface is in effect'
+    );
+    const untouchedPackageScene = await readWallpaperPackageScene(scenePackage);
+    assert.strictEqual(untouchedPackageScene.scene.objects[0].startsilent, false,
+      'the Workshop source package must stay untouched — the engine still reads audio from it');
+    // 改包不再发生，所以既没有"把音频对象硬压成 0"的副本，也就没有 sceneAudioPatched 这类
+    // 只属于改包路径的记账字段；静音改由 applyProperties 负责（下面 applyProperties 的断言在守）。
+    // Nothing is patched any more, so there is no hard-zeroed copy and no sceneAudioPatched-style
+    // bookkeeping that belongs only to the patching route; muting is applyProperties' job, and its
+    // own assertions below hold that line.
+    assert.notStrictEqual(started.sceneAudioPatched, true, 'no package patch may be reported while mute-via-interface is in effect');
+    assert.notStrictEqual(started.patchedSceneAudioObjectCount, 1, 'no patched audio object may be counted while mute-via-interface is in effect');
     assert.strictEqual(open.args[open.args.indexOf('-width') + 1], '7680');
     assert.strictEqual(open.args[open.args.indexOf('-height') + 1], '64');
     assert(!open.args.includes('-fps'), 'only documented Wallpaper Engine control arguments should be used');
@@ -645,12 +692,12 @@ async function main() {
     const staleStop = await runtime.stop('ffffffffffffffffffffffff');
     assert.strictEqual(staleStop.stopped, false);
     assert.strictEqual(staleStop.reason, 'WALLPAPER_ENGINE_SESSION_MISMATCH');
-    assert.strictEqual(spawnCalls.length, 1, 'a stale renderer session must not close the current scene');
+    assert.strictEqual(engineSpawns().length, 1, 'a stale renderer session must not close the current scene');
 
     const muteCallsBeforeStop = transientControlCalls.length;
     const stopped = await runtime.stop(started.sessionId);
     assert.strictEqual(stopped.stopped, true);
-    assert.strictEqual(spawnCalls.length, 2);
+    assert.strictEqual(engineSpawns().length, 2);
     await new Promise((resolve) => setTimeout(resolve, 460));
     assert.strictEqual(transientControlCalls.length, muteCallsBeforeStop, 'stopping a session must cancel its remaining delayed mute reassertions');
     const muteCalls = transientControlCalls.filter((call) => call.args[1] === 'applyProperties');
@@ -667,7 +714,7 @@ async function main() {
       assert.strictEqual(mute.options.shell, false);
       assert.strictEqual(mute.options.windowsVerbatimArguments, true, 'RAW wallpaper JSON must reach Wallpaper Engine without Node quote escaping');
     });
-    const close = spawnCalls[1];
+    const close = engineSpawns()[1];
     assert.deepStrictEqual(close.args, ['-control', 'closeWallpaper', '-location', locationTitle]);
     assert(!close.args.includes('-file'));
     assert(!close.args.includes(scenePackage));
@@ -676,67 +723,62 @@ async function main() {
     assert.strictEqual(runtime.noteHostPointerActivity({ sessionId: started.sessionId, xUnit: 100, yUnit: 200 }), false, 'a stopped session must reject late host pointer messages');
     assert(dwmSurfaceCommands.filter((entry) => entry.command === 'Q').length >= 2,
       'refresh and stop must both close their exact DWM surface helpers');
-    assert.strictEqual(fs.existsSync(stagedProjectFile), false, 'the silent cache manifest must be removed after the exact WE window closes');
+    // 改走接口静音后，启动路径上不应再产生任何暂存或缓存产物。
+    // With mute-via-interface, the startup path must no longer produce any staged or cached artifact.
+    const stagingRoot = path.join(temp, 'native', 'wallpaper-engine-scene-stage');
+    assert(!fs.existsSync(stagingRoot), 'no staging directory may be created while mute-via-interface is in effect');
+    assert(!fs.existsSync(launchedProjectFile) || path.dirname(launchedProjectFile) !== stagingRoot,
+      'the launched manifest must be the project\'s own file, never a staged copy');
     const mutedPackageCache = path.join(temp, 'native', 'wallpaper-engine-muted-package-cache');
-    const mutedPackageFiles = fs.readdirSync(mutedPackageCache).filter((name) => /\.pkg$/i.test(name));
-    assert.strictEqual(mutedPackageFiles.length, 1, 'the patched package must remain cached for the next load');
-    const mutedPackageFile = path.join(mutedPackageCache, mutedPackageFiles[0]);
-    const mutedPackageSize = fs.statSync(mutedPackageFile).size;
-    await overwritePackageScene(mutedPackageFile, originalPackageScene.scene);
-    assert.strictEqual(fs.statSync(mutedPackageFile).size, mutedPackageSize, 'the invalid-cache fixture must preserve file size');
-    const invalidCachedScene = await readWallpaperPackageScene(mutedPackageFile);
-    assert.strictEqual(invalidCachedScene.scene.objects[0].startsilent, false, 'the invalid-cache fixture must be parseable but audible');
+    const cachedPatchedPackages = fs.existsSync(mutedPackageCache)
+      ? fs.readdirSync(mutedPackageCache).filter((name) => /\.pkg$/i.test(name))
+      : [];
+    assert.strictEqual(cachedPatchedPackages.length, 0,
+      'no patched package may be cached while mute-via-interface is in effect');
+
+    // 改包那条路本身仍然是可用代码（只是不再被启动路径调用），所以直接测它：过期计数与
+    // 过期路径都应被修复成一份重新打过静音补丁的包，且绝不能改动 Workshop 原始包。
+    // The patching route is still live code, just no longer reached from startup, so test it
+    // directly: a stale count and a stale path must both be repaired into a freshly muted package,
+    // and the original Workshop package must never be touched.
     const repairedCacheSession = {
       patchedSceneAudioObjectCount: 99,
       mutedScenePackageCacheFile: 'stale-cache-path',
     };
     const repairedPackageFile = await runtime._prepareMutedScenePackage(repairedCacheSession, scenePackage);
-    assert.strictEqual(repairedPackageFile, mutedPackageFile, 'an audible same-size cache entry must be rebuilt at the stable cache path');
+    assert.ok(repairedPackageFile && /\.pkg$/i.test(repairedPackageFile),
+      'the patching helper must still produce a package when asked directly');
     const repairedCachedScene = await readWallpaperPackageScene(repairedPackageFile);
-    assert.strictEqual(repairedCachedScene.scene.objects[0].startsilent, true, 'a rebuilt cache entry must be validated as startsilent');
-    assert.strictEqual(repairedCachedScene.scene.objects[0].volume, 0, 'a rebuilt cache entry must be validated at zero volume');
-    assert.strictEqual(repairedCacheSession.patchedSceneAudioObjectCount, 1);
-    assert.strictEqual(repairedCacheSession.mutedScenePackageCacheFile, mutedPackageFile);
-    await overwritePackageScene(mutedPackageFile, {
-      objects: [{ name: 'BGM', startsilent: true, volume: 0 }],
-    });
-    const missingAudioObjectCache = await readWallpaperPackageScene(mutedPackageFile);
-    assert.strictEqual(Object.prototype.hasOwnProperty.call(missingAudioObjectCache.scene.objects[0], 'sound'), false);
-    const countRepairSession = {
-      patchedSceneAudioObjectCount: 0,
-      mutedScenePackageCacheFile: '',
-    };
-    await runtime._prepareMutedScenePackage(countRepairSession, scenePackage);
-    const countRepairedScene = await readWallpaperPackageScene(mutedPackageFile);
-    assert.deepStrictEqual(countRepairedScene.scene.objects[0].sound, ['sounds/bgm.mp3'], 'a cache with the wrong sound-object count must be rebuilt');
-    assert.strictEqual(countRepairSession.patchedSceneAudioObjectCount, 1);
+    assert.strictEqual(repairedCachedScene.scene.objects[0].startsilent, true,
+      'a rebuilt cache entry must start embedded BGM silently');
+    assert.strictEqual(repairedCachedScene.scene.objects[0].volume, 0,
+      'a rebuilt cache entry must be at zero volume');
+    assert.strictEqual(repairedCacheSession.patchedSceneAudioObjectCount, 1,
+      'a stale object count must be repaired to what was actually patched');
+    assert.strictEqual(repairedCacheSession.mutedScenePackageCacheFile, repairedPackageFile,
+      'a stale cache path must be replaced with the real one');
     const sourceAfterCacheRepair = await readWallpaperPackageScene(scenePackage);
-    assert.strictEqual(sourceAfterCacheRepair.scene.objects[0].startsilent, false, 'cache repair must not modify the Workshop package');
+    assert.strictEqual(sourceAfterCacheRepair.scene.objects[0].startsilent, false,
+      'cache work must never modify the Workshop source package');
+    assert.deepStrictEqual(sourceAfterCacheRepair.scene.objects[0].volume, { user: 'newproperty', value: 0.75 },
+      'the Workshop source volume must survive every cache operation untouched');
 
-    const failedStageSession = {
-      sessionId: 'stagefailure000000000000',
-      muteProperties: { volume: 0, newproperty: 0 },
-      stagedAudioPropertyCount: 0,
-      patchedSceneAudioObjectCount: 0,
-      mutedScenePackageCacheFile: '',
-    };
-    const originalWriteFile = fs.promises.writeFile;
-    fs.promises.writeFile = async (target, ...args) => {
-      if (/wallpaper-engine-scene-stage[\\/].+[\\/]project\.json\.tmp$/i.test(String(target))) {
-        throw new Error('synthetic staged manifest write failure');
-      }
-      return originalWriteFile.call(fs.promises, target, ...args);
-    };
-    try {
-      const failedStageLaunchFile = await runtime._prepareSilentLaunchFile(failedStageSession, projectFile, scenePackage);
-      assert.strictEqual(failedStageLaunchFile, projectFile, 'a final staging failure must fall back to the original project');
-      assert.strictEqual(failedStageSession.stagedAudioPropertyCount, 0);
-      assert.strictEqual(failedStageSession.patchedSceneAudioObjectCount, 0, 'a staging fallback must not report an unused package patch');
-      assert.strictEqual(failedStageSession.mutedScenePackageCacheFile, '', 'a staging fallback must clear the unused muted cache path');
-    } finally {
-      fs.promises.writeFile = originalWriteFile;
-    }
-    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['embed', 'embed', 'close']);
+    // 静音改由 applyProperties 负责，所以启动路径对暂存写失败不再敏感：原样返回项目文件即可。
+    // Muting is applyProperties' job now, so startup no longer depends on the staging write
+    // succeeding: handing back the project file untouched is all that is required.
+    assert.strictEqual(
+      await runtime._prepareSilentLaunchFile(
+        { sessionId: 'stagecheck00000000000', muteProperties: { volume: 0, newproperty: 0 } },
+        projectFile,
+        scenePackage
+      ),
+      projectFile,
+      'the silent launch file must be the project\'s own file, whatever the mute properties say'
+    );
+
+    assert.deepStrictEqual(windowControlCalls.map((call) => call.action),
+      ['isolate', 'embed', 'isolate', 'embed', 'isolate', 'close'],
+      'every embed must keep the source window out of the shell, and no parking action may reappear');
     await runtime.revealWorkshop('3715870843');
     const revealCall = transientControlCalls[transientControlCalls.length - 1];
     assert.deepStrictEqual(revealCall.args, ['-control', 'revealWallpaper', '-id', '3715870843']);
@@ -948,7 +990,7 @@ async function main() {
       () => probeFailureRuntime.start('686868686868686868686868'),
       (error) => error && error.code === 'WALLPAPER_ENGINE_PROCESS_PROBE_FAILED'
     );
-    assert.strictEqual(probeFailureSpawns.length, 0, 'an unknown process state must never be treated as an absent engine or start the engine');
+    assert.strictEqual(engineSpawnRecords(probeFailureSpawns).length, 0, 'an unknown process state must never be treated as an absent engine or start the engine');
     assert(probeFailureWallClock >= 20000 && probeFailureWallClock < 22000, `process probing must stop at the shared real-time bootstrap deadline (wall=${probeFailureWallClock}, probes=${probeFailureCalls})`);
     assert(probeFailureCalls < 25, 'a delayed scheduler must not multiply the timeout through a fixed probe-attempt budget');
     assert(probeFailureSleepRequests.every((milliseconds) => milliseconds > 0), 'unknown-state retries must use bounded native sleeps');
@@ -1004,6 +1046,18 @@ async function main() {
     await cachePidRuntime.stop(cachePidChanged.sessionId);
     await cachePidRuntime.dispose();
 
+    // 只统计 WE 可执行文件的 spawn。这条守卫的本意是"引擎进程不能在提权判定完成前被拉起"，
+    // 而常驻任务栏监视器启动的是一个 shell 辅助进程，与 WE 提权无关，不该被算进来——把
+    // "任何 spawn"当成判据，会在加入无关的辅助进程时误报，守卫一旦会喊狼来了就没人再信它。
+    // Only count spawns of the engine executable. The point of this guard is that the engine
+    // process must not be launched before elevation detection settles; the resident taskbar
+    // monitor starts a separate shell helper that has nothing to do with WE elevation. Treating
+    // "any spawn" as the criterion makes this misfire once an unrelated helper is added, and a
+    // guard that cries wolf stops being trusted.
+    const engineSpawnCount = (records) => records.filter((record) => {
+      const file = path.basename(String(record && record.file || '')).toLowerCase();
+      return file === 'wallpaper32.exe' || file === 'wallpaper64.exe';
+    }).length;
     const lateOpenSpawns = [];
     const lateOpenBrokerCalls = [];
     let releaseLateElevation;
@@ -1045,7 +1099,7 @@ async function main() {
     assert(lateOpenRuntime.pending.initialOpenPromise, 'the delayed initial open promise must be registered before stop can observe the pending session');
     let lateStopResolved = false;
     const lateStopPromise = lateOpenRuntime.stop(lateSessionId).then((result) => {
-      assert.strictEqual(lateOpenSpawns.length, 0, 'stop must not resolve until the stale initial open has been suppressed');
+      assert.strictEqual(engineSpawnCount(lateOpenSpawns), 0, 'stop must not resolve until the stale initial open has been suppressed');
       assert.strictEqual(lateOpenBrokerCalls.length, 0, 'the stale initial open must not escape through the desktop-token broker');
       lateStopResolved = true;
       return result;
@@ -1053,7 +1107,7 @@ async function main() {
     await Promise.resolve();
     await Promise.resolve();
     assert.strictEqual(lateStopResolved, false, 'stop must wait while the initial open is still blocked by elevation detection');
-    assert.strictEqual(lateOpenSpawns.length, 0, 'the delayed initial open must not spawn before elevation detection settles');
+    assert.strictEqual(engineSpawnCount(lateOpenSpawns), 0, 'the delayed initial open must not spawn the engine before elevation detection settles');
     releaseLateElevation();
     const lateStopResult = await lateStopPromise;
     const lateStartResult = await lateStartOutcome;
@@ -1424,7 +1478,7 @@ async function main() {
       (error) => error && error.code === 'WALLPAPER_ENGINE_SIGNATURE_INVALID'
     );
     assert(invalidColdEngineSignatureCalls.some((call) => call.target === invalidColdEngineExecutable), 'the direct cold-start executable must pass signature verification');
-    assert.strictEqual(invalidColdEngineSpawns.length, 0, 'an invalid engine signature must fail closed before any spawn');
+    assert.strictEqual(engineSpawnRecords(invalidColdEngineSpawns).length, 0, 'an invalid engine signature must fail closed before any spawn');
     await invalidColdEngineRuntime.dispose();
 
     const coldFirstSuccessSpawns = [];
@@ -1496,8 +1550,18 @@ async function main() {
 
     const manifestPakRoot = path.join(temp, 'manifest-pak-project');
     const manifestPakProject = path.join(manifestPakRoot, 'project.json');
-    const manifestPakPackage = path.join(manifestPakRoot, 'scene.pak');
-    fs.mkdirSync(manifestPakRoot, { recursive: true });
+    // 夹具必须自洽：manifest 指 packages/scene.pak，包就真的放在 packages/ 下。改包暂存时代码
+    // 会把包搬进隔离目录并重写 file 字段，于是旧夹具把包放在根目录、manifest 却写
+    // packages/scene.pak —— 靠"顺手修正坏引用"才跑得通。原样交付之后不修引用了，所以夹具得
+    // 自己站得住：引擎把 manifest 交给 WE，WE 相对于 manifest 所在目录就能找到那个包。
+    //
+    // The fixture must be self-consistent: the manifest says packages/scene.pak, so the package
+    // lives under packages/. The old fixture put it in the root and relied on the patching route
+    // silently repairing the broken reference; nothing repairs references any more, so the fixture
+    // has to stand on its own — the engine resolves it relative to the manifest's own directory.
+    const manifestPakPackageDir = path.join(manifestPakRoot, 'packages');
+    const manifestPakPackage = path.join(manifestPakPackageDir, 'scene.pak');
+    fs.mkdirSync(manifestPakPackageDir, { recursive: true });
     fs.writeFileSync(manifestPakProject, JSON.stringify({
       type: 'scene',
       file: 'packages/scene.pak',
@@ -1505,7 +1569,7 @@ async function main() {
     }), 'utf8');
     writeScenePackage(manifestPakPackage, {
       objects: [{ sound: ['sounds/music.ogg'], startsilent: false, volume: 1 }],
-    }, '.pak');
+    }, '.pkg');
     const manifestPakSpawns = [];
     const manifestPakRuntime = new WallpaperEngineRuntime({
       platform: 'win32',
@@ -1537,11 +1601,20 @@ async function main() {
     });
     const manifestPakStarted = await manifestPakRuntime.start('898989898989898989898989', { sourceTimeoutMs: 500 });
     const manifestPakOpen = manifestPakSpawns.find((call) => call.args[1] === 'openWallpaper');
-    const manifestPakStagedProject = manifestPakOpen.args[manifestPakOpen.args.indexOf('-file') + 1];
-    assert.notStrictEqual(manifestPakStagedProject, manifestPakProject);
-    assert.strictEqual(JSON.parse(fs.readFileSync(manifestPakStagedProject, 'utf8')).file, 'scene.pak', 'a nested package reference must be safely rebased inside the isolated stage');
-    assert.strictEqual(fs.existsSync(path.join(path.dirname(manifestPakStagedProject), 'scene.pak')), true, 'a manifest that references scene.pak must keep that exact staged package name');
-    assert.strictEqual(manifestPakStarted.sceneAudioPatched, true);
+    // 嵌套包引用只有改包暂存才需要重基路径（要把 scene.pak 搬进隔离目录）。改走接口静音后
+    // manifest 原样交给 WE，它自带的相对引用就该保持原样。
+    // Only the patching route ever had to rebase a nested package reference, because it moved
+    // scene.pak into an isolated directory. With mute-via-interface the manifest goes to the
+    // engine untouched and its own relative reference must stay exactly as the author wrote it.
+    const manifestPakLaunchFile = manifestPakOpen.args[manifestPakOpen.args.indexOf('-file') + 1];
+    assert.strictEqual(manifestPakLaunchFile, manifestPakProject,
+      'a manifest referencing a nested package must reach the engine untouched');
+    assert.strictEqual(JSON.parse(fs.readFileSync(manifestPakLaunchFile, 'utf8')).file, 'packages/scene.pak',
+      'the manifest keeps its own relative package reference, and that path must resolve as written');
+    assert.ok(fs.existsSync(path.join(path.dirname(manifestPakLaunchFile), 'packages', 'scene.pak')),
+      'the referenced package must exist relative to the manifest, since nothing rebases it any more');
+    assert.notStrictEqual(manifestPakStarted.sceneAudioPatched, true,
+      'no package patch may be reported while mute-via-interface is in effect');
     await manifestPakRuntime.stop(manifestPakStarted.sessionId);
     await manifestPakRuntime.dispose();
 
@@ -1650,11 +1723,23 @@ async function main() {
     assert.strictEqual(brokerStarted.sourceId, 'window:broker:0');
     await brokerRuntime.stop(brokerStarted.sessionId);
     assert.strictEqual(elevationProbeCalls, 1, 'host elevation should be probed once and cached');
-    assert.strictEqual(brokerDirectSpawns.length, 0, 'an elevated host must not directly spawn Wallpaper Engine');
+    assert.strictEqual(engineSpawnRecords(brokerDirectSpawns).length, 0, 'an elevated host must not directly spawn Wallpaper Engine');
     assert.strictEqual(brokerCalls.length, 3, 'open, post-source targeted suppression, and close controls must all use the desktop-token broker');
     const brokerOpen = brokerCalls[0];
     assert.strictEqual(brokerOpen.file, 'powershell.exe');
-    assert(brokerOpen.args.includes('-EncodedCommand'));
+    // 大型 PowerShell 帮手不能走 -EncodedCommand：Windows 命令行上限 32767 字符，broker 脚本
+    // 编码后已接近上限，超了就会以 ENAMETOOLONG 在 spawn 阶段直接失败。必须走哈希脚本文件。
+    // Large PowerShell helpers must not use -EncodedCommand: Windows caps the command line at
+    // 32767 characters and the broker script is already close to that, so exceeding it fails at
+    // spawn with ENAMETOOLONG. They must launch from a hashed script file instead.
+    assert(!brokerOpen.args.includes('-EncodedCommand'), 'the large broker helper must launch from a hashed script file');
+    const brokerScriptFile = brokerOpen.args[brokerOpen.args.indexOf('-File') + 1];
+    assert(/-File$/.test(String(brokerOpen.args[brokerOpen.args.length - 2])),
+      'the broker script file must be the final launch argument');
+    assert(/wallpaper-engine-control-broker-[a-f0-9]{20}\.ps1$/.test(String(brokerScriptFile)),
+      'the broker helper must be a content-hashed script file so an updated script is never stale');
+    assert.strictEqual(path.dirname(String(brokerScriptFile)), brokerOpen.options.env.MINERADIO_NATIVE_TEMP_DIR,
+      'the broker helper must live in the stable native temp directory');
     assert(!brokerOpen.args.some((arg) => String(arg).includes(executable) || String(arg).includes(projectFile)), 'trusted paths must not be interpolated into PowerShell arguments');
     assert.strictEqual(brokerOpen.options.shell, false);
     assert(brokerOpen.options.timeout >= 15000, 'desktop-token broker needs a low-spec-safe compile timeout');
@@ -1662,8 +1747,18 @@ async function main() {
     assert.strictEqual(brokerOpen.options.env.TEMP, brokerOpen.options.env.MINERADIO_NATIVE_TEMP_DIR, 'Add-Type helpers must use the stable native temp directory');
     assert.strictEqual(brokerOpen.options.env.TMP, brokerOpen.options.env.MINERADIO_NATIVE_TEMP_DIR, 'PowerShell TMP must match the stable native temp directory');
     assert(/\bopenWallpaper\b/.test(brokerOpen.options.env.MINERADIO_WE_CONTROL_COMMAND_LINE));
-    assert(/wallpaper-engine-scene-stage/i.test(brokerOpen.options.env.MINERADIO_WE_CONTROL_COMMAND_LINE), 'an embedded sound package must launch through the cached silent Scene manifest');
-    const decodedBroker = Buffer.from(brokerOpen.args[brokerOpen.args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le');
+    // 提权宿主走 broker 时同样不该出现暂存路径：静音由 applyProperties 负责，交给引擎的就是
+    // 项目自己的文件。原来这里断言命令行里含 wallpaper-engine-scene-stage，那正是会让 WE 判定
+    // 来源不可信、每次弹安全确认框的暂存副本。
+    // The elevated host goes through the broker, and it must not stage anything either: muting is
+    // applyProperties' job and the engine gets the project's own file. This used to assert the
+    // command line contained wallpaper-engine-scene-stage — precisely the staged copy that made the
+    // engine treat the wallpaper as unverified and raise a confirmation on every start.
+    assert(!/wallpaper-engine-scene-stage/i.test(brokerOpen.options.env.MINERADIO_WE_CONTROL_COMMAND_LINE),
+      'the broker must hand the engine the project file, never a staged copy');
+    assert(brokerOpen.options.env.MINERADIO_WE_CONTROL_COMMAND_LINE.includes(projectFile),
+      'the broker command line must reference the project file as it is');
+    const decodedBroker = fs.readFileSync(String(brokerScriptFile), 'utf8');
     assert(decodedBroker.includes('GetShellWindow'));
     assert(decodedBroker.includes('GetIntegrityRid'));
     assert(decodedBroker.includes('PROC_THREAD_ATTRIBUTE_PARENT_PROCESS'), 'the broker must assign Explorer as the child parent');
@@ -1684,13 +1779,40 @@ async function main() {
     assert(/\bgetWallpaper\b/.test(readyBroker.options.env.MINERADIO_WE_CONTROL_COMMAND_LINE));
     assert.strictEqual(readyBroker.options.env.MINERADIO_WE_CONTROL_WAIT, '1', 'the readiness broker must wait for the control process to exit');
     assert.strictEqual(readyBroker.options.env.MINERADIO_WE_CONTROL_WAIT_TIMEOUT, '10000');
-    const decodedReadyBroker = Buffer.from(readyBroker.args[readyBroker.args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le');
+    assert(!readyBroker.args.includes('-EncodedCommand'), 'the readiness broker must reuse the hashed script file');
+    const decodedReadyBroker = fs.readFileSync(
+      String(readyBroker.args[readyBroker.args.indexOf('-File') + 1]),
+      'utf8'
+    );
     assert(decodedReadyBroker.includes('WaitForSingleObject'));
     assert(decodedReadyBroker.includes('GetExitCodeProcess'));
     const runtimeSourceText = fs.readFileSync(path.join(__dirname, '..', 'desktop', 'wallpaper-engine-runtime.js'), 'utf8');
-    assert(runtimeSourceText.includes('closeWait.ElapsedMilliseconds < 1800'), 'native close must wait for the exact HWND to disappear');
+    // 关窗轮询的上限必须足够宽：WE 弹出窗口在场景仍在初始化时可以拖很久才收尾，早期 1.8 秒
+    // 的硬上限会让整个原生会话因为"没等够"而失败、画面直接退回封面图。断言"轮询 HWND +
+    // 上限不低于 6000ms + 回传实际等待时长"，而不是钉死某一个数字。
+    // The poll ceiling has to be generous: a pop-out still initializing can take far longer than
+    // the early 1.8s cap, which failed the whole native session. Assert the poll shape, a
+    // >= 6000ms bound, and the reported wait instead of pinning one magic number.
+    const closeWaitCeilingMs = Number(
+      (runtimeSourceText.match(/closeWait\.ElapsedMilliseconds < (\d+)\)\s*Thread\.Sleep\(\d+\)/) || [])[1]
+    ) || 0;
+    assert(closeWaitCeilingMs >= 6000, 'native close must poll long enough for the exact HWND to disappear');
+    assert(runtimeSourceText.includes('closeResult.closeWaitMs = closeWait.ElapsedMilliseconds'), 'native close must report how long it actually waited');
     assert(runtimeSourceText.includes('closeResult.closed = !IsWindow(hWnd)'), 'native close must report observed window disappearance');
-    assert(runtimeSourceText.includes('await this._spawnControl(requested, []);'), 'cold startup must launch the signed Wallpaper Engine executable directly with empty arguments');
+    // 冷启动必须用**空参数**拉起引擎本体（不带任何 -control 指令，播放是后续单独发的），
+    // 并且必须与本进程解绑：引擎同时在托管用户自己的桌面壁纸，一旦被当作子进程带走，
+    // 关闭 MR 就等于关掉桌面壁纸（实测桌面回落到 WE 那张 474x265 的低分辨率备份）。
+    // 两件事都要钉住：参数为空 + detached。
+    // Cold start must launch the engine with **empty arguments** (no -control command; playback
+    // is sent separately) and must detach it from us: this engine also hosts the user's own
+    // desktop wallpaper, so as a bound child it would die with Mineradio and take the desktop
+    // down with it. Pin both halves — empty argv and detached.
+    assert(runtimeSourceText.includes('await this._spawnControl(requested, [], { keepAlive: true });'),
+      'cold startup must launch the signed Wallpaper Engine executable directly with empty arguments, detached');
+    assert(runtimeSourceText.includes('detached: options.keepAlive === true'),
+      'only the engine launch may detach; control commands must stay bound to this process');
+    assert(runtimeSourceText.includes("if (typeof child.unref === 'function') child.unref();"),
+      'a detached engine must be unref-ed or the app would keep waiting on it at exit');
     assert(runtimeSourceText.includes('WALLPAPER_ENGINE_INITIAL_OPEN_DUPLICATE'), 'the runtime must guard the one permitted initial open');
     assert(!runtimeSourceText.includes('coldStartReplayed'), 'the obsolete delayed replay state must stay removed');
     assert(!runtimeSourceText.includes('COLD_START_REPLAY'), 'the obsolete replay timer must stay removed');
@@ -1741,7 +1863,7 @@ async function main() {
       (error) => error && error.code === 'WALLPAPER_ENGINE_CONTROL_FAILED'
     );
     assert.strictEqual(conservativeBrokerCalls.length, 1, 'an uncertain elevation probe must still use the safe broker');
-    assert.strictEqual(conservativeDirectSpawns.length, 0, 'an uncertain elevation probe must never fail open to direct spawn');
+    assert.strictEqual(engineSpawnRecords(conservativeDirectSpawns).length, 0, 'an uncertain elevation probe must never fail open to direct spawn');
     await conservativeRuntime.dispose();
 
     const badSignatureCalls = [];
@@ -1765,7 +1887,7 @@ async function main() {
       (error) => error && error.code === 'WALLPAPER_ENGINE_SIGNATURE_INVALID'
     );
     assert.strictEqual(badSignatureCalls.length, 1, 'invalid signature status should be cached between probe and start');
-    assert.strictEqual(blockedSpawns.length, 0, 'an untrusted executable must never be started');
+    assert.strictEqual(engineSpawnRecords(blockedSpawns).length, 0, 'an untrusted executable must never be started');
 
     const executableTargetRuntime = new WallpaperEngineRuntime({
       platform: 'win32',
@@ -1786,7 +1908,7 @@ async function main() {
       () => executableTargetRuntime.start('0123456789abcdef01234567'),
       (error) => error && error.code === 'WALLPAPER_SCENE_PACKAGE_INVALID'
     );
-    assert.strictEqual(blockedSpawns.length, 0, 'imported application executables must never be launched');
+    assert.strictEqual(engineSpawnRecords(blockedSpawns).length, 0, 'imported application executables must never be launched');
 
     const concurrentSpawns = [];
     let releaseFirstSleep;
@@ -2095,7 +2217,7 @@ async function main() {
       ok: true,
       sourceId: refreshed.sourceId,
       signatureChecks: signatureCalls.length,
-      controlCalls: spawnCalls.length,
+      controlCalls: engineSpawns().length,
       captureCalls,
       dynamicSourceRefresh: true,
       exactCaptureSourceReuse: true,

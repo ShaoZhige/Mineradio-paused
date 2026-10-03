@@ -1,7 +1,17 @@
 const { contextBridge, ipcRenderer, clipboard, webUtils } = require('electron');
 
+// Scene 玻璃采样依赖 Windows Graphics Capture 的无边框能力，该能力自 Win11（build 22000+）
+// 才存在，Win10 上系统会强制绘制捕获黄框。渲染进程据此决定采样开关的系统默认值。
+// preload 崩溃会让整个窗口不可用，所以探测失败时退回空串，交回渲染进程按保守能力判断。
+// Borderless capture only exists on Win11 (build >= 22000). The probe must never take
+// the preload down: an empty value falls back to the conservative decision.
+function readSystemRelease() {
+  try { return require('os').release(); } catch (e) { return ''; }
+}
+
 contextBridge.exposeInMainWorld('desktopWindow', {
   isDesktop: true,
+  systemRelease: readSystemRelease(),
   minimize: () => ipcRenderer.invoke('desktop-window-minimize'),
   restore: () => ipcRenderer.invoke('desktop-window-restore'),
   toggleMaximize: () => ipcRenderer.invoke('desktop-window-toggle-maximize'),
@@ -41,6 +51,12 @@ contextBridge.exposeInMainWorld('desktopWindow', {
     return () => ipcRenderer.removeListener('mineradio-wallpaper-engine-host-bounds-changed', listener);
   },
   listLocalMusicLibrary: () => ipcRenderer.invoke('mineradio-local-library-list'),
+  onLocalMusicLibraryChanged: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('mineradio-local-library-changed', listener);
+    return () => ipcRenderer.removeListener('mineradio-local-library-changed', listener);
+  },
   readLocalMusicLyric: (localFileId) => ipcRenderer.invoke('mineradio-local-library-lyric', String(localFileId || '')),
   listBuiltInPlaylists: () => ipcRenderer.invoke('mineradio-built-in-playlists-list'),
   readBuiltInPlaylist: (id, options) => ipcRenderer.invoke('mineradio-built-in-playlist-page', String(id || ''), options || {}),

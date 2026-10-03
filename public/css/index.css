@@ -962,7 +962,7 @@ body.wallpaper-engine-dwm-active.wallpaper-engine-glass-sampler-ready #wallpaper
   clip-path: inherit;
   object-fit: cover;
   object-position: center;
-  transform: translate3d(var(--wallpaper-engine-visual-position-x, 0%), var(--wallpaper-engine-visual-position-y, 0%), 0) scale(var(--wallpaper-engine-visual-scale, 1.08));
+  transform: translate3d(var(--wallpaper-engine-visual-position-x, 0%), var(--wallpaper-engine-visual-position-y, 0%), 0) scale(var(--wallpaper-engine-visual-scale, 1));
   transform-origin: center;
   opacity: 0;
   transition: opacity 300ms ease;
@@ -998,6 +998,19 @@ body.wallpaper-engine-dwm-active.wallpaper-engine-glass-sampler-ready #wallpaper
   width: 100%;
   height: 100%;
   object-fit: fill
+}
+
+/* 预览兜底显示的只是工程目录里的 cover 图（工坊 Scene 常见仅 512×288），不是壁纸本体。
+   再叠一层用户的位置/缩放等于给低分辨率图再加一次重采样并裁掉取景，所以这里固定 1:1：
+   只做"填满"适配，不额外放大、不平移。尺寸不够导致的发虚是源图本身的极限。
+   The preview fallback is the project's cover image (often only 512x288), not the
+   wallpaper. Stacking the user's zoom/position on it adds another resample and crops the
+   framing, so it is pinned to 1x here: fit-to-fill only, no extra zoom, no panning. */
+#wallpaper-engine-layer.preview-source #wallpaper-engine-image,
+#wallpaper-engine-layer.preview-source #wallpaper-engine-video,
+#wallpaper-engine-layer.preview-source #wallpaper-engine-freeze {
+  transform: none;
+  transform-origin: center
 }
 
 body.desktop-shell #wallpaper-engine-layer,
@@ -17597,6 +17610,88 @@ body.panel-reordering .mini-queue-item.is-reordering {
   border-radius: 18px
 }
 
+/* #462-5 小屏（14 寸等）右上快速卡片区把右下滚动板块挤到只剩一行。
+   上面 #empty-home .home-grid.home-quick-grid .home-card 的 min-height 带 ID，特异性高于后面
+   @media (max-height:760px/700px) 里的 body.desktop-shell .home-card 覆盖，所以状态栏/缩放一让
+   可视高度变矮时它并不会跟着缩：四张卡片仍按 158px（首张 176px）占掉约三分之二高度，行 2 的
+   .home-insight-rail 只剩一行的高度，滚轮自然"只有最下面一行能滑"。
+   这里补一份同等特异性的短屏覆盖，并给右下板块留出最小可滚动高度。
+   On short viewports the quick grid used to keep its 158px (featured 176px) min-height because the
+   later body.desktop-shell .home-card overrides lose the specificity fight against this ID-scoped
+   rule, so the four cards ate roughly two thirds of the height and the insight rail was squeezed to
+   a single scrollable row. These equally specific overrides shrink the cards and reserve a minimum
+   scrollable height for the rail. */
+@media (max-height: 820px) {
+  #empty-home .empty-home-shell {
+    grid-template-rows: minmax(0, auto) minmax(190px, 1fr)
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card {
+    min-height: 122px;
+    padding: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured {
+    min-height: 132px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
+    font-size: 20px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
+    right: 16px;
+    bottom: 16px;
+    width: 96px;
+    height: 96px;
+    border-radius: 22px
+  }
+}
+
+@media (max-height: 700px) {
+  #empty-home .empty-home-shell {
+    grid-template-rows: minmax(0, auto) minmax(170px, 1fr)
+  }
+
+  #empty-home .home-grid.home-quick-grid {
+    grid-template-columns: minmax(240px, 1.6fr) repeat(3, minmax(120px, 1fr));
+    gap: 10px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card {
+    min-height: 100px;
+    padding: 13px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured {
+    min-height: 108px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
+    font-size: 18px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-sub {
+    font-size: 11px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
+    width: 56px;
+    height: 56px;
+    border-radius: 15px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-sub {
+    -webkit-line-clamp: 1
+  }
+}
+
 #empty-home .home-insight-rail {
   grid-column: 2;
   grid-row: 2;
@@ -18573,4 +18668,97 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
   body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
     width: calc(100vw - var(--desktop-safe-left) - var(--desktop-safe-right) - 24px);
   }
+}
+
+/* ============================================================
+   文本输入弹层（替代 Electron 渲染进程不支持的 window.prompt）
+   ============================================================ */
+.mineradio-dialog-mask {
+  position: fixed;
+  inset: 0;
+  /* 高于 3D 歌单架 / DIY 面板（<=1500），低于桌面壁纸原生层（>=100000） */
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 48%, rgba(244, 210, 138, .07), transparent 34%), rgba(0, 0, 0, 0.78)
+}
+
+.mineradio-dialog-mask.show {
+  display: flex
+}
+
+.mineradio-text-dialog {
+  width: min(430px, 92vw);
+  max-width: min(430px, 92vw);
+  text-align: left;
+  padding: 26px 26px 22px;
+  border-radius: 18px
+}
+
+.mineradio-text-dialog .mineradio-text-dialog-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: .4px;
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.95)
+}
+
+.mineradio-text-dialog-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .94);
+  font-size: 13.5px;
+  letter-spacing: .2px;
+  outline: none
+}
+
+.mineradio-text-dialog-input:focus {
+  border-color: rgba(244, 210, 138, .48);
+  background: rgba(255, 255, 255, .07)
+}
+
+.mineradio-text-dialog-field {
+  display: none;
+  resize: vertical;
+  min-height: 132px;
+  max-height: 42vh;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  word-break: break-all
+}
+
+.mineradio-text-dialog.multiline .mineradio-text-dialog-input:not(.mineradio-text-dialog-field) {
+  display: none
+}
+
+.mineradio-text-dialog.multiline .mineradio-text-dialog-field {
+  display: block
+}
+
+.mineradio-text-dialog.readonly .mineradio-text-dialog-field {
+  color: rgba(255, 255, 255, .74)
+}
+
+.mineradio-text-dialog-hint {
+  min-height: 15px;
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .48)
+}
+
+.mineradio-text-dialog-hint:empty {
+  min-height: 0
+}
+
+.mineradio-text-dialog .btn-row {
+  justify-content: flex-end
 }

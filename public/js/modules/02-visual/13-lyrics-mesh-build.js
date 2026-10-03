@@ -19,8 +19,15 @@ function primeLyricMeshOpacity(mesh, amount) {
 
 function stableStageLyricRowMaskLayout() {
   var fontSize = 128;
-  var lineHeightFactor = typeof lyricLineHeightFactor === 'function' ? lyricLineHeightFactor() : 1.08;
-  return { fontSize: fontSize, lineHeight: fontSize * lineHeightFactor };
+  // 必须与遮罩纹理共用同一个行高函数：这里是行层轨道的基准布局，若用另一套公式，
+  // 行距会与真实遮罩对不上，表现同样是切歌后间距跳变。
+  // 中英对照：Must share the exact line-height function used by the mask texture. This is the
+  // baseline layout of the row track; a second formula here desynchronizes row spacing from the
+  // real mask, which shows up as spacing jumps after switching songs.
+  return {
+    fontSize: fontSize,
+    lineHeight: typeof lyricMaskLineHeight === 'function' ? lyricMaskLineHeight(fontSize) : fontSize * 1.08,
+  };
 }
 
 function lyricRowLayerBundleActiveMask(bundle) {

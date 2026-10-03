@@ -109,6 +109,8 @@ function testWindowVisibilityAndSystemWakeGuards() {
   assert.match(visibilityBlock, /function shouldRestoreUnexpectedFullscreenVisibility\(win\)/, 'fullscreen-specific guard must remain available');
   assert.match(visibilityBlock, /!win\.isFullScreen\(\)/, 'fullscreen-specific guard must only restore fullscreen windows');
   assert.match(visibilityBlock, /restoreUnexpectedFullscreenVisibility\(win, reason\)/, 'main guard must reuse fullscreen recovery when applicable');
+  assert.match(visibilityBlock, /mainWindowShellDesktopRevealActive\(win\)/, 'shell show-desktop actions must not be treated as unexpected window loss');
+  assert.match(visibilityBlock, /mainWindowShellDesktopProbePending\(win\)/, 'recovery must stay held while the shell desktop probe is unsettled');
 
   assert.match(mainText, /win\.__mineradioIntentionalHide = true;[\s\S]{0,140}markMainWindowExpectedVisible\(win, false, 'tray-hide'\)[\s\S]{0,180}win\.hide\(\)/, 'tray hide must be marked intentional and not expected visible before hide');
   assert.match(mainText, /win\.on\('show'[\s\S]{0,180}win\.__mineradioIntentionalHide = false[\s\S]{0,140}markMainWindowExpectedVisible\(win, true, 'show'\)/, 'show must clear intentional hide and restore expected visibility');
@@ -132,9 +134,32 @@ function testWindowVisibilityAndSystemWakeGuards() {
   assert.match(mainText, /powerMonitor\.on\('unlock-screen',[\s\S]{0,160}restoreUnexpectedMainWindowVisibility\(mainWindow, 'screen-unlock'\)/, 'screen unlock must check main window visibility');
 }
 
+function testShellDesktopRevealGuard() {
+  const probeBlock = sourceBlock(
+    mainText,
+    'function probeShellDesktopForegroundWindow()',
+    'function positionWallpaperWindow(reason'
+  );
+  assert.match(probeBlock, /GetForegroundWindow\(\)/, 'shell show-desktop detection must query the foreground window');
+  assert.match(probeBlock, /GetClassName\(handle, buffer, buffer\.Capacity\)/, 'detection must read the foreground window class name');
+  assert.match(probeBlock, /SHELL_DESKTOP_WINDOW_CLASSES\.indexOf\(className\)/, 'only known shell desktop and taskbar classes may count as show-desktop');
+  assert.match(probeBlock, /SHELL_DESKTOP_PROBE_COOLDOWN_MS/, 'repeated hide/show churn must not spawn native probes without a cooldown');
+  assert.match(probeBlock, /win\.__mineradioShellDesktopReveal = true/, 'a positive probe must mark the window so every recovery path backs off');
+  assert.match(probeBlock, /win\.__mineradioShellDesktopProbePending = false/, 'a settled probe must release the pending hold');
+  assert.doesNotMatch(probeBlock, /SysListView32/, 'generic Explorer list-view windows must not be mistaken for the desktop');
+
+  assert.match(mainText, /win\.on\('hide'[\s\S]{0,320}ensureMainWindowShellDesktopProbe\(win, 'hide-event'\)[\s\S]{0,120}restoreUnexpectedMainWindowVisibility\(win, 'hide-event'\)/, 'hide recovery must classify shell show-desktop before restoring');
+  assert.match(mainText, /win\.on\('minimize'[\s\S]{0,1600}ensureMainWindowShellDesktopProbe\(win, 'minimize-event'\)[\s\S]{0,120}restoreUnexpectedMainWindowMinimize\(win, 'minimize-event'\)/, 'minimize recovery must classify shell show-desktop before restoring');
+  assert.match(mainText, /if \(shouldScheduleMainWindowHideRecovery\(win\)\)/, 'hide scheduling must consult the shell reveal state');
+  assert.match(mainText, /win\.on\('restore'[\s\S]{0,260}clearMainWindowShellDesktopReveal\(win\)/, 'restoring must clear the shell desktop mark');
+  assert.match(mainText, /win\.on\('show'[\s\S]{0,260}clearMainWindowShellDesktopReveal\(win\)/, 'showing must clear the shell desktop mark');
+  assert.match(mainText, /mainWindowShellDesktopProbePending\(win\)[\s\S]{0,120}win\.__mineradioShellDesktopProbe\.then/, 'a pending probe must defer the restore instead of racing it');
+}
+
 testLoginWishTitle();
 testWallpaperEngineElevationBroker();
 testRendererGoneDelayedRecovery();
 testWindowVisibilityAndSystemWakeGuards();
+testShellDesktopRevealGuard();
 
 console.log('[OK] Main-window runtime recovery preserves intentional minimize and restores unexpected window loss.');

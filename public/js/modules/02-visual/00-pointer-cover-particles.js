@@ -218,7 +218,18 @@ var dotTexture = makeDotTexture();
 var PLANE_SIZE = 4.8;
 var RIPPLE_MAX = 12;
 
-var GRID_X = coverParticleGridForResolution(fx.coverResolution), GRID_Y = GRID_X;
+// 封面粒子是均匀网格：drawRange 按行优先截断会让画面缺一条带子，所以预算只能压边长。
+// 用户选的分辨率仍然是上限，硬件预算只从上面往下压，不会反向把"高画质"拉低。
+// The cover particles are a uniform lattice: a draw-range trim cuts a band out of it because draw
+// order is row-major, so the budget can only shrink the side length. The chosen resolution stays
+// the ceiling and the hardware budget only pushes down from there.
+function effectiveCoverParticleGrid(value) {
+  var requested = coverParticleGridForResolution(value);
+  if (typeof runtimeCoverParticleGridBudget !== 'function') return requested;
+  return runtimeCoverParticleGridBudget(requested);
+}
+
+var GRID_X = effectiveCoverParticleGrid(fx.coverResolution), GRID_Y = GRID_X;
 var PCOUNT = GRID_X * GRID_Y;
 var positions = null, uvs = null, aRand = null;
 var coverResolutionReloadTimer = null;
@@ -226,7 +237,7 @@ var currentCoverSource = null;
 var coverPickerCanvas = null;
 
 function buildCoverParticleGeometry(grid) {
-  grid = coverParticleGridForResolution(grid / 118);
+  grid = effectiveCoverParticleGrid(grid / 118);
   var count = grid * grid;
   var nextGeo = new THREE.BufferGeometry();
   var nextPositions = new Float32Array(count * 3);
@@ -260,7 +271,7 @@ var geo = buildCoverParticleGeometry(GRID_X);
 function applyCoverParticleResolution(value, opts) {
   opts = opts || {};
   fx.coverResolution = normalizeCoverResolution(value);
-  var grid = coverParticleGridForResolution(fx.coverResolution);
+  var grid = effectiveCoverParticleGrid(fx.coverResolution);
   if (grid === GRID_X && geo && geo.userData && geo.userData.grid === grid) return;
   var oldGeo = geo;
   var nextGeo = buildCoverParticleGeometry(grid);
@@ -272,6 +283,18 @@ function applyCoverParticleResolution(value, opts) {
   if (oldGeo && oldGeo !== nextGeo) oldGeo.dispose();
   uniforms.uBurstAmt.value = Math.max(uniforms.uBurstAmt.value, 0.18);
   if (opts.reload !== false) scheduleCoverResolutionReload();
+}
+
+// 网格型粒子没有 drawRange 这条捷径，预算变了必须重建几何。复用现有的重建路径，它已经会
+// 正确地换绑两个 Points 并释放旧几何；帧变化没让边长变时它自己会提前返回，不会白重建。
+// A lattice has no draw-range shortcut, so a budget change has to rebuild the geometry. Reuse the
+// existing rebuild path: it already rebinds both Points and disposes the old geometry, and it
+// returns early when the side length did not actually change.
+if (typeof registerParticleBudgetRefresher === 'function') {
+  registerParticleBudgetRefresher(function () {
+    if (typeof applyCoverParticleResolution !== 'function') return;
+    applyCoverParticleResolution(fx.coverResolution, { reload: false });
+  });
 }
 
 function scheduleCoverResolutionReload() {
@@ -1152,7 +1175,10 @@ var backgroundStarRiverMaterial = new THREE.ShaderMaterial({
   depthTest: false,
   blending: THREE.AdditiveBlending
 });
-var backgroundStarRiverParticles = new THREE.Points(buildBackgroundStarRiverGeometry(BACKGROUND_STAR_RIVER_COUNT), backgroundStarRiverMaterial);
+var backgroundStarRiverParticles = attachParticleDrawBudget(
+  new THREE.Points(buildBackgroundStarRiverGeometry(BACKGROUND_STAR_RIVER_COUNT), backgroundStarRiverMaterial),
+  BACKGROUND_STAR_RIVER_COUNT
+);
 backgroundStarRiverParticles.frustumCulled = false;
 backgroundStarRiverParticles.renderOrder = -2;
 scene.add(backgroundStarRiverParticles);

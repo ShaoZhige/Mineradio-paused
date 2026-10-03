@@ -6,6 +6,26 @@ function normalizeWallpaperFps(value) {
   return 60;
 }
 
+// Scene 玻璃采样要把壁纸像素抓进 Chromium，走的是 Windows Graphics Capture。
+// 该系统能力只在 Win11（build 22000+）允许关闭捕获边框，Win10 会留下一圈常驻黄框，
+// 所以在 Win10 上默认关掉采样；用户仍可在设置里手动打开（会收到一次黄框提示）。
+// Borderless capture requires Win11 (build >= 22000); Win10 always paints the
+// capture border, so the sampler defaults to off there and stays user-overridable.
+function wallpaperEngineBorderlessCaptureSupported() {
+  try {
+    var release = window.desktopWindow && window.desktopWindow.systemRelease;
+    // 拿不到系统版本时不猜：宁可少一个玻璃增强，也不让用户无故看到捕获黄框。
+    if (typeof release !== 'string' || !release) return false;
+    var parts = release.split('.');
+    var major = Number(parts[0]) || 0;
+    var build = Number(parts[2]) || 0;
+    if (major > 10) return true;
+    return major === 10 && build >= 22000;
+  } catch (e) {
+    return false;
+  }
+}
+
 var fxDefaults = {
   preset: 0,            // 0..8 legacy series; 9=halo, 10=neon rain, 11=prism flock, 12=abyssal bloom
   intensity: 0.85,
@@ -88,6 +108,18 @@ var fxDefaults = {
   wallpaperMode: false,
   wallpaperOpacity: 1,
   wallpaperFps: 60,
+  // WE 窗口静默：把 Wallpaper Engine 的运行窗口从任务栏和 Alt+Tab 里摘掉，
+  // 播放壁纸时不弹任务栏提醒。默认开启，可在设置里关闭。
+  wallpaperEngineSilentWindows: true,
+  // WE 玻璃采样：抓壁纸真实像素给控制栏玻璃做底。基线取 false——这条链路走 Chromium 窗口
+  // 捕获，Win10 必然留下一圈系统黄框。取不到系统版本、或读取走了兜底路径时，基线就是最终
+  // 值，此时宁可少一个玻璃增强，也不要让用户无故看到黄框。Win11（build 22000+）由读取路径
+  // 按 wallpaperEngineBorderlessCaptureSupported() 改回 true。
+  // Baseline false: the sampler goes through Chromium window capture, which always paints the
+  // system yellow border on Win10. The baseline becomes the final value whenever the release is
+  // unknown or the read path fell back, so lose the glass enhancement rather than show a border
+  // nobody asked for. Win11 (build >= 22000) is turned back on by the read path.
+  wallpaperEngineGlassSampler: false,
   floatLayer: false, cinema: true, edge: false, aiDepth: false, bloom: false, lyricGlow: true,
   lyricGlowBeat: true,
   lyricGlowParticles: false,

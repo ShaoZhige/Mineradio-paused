@@ -256,134 +256,76 @@ Function MineradioUsePreferredInstallDir
   Pop $INSTDIR
 FunctionEnd
 
-Function MineradioUseFirstAvailableInstallDir
-  IfFileExists "D:\*.*" driveD 0
-  IfFileExists "E:\*.*" driveE 0
-  IfFileExists "F:\*.*" driveF 0
-  IfFileExists "G:\*.*" driveG 0
-  IfFileExists "H:\*.*" driveH 0
-  IfFileExists "I:\*.*" driveI 0
-  IfFileExists "J:\*.*" driveJ 0
-  IfFileExists "K:\*.*" driveK 0
-  IfFileExists "L:\*.*" driveL 0
-  IfFileExists "M:\*.*" driveM 0
-  IfFileExists "N:\*.*" driveN 0
-  IfFileExists "O:\*.*" driveO 0
-  IfFileExists "P:\*.*" driveP 0
-  IfFileExists "Q:\*.*" driveQ 0
-  IfFileExists "R:\*.*" driveR 0
-  IfFileExists "S:\*.*" driveS 0
-  IfFileExists "T:\*.*" driveT 0
-  IfFileExists "U:\*.*" driveU 0
-  IfFileExists "V:\*.*" driveV 0
-  IfFileExists "W:\*.*" driveW 0
-  IfFileExists "X:\*.*" driveX 0
-  IfFileExists "Y:\*.*" driveY 0
-  IfFileExists "Z:\*.*" driveZ 0
-  StrCpy $INSTDIR "C:\${MINERADIO_INSTALL_DIR_NAME}"
-  Return
+; ---------------------------------------------------------------------------
+; 本地固定磁盘判定
+;
+; 原来用 IfFileExists "X:\*.*" 判断某个分区能不能装，而它只看「该盘根目录下有没有文件」：
+; 真正的空 D 盘会被判成"不存在"，而映射的网络盘 / 光驱 / 读卡器只要根目录有东西就被当
+; 成"本地区"，只有 C 盘但插了 U 盘的电脑会被误判成"还有别的分区"从而拒绝安装到 C 盘。
+; 这里改为问内核真实的驱动器类型，只认 DRIVE_FIXED(3)。
+; 中英对照：The drive scan used IfFileExists "X:\*.*", which only reports whether the drive
+; root contains any file: a genuinely empty local D: looked missing, while mapped network
+; drives, optical drives and card readers counted as local partitions. Ask the kernel for the
+; real drive type and accept DRIVE_FIXED (3) only.
+!ifndef MINERADIO_DRIVE_FIXED
+  !define MINERADIO_DRIVE_FIXED 3
+!endif
 
-  driveD:
-    StrCpy $INSTDIR "D:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveE:
-    StrCpy $INSTDIR "E:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveF:
-    StrCpy $INSTDIR "F:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveG:
-    StrCpy $INSTDIR "G:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveH:
-    StrCpy $INSTDIR "H:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveI:
-    StrCpy $INSTDIR "I:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveJ:
-    StrCpy $INSTDIR "J:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveK:
-    StrCpy $INSTDIR "K:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveL:
-    StrCpy $INSTDIR "L:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveM:
-    StrCpy $INSTDIR "M:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveN:
-    StrCpy $INSTDIR "N:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveO:
-    StrCpy $INSTDIR "O:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveP:
-    StrCpy $INSTDIR "P:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveQ:
-    StrCpy $INSTDIR "Q:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveR:
-    StrCpy $INSTDIR "R:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveS:
-    StrCpy $INSTDIR "S:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveT:
-    StrCpy $INSTDIR "T:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveU:
-    StrCpy $INSTDIR "U:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveV:
-    StrCpy $INSTDIR "V:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveW:
-    StrCpy $INSTDIR "W:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveX:
-    StrCpy $INSTDIR "X:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveY:
-    StrCpy $INSTDIR "Y:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
-  driveZ:
-    StrCpy $INSTDIR "Z:\${MINERADIO_INSTALL_DIR_NAME}"
-    Return
+Function MineradioDriveLetterIsFixed
+  ; 入参：栈上压入单个大写盘符（如 "D"）；返回：栈上压入 "1"/"0"
+  Exch $0
+  System::Call 'kernel32::GetDriveTypeW(w "$0:\\") i .r1'
+  ${If} $1 == ${MINERADIO_DRIVE_FIXED}
+    StrCpy $1 "1"
+  ${Else}
+    StrCpy $1 "0"
+  ${EndIf}
+  StrCpy $0 "$1"
+  Exch $0
+FunctionEnd
+
+Function MineradioFirstFixedDriveLetter
+  ; 返回：栈上压入第一个可用的本地固定盘符（D..Z），没有则压入空串。
+  ; 空串表示"这台电脑只有 C 盘"，调用方据此落回 C:\Mineradio。
+  ; 只用 $R 寄存器保存循环状态：被调用的 MineradioDriveLetterIsFixed 会占用 $0 / $1。
+  StrCpy $R0 "DEFGHIJKLMNOPQRSTUVWXYZ"
+
+  driveLoop:
+    StrCmp $R0 "" driveLoopEnd
+    StrCpy $R1 "$R0" 1 0
+    StrCpy $R0 "$R0" 64 1
+    Push $R1
+    Call MineradioDriveLetterIsFixed
+    Pop $R3
+    ${If} $R3 == "1"
+      Push "$R1"
+      Return
+    ${EndIf}
+    Goto driveLoop
+
+  driveLoopEnd:
+    Push ""
+FunctionEnd
+
+Function MineradioUseFirstAvailableInstallDir
+  Call MineradioFirstFixedDriveLetter
+  Pop $0
+  ${If} $0 == ""
+    StrCpy $INSTDIR "C:\${MINERADIO_INSTALL_DIR_NAME}"
+  ${Else}
+    StrCpy $INSTDIR "$0:\${MINERADIO_INSTALL_DIR_NAME}"
+  ${EndIf}
 FunctionEnd
 
 Function MineradioHasPreferredInstallDrive
-  IfFileExists "D:\*.*" hasPreferred 0
-  IfFileExists "E:\*.*" hasPreferred 0
-  IfFileExists "F:\*.*" hasPreferred 0
-  IfFileExists "G:\*.*" hasPreferred 0
-  IfFileExists "H:\*.*" hasPreferred 0
-  IfFileExists "I:\*.*" hasPreferred 0
-  IfFileExists "J:\*.*" hasPreferred 0
-  IfFileExists "K:\*.*" hasPreferred 0
-  IfFileExists "L:\*.*" hasPreferred 0
-  IfFileExists "M:\*.*" hasPreferred 0
-  IfFileExists "N:\*.*" hasPreferred 0
-  IfFileExists "O:\*.*" hasPreferred 0
-  IfFileExists "P:\*.*" hasPreferred 0
-  IfFileExists "Q:\*.*" hasPreferred 0
-  IfFileExists "R:\*.*" hasPreferred 0
-  IfFileExists "S:\*.*" hasPreferred 0
-  IfFileExists "T:\*.*" hasPreferred 0
-  IfFileExists "U:\*.*" hasPreferred 0
-  IfFileExists "V:\*.*" hasPreferred 0
-  IfFileExists "W:\*.*" hasPreferred 0
-  IfFileExists "X:\*.*" hasPreferred 0
-  IfFileExists "Y:\*.*" hasPreferred 0
-  IfFileExists "Z:\*.*" hasPreferred 0
-  Push "0"
-  Return
-
-  hasPreferred:
+  ; 返回 "1" 表示存在可用的非 C 本地固定盘，"0" 表示只有 C 盘（此时 C 盘安装放行）。
+  Call MineradioFirstFixedDriveLetter
+  Pop $0
+  ${If} $0 == ""
+    Push "0"
+  ${Else}
     Push "1"
-    Return
+  ${EndIf}
 FunctionEnd
 
 Function MineradioNormalizeInstallDir

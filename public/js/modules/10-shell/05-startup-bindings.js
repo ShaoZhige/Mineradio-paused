@@ -24,6 +24,12 @@ applyWallpaperModeState(false);
 setShelfMode(fx.shelf);
 if (fx.shelf === 'side') setShelfPinnedOpen(!!fx.shelfPinnedOpen, true, false);
 var restoredPlaybackAtStartup = restoreLastPlaybackSnapshot();
+// 曲库文件夹监视的订阅要在恢复之后挂上：早于恢复的话，第一次变化会和正在进行的恢复抢同一份
+// 列表。订阅本身不改变任何状态，只是接住主进程的通知。
+// Subscribe to the library folder watch after the restore: earlier than that and the first change
+// would race the restore for the same list. The subscription itself changes nothing, it only
+// receives the main-process signal.
+if (typeof bindPersistentLocalLibraryWatch === 'function') bindPersistentLocalLibraryWatch();
 var persistedLocalLibraryRestorePromise = Promise.resolve(restorePersistedLocalLibrary()).then(function (restored) {
   if (restored) restoredPlaybackAtStartup = true;
   else if (!restoredLastPlaybackSnapshot) restoredPlaybackAtStartup = false;

@@ -558,14 +558,35 @@ function checkWallpaperEngineImportGuard() {
   if (!/Get-AuthenticodeSignature/.test(runtimeText) || !/Skutta Software/.test(runtimeText) || !/engineProcessProbe/.test(runtimeText) || /onSourceMiss/.test(runtimeText) || !/projectFile/.test(runtimeText) || !/'openWallpaper'/.test(runtimeText) || !/'-playInWindow'/.test(runtimeText) || !/'closeWallpaper'/.test(runtimeText) || !/'-location'/.test(runtimeText) || !/shell:\s*false/.test(runtimeText) || !/desktopCapturer/.test(runtimeText) || !/controlBrokerScript/.test(runtimeText) || !/GetShellWindow/.test(runtimeText) || !/GetIntegrityRid/.test(runtimeText) || !/PROC_THREAD_ATTRIBUTE_PARENT_PROCESS/.test(runtimeText) || !/CreateProcessW/.test(runtimeText) || !/hostElevationProbe/.test(runtimeText) || !/MINERADIO_WE_CONTROL_TARGET/.test(runtimeText) || !/MINERADIO_WE_CONTROL_COMMAND_LINE/.test(runtimeText) || !/hostElevationProbe:\s*systemMemory\.probeProcessElevation/.test(mainText) || /WALLPAPER_ENGINE_HOST_ELEVATED/.test(mainText)) {
     fail('Wallpaper Engine Scene runtime must use the signed official engine, route elevated hosts through the Explorer medium-integrity broker, and retain the captured window source');
   }
-  const dwmSurfaceBlock = runtimeText.slice(
+  const dwmSurfaceBlockRaw = runtimeText.slice(
     runtimeText.indexOf('function nativeDwmThumbnailSurfaceScript'),
     runtimeText.indexOf('function quoteWindowsArgument')
   );
+  // 否定判据（"这个块里不许出现 SetWindowLong / SetParent / SW_HIDE…"）必须对着剥掉注释的源码。
+  // 这个块里本来就该留着"以前用过 SetWindowLong、后来收敛掉了"这类说明，照原文匹配会把有用的
+  // 历史记录判成违规——判据比意图宽，守卫就成了噪声。
+  // Negative criteria ("no SetWindowLong / SetParent / SW_HIDE in this block") must run against
+  // comment-stripped source. The block deliberately documents that SetWindowLong was used once and
+  // then removed; matching the raw text reads that useful history as a violation — a criterion wider
+  // than its intent turns the guard into noise.
+  const dwmSurfaceBlock = dwmSurfaceBlockRaw
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
   const captureReadyBlock = runtimeText.slice(
     runtimeText.indexOf('async confirmCaptureReady'),
     runtimeText.indexOf('_openControlArgs')
   );
+  // 关窗等待必须有下限，而且轮询形状不能丢。WE 弹出窗口在场景仍在初始化时可以拖很久才
+  // 收尾，早期 1.8 秒的硬上限会让整个原生会话因为"没等够"而失败、画面直接退回项目预览。
+  // 这里断言"轮询 HWND + 上限不低于 6000ms + 实际等待时长回传"，而不是钉死某一个数字。
+  // The close wait needs a floor and must stay a poll. A pop-out still initializing can take
+  // far longer than the early 1.8s cap, which failed the whole native session and dropped the
+  // wallpaper to its cover art. Assert the poll, a >= 6000ms cap, and the reported wait
+  // instead of pinning one magic number.
+  const closeWaitMatch = runtimeText.match(
+    /closeWait\.ElapsedMilliseconds < (\d+)\)\s*Thread\.Sleep\((\d+)\)/
+  );
+  const closeWaitCeilingMs = closeWaitMatch ? Number(closeWaitMatch[1]) : 0;
   if (!/nativeWindowControlScript/.test(runtimeText) || !/GetWindowThreadProcessId/.test(runtimeText)
     || !/Capture window title mismatch/.test(runtimeText) || !/Window process mismatch/.test(runtimeText)
     || !/SetThreadDpiAwarenessContext/.test(runtimeText) || !/new IntPtr\(-4\)/.test(runtimeText)
@@ -573,7 +594,9 @@ function checkWallpaperEngineImportGuard() {
     || !/bool aligned = !\(Math\.Abs\(sourceRect\.Left - hostRect\.Left\)/.test(runtimeText)
     || !/_relaunchSessionWindow/.test(runtimeText) || !/correctedWidth/.test(runtimeText)
     || !/embedding\.aligned !== true/.test(runtimeText) || !/PostMessageW\(hWnd, WM_CLOSE/.test(runtimeText)
-    || !/closeWait\.ElapsedMilliseconds < 1800/.test(runtimeText)
+    || !/closeWait\.ElapsedMilliseconds < \d+/.test(runtimeText)
+    || closeWaitCeilingMs < 6000
+    || !/closeResult\.closeWaitMs = closeWait\.ElapsedMilliseconds/.test(runtimeText)
     || !/closeResult\.closed = !IsWindow\(hWnd\)/.test(runtimeText)
     || !/nativeDwmThumbnailSurfaceScript/.test(runtimeText)
     || !/DwmRegisterThumbnail/.test(dwmSurfaceBlock)
@@ -2726,8 +2749,14 @@ async function checkProviderAuthCookiePathGuard() {
   if (!/async function loadMainWindowWithRetry\(win\)/.test(mainText) || !/const port = mainServerPort \|\| process\.env\.PORT \|\| 3000/.test(mainText) || !/win\.loadURL\(targetUrl\)/.test(mainText)) {
     fail('Main window navigation must use the configured server port through the bounded retry path');
   }
-  if (!/function reportWindowCreationFailure\(context, error\)/.test(mainText) || !/dialog\.showErrorBox\('Mineradio 启动失败'/.test(mainText)) {
+  if (!/function reportWindowCreationFailure\(context, error\)/.test(mainText) || !/function showNonBlockingErrorDialog\(title, detail, options = \{\}\)/.test(mainText) || !/showNonBlockingErrorDialog\(\s*`Mineradio 启动失败 \(\$\{code\}\)`/.test(mainText)) {
     fail('Main window startup failures must be surfaced instead of leaving a headless server process');
+  }
+  if (/dialog\.showErrorBox\(/.test(mainText)) {
+    fail('Blocking error dialogs must not return: they freeze the main thread and hold the single-instance lock');
+  }
+  if (!/app\.releaseSingleInstanceLock\(\)/.test(mainText) || !/notice\.then\(\(\) => app\.quit\(\)\)/.test(mainText)) {
+    fail('A failed startup must release the single-instance lock and quit once the notice is settled');
   }
   if (!/function resolveStartupErrorCode\(context, error\)/.test(mainText) || !/STARTUP_ERROR_LOG_FILE/.test(mainText) || !/MR-BOOT-SERVER-PORT/.test(mainText) || !/MR-BOOT-WINDOW-LOAD/.test(mainText) || !/startup-error\.log/.test(mainText)) {
     fail('Startup failure dialog must include stable MR-BOOT error codes and write startup-error.log');
@@ -2756,7 +2785,7 @@ async function checkProviderAuthCookiePathGuard() {
     || !/unresponsive/.test(mainText)) {
     fail('Main window navigation must accept a trusted committed document, clean up readiness listeners, retry once, and preserve real failure signals');
   }
-  if (!/const failedWindow = mainWindow/.test(mainText) || !/failedWindow\.destroy\(\)/.test(mainText) || !/setImmediate\(\(\) => app\.quit\(\)\)/.test(mainText)) {
+  if (!/const failedWindow = mainWindow/.test(mainText) || !/failedWindow\.destroy\(\)/.test(mainText) || !/app\.releaseSingleInstanceLock\(\)/.test(mainText) || !/notice\.then\(\(\) => app\.quit\(\)\)/.test(mainText)) {
     fail('Startup failure must destroy the hidden BrowserWindow and release the single-instance lock');
   }
   if (!/if \(mainWindow === win\)[\s\S]{0,120}mainWindow = null/.test(mainText) || !/win\.on\('closed'/.test(mainText)) {
@@ -3207,6 +3236,32 @@ function checkInternalBetaPackagingGuard() {
   const installerText = fs.readFileSync(path.join(appRoot, 'build', 'installer.nsh'), 'utf8');
   if (!/MINERADIO_INSTALL_DIR_NAME/.test(installerText) || !/MINERADIO_INSTALL_NOTICE/.test(installerText)) {
     fail('shared installer must keep configurable install-folder and notice hooks');
+  }
+  // Drive-letter probe: 盘符必须用 GetDriveTypeW 判定是否固定磁盘（#265/#275/#86/#102）。
+  // Drive-letter probe must use GetDriveTypeW; IfFileExists "<letter>:\*.*" only proves "the root
+  // has entries", so card readers / optical drives / empty removable disks were treated as
+  // install targets. 说明性注释会引用被替换掉的旧写法，故"不得出现"类断言只看真代码行。
+  const installerCode = installerText
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*;/.test(line))
+    .join('\n');
+  if (/IfFileExists\s+"[A-Z]:\\\*\.\*"/.test(installerCode)) {
+    fail('installer must not select install drives via IfFileExists "<letter>:\\*.*"');
+  }
+  if (!/System::Call\s+'kernel32::GetDriveTypeW\(w "\$0:\\\\"\) i \.r1'/.test(installerCode)) {
+    fail('installer must probe drive type through kernel32::GetDriveTypeW');
+  }
+  ['MineradioDriveLetterIsFixed', 'MineradioFirstFixedDriveLetter', 'MineradioUseFirstAvailableInstallDir', 'MineradioHasPreferredInstallDrive']
+    .forEach((fnName) => {
+      if (!new RegExp(`Function\\s+${fnName}\\b`).test(installerCode)) {
+        fail(`installer drive helper ${fnName} is missing`);
+      }
+    });
+  if (!/!define MINERADIO_DRIVE_FIXED 3/.test(installerCode)) {
+    fail('installer must pin DRIVE_FIXED to 3 before comparing drive types');
+  }
+  if (!/Call\s+MineradioFirstFixedDriveLetter/.test(installerCode)) {
+    fail('installer drive helpers must share a single fixed-drive enumeration');
   }
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   if (!/APP_PACKAGE_INFO/.test(mainText) || !/runtimeName/.test(mainText) || !/appUserModelId/.test(mainText)) {

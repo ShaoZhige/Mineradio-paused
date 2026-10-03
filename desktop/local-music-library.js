@@ -2,6 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Readable } = require('stream');
+const {
+  LOCAL_LIBRARY_MAX_WATCHED_DIRECTORIES,
+  LOCAL_LIBRARY_WATCH_DEBOUNCE_MS,
+  collectWatchableDirectories,
+  isSupportedAudioFile,
+  normalizedDirectoryKey,
+} = require('./local-library-watcher');
 
 const LOCAL_MUSIC_SCHEME = 'mineradio-local';
 const LOCAL_LIBRARY_VERSION = 1;
@@ -73,6 +80,22 @@ function normalizedPathIdentity(value) {
 function supportedAudioPath(value) {
   const resolved = normalizedAbsoluteFilePath(value);
   return resolved && AUDIO_MIME.has(path.extname(resolved).toLowerCase()) ? resolved : '';
+}
+
+// 判定记录指向的音频文件当前是否还在磁盘上。改名 / 移动 / 拔盘都会让记录变成孤儿，
+// 这类记录不能进播放队列（协议层 stat 会失败并返回 404 打死播放），但也绝不能从索引里
+// 删除：拔掉移动磁盘时删除会把该盘全部记录永久清掉，属于不可逆的数据丢失。
+// 中英对照：Detect orphan records whose audio file is no longer on disk. They must stay out
+// of the play queue (a 404 there aborts playback) but must never be pruned from the index —
+// pruning would permanently drop every record of a temporarily detached drive.
+function localRecordFileExists(record) {
+  const filePath = record && record.audioPath;
+  if (!filePath) return false;
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch (_) {
+    return false;
+  }
 }
 
 function cleanText(value, fallback, maxLength = 1000) {
@@ -303,6 +326,14 @@ class LocalMusicLibrary {
     this.mediaToken = crypto.randomBytes(24).toString('hex');
     this.protocolInstalled = false;
     this.mutation = Promise.resolve();
+    // 监视器状态。watchers 用 Map 存，键是折叠后的目录路径，这样重复注册同一个目录（大小写
+    // 不同、软链、不同来源的曲目落在同一目录）不会开出第二个句柄。
+    this.watchers = new Map();
+    this.watchDirectories = new Map();
+    this.watchDebounceTimers = new Map();
+    this.watchRoots = [];
+    this.watchSkippedDirectories = 0;
+    this.onWatchChange = typeof options.onWatchChange === 'function' ? options.onWatchChange : null;
     this.loadIndex();
   }
 
@@ -346,8 +377,13 @@ class LocalMusicLibrary {
     } catch (_) {}
   }
 
-  serializeRecord(record) {
-    const coverAvailable = !!record.coverPath;
+  // fileExists 为 false 时不下发 localUrl / cover：失效记录的音源 URL 只会 404，
+  // 交给播放器就只能得到"播放启动失败"，留空才会走前端可恢复的"本地文件已失效"分支。
+  // 中英对照：Withhold localUrl and cover for records whose file is gone — a URL for a
+  // missing file can only 404, which surfaces as an unrecoverable playback failure.
+  serializeRecord(record, fileExists) {
+    const available = fileExists !== false;
+    const coverAvailable = available && !!record.coverPath;
     return {
       type: 'local',
       source: 'local',
@@ -355,9 +391,9 @@ class LocalMusicLibrary {
       id: `local:${record.id}`,
       localFileId: record.id,
       localKey: record.id,
-      localUrl: localMediaUrl('audio', record.id, record.revision, this.mediaToken),
+      localUrl: available ? localMediaUrl('audio', record.id, record.revision, this.mediaToken) : '',
       localPath: record.relativePath || path.basename(record.audioPath),
-      localMissing: false,
+      localMissing: !available,
       name: record.name,
       title: record.name,
       artist: record.artist || '本地文件',
@@ -371,21 +407,46 @@ class LocalMusicLibrary {
 
   listTracksSync() {
     const tracks = [];
+    let missing = 0;
     for (const id of this.order) {
       const record = this.records.get(id);
-      if (record) tracks.push(this.serializeRecord(record));
+      if (!record) continue;
+      const fileExists = localRecordFileExists(record);
+      if (!fileExists) { missing += 1; continue; }
+      tracks.push(this.serializeRecord(record, fileExists));
     }
-    return { ok: true, version: LOCAL_LIBRARY_VERSION, count: tracks.length, tracks };
+    return { ok: true, version: LOCAL_LIBRARY_VERSION, count: tracks.length, missing, tracks };
   }
 
   async listTracks() {
     const tracks = [];
+    let missing = 0;
     for (let index = 0; index < this.order.length; index += 1) {
       const record = this.records.get(this.order[index]);
-      if (record) tracks.push(this.serializeRecord(record));
+      if (record) {
+        const fileExists = localRecordFileExists(record);
+        if (fileExists) tracks.push(this.serializeRecord(record, fileExists));
+        else missing += 1;
+      }
       if (index > 0 && index % 400 === 0) await new Promise((resolve) => setImmediate(resolve));
     }
-    return { ok: true, version: LOCAL_LIBRARY_VERSION, count: tracks.length, tracks };
+    return { ok: true, version: LOCAL_LIBRARY_VERSION, count: tracks.length, missing, tracks };
+  }
+
+  // 按 localFileId 回查当前记录并重新生成音源 URL。内置歌单保存的是导入时刻的曲目快照，
+  // 快照里的 localUrl 带着当时的 cap=<mediaToken>，媒体令牌一旦轮换（索引重建等）快照 URL
+  // 就永久 404，即使文件仍在磁盘上。与列表不同，这里保留失效曲目（localUrl 置空），
+  // 让内置歌单显示原有内容并在点击时给出可恢复的提示，而不是让它无声消失。
+  // 中英对照：Re-resolve a track against the live index. Built-in playlists keep a snapshot
+  // whose localUrl carries the media token captured at import time; a rotated token would make
+  // those URLs 404 forever even though the file is still on disk. Unlike the list output this
+  // keeps orphan entries (with an empty localUrl) so the playlist still shows what it curated.
+  resolveTrack(value) {
+    const id = cleanText(value, '', 64).replace(/^local:/, '').toLowerCase();
+    if (!/^[a-f0-9]{24}$/.test(id)) return null;
+    const record = this.records.get(id);
+    if (!record) return null;
+    return this.serializeRecord(record, localRecordFileExists(record));
   }
 
   lyricForTrack(value) {
@@ -614,6 +675,183 @@ class LocalMusicLibrary {
     const pending = this.mutation.then(operation, operation);
     this.mutation = pending.catch(() => {});
     return pending;
+  }
+
+  // 监视哪些根目录：从已有记录的 audioPath 反推它们的所在目录，并按目录归组。曲库是引用式的
+  // （记录指向原路径），所以"用户加了新歌"就等于"某个被引用目录里多了文件"。
+  // Which roots to watch: derived from the existing records' audioPath directories, grouped by
+  // directory. The library is reference-based (records point at the original files), so "the user
+  // added a song" simply means "a referenced directory gained a file".
+  watchedRoots() {
+    const byDirectory = new Map();
+    for (const record of this.records.values()) {
+      const audioPath = String(record && record.audioPath || '');
+      if (!audioPath || !supportedAudioPath(audioPath)) continue;
+      const directory = path.dirname(audioPath);
+      const key = normalizedDirectoryKey(directory);
+      if (!key) continue;
+      const entry = byDirectory.get(key);
+      if (entry) entry.directories.add(directory);
+      else byDirectory.set(key, { root: directory, directories: new Set([directory]) });
+    }
+    return [...byDirectory.values()];
+  }
+
+  // 开启监视。返回实际登记的目录数与被截断的数量——界面必须能把"没监视到"和"没有新歌"分开，
+  // 否则用户会以为功能坏了。
+  // Start watching. Reports how many directories were registered and how many were cut off: the UI
+  // has to tell "not being watched" apart from "no new songs", or the user thinks it is broken.
+  startWatching(options = {}) {
+    this.stopWatching();
+    if (options.enabled === false) return { ok: true, watching: false, directories: 0, skipped: 0 };
+    const cap = Math.max(1, Math.min(
+      LOCAL_LIBRARY_MAX_WATCHED_DIRECTORIES,
+      Math.round(Number(options.maxDirectories) || LOCAL_LIBRARY_MAX_WATCHED_DIRECTORIES)
+    ));
+    const roots = [];
+    let skipped = 0;
+    let registered = 0;
+    for (const group of this.watchedRoots()) {
+      const collected = collectWatchableDirectories(group.root, Math.max(1, cap - registered));
+      skipped += collected.skipped;
+      roots.push(group.root);
+      for (const directory of collected.directories) {
+        const key = normalizedDirectoryKey(directory);
+        if (!key || this.watchers.has(key)) continue;
+        try {
+          const watcher = fs.watch(directory, { persistent: false }, (eventType, filename) => {
+            // 只对"可能影响曲库"的事件响应：Windows 上改名会同时报 rename，内容变化报 change。
+            // 至于有没有新歌，等防抖合并之后统一判断，不在这里猜。
+            // Only react to events that can affect the library: Windows reports a rename twice
+            // (delete + rename) and a content change as 'change'. Whether anything actually changed
+            // is decided after the debounce, not guessed here.
+            if (eventType !== 'rename' && eventType !== 'change') return;
+            this._scheduleWatchSync(group.root);
+          });
+          watcher.on('error', () => {
+            // 单个 watcher 出错（目录被删、句柄失效）只摘掉它自己，不能连带整个监视停摆。
+            // One watcher failing (directory removed, handle invalidated) is dropped on its own
+            // rather than taking the whole watch down with it.
+            try { watcher.close(); } catch (error) { }
+            this.watchers.delete(key);
+            this.watchDirectories.delete(key);
+          });
+          this.watchers.set(key, watcher);
+          this.watchDirectories.set(key, directory);
+          registered += 1;
+        } catch (error) {
+          // 注册失败（目录不可读、句柄耗尽）就跳过这个目录，别的目录照常监视。
+          // A directory that cannot be watched is skipped; the rest keep working.
+          skipped += 1;
+        }
+      }
+    }
+    this.watchRoots = roots;
+    this.watchSkippedDirectories = skipped;
+    return { ok: true, watching: registered > 0, directories: registered, skipped };
+  }
+
+  _scheduleWatchSync(root) {
+    if (this.watchDebounceTimers.has(root)) clearTimeout(this.watchDebounceTimers.get(root));
+    const timer = setTimeout(() => {
+      this.watchDebounceTimers.delete(root);
+      this.syncWatchedFolders().catch((error) => {
+        console.warn('[LocalLibrary] watched folder sync failed:', error && (error.code || error.message) || error);
+      });
+    }, LOCAL_LIBRARY_WATCH_DEBOUNCE_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+    this.watchDebounceTimers.set(root, timer);
+  }
+
+  // 增量同步：被监视目录里多出来的音频文件入库；记录指向的文件不见了、而它所在目录还在，则下架。
+  // Incremental sync: audio files that appeared under a watched directory are imported, and records
+  // whose file is gone are pruned only while the containing directory still exists.
+  async syncWatchedFolders() {
+    const known = new Set();
+    for (const record of this.records.values()) {
+      const audioPath = String(record && record.audioPath || '');
+      if (audioPath) known.add(normalizedDirectoryKey(audioPath));
+    }
+    const discovered = [];
+    const vanished = [];
+    for (const [key, directory] of this.watchDirectories) {
+      // 遍历期间 watcher 可能被 error 处理摘掉，所以每轮都要确认它还在。
+      // A watcher can be dropped by its own error handler mid-iteration, so re-check each round.
+      if (!this.watchers.has(key) || !directory) continue;
+      let entries = [];
+      try {
+        entries = fs.readdirSync(directory, { withFileTypes: true });
+      } catch (error) {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isFile() || !isSupportedAudioFile(entry.name)) continue;
+        const candidate = path.join(directory, entry.name);
+        if (known.has(normalizedDirectoryKey(candidate))) continue;
+        known.add(normalizedDirectoryKey(candidate));
+        discovered.push(candidate);
+      }
+    }
+    for (const record of [...this.records.values()]) {
+      const audioPath = String(record && record.audioPath || '');
+      if (!audioPath || record.missing === true) continue;
+      let present = true;
+      try {
+        present = fs.statSync(audioPath).isFile();
+      } catch (error) {
+        present = false;
+      }
+      if (present) continue;
+      // 目录还在才敢下架：盘掉线、网络断开也会让文件"消失"，那时候删索引是不可逆的数据损失。
+      // Prune only while the directory is still there: a dropped drive or a disconnected share also
+      // makes files vanish, and wiping the index for that is irreversible data loss.
+      let directoryAlive = false;
+      try {
+        directoryAlive = fs.statSync(path.dirname(audioPath)).isDirectory();
+      } catch (error) {
+        directoryAlive = false;
+      }
+      if (directoryAlive) vanished.push(record.id);
+    }
+    // importFiles 返回的是**整库快照**（count = 库里的总数），不是"这次新增了几首"。直接拿它的
+    // count 当新增数，第二次同步就会报"新增 2"这种明显不对的数字。所以按库容量的差值算。
+    // importFiles returns a snapshot of the WHOLE library (count = total tracks), not how many were
+    // just added. Using its count would report nonsense such as "added 2" on a no-op sync, so the
+    // number of additions is the change in library size.
+    const beforeImport = this.records.size;
+    let failures = [];
+    if (discovered.length) {
+      const imported = await this.importFiles(discovered, { replace: false });
+      failures = (imported && Array.isArray(imported.failures)) ? imported.failures : [];
+    }
+    const added = Math.max(0, this.records.size - beforeImport);
+    if (vanished.length) await this.removeTracks(vanished);
+    const changed = added > 0 || vanished.length > 0;
+    if (changed && typeof this.onWatchChange === 'function') {
+      try {
+        this.onWatchChange({ added, removed: vanished.length });
+      } catch (error) {
+        console.warn('[LocalLibrary] watch change notification failed:', error && (error.message || error) || error);
+      }
+    }
+    return { ok: true, added, removed: vanished.length, discovered: discovered.length, failures };
+  }
+
+  // 关掉全部 watcher 与防抖定时器。fs.watch 的句柄是常驻的，不关进程就退不出去，所以这个方法
+  // 必须在库被释放的路径上被调用。
+  // Close every watcher and debounce timer. fs.watch handles are live and keep the process alive, so
+  // this must run on every path that releases the library.
+  stopWatching() {
+    for (const timer of this.watchDebounceTimers.values()) clearTimeout(timer);
+    this.watchDebounceTimers.clear();
+    for (const watcher of this.watchers.values()) {
+      try { watcher.close(); } catch (error) { }
+    }
+    this.watchers.clear();
+    this.watchDirectories.clear();
+    this.watchRoots = [];
+    this.watchSkippedDirectories = 0;
+    return true;
   }
 
   removeTracks(ids) {

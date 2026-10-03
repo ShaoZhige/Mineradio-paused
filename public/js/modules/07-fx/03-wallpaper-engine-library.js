@@ -24,6 +24,11 @@ var wallpaperEngineNativeSessionId = '';
 var wallpaperEngineHostBoundsRestartTimer = 0;
 var wallpaperEngineHostBoundsUnsubscribe = null;
 var wallpaperEngineHostBoundsPreparing = false;
+// 主进程在「常驻最小化」时发来 hold：本次隐藏不拆台，常驻原生表面保持不变。渲染进程必须
+// 跳过自己的 visibilitychange 拆台，否则会把常驻会话停掉，恢复时只能整轮重启（#406）。
+// Main sends `hold` for a resident minimize: the native surface stays alive, so the renderer must
+// skip its own visibilitychange teardown or the restore can only restart the whole Scene (#406).
+var wallpaperEngineHostResidentHold = false;
 var wallpaperEngineDesktopPreviewActive = false;
 var wallpaperEngineDesktopPreviewUsesAsset = false;
 var wallpaperEngineHostRecoveryInFlight = false;
@@ -41,6 +46,14 @@ var wallpaperEnginePointerActivityLatestY = 32768;
 var wallpaperEnginePointerActivityHasPoint = false;
 var wallpaperEngineRenderLimit = 240;
 var wallpaperEngineRuntimeError = '';
+// 原生实时运行失败后的自动补试：只在"关窗还在收尾"这类瞬态失败上补一次，避免用户
+// 什么都不做就掉到封面图。计数在用户主动激活和真正跑起来时清零。
+// One automatic re-attempt after a transient native failure (a pop-out still tearing down),
+// so a single hiccup does not drop the user onto the cover art. The counter resets on an
+// explicit activation and whenever the native scene actually comes up.
+var wallpaperEngineNativeAutoRetryTimer = 0;
+var wallpaperEngineNativeAutoRetryUsed = 0;
+var WALLPAPER_ENGINE_NATIVE_AUTO_RETRY_DELAY_MS = 1200;
 var wallpaperEngineProjectDetailsId = '';
 var wallpaperEngineVisualSettingsTimer = 0;
 var WALLPAPER_ENGINE_SWITCH_FADE_MS = 440;
@@ -115,6 +128,17 @@ function cancelWallpaperEngineHostRecovery(resetAttempts) {
   if (resetAttempts !== false) wallpaperEngineHostRecoveryAttempt = 0;
 }
 
+// 自动补试的定时器/计数只服务于"上一次实时窗口还在收尾"这一种瞬态失败：用户主动激活、
+// 原生场景真正跑起来、或者壁纸被关掉时都要清零，否则一次失败会把后续所有会话的补试额度
+// 提前用光。
+// The auto-retry timer/counter only covers the transient teardown failure. Explicit
+// activation, a native scene that actually came up, and deactivation all reset it, otherwise
+// one failure would silently consume the budget of every later session.
+function cancelWallpaperEngineNativeAutoRetry() {
+  if (wallpaperEngineNativeAutoRetryTimer) clearTimeout(wallpaperEngineNativeAutoRetryTimer);
+  wallpaperEngineNativeAutoRetryTimer = 0;
+}
+
 function wallpaperEngineDesktopHostIsVisible() {
   if (!wallpaperEngineUsesDesktopHostLifecycle()) return !document.hidden;
   try {
@@ -158,14 +182,42 @@ function normalizeWallpaperEngineSelection(value) {
     visualOpacity: Math.max(0.15, Math.min(1, Number(value.visualOpacity) || 1)),
     visualPositionX: Math.max(-0.5, Math.min(0.5, Number(value.visualPositionX) || 0)),
     visualPositionY: Math.max(-0.5, Math.min(0.5, Number(value.visualPositionY) || 0)),
-    visualScale: Math.max(1, Math.min(1.6, Number(value.visualScale) || 1.08)),
+    visualScale: Math.max(1, Math.min(1.6, Number(value.visualScale) || WALLPAPER_ENGINE_DEFAULT_SCALE)),
     updatedAt: Math.max(0, Number(value.updatedAt) || 0)
   };
 }
 
+// 旧版把 1.08 硬编码成默认缩放：从没动过滑杆的用户也会被无条件放大 8%，壁纸表面永远多
+// 一次重采样（发虚）并裁掉一圈取景。滑杆下限本来就是 1，平移所需的余量由 DWM 侧的
+// automaticOverscan 在位置真正偏移时才补，所以默认值应当是 1（1:1，不重采样）。
+// 只迁移"恰好停在旧默认值"的记录；用户真正选过的其它数值一律保留。
+// The legacy default of 1.08 forced an unconditional 8% upscale on every wallpaper.
+// The 1x scale slider floor already means "no zoom", and the DWM side only grows the
+// overscan once the position actually moves, so the default becomes exactly 1x.
+// Only records still sitting on the old default are migrated; real user values stay.
+var WALLPAPER_ENGINE_DEFAULT_SCALE = 1;
+var WALLPAPER_ENGINE_LEGACY_DEFAULT_SCALE = 1.08;
+var WALLPAPER_ENGINE_SCALE_MIGRATION_KEY = 'mineradio.wallpaperEngine.scaleUnzoomMigrated.v1';
+
+function migrateWallpaperEngineLegacyDefaultScale(raw) {
+  var value = raw && typeof raw === 'object' ? raw : {};
+  try {
+    if (localStorage.getItem(WALLPAPER_ENGINE_SCALE_MIGRATION_KEY) === '1') return value;
+    localStorage.setItem(WALLPAPER_ENGINE_SCALE_MIGRATION_KEY, '1');
+  } catch (e) {
+    return value;
+  }
+  if (Number(value.visualScale) !== WALLPAPER_ENGINE_LEGACY_DEFAULT_SCALE) return value;
+  var migrated = Object.assign({}, value, { visualScale: WALLPAPER_ENGINE_DEFAULT_SCALE });
+  try { localStorage.setItem(WALLPAPER_ENGINE_SELECTION_STORE_KEY, JSON.stringify(migrated)); } catch (e2) { }
+  return migrated;
+}
+
 function readWallpaperEngineSelection() {
-  try { return normalizeWallpaperEngineSelection(JSON.parse(localStorage.getItem(WALLPAPER_ENGINE_SELECTION_STORE_KEY) || '{}')); }
-  catch (e) { return normalizeWallpaperEngineSelection({}); }
+  var raw = {};
+  try { raw = JSON.parse(localStorage.getItem(WALLPAPER_ENGINE_SELECTION_STORE_KEY) || '{}'); }
+  catch (e) { raw = {}; }
+  return normalizeWallpaperEngineSelection(migrateWallpaperEngineLegacyDefaultScale(raw));
 }
 
 var wallpaperEngineSelection = readWallpaperEngineSelection();
@@ -175,7 +227,7 @@ function wallpaperEngineVisualSettings() {
     opacity: Math.max(0.15, Math.min(1, Number(wallpaperEngineSelection.visualOpacity) || 1)),
     positionX: Math.max(-0.5, Math.min(0.5, Number(wallpaperEngineSelection.visualPositionX) || 0)),
     positionY: Math.max(-0.5, Math.min(0.5, Number(wallpaperEngineSelection.visualPositionY) || 0)),
-    scale: Math.max(1, Math.min(1.6, Number(wallpaperEngineSelection.visualScale) || 1.08))
+    scale: Math.max(1, Math.min(1.6, Number(wallpaperEngineSelection.visualScale) || WALLPAPER_ENGINE_DEFAULT_SCALE))
   };
 }
 
@@ -310,12 +362,33 @@ function wallpaperEngineProjectLabel(item) {
   return '本地项目 · 安全预览';
 }
 
+// 预览兜底显示的是工程目录里的 preview.jpg/png（工坊 Scene 常见仅 512×288），它只是
+// 壁纸的封面而不是壁纸本体：再套上用户的位置/缩放只会更糊并裁掉一圈取景。这里给图层
+// 打标，交由 CSS 固定成 1:1 不放大，避免"看起来像壁纸其实不是"的误导。
+// A preview fallback is the project's preview.jpg/png (often as small as 512x288) — the
+// cover art, not the wallpaper. Applying the position/zoom sliders on top only blurs and
+// crops it, so the class pins the layer to 1x and CSS decides how to fit it.
+function markWallpaperEnginePreviewSource(active) {
+  var layer = document.getElementById('wallpaper-engine-layer');
+  if (layer) layer.classList.toggle('preview-source', active === true);
+}
+
 function updateWallpaperEngineEntryUi(message) {
   var value = document.getElementById('wallpaper-engine-value');
   var restore = document.getElementById('wallpaper-engine-restore-btn');
+  var retry = document.getElementById('wallpaper-engine-retry-btn');
   var active = !!wallpaperEngineSelection.active;
   if (value) {
     if (message) value.textContent = message;
+    // 预览兜底必须自己说话。以前 runtimeError 分支排在最前面，于是"项目预览"会被写成
+    // "已显示原背景"——屏幕上明明是一张被拉伸的封面图，文案却告诉用户背景是原来的。
+    // The preview fallback has to speak for itself. The runtimeError branch used to win, which
+    // labelled a stretched cover art as "original background" — text never matched the screen.
+    else if (active && wallpaperEngineSelection.kind === 'preview') {
+      value.textContent = (wallpaperEngineSelection.title || '已选择')
+        + ' · 项目预览（非动态壁纸）'
+        + (wallpaperEngineRuntimeError ? ' · ' + wallpaperEngineRuntimeError : '');
+    }
     else if (active && wallpaperEngineRuntimeError) value.textContent = wallpaperEngineRuntimeError + ' · 已显示原背景';
     else if (active && wallpaperEngineSelection.kind === 'engine' && wallpaperEngineDesktopPreviewActive) {
       value.textContent = (wallpaperEngineSelection.title || '已选择')
@@ -326,6 +399,19 @@ function updateWallpaperEngineEntryUi(message) {
     else value.textContent = '未启用 · 原背景保留';
   }
   if (restore) restore.disabled = !active;
+  // 只有"当前没在原生实时运行"时才给重试入口：项目预览、桌面被动模式退回的封面/原背景，
+  // 或上一次运行报错。
+  // Only offer the retry entry once the native scene is not actually running: a project preview,
+  // a desktop-passive fallback, or a recorded run error.
+  //
+  // 桌面被动模式必须单独判：那一支的 kind 仍然是 'engine'（见上面 393 行的文案分支），
+  // 只看 kind 会把它当成"正在实时运行"，于是屏幕上明明是封面图、重试入口却是灰的。
+  // Desktop passive mode needs its own clause: that branch keeps kind === 'engine' (see the
+  // label branch at 393), so a kind-only test calls it "running" and leaves the retry entry
+  // greyed out while the screen shows cover art.
+  var retryablePreview = wallpaperEngineSelection.kind === 'preview'
+    || (wallpaperEngineSelection.kind === 'engine' && wallpaperEngineDesktopPreviewActive === true);
+  if (retry) retry.disabled = !(active && (retryablePreview || !!wallpaperEngineRuntimeError));
 }
 
 function cancelWallpaperEngineSwitchTimer() {
@@ -1173,6 +1259,34 @@ function waitForWallpaperEngineGlassSamplerPixelChange(video, stream, baseline, 
   });
 }
 
+// Win10 上玻璃采样一旦真的建立捕获流，系统必然给被捕获窗口画一圈黄框。手动切换开关时已经
+// 提示过一次，但"存档里开着、用户早已忘记"的情况不会经过那条路径：壁纸每次启动都会默默
+// 重建捕获流，黄框看起来就像凭空出现的。这里在真正调度采样前补一次提醒，每个会话只提醒
+// 一次，避免每次重开壁纸都弹。
+// On Win10 the glass sampler always paints the system capture border once a capture stream is
+// really up. Toggling the setting already warns once, but a value stored long ago never goes
+// through that path: the border then looks like it appeared out of nowhere. Remind once per
+// session, right before the capture is scheduled.
+var wallpaperEngineGlassBorderNotified = false;
+
+function notifyWallpaperEngineGlassSamplerBorder() {
+  if (wallpaperEngineGlassBorderNotified) return false;
+  if (typeof wallpaperEngineBorderlessCaptureSupported !== 'function') return false;
+  // 判定函数拿不到系统版本时返回 false，那是"不确定"而不是"确定有黄框"，不该拿它去打扰
+  // 用户。只有明确读到版本号、且确实低于 Win11 门槛时才提醒。
+  // The helper returns false for an unknown release, which means undecided rather than bordered;
+  // only a real release below the Win11 threshold earns a reminder.
+  var release = window.desktopWindow && window.desktopWindow.systemRelease;
+  if (typeof release !== 'string' || !release) return false;
+  if (wallpaperEngineBorderlessCaptureSupported()) return false;
+  wallpaperEngineGlassBorderNotified = true;
+  if (typeof showToast === 'function') {
+    showToast('WE 玻璃采样已开启：Windows 10 无法隐藏系统捕获黄框，壁纸会带一圈黄边；'
+      + '不需要就到设置里关闭「WE 玻璃采样」');
+  }
+  return true;
+}
+
 function scheduleWallpaperEngineGlassSamplerCapture(sessionId, layerToken, attempt) {
   if (wallpaperEngineGlassCaptureRetryTimer) clearTimeout(wallpaperEngineGlassCaptureRetryTimer);
   wallpaperEngineGlassCaptureRetryTimer = 0;
@@ -1196,6 +1310,7 @@ async function ensureWallpaperEngineGlassSamplerCapture(sessionId, layerToken, a
     || !/^[a-f0-9]{24}$/i.test(sessionId)
     || layerToken !== wallpaperEngineLayerToken
     || sessionId !== String(wallpaperEngineNativeSessionId || '')
+    || fx.wallpaperEngineGlassSampler === false
     || wallpaperEngineCaptureMode !== 'dwm-thumbnail') return false;
   var activeTrack = wallpaperEngineGlassCaptureStream && wallpaperEngineGlassCaptureStream.getVideoTracks
     ? wallpaperEngineGlassCaptureStream.getVideoTracks()[0] : null;
@@ -1309,7 +1424,8 @@ async function startWallpaperEngineNativeBackground(item, token) {
     id: item.id,
     width: Math.max(640, Math.min(3840, Math.round(window.innerWidth || 1920))),
     height: Math.max(360, Math.min(2160, Math.round(window.innerHeight || 1080))),
-    fps: wallpaperEngineCaptureFpsPreference()
+    fps: wallpaperEngineCaptureFpsPreference(),
+    silentWindows: fx.wallpaperEngineSilentWindows !== false
   });
   if (!result || result.ok === false) {
     var failedSessionId = String(result && result.sessionId || '');
@@ -1318,7 +1434,16 @@ async function startWallpaperEngineNativeBackground(item, token) {
       await reportWallpaperEngineCaptureResult(failedSessionId, false);
       await stopWallpaperEngineNativeSession(failedSessionId);
     }
-    throw new Error(result && result.error || 'WALLPAPER_ENGINE_SCENE_START_FAILED');
+    throw (function () {
+      var startFailure = new Error(result && result.error || 'WALLPAPER_ENGINE_SCENE_START_FAILED');
+      // 关窗失败的阶段决定界面该说什么：等待窗口内没收尾还可能再试成功，窗口校验失败则
+      // 重试多少次都一样。主进程会把阶段一起报上来。
+      // The failing stage decides the message: a teardown that outlived the wait may still
+      // succeed on a second attempt, a window validation failure never will.
+      if (result && result.errorStage) startFailure.closeStage = String(result.errorStage);
+      if (result && result.errorDetail) startFailure.nativeDetail = String(result.errorDetail);
+      return startFailure;
+    }());
   }
   var sessionId = String(result.sessionId || '');
   if (!/^[a-f0-9]{24}$/i.test(sessionId)) throw new Error('WALLPAPER_ENGINE_SESSION_INVALID');
@@ -1408,7 +1533,16 @@ function wallpaperEngineRuntimeErrorText(error) {
   if (/WALLPAPER_ENGINE_HOST_ELEVATED/.test(code)) return 'Mineradio 正以管理员身份运行，无法捕获 WE 实时窗口；请取消“以管理员身份运行”后重启播放器';
   if (/WALLPAPER_ENGINE_NOT_INSTALLED/.test(code)) return '未找到 Wallpaper Engine 本体';
   if (/WALLPAPER_ENGINE_SIGNATURE_INVALID/.test(code)) return 'Wallpaper Engine 运行时签名无效';
-  if (/WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED/.test(code)) return '上一次 Mineradio 实时壁纸窗口仍在收尾，请稍后重试；Wallpaper Engine 本体会保留';
+  if (/WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED/.test(code)) {
+    // 关窗失败分两种：窗口在等待窗口内没关掉（再试一次通常就好了），或者控制器根本没认出
+    // 那个窗口（标题 / 进程校验不通过）。后者重试再多次也没有用，不能对用户说"请稍后重试"。
+    // Two cases: the HWND outlived the wait (a retry usually helps), or the controller never
+    // recognised the window at all (title/process validation). Retrying the latter is futile.
+    if (String(error && error.closeStage || '') === 'control') {
+      return '上一次 Mineradio 实时壁纸窗口无法接管（窗口校验失败），已切换到项目预览；Wallpaper Engine 本体会保留';
+    }
+    return '上一次 Mineradio 实时壁纸窗口仍在收尾，请稍后重试；Wallpaper Engine 本体会保留';
+  }
   if (/WALLPAPER_ENGINE_DWM_SURFACE_FAILED|WALLPAPER_ENGINE_PARALLAX_RELAY_FAILED/.test(code)) return 'WE 原生鼠标视差连接失败，本次会话已关闭；请再次点击重连';
   if (/WALLPAPER_ENGINE_CONTROL_FAILED/.test(code)) return 'WE 场景控制暂时未就绪，请稍后重试';
   if (/WALLPAPER_ENGINE_WINDOW_TIMEOUT/.test(code)) return 'WE 场景窗口启动超时';
@@ -1479,7 +1613,7 @@ function clearWallpaperEngineLayerMedia(delay) {
   var video = document.getElementById('wallpaper-engine-video');
   function release() {
     if (token !== wallpaperEngineLayerToken) return;
-    if (layer) layer.classList.remove('ready', 'image-ready', 'video-ready', 'engine-ready', 'freeze-ready');
+    if (layer) layer.classList.remove('ready', 'image-ready', 'video-ready', 'engine-ready', 'freeze-ready', 'preview-source');
     clearWallpaperEngineFreezeFrame(true);
     if (image) {
       image.onload = null;
@@ -1523,6 +1657,12 @@ function suspendOriginalBackgroundForWallpaperEngine() {
 
 function wallpaperEngineLayerReady(kind, token) {
   if (token !== wallpaperEngineLayerToken || !wallpaperEngineSelection.active) return;
+  if (kind === 'dwm') {
+    // 原生场景真的上屏了，把自动补试的额度还回去。
+    // The native scene is genuinely on screen; return the auto-retry budget.
+    wallpaperEngineNativeAutoRetryUsed = 0;
+    cancelWallpaperEngineNativeAutoRetry();
+  }
   cancelWallpaperEngineHostRecovery(true);
   var layer = document.getElementById('wallpaper-engine-layer');
   if (!layer) return;
@@ -1535,11 +1675,21 @@ function wallpaperEngineLayerReady(kind, token) {
     if (kind === 'video' && wallpaperEngineSelection.kind === 'engine') queueWallpaperEnginePointerActivity();
   }
   document.body.classList.add('wallpaper-engine-active');
+  // 预览标记只由当前真正上屏的来源决定：选择项自身就是预览兜底，或桌面被动模式退回了封面图。
+  // 这样从预览恢复到原生实时运行时会自动摘掉标记，不会把 1:1 限制留在真正的壁纸上。
+  // The marker follows whatever is actually on screen: either the selection itself is a
+  // preview fallback, or desktop coexistence fell back to the cover art. Recovering into a
+  // native scene therefore drops it automatically instead of pinning the real wallpaper.
+  markWallpaperEnginePreviewSource(
+    wallpaperEngineSelection.kind === 'preview'
+    || (wallpaperEngineSelection.kind === 'engine' && wallpaperEngineDesktopPreviewUsesAsset)
+  );
   applyWallpaperEngineVisualSettings(true);
   if (kind === 'dwm' && typeof animateWallpaperEngineControlGlassSurface === 'function') {
     animateWallpaperEngineControlGlassSurface(560);
   }
-  if (kind === 'dwm') {
+  if (kind === 'dwm' && fx.wallpaperEngineGlassSampler !== false) {
+    notifyWallpaperEngineGlassSamplerBorder();
     scheduleWallpaperEngineGlassSamplerCapture(String(wallpaperEngineNativeSessionId || ''), token, 0);
   }
   suspendOriginalBackgroundForWallpaperEngine();
@@ -1548,7 +1698,7 @@ function wallpaperEngineLayerReady(kind, token) {
   renderWallpaperEngineLibrary();
 }
 
-function wallpaperEngineLayerFailed(item, attemptedKind, token) {
+function wallpaperEngineLayerFailed(item, attemptedKind, token, failureError) {
   if (token !== wallpaperEngineLayerToken) return;
   var nativeStopPromise = Promise.resolve({ ok: true });
   if (attemptedKind === 'engine') {
@@ -1580,6 +1730,29 @@ function wallpaperEngineLayerFailed(item, attemptedKind, token) {
       return;
     }
     cancelWallpaperEngineHostRecovery(true);
+    // 关窗失败意味着原生会话根本没起来（多数是 WE 弹出窗口还在收尾）。这类失败重试是真
+    // 有用的，而掉到项目预览后界面不会自己回升，用户还未必找得到重试按钮——所以这里先
+    // 自己补一次完整的启动流程，只补一次，之后交回给界面上的重试入口。
+    // A close failure means the native session never came up (usually a pop-out still tearing
+    // down). Retrying genuinely helps here, and a preview fallback never promotes itself back,
+    // so re-run the full start once — exactly once — then hand control back to the retry entry.
+    if (/WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED/.test(String(failureError && (failureError.code || failureError.message) || failureError || ''))
+      && String(failureError && failureError.closeStage || '') !== 'control'
+      && wallpaperEngineNativeAutoRetryUsed < 1) {
+      wallpaperEngineNativeAutoRetryUsed += 1;
+      cancelWallpaperEngineNativeAutoRetry();
+      updateWallpaperEngineEntryUi('WE 实时窗口正在收尾，正在自动重试…');
+      wallpaperEngineNativeAutoRetryTimer = setTimeout(function () {
+        wallpaperEngineNativeAutoRetryTimer = 0;
+        if (token !== wallpaperEngineLayerToken
+          || !wallpaperEngineSelection.active
+          || wallpaperEngineSelection.kind !== 'engine'
+          || wallpaperEngineSelection.id !== (item && item.id)) return;
+        wallpaperEngineRuntimeError = '';
+        applyWallpaperEngineBackground(item, false);
+      }, WALLPAPER_ENGINE_NATIVE_AUTO_RETRY_DELAY_MS);
+      return;
+    }
   }
   if ((attemptedKind === 'media' || attemptedKind === 'engine') && item && item.hasPreview) {
     wallpaperEngineSelection.kind = 'preview';
@@ -1611,6 +1784,10 @@ function applyWallpaperEngineBackground(item, quiet) {
     wallpaperEngineLayerFailed(item, kind, wallpaperEngineLayerToken);
     return false;
   }
+  // 只对预览兜底打标；原生引擎与直接媒体走的仍是用户的缩放/位置设置。
+  // Only the preview fallback is pinned to 1x; native scenes and direct media keep the
+  // user's zoom/position settings.
+  markWallpaperEnginePreviewSource(kind === 'preview');
   var layer = document.getElementById('wallpaper-engine-layer');
   var image = document.getElementById('wallpaper-engine-image');
   var video = document.getElementById('wallpaper-engine-video');
@@ -1632,7 +1809,7 @@ function applyWallpaperEngineBackground(item, quiet) {
         if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED/.test(String(error && (error.code || error.message) || error || ''))) return;
         console.warn('[Wallpaper Engine Scene]', error);
         wallpaperEngineRuntimeError = wallpaperEngineRuntimeErrorText(error);
-        wallpaperEngineLayerFailed(item, kind, token);
+        wallpaperEngineLayerFailed(item, kind, token, error);
       });
     } else if (kind === 'media' && item.mediaType === 'video') {
       video.muted = true;
@@ -1673,6 +1850,12 @@ function activateWallpaperEngineItem(id) {
     showToast('该项目没有可安全导入的媒体');
     return;
   }
+  // 用户主动发起（含界面上的"重试原生运行"），把自动补试的额度重置，否则上面那次
+  // 自动补试用光之后，用户手点的重试再失败也不会再自动补。
+  // An explicit activation (including the in-app retry entry) restores the auto-retry budget;
+  // otherwise a manual retry that fails would get no automatic second attempt.
+  wallpaperEngineNativeAutoRetryUsed = 0;
+  cancelWallpaperEngineNativeAutoRetry();
   wallpaperEngineSelection = normalizeWallpaperEngineSelection({
     active: true,
     id: item.id,
@@ -1698,8 +1881,34 @@ function activateWallpaperEngineItem(id) {
   closeWallpaperEngineLibrary();
 }
 
+// 预览兜底不会自己变回原生实时运行，光靠一次性 toast 里的"再次点击可重试"用户根本找不到
+// 入口。这里给一个常驻按钮：重新按项目能力判定一次，能原生跑的重新拉起引擎。
+// A preview fallback never promotes itself back to the native scene, and the one-shot
+// toast is not a discoverable entry point. Re-resolve the project's capability and retry.
+function retryWallpaperEngineNativeRun() {
+  if (!wallpaperEngineSelection.active) {
+    showToast('当前没有启用壁纸');
+    return;
+  }
+  var item = wallpaperEngineProjectById(wallpaperEngineSelection.id);
+  if (!item) {
+    showToast('项目已离线，请重新识别 / 导入');
+    return;
+  }
+  if (!item.enginePlayable) {
+    showToast(item.playable
+      ? '该项目是可直接播放的媒体，没有需要原生运行的部分'
+      : '该项目没有可校验的 PKGV 场景包，只能显示项目预览');
+    return;
+  }
+  showToast('正在重试 Wallpaper Engine 原生实时运行…');
+  activateWallpaperEngineItem(item.id);
+}
+
 function deactivateWallpaperEngineBackground(quiet) {
   cancelWallpaperEngineHostRecovery(true);
+  cancelWallpaperEngineNativeAutoRetry();
+  wallpaperEngineNativeAutoRetryUsed = 0;
   wallpaperEngineDesktopPreviewActive = false;
   wallpaperEngineDesktopPreviewUsesAsset = false;
   wallpaperEngineSelection.active = false;
@@ -1754,15 +1963,36 @@ function restartWallpaperEngineAfterHostBoundsChange() {
 
 function handleWallpaperEngineHostBoundsChange(payload) {
   var phase = String(payload && payload.phase || 'restart');
+  if (phase === 'hold') {
+    // #406 主进程决定最小化期间保留常驻原生表面，随后的 visibilitychange 不得拆台。
+    wallpaperEngineHostResidentHold = true;
+    wallpaperEngineHostBoundsPreparing = false;
+    return;
+  }
   if (phase === 'resident') {
     var residentSessionId = String(payload && payload.sessionId || '');
-    if (!wallpaperEngineSelection.active
-      || wallpaperEngineSelection.kind !== 'engine'
-      || wallpaperEngineCaptureMode !== 'dwm-thumbnail'
-      || residentSessionId !== String(wallpaperEngineNativeSessionId || '')) return;
-    // Minimize no longer destroys the native DWM base. Restore only the
-    // renderer-side visual state and, if Chromium ended it in the background,
-    // reacquire the narrow glass sampler without restarting the Scene.
+    if (!wallpaperEngineSelection.active || wallpaperEngineSelection.kind !== 'engine') return;
+    if (!/^[a-f0-9]{24}$/i.test(residentSessionId)) return;
+    var claimedSessionId = String(wallpaperEngineNativeSessionId || '');
+    if (claimedSessionId) {
+      // 会话没被打断：必须是同一个原生会话，避免切歌/换壁纸后认领到过期会话。
+      if (wallpaperEngineCaptureMode !== 'dwm-thumbnail' || residentSessionId !== claimedSessionId) return;
+    } else if (!wallpaperEngineHostBoundsPreparing) {
+      // 本地也没有待恢复的会话，说明这次恢复与我们无关。
+      return;
+    }
+    // #406 渲染进程自己的 visibilitychange 拆台会清掉本地会话状态（session id / capture mode
+    // 都被清空），但主进程此时恰恰把同一个原生表面保留成了常驻。旧实现要求两个 session id
+    // 严格相等，在被自己拆过台之后就永远不成立 → 图层保持空白（背景全黑），还会因为
+    // hostBoundsPreparing 残留而触发整轮重启（后台刷新一阵才出图）。
+    // 这里改成重新认领常驻会话，只恢复渲染侧的视觉状态，不重启原生 Scene。
+    // The renderer's own visibilitychange teardown clears the local session state, while main keeps
+    // the very same native surface resident. Requiring the two session ids to be equal could then
+    // never hold again, so the layer stayed blank and a stale preparing flag forced a full Scene
+    // restart. Re-claim the resident session instead; only renderer-side visuals are restored.
+    wallpaperEngineNativeSessionId = residentSessionId;
+    wallpaperEngineCaptureMode = 'dwm-thumbnail';
+    wallpaperEngineHostResidentHold = false;
     wallpaperEngineHostBoundsPreparing = false;
     wallpaperEngineDesktopPreviewActive = false;
     wallpaperEngineDesktopPreviewUsesAsset = false;
@@ -2360,11 +2590,24 @@ function bindWallpaperEngineLibraryEvents() {
           return;
         }
         if (document.hidden) {
-          window.__mineradioPrepareWallpaperEngineHostBoundsChange(wallpaperEngineNativeSessionId, 'document-hidden');
-          stopWallpaperEngineNativeSession();
-        } else if (item && wallpaperEngineHostBoundsPreparing) {
-          wallpaperEngineHostBoundsPreparing = false;
-          restartWallpaperEngineAfterHostBoundsChange();
+          // #406 常驻最小化期间主进程保留原生表面，这里拆台会把它停掉。跳过本次拆台，
+          // 等恢复时由 'resident' 阶段重新认领。
+          if (wallpaperEngineHostResidentHold) {
+            wallpaperEngineHostResidentHold = false;
+            return;
+          }
+          var hiddenSessionId = String(wallpaperEngineNativeSessionId || '');
+          window.__mineradioPrepareWallpaperEngineHostBoundsChange(hiddenSessionId, 'document-hidden');
+          // 传具体会话 id 而不是省略参数：省略会退化成 all=true，主进程便无法把这次拆台
+          // 与「常驻最小化保留现场」区分开（见主进程的 stop-scene 保留分支）。
+          stopWallpaperEngineNativeSession(hiddenSessionId);
+        } else {
+          // 窗口重新可见：hold 标记必须清掉，否则它会粘到下一次真正的最小化上。
+          wallpaperEngineHostResidentHold = false;
+          if (item && wallpaperEngineHostBoundsPreparing) {
+            wallpaperEngineHostBoundsPreparing = false;
+            restartWallpaperEngineAfterHostBoundsChange();
+          }
         }
         return;
       }

@@ -93,7 +93,7 @@ function ensureLyricStarRiver() {
     depthTest: false,
     blending: THREE.AdditiveBlending
   });
-  var points = new THREE.Points(geo, mat);
+  var points = attachParticleDrawBudget(new THREE.Points(geo, mat));
   points.renderOrder = 45;
   points.frustumCulled = false;
   points.position.set(0, 0.20, 1.53);

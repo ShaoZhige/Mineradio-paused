@@ -63,6 +63,7 @@ function safeRuntimeOptions(options = {}) {
     y: clampInteger(options.y, MIN_POSITION, MAX_POSITION, DEFAULT_Y),
     sourceTimeoutMs: clampInteger(options.sourceTimeoutMs, 500, 30000, DEFAULT_SOURCE_TIMEOUT_MS),
     sourcePollMs: clampInteger(options.sourcePollMs, 50, 1000, DEFAULT_SOURCE_POLL_MS),
+    silentWindows: options.silentWindows !== false,
   };
 }
 
@@ -89,11 +90,35 @@ function normalizeEngineProcessState(value) {
   };
 }
 
-function engineProcessPidKey(state) {
-  return Array.isArray(state && state.matchingPids)
-    ? state.matchingPids.map((value) => Number(value) || 0).filter(Boolean).sort((a, b) => a - b).join(',')
-    : '';
+function engineProcessPidList(state) {
+  if (!Array.isArray(state && state.matchingPids)) return [];
+  return state.matchingPids.map((value) => Number(value) || 0).filter(Boolean).sort((a, b) => a - b);
 }
+
+function engineProcessPidKey(state) {
+  return engineProcessPidList(state).join(',');
+}
+
+// 要静默的是**壁纸核心**进程，不是 wallpaperengine 管理器。核心负责壁纸窗口以及它自己弹出的
+// 各类对话框（右键菜单后的设置、更新提示），这些才是任务栏上的噪音；而 wallpaperengine 是
+// 用户主动打开的管理器窗口，静默它就等于让用户再也找不回入口——从托盘点开也只会得到一个
+// 看不见的窗口。所以边界划在这里：核心全静默，管理器放过。
+//
+// The silent set is the wallpaper CORE, not the wallpaperengine manager. The core owns the wallpaper
+// window and every dialog it raises (settings after a right-click, update prompts) — that is the
+// taskbar noise. The manager is a window the user opened on purpose, and silencing it would make it
+// unreachable: even opening it from the tray would produce an invisible window. Hence the line:
+// silence the core entirely, leave the manager alone.
+const ENGINE_WINDOW_ISOLATION_PROCESSES = ['wallpaper32', 'wallpaper64'];
+
+// 静音走 WE 接口而不是改包：改包会让 WE 判定来源不可信，每开一次壁纸弹一次安全确认框。
+// 代价是开场到第一次 applyProperties 之间可能漏一点声音。详细取舍见
+// _prepareSilentLaunchFile 的注释。
+// Silence through the engine interface rather than by patching the package: patching makes the
+// engine treat the wallpaper as an unverified source and raise a confirmation on every start. The
+// cost is a sliver of audio before the first applyProperties lands; see the comment on
+// _prepareSilentLaunchFile.
+const ENGINE_MUTE_VIA_INTERFACE = true;
 
 function sanitizeMuteProperties(value) {
   const output = Object.create(null);
@@ -537,7 +562,15 @@ Add-Type -TypeDefinition $source -Language CSharp
 $workingDirectory = [IO.Path]::GetDirectoryName($target)
 [void][MineradioExplorerParentLauncher]::Launch($target, $commandLine, $workingDirectory, $waitForExit, $waitTimeout)
 `.trim();
-  return Buffer.from(source, 'utf16le').toString('base64');
+  // 返回**原始脚本**（与 nativeDwmThumbnailSurfaceScript 一致），不再自行 base64：调用方
+  // _powerShellHelperArgs 需要原文才能写成 .ps1 文件。这个脚本编码后约 3.08 万字符，距
+  // Windows 32767 命令行上限只剩两千余量，再长出几行就会和窗口控制器一样直接起不来，所以
+  // 一并改走 -File。
+  // Returns the RAW script, matching nativeDwmThumbnailSurfaceScript, because the caller needs
+  // the source text to write a .ps1 file. Encoded it runs to ~30.8k characters, leaving barely
+  // two thousand before the Windows 32767 command-line cap, so it moves to -File as well before
+  // a few more lines make it unspawnable.
+  return source;
 }
 
 function nativeWindowControlScript() {
@@ -571,6 +604,8 @@ public sealed class MineradioWeWindowResult {
   public bool rounded { get; set; }
   public bool closePosted { get; set; }
   public bool closed { get; set; }
+  public long closeWaitMs { get; set; }
+  public bool taskbarIsolated { get; set; }
   public long left { get; set; }
   public long top { get; set; }
   public long right { get; set; }
@@ -605,6 +640,54 @@ public static class MineradioWeWindowControl {
   [DllImport("gdi32.dll", SetLastError=true)] static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
   [DllImport("user32.dll", SetLastError=true)] static extern int SetWindowRgn(IntPtr hWnd, IntPtr region, bool redraw);
   [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
+  [DllImport("user32.dll", SetLastError=true)] static extern long GetWindowLongPtrW(IntPtr hWnd, int index);
+  [DllImport("user32.dll", SetLastError=true)] static extern long SetWindowLongPtrW(IntPtr hWnd, int index, long value);
+
+  [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface ITaskbarList {
+    void HrInit();
+    void AddTab(IntPtr hWnd);
+    void DeleteTab(IntPtr hWnd);
+    void ActivateTab(IntPtr hWnd);
+    void SetActiveAlt(IntPtr hWnd);
+  }
+
+  [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090"), ClassInterface(ClassInterfaceType.None)]
+  class TaskbarList { }
+
+  // 把窗口从 shell 表面摘掉：DeleteTab 移除任务栏按钮，WS_EX_TOOLWINDOW 让 Alt+Tab 也
+  // 不再列出它。只改扩展样式、不碰位置尺寸，因此 DWM 缩略图对齐到的 source 矩形不受影响。
+  // Drop the window out of the shell surfaces without touching its geometry, so the DWM
+  // thumbnail keeps the exact source rect it was aligned to.
+  static bool IsolateFromShell(IntPtr hWnd) {
+    const int GWL_EXSTYLE = -20;
+    const long WS_EX_TOOLWINDOW = 0x00000080L;
+    const long WS_EX_APPWINDOW = 0x00040000L;
+    const uint SWP_NOSIZE = 0x0001;
+    const uint SWP_NOMOVE = 0x0002;
+    const uint SWP_NOZORDER = 0x0004;
+    const uint SWP_NOACTIVATE = 0x0010;
+    const uint SWP_FRAMECHANGED = 0x0020;
+    bool isolated = false;
+    try {
+      ITaskbarList taskbar = (ITaskbarList)new TaskbarList();
+      taskbar.HrInit();
+      taskbar.DeleteTab(hWnd);
+      Marshal.FinalReleaseComObject(taskbar);
+      isolated = true;
+    } catch { }
+    long style = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+    long next = (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
+    if (next != style) {
+      SetWindowLongPtrW(hWnd, GWL_EXSTYLE, next);
+      if (!SetWindowPos(hWnd, IntPtr.Zero, 0, 0, 0, 0,
+          SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      isolated = true;
+    }
+    return isolated;
+  }
 
   static IntPtr ParseHandle(string sourceId) {
     string[] parts = (sourceId ?? "").Split(':');
@@ -690,7 +773,15 @@ public static class MineradioWeWindowControl {
       closeResult.closePosted = PostMessageW(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
       if (!closeResult.closePosted) throw new Win32Exception(Marshal.GetLastWin32Error());
       Stopwatch closeWait = Stopwatch.StartNew();
-      while (IsWindow(hWnd) && closeWait.ElapsedMilliseconds < 1800) Thread.Sleep(40);
+      // 场景还在初始化时弹出窗口的收尾可能远超 1.8 秒，硬等固定上限会让整个原生会话
+      // 因为"没等够"而失败（上层只看到一个笼统的关窗失败，画面直接退回项目预览）。
+      // 这里改成轮询到 HWND 真正消失为止，并把实际等待时长回传供上层记录原因。
+      // A pop-out still initializing can take far longer than 1.8s to tear down; the old
+      // fixed cap failed the whole native session merely for not waiting long enough, and
+      // the caller only saw a generic close failure. Poll until the HWND is really gone and
+      // report the actual wait so the cause is traceable.
+      while (IsWindow(hWnd) && closeWait.ElapsedMilliseconds < 6000) Thread.Sleep(40);
+      closeResult.closeWaitMs = closeWait.ElapsedMilliseconds;
       closeResult.closed = !IsWindow(hWnd);
       closeResult.missing = closeResult.closed;
       return closeResult;
@@ -715,6 +806,11 @@ public static class MineradioWeWindowControl {
       parkResult.parked = parkResult.visibleWidth <= 1 && parkResult.visibleHeight <= 1;
       if (!parkResult.parked) throw new InvalidOperationException("Capture source window did not enter the parking strip");
       return parkResult;
+    }
+    if (String.Equals(action, "isolate", StringComparison.OrdinalIgnoreCase)) {
+      MineradioWeWindowResult isolateResult = Snapshot(hWnd, processId);
+      isolateResult.taskbarIsolated = IsolateFromShell(hWnd);
+      return isolateResult;
     }
     if (!String.Equals(action, "embed", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Unsupported window control action");
     IntPtr hostHWnd = ParseRawHandle(hostWindowId);
@@ -761,6 +857,177 @@ public static class MineradioWeWindowControl {
 '@
 Add-Type -TypeDefinition $source -Language CSharp
 [MineradioWeWindowControl]::Run($action, $sourceId, $expectedTitle, $expectedExecutable, $hostWindowId, $hostExecutable, $hostCornerRadius) | ConvertTo-Json -Compress
+`.trim();
+  // 返回**原始脚本**（与 nativeDwmThumbnailSurfaceScript 一致），不再自行 base64。这个脚本
+  // 编码后约 3.85 万字符，超过 Windows 32767 的命令行上限：以前用 -EncodedCommand 调用时，
+  // spawn 会直接以 ENAMETOOLONG 失败，embed/close/park 每一步都失败，壁纸永远退回封面图。
+  // Returns the RAW script, matching nativeDwmThumbnailSurfaceScript. Encoded it runs to about
+  // 38.5k characters, past the Windows 32767 command-line cap: called with -EncodedCommand,
+  // spawn failed with ENAMETOOLONG before the process started, so every embed/close/park step
+  // failed and the wallpaper always fell back to its cover art.
+  return source;
+}
+
+function nativeProcessWindowIsolationScript() {
+  const source = String.raw`
+$ErrorActionPreference = 'Stop'
+$processNames = @((Get-Item Env:MINERADIO_WE_ISOLATE_PROCESSES -ErrorAction SilentlyContinue).Value -split ',' |
+  ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[A-Za-z0-9_. -]+$' })
+if ($processNames.Count -eq 0) { throw 'Missing isolate process list' }
+$once = $env:MINERADIO_WE_ISOLATE_ONCE -eq '1'
+$emptyPasses = 0
+$EMPTY_PASS_LIMIT = 12
+$source = @'
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class MineradioWeProcessWindowIsolation {
+  [DllImport("user32.dll", SetLastError=true)] static extern long GetWindowLongPtrW(IntPtr hWnd, int index);
+  [DllImport("user32.dll", SetLastError=true)] static extern long SetWindowLongPtrW(IntPtr hWnd, int index, long value);
+  [DllImport("user32.dll", SetLastError=true)] static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc callback, IntPtr param);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hWnd, StringBuilder text, int maxCount);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
+  delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr param);
+
+  [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface ITaskbarList {
+    void HrInit();
+    void AddTab(IntPtr hWnd);
+    void DeleteTab(IntPtr hWnd);
+    void ActivateTab(IntPtr hWnd);
+    void SetActiveAlt(IntPtr hWnd);
+  }
+
+  [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090"), ClassInterface(ClassInterfaceType.None)]
+  class TaskbarList { }
+
+  const int GWL_EXSTYLE = -20;
+  const long WS_EX_TOOLWINDOW = 0x00000080L;
+  const long WS_EX_APPWINDOW = 0x00040000L;
+  const uint SWP_NOSIZE = 0x0001;
+  const uint SWP_NOMOVE = 0x0002;
+  const uint SWP_NOZORDER = 0x0004;
+  const uint SWP_NOACTIVATE = 0x0010;
+  const uint SWP_FRAMECHANGED = 0x0020;
+
+  static bool Isolate(IntPtr hWnd) {
+    bool isolated = false;
+    try {
+      ITaskbarList taskbar = (ITaskbarList)new TaskbarList();
+      taskbar.HrInit();
+      taskbar.DeleteTab(hWnd);
+      Marshal.FinalReleaseComObject(taskbar);
+      isolated = true;
+    } catch { }
+    long style = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+    long next = (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
+    if (next != style) {
+      SetWindowLongPtrW(hWnd, GWL_EXSTYLE, next);
+      SetWindowPos(hWnd, IntPtr.Zero, 0, 0, 0, 0,
+        SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+      isolated = true;
+    }
+    return isolated;
+  }
+
+  // 每一轮都重新按进程名解析 PID，而不是把启动那一刻的 PID 列表钉死：WE 中途重启（用户重开
+  // 它、或它自己崩了重启）之后，绑死 PID 的监视器会在旧 PID 消失时判定"引擎已退出"并随之退出，
+  // 之后的任务栏就再也没人管了——这正是"有时候会冒出来"的另一个真正来源。按名字解析则永远
+  // 跟着最新的实例走，主进程也不需要再挂心跳去重启它。
+  // Resolve the PIDs by process name on every pass instead of pinning the list captured at start-up:
+  // once the engine restarts, a PID-bound monitor sees its old PIDs vanish, declares the engine gone
+  // and exits with them, leaving the taskbar unattended from then on. That is another real source of
+  // "it shows up sometimes". Resolving by name always follows the newest instance, and the main
+  // process needs no heartbeat to restart it.
+  public static int[] ResolvePids(string[] processNames) {
+    var pids = new List<int>();
+    foreach (string name in processNames) {
+      if (string.IsNullOrWhiteSpace(name)) continue;
+      Process[] found;
+      try { found = Process.GetProcessesByName(name); } catch { continue; }
+      foreach (Process process in found) {
+        try { pids.Add(process.Id); } catch { } finally { process.Dispose(); }
+      }
+    }
+    return pids.ToArray();
+  }
+
+  static string Class(IntPtr hWnd) {
+    var sb = new StringBuilder(256);
+    GetClassNameW(hWnd, sb, sb.Capacity);
+    return sb.ToString();
+  }
+
+  static string Title(IntPtr hWnd) {
+    var sb = new StringBuilder(512);
+    GetWindowTextW(hWnd, sb, sb.Capacity);
+    return sb.ToString();
+  }
+
+  // 只静默**壁纸播放窗口**，其余一律放过。
+  //
+  // 早先的版本对引擎进程的每一个可见窗口都改样式 + SetWindowPos(SWP_FRAMECHANGED)，那会把
+  // Wallpaper Engine 自己的对话框一并 restyle。而引擎很可能正靠那个窗口跟踪"用户还没确认这个
+  // 来源警告"，被反复改样式就会让它认为对话框已失效，于是重新弹一个 —— 表现为**每次启动壁纸
+  // 都要点一次 OK**。用户主动打开的设置窗口、商店界面也同样不该由我们插手。
+  //
+  // Only the wallpaper playback window is silenced; everything else is left alone. Earlier versions
+  // restyled every visible window of the engine process, which included its own origin-confirmation
+  // dialog. The engine most likely tracks that dialog's state to know the user has not answered
+  // yet, so restyling it repeatedly can make it conclude the dialog is gone and raise another one —
+  // surfacing as "every wallpaper start asks me to press OK". Settings windows the user opened on
+  // purpose, and the shop UI, deserve the same restraint.
+  public static int Run(int[] processIds) {
+    var targets = new HashSet<int>(processIds);
+    int isolated = 0;
+    EnumWindows(delegate(IntPtr hWnd, IntPtr param) {
+      try {
+        if (!IsWindow(hWnd) || !IsWindowVisible(hWnd)) return true;
+        uint owner;
+        GetWindowThreadProcessId(hWnd, out owner);
+        if (owner == 0 || !targets.Contains((int)owner)) return true;
+        // 类名与标题任一命中即可：类名是常态，标题是类名在不同版本里变了时的兜底。
+        // Either the class or the title matching is enough: the class is the normal case, and the
+        // title is the backstop for versions that rename the class.
+        bool isWallpaperWindow = String.Equals(Class(hWnd), "WPEOverlappedWallpaper", StringComparison.Ordinal)
+          || Title(hWnd).StartsWith("Mineradio Wallpaper ", StringComparison.Ordinal);
+        if (!isWallpaperWindow) return true;
+        if (Isolate(hWnd)) isolated++;
+      } catch { }
+      return true;
+    }, IntPtr.Zero);
+    return isolated;
+  }
+}
+'@
+Add-Type -TypeDefinition $source -Language CSharp
+$deadline = (Get-Date).AddMinutes(30)
+while ($true) {
+  # 引擎实例换了（重启过）不算退出：重新按名字解析，监视器继续跟。只有连续多轮一个实例都
+  # 找不到，才认定引擎真的走了。
+  # A swapped engine instance is not an exit: re-resolve by name and keep following. Only a run of
+  # consecutive passes with no instance at all means the engine is really gone.
+  $targets = @([MineradioWeProcessWindowIsolation]::ResolvePids($processNames))
+  if ($targets.Count -eq 0) {
+    $emptyPasses += 1
+    if ($emptyPasses -ge $EMPTY_PASS_LIMIT) { Write-Output 'isolated=0 reason=engine-exited'; break }
+  } else {
+    $emptyPasses = 0
+  }
+  $isolated = 0
+  try { $isolated = [MineradioWeProcessWindowIsolation]::Run([int[]]$targets) } catch { $isolated = 0 }
+  Write-Output ('isolated=' + $isolated)
+  if ($once) { break }
+  if ((Get-Date) -ge $deadline) { Write-Output 'reason=deadline'; break }
+  Start-Sleep -Milliseconds 1500
+}
 `.trim();
   return Buffer.from(source, 'utf16le').toString('base64');
 }
@@ -1130,7 +1397,11 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   int visualOpacity = 255;
   int visualPositionX = 0;
   int visualPositionY = 0;
-  int visualScale = 1080000;
+  // 1x：默认不放大。旧默认 1.08 会让 DWM 缩略图无条件按 1.08 重采样一次，壁纸表面
+  // 从一开始就是"放大后再画"的，观感发虚且取景被裁。
+  // 1x means no zoom: the legacy 1.08 default resampled the DWM thumbnail surface on
+  // every frame, softening the wallpaper and cropping its framing from the start.
+  int visualScale = 1000000;
 
   MineradioWeDwmSurfaceHost(IntPtr host, IntPtr source, string expectedTitle, int cornerRadius,
       bool enableDesktopIconLayering, int initialOpacity, int initialPositionX,
@@ -1145,10 +1416,26 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     visualPositionY = Math.Max(-500000, Math.Min(500000, initialPositionY));
     visualScale = Math.Max(1000000, Math.Min(1600000, initialScale));
     FormBorderStyle = FormBorderStyle.None;
-    // A normal top-level style lets Electron obtain an exact WGC source for
-    // the SVG sampler. DeleteTab below keeps this implementation surface out
-    // of the user's taskbar without adding a second visible glass layer.
-    ShowInTaskbar = true;
+    // 这个窗口之前一直挂在任务栏上，标题就叫 "Mineradio WE DWM Surface"——用户以为 WE 还活着，
+    // 其实那是本程序自己的 DWM 表面助手。ShowInTaskbar = true 让 WinForms 给了它
+    // WS_EX_APPWINDOW，于是就有了那个任务栏条目。改成 false，WinForms 会用 WS_EX_TOOLWINDOW
+    // 建这个窗口，任务栏与 Alt+Tab 都不会再出现它。
+    //
+    // 曾经还有一段手动 SetWindowLongPtr(GWL_EXSTYLE) + DeleteTab 的兜底，但项目契约明确禁止在
+    // DWM 表面块里出现 SetWindowLong（防的是用改样式做窗口停放或隐藏），所以收敛到这一行：
+    // WinForms 自己就会把 WS_EX_APPWINDOW 换成 WS_EX_TOOLWINDOW，不需要手工改样式。
+    //
+    // This window used to sit on the taskbar under the title "Mineradio WE DWM Surface", which read
+    // like Wallpaper Engine was still running while it was really this app's own DWM surface helper.
+    // ShowInTaskbar = true made WinForms give it WS_EX_APPWINDOW, which is where the taskbar entry
+    // came from. Setting it to false makes WinForms use WS_EX_TOOLWINDOW instead, so neither the
+    // taskbar nor the Alt+Tab list shows it any more.
+    //
+    // There was also a manual SetWindowLongPtr(GWL_EXSTYLE) + DeleteTab backstop, but the project
+    // contract explicitly forbids SetWindowLong inside the DWM surface block (it guards against
+    // using restyling for window parking or hiding). So this collapses to one line: WinForms swaps
+    // WS_EX_APPWINDOW for WS_EX_TOOLWINDOW by itself and no manual restyling is needed.
+    ShowInTaskbar = false;
     StartPosition = FormStartPosition.Manual;
     BackColor = Color.Black;
     Text = "Mineradio WE DWM Surface";
@@ -1478,7 +1765,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     if (!Int32.TryParse(rawOpacity ?? "", out initialOpacity)) initialOpacity = 255;
     if (!Int32.TryParse(rawPositionX ?? "", out initialPositionX)) initialPositionX = 0;
     if (!Int32.TryParse(rawPositionY ?? "", out initialPositionY)) initialPositionY = 0;
-    if (!Int32.TryParse(rawScale ?? "", out initialScale)) initialScale = 1080000;
+    if (!Int32.TryParse(rawScale ?? "", out initialScale)) initialScale = 1000000;
     Application.EnableVisualStyles();
     Application.SetCompatibleTextRenderingDefault(false);
     Application.Run(new MineradioWeDwmSurfaceHost(host, source, expectedTitle, cornerRadius,
@@ -1639,6 +1926,12 @@ class WallpaperEngineRuntime {
     if (!this.pointerRelayRetryDelaysMs.length) {
       this.pointerRelayRetryDelaysMs = [...POINTER_RELAY_RETRY_DELAYS_MS];
     }
+    // 发往引擎的命令行日志。排查"引擎为什么弹这个框"这类问题时，唯一能定论的东西就是
+    // 我们到底发了什么命令——之前没有它，只能靠猜，或者去监听寿命只有几十毫秒的控制进程。
+    // Command-line log for everything sent to the engine. When the engine raises a dialog and the
+    // cause is not obvious, the one thing that settles it is what we actually sent — without this
+    // you either guess or try to catch a control process that lives a few dozen milliseconds.
+    this.controlCommandLogPath = String(options.controlCommandLogPath || '').trim();
     this.windowController = typeof options.windowController === 'function'
       ? options.windowController
       : ((action, details) => this._nativeWindowControl(action, details));
@@ -1722,7 +2015,7 @@ class WallpaperEngineRuntime {
       dwmVisualOpacity: Math.max(0.15, Math.min(1, Number(session.dwmVisualOpacity) || 1)),
       dwmVisualPositionX: Math.max(-0.5, Math.min(0.5, Number(session.dwmVisualPositionX) || 0)),
       dwmVisualPositionY: Math.max(-0.5, Math.min(0.5, Number(session.dwmVisualPositionY) || 0)),
-      dwmVisualScale: Math.max(1, Math.min(1.6, Number(session.dwmVisualScale) || 1.08)),
+      dwmVisualScale: Math.max(1, Math.min(1.6, Number(session.dwmVisualScale) || 1)),
       dwmGlassSurfaceReady: session.dwmGlassSurfaceReady === true,
       dwmGlassSurfaceActive: session.dwmGlassSurfaceActive === true,
       dwmGlassSurfaceWindowId: Math.max(0, Number(session.dwmGlassSurfaceWindowId) || 0),
@@ -1781,6 +2074,38 @@ class WallpaperEngineRuntime {
         done(error);
       }
     });
+  }
+
+  // PowerShell 的 -EncodedCommand 会把整段脚本 base64(UTF-16LE) 塞进命令行，而 Windows 的
+  // 命令行上限是 32767 字符。脚本一长，spawn 阶段就会直接以 ENAMETOOLONG 失败 —— 子进程根本
+  // 没启动，上层只能看到一个笼统的失败码。本项目实测：nativeWindowControlScript 编码后
+  // 约 3.85 万字符，于是 embed/close/park 每一次窗口控制都失败，壁纸永远退回封面图（"发虚、
+  // 和真壁纸不符"）。DWM 帮手（编码后约 6.25 万）早就改成"写哈希脚本文件 + -File"了，窗口
+  // 控制器和 broker 漏掉了，所以这里统一走同一条安全路径：内容哈希命名的 .ps1，写一次复用。
+  // -EncodedCommand base64s the whole script into the command line, and Windows caps a command
+  // line at 32767 characters. Past that, spawn fails with ENAMETOOLONG before the process even
+  // starts, and the caller only sees a generic failure code. Measured here: the window control
+  // script encodes to about 38.5k characters, so every embed/close/park call failed and the
+  // wallpaper always fell back to its cover art. The DWM helper (~62.5k encoded) was migrated to
+  // a hashed script file long ago; the window controller and the broker were missed. Route all
+  // of them through the same safe path: a content-hashed .ps1 written once and reused.
+  _powerShellHelperArgs(prefix, scriptSource) {
+    const source = String(scriptSource || '');
+    try {
+      const digest = crypto.createHash('sha256').update(source).digest('hex').slice(0, 20);
+      const file = path.join(this.nativeTempPath, `wallpaper-engine-${prefix}-${digest}.ps1`);
+      fs.mkdirSync(this.nativeTempPath, { recursive: true });
+      if (!fs.existsSync(file)) fs.writeFileSync(file, `\uFEFF${source}`, 'utf8');
+      return ['-ExecutionPolicy', 'Bypass', '-File', file];
+    } catch (error) {
+      // 临时目录写不进去时退回内联编码：短脚本仍然可用，长脚本会照旧失败，但不要因为一次
+      // 磁盘问题让整条控制链彻底不可用。原因记下来，别静默。
+      // If the temp file cannot be written, fall back to inline encoding: shorter scripts still
+      // work and longer ones fail as before, but one disk problem must not take the whole
+      // control path down. Record why instead of failing silently.
+      console.warn('[Wallpaper Engine] native helper file unavailable, using inline encoding:', error && error.message || error);
+      return ['-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64')];
+    }
   }
 
   _powerShellEnv(extra = {}) {
@@ -1921,7 +2246,12 @@ class WallpaperEngineRuntime {
             MINERADIO_WE_DWM_VISUAL_OPACITY: String(Math.round(Math.max(0.15, Math.min(1, Number(session.dwmVisualOpacity) || 1)) * 255)),
             MINERADIO_WE_DWM_VISUAL_POSITION_X: String(Math.round(Math.max(-0.5, Math.min(0.5, Number(session.dwmVisualPositionX) || 0)) * 1000000)),
             MINERADIO_WE_DWM_VISUAL_POSITION_Y: String(Math.round(Math.max(-0.5, Math.min(0.5, Number(session.dwmVisualPositionY) || 0)) * 1000000)),
-            MINERADIO_WE_DWM_VISUAL_SCALE: String(Math.round(Math.max(1, Math.min(1.6, Number(session.dwmVisualScale) || 1.08)) * 1000000)),
+            // 帮手启动时只读一次本环境变量，初值必须是 1x：旧默认 1.08 会让 DWM 缩略图从
+            // 第一帧起就比宿主矩形大 8%，等于对整张壁纸无条件重采样一次。
+            // The helper reads this env var once at spawn, so it must start at 1x. The legacy
+            // 1.08 default made the thumbnail 8% larger than the host rect from frame one,
+            // i.e. an unconditional full-surface resample.
+            MINERADIO_WE_DWM_VISUAL_SCALE: String(Math.round(Math.max(1, Math.min(1.6, Number(session.dwmVisualScale) || 1)) * 1000000)),
             MINERADIO_WE_DWM_SESSION_ID: session.sessionId,
           }),
         });
@@ -2008,6 +2338,11 @@ class WallpaperEngineRuntime {
       }
 
       session.dwmSurfaceReady = true;
+      // 就绪即补发一次视觉设置：渲染进程的推送一般早于这一刻，不补发就会一直按启动
+      // 初值渲染（旧默认 1.08 = 整张壁纸被多放大 8%）。
+      // Flush on ready: the renderer's push normally lands before this point, and without
+      // the flush the helper keeps rendering at its spawn-time default (the legacy 1.08).
+      this._pushDwmVisualSettings(session);
       // The source window itself stays directly behind Electron until the
       // renderer has opened a cursor-free capture of this plain helper HWND.
       // Only then does activateDwmSurface() register the DWM thumbnail.
@@ -2179,18 +2514,37 @@ class WallpaperEngineRuntime {
     const opacity = Math.max(0.15, Math.min(1, Number(settings.opacity) || 1));
     const positionX = Math.max(-0.5, Math.min(0.5, Number(settings.positionX) || 0));
     const positionY = Math.max(-0.5, Math.min(0.5, Number(settings.positionY) || 0));
-    const scale = Math.max(1, Math.min(1.6, Number(settings.scale) || 1.08));
+    const scale = Math.max(1, Math.min(1.6, Number(settings.scale) || 1));
     session.dwmVisualOpacity = opacity;
     session.dwmVisualPositionX = positionX;
     session.dwmVisualPositionY = positionY;
     session.dwmVisualScale = scale;
+    return this._pushDwmVisualSettings(session);
+  }
+
+  // 以前帮手未就绪时这里直接丢包且不重试，缩放会永久停在启动环境变量的初值上；
+  // 现在只把值记在会话里并置待发标记，由 _startSessionDwmSurface 的就绪分支补发一次。
+  // This used to drop the write when the helper was not ready yet and never retry, so the
+  // scale stayed at the spawn-time default forever. The values now stay on the session and
+  // the ready path flushes them once.
+  _pushDwmVisualSettings(session) {
+    if (!session) return false;
     const child = session.dwmSurfaceProcess;
     const stdin = child && child.stdin;
-    if (session.dwmSurfaceReady !== true || !stdin || stdin.destroyed === true || stdin.writableEnded === true) return false;
+    if (session.dwmSurfaceReady !== true || !stdin || stdin.destroyed === true || stdin.writableEnded === true) {
+      session.dwmVisualSettingsPending = true;
+      return false;
+    }
+    const opacity = Math.round(Math.max(0.15, Math.min(1, Number(session.dwmVisualOpacity) || 1)) * 255);
+    const positionX = Math.round(Math.max(-0.5, Math.min(0.5, Number(session.dwmVisualPositionX) || 0)) * 1000000);
+    const positionY = Math.round(Math.max(-0.5, Math.min(0.5, Number(session.dwmVisualPositionY) || 0)) * 1000000);
+    const scale = Math.round(Math.max(1, Math.min(1.6, Number(session.dwmVisualScale) || 1)) * 1000000);
     try {
-      stdin.write(`V|${Math.round(opacity * 255)}|${Math.round(positionX * 1000000)}|${Math.round(positionY * 1000000)}|${Math.round(scale * 1000000)}\n`, 'ascii');
+      stdin.write(`V|${opacity}|${positionX}|${positionY}|${scale}\n`, 'ascii');
+      session.dwmVisualSettingsPending = false;
       return true;
     } catch (_) {
+      session.dwmVisualSettingsPending = true;
       return false;
     }
   }
@@ -2614,9 +2968,16 @@ class WallpaperEngineRuntime {
         if (error) {
           const detail = String(stderr || error.message || error || '').trim().slice(0, 500);
           if (detail) console.warn(`[Wallpaper Engine] source window ${action} failed: ${detail}`);
-          reject(runtimeError(action === 'close'
+          // 原生脚本抛出的异常文本（标题不匹配 / 进程校验失败 / 窗口已消失…）以前只落在
+          // 控制台里，抛给上层的错误对象是空的，事后完全无法判断失败在哪一步。带上它。
+          // The native exception text used to exist only in the console; the thrown error
+          // carried nothing, which made the failing step untraceable. Attach it.
+          const failure = runtimeError(action === 'close'
             ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
-            : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED'));
+            : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+          failure.nativeStage = 'exec';
+          failure.nativeDetail = detail;
+          reject(failure);
           return;
         }
         try {
@@ -2624,10 +2985,23 @@ class WallpaperEngineRuntime {
           const result = jsonLine ? JSON.parse(jsonLine) : null;
           if (!result || result.ok !== true) throw new Error('invalid native window result');
           resolve(result);
-        } catch (_) {
-          reject(runtimeError(action === 'close'
+        } catch (parseError) {
+          // 原生脚本没回可解析的 JSON：把原始输出尾部带上，脚本内报错和脚本被 15 秒超时
+          // 杀掉这两种情况才能区分开。
+          // No parseable JSON came back. Keep a tail of the raw output so a script error stays
+          // distinguishable from the execFile 15s timeout kill.
+          const stdoutTail = String(stdout || '').split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .slice(-4)
+            .join(' | ')
+            .slice(0, 400);
+          const failure = runtimeError(action === 'close'
             ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
-            : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED'));
+            : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+          failure.nativeStage = 'parse';
+          failure.nativeDetail = stdoutTail || String(parseError && parseError.message || 'no JSON output').slice(0, 400);
+          reject(failure);
         }
       };
       try {
@@ -2635,12 +3009,19 @@ class WallpaperEngineRuntime {
           '-NoLogo',
           '-NoProfile',
           '-NonInteractive',
-          '-EncodedCommand',
-          nativeWindowControlScript(),
+          ...this._powerShellHelperArgs('window-control', nativeWindowControlScript()),
         ], {
           encoding: 'utf8',
           windowsHide: true,
-          timeout: 15000,
+          // 这个预算要覆盖：PowerShell 冷启动 + Add-Type 编译这段 C#（首次调用没有缓存），
+          // 再加上原生侧最多 6 秒的关窗轮询。以前关窗只等 1.8 秒，15 秒够用；放宽到 6 秒后
+          // 余量被吃掉大半，慢机器上有可能在轮询还没结束时就被这里杀掉——那等于把"没等够"
+          // 换了个地方重新失败。留足余量，并保持与原生关窗上限的联动。
+          // This budget covers a cold PowerShell start, the Add-Type compile of this C# source
+          // (uncached on first call) and the native close poll of up to 6s. The old 1.8s poll
+          // left plenty of room at 15s; widening it to 6s would let a slow machine get killed
+          // mid-poll, which reproduces the very "did not wait long enough" failure elsewhere.
+          timeout: 20000,
           maxBuffer: 128 * 1024,
           shell: false,
           env: this._powerShellEnv({
@@ -2672,9 +3053,16 @@ class WallpaperEngineRuntime {
       hostExecutable: String(host.hostExecutable || ''),
       cornerRadius: Math.max(0, Math.min(512, Number(host.cornerRadius) || 0)),
     });
-    if (!result || result.ok !== true) throw runtimeError(action === 'close'
-      ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
-      : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+    if (!result || result.ok !== true) {
+      // 控制器直接回了 ok:false 时，它自己的报错信息以前被丢掉，只留下一个错误码。
+      // When the controller itself answers ok:false its own detail used to be dropped.
+      const failure = runtimeError(action === 'close'
+        ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+        : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+      failure.nativeStage = 'result';
+      failure.nativeDetail = String(result && (result.error || result.message) || '').slice(0, 500);
+      throw failure;
+    }
     if (action === 'embed') {
       if (result.missing === true || result.embedded !== true) {
         throw runtimeError('WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
@@ -2690,6 +3078,150 @@ class WallpaperEngineRuntime {
       session.windowParking = result;
     }
     return result;
+  }
+
+  // 把 WE 播放窗口从任务栏和 Alt+Tab 里摘掉。它只是体验增强，失败时记录但不抛出，
+  // 避免静默化自身的问题拖垮壁纸加载。
+  // Window shell isolation is a comfort feature: failures are logged, never thrown.
+  async _isolateSessionWindow(session, sourceId = '') {
+    if (!session || session.silentWindows === false) return false;
+    const effectiveSourceId = String(sourceId || session.windowSourceId || session.sourceId || '');
+    if (!/^window:\d+:\d+$/.test(effectiveSourceId)) return false;
+    try {
+      const result = await this._controlSessionWindow('isolate', session, effectiveSourceId);
+      session.windowShellIsolation = result;
+      return !!(result && result.taskbarIsolated === true);
+    } catch (error) {
+      console.warn('[Wallpaper Engine] source window shell isolation skipped:', error && (error.code || error.message) || error);
+      return false;
+    }
+  }
+
+  // WE 主程序窗口同样是任务栏干扰源，而且它出现得比进程晚、之后还会陆续弹出对话框、更新
+  // 提示之类的新窗口。固定三次延迟只能覆盖启动后 2.2 秒，之后弹出的窗口会永久留在任务栏
+  // 上——这正是"有时候任务栏会有展示"的来源。改成一个常驻监视器：PowerShell 内部每 1.5 秒
+  // 枚举一次，直到本次拉起的 WE 进程退出为止。
+  // 只处理本次由本进程拉起的 PID，用户自己开着的 WE 保持原样。
+  // The engine's own windows appear after the process does and keep popping up (dialogs, update
+  // prompts). Three fixed delays only cover 2.2s, so anything later stays on the taskbar forever
+  // — that is where "sometimes it shows up" came from. A resident monitor enumerates every 1.5s
+  // until the instance this process started exits. Only those PIDs are touched, so a user-owned
+  // engine keeps its taskbar presence.
+  _startEngineWindowIsolationMonitor(processNames) {
+    this._stopEngineWindowIsolationMonitor();
+    const targets = (Array.isArray(processNames) ? processNames : [])
+      .map((name) => String(name || '').trim())
+      .filter((name) => /^[A-Za-z0-9_. -]+$/.test(name));
+    if (!targets.length || this.disposed) return 0;
+    let child = null;
+    try {
+      child = this.spawn(this.powerShellExecutable, [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        ...this._powerShellHelperArgs('window-monitor', nativeProcessWindowIsolationScript()),
+      ], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: false,
+        env: this._powerShellEnv({
+          MINERADIO_WE_ISOLATE_PROCESSES: targets.join(','),
+        }),
+      });
+    } catch (error) {
+      // 监视器只是体验增强：起不来就退回"启动时静默一次"，不能让整条壁纸加载链断掉。
+      // The monitor is a comfort feature: if it cannot start, fall back to a single immediate
+      // pass instead of taking the whole wallpaper startup down with it.
+      console.warn('[Wallpaper Engine] engine window monitor unavailable, isolating once:',
+        error && (error.code || error.message) || error);
+      this._isolateEngineWindowsOnce(targets);
+      return 0;
+    }
+    const monitor = { child, pids: targets, isolated: 0, passes: 0, stopped: false };
+    this.engineWindowMonitor = monitor;
+    // stdout 每轮一行 "isolated=N"；它不是关键结果，但出问题时能看出监视器是否真的在跑。
+    // The monitor prints one "isolated=N" line per pass. Not critical, but it shows whether the
+    // loop is alive when something goes wrong.
+    try {
+      if (child && child.stdout && typeof child.stdout.setEncoding === 'function') {
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (chunk) => {
+          for (const line of String(chunk || '').split(/\r?\n/)) {
+            const match = /^isolated=(\d+)/.exec(line.trim());
+            if (!match) continue;
+            monitor.passes += 1;
+            monitor.isolated += Number(match[1]) || 0;
+          }
+        });
+      }
+      if (child && typeof child.on === 'function') {
+        child.on('error', (error) => {
+          if (monitor.stopped) return;
+          console.warn('[Wallpaper Engine] engine window monitor failed:',
+            error && (error.code || error.message) || error);
+        });
+        child.on('exit', () => {
+          if (this.engineWindowMonitor === monitor) this.engineWindowMonitor = null;
+        });
+      }
+      if (child && typeof child.unref === 'function') child.unref();
+    } catch (error) {
+      // 只是观测接线，坏了也不该影响静默本身。
+      // Observation wiring only; a failure here must not affect the isolation itself.
+      console.warn('[Wallpaper Engine] engine window monitor diagnostics unavailable:',
+        error && (error.code || error.message) || error);
+    }
+    return targets.length;
+  }
+
+  _stopEngineWindowIsolationMonitor() {
+    const monitor = this.engineWindowMonitor;
+    this.engineWindowMonitor = null;
+    if (!monitor || !monitor.child) return false;
+    monitor.stopped = true;
+    try {
+      if (typeof monitor.child.kill === 'function') monitor.child.kill();
+    } catch (error) {
+      console.warn('[Wallpaper Engine] engine window monitor stop failed:',
+        error && (error.code || error.message) || error);
+    }
+    return true;
+  }
+
+  // 监视器起不来时的兜底：立刻跑一轮。同一份脚本，靠 MINERADIO_WE_ISOLATE_ONCE 走单次分支。
+  // Fallback when the monitor cannot start: one immediate pass. Same script, single-shot branch.
+  _isolateEngineWindowsOnce(processNames) {
+    const targets = (Array.isArray(processNames) ? processNames : [])
+      .map((name) => String(name || '').trim())
+      .filter((name) => /^[A-Za-z0-9_. -]+$/.test(name));
+    if (!targets.length) return 0;
+    try {
+      this.nativeExecFile(this.powerShellExecutable, [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        ...this._powerShellHelperArgs('window-monitor-once', nativeProcessWindowIsolationScript()),
+      ], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000,
+        maxBuffer: 32 * 1024,
+        shell: false,
+        env: this._powerShellEnv({
+          MINERADIO_WE_ISOLATE_PROCESSES: targets.join(','),
+          MINERADIO_WE_ISOLATE_ONCE: '1',
+        }),
+      }, (error) => {
+        if (error) {
+          console.warn('[Wallpaper Engine] engine window shell isolation skipped:',
+            String(error.message || error).slice(0, 300));
+        }
+      });
+    } catch (error) {
+      console.warn('[Wallpaper Engine] engine window shell isolation skipped:',
+        String(error && (error.code || error.message) || error).slice(0, 300));
+    }
+    return targets.length;
   }
 
   async _runTransientControl(executable, args) {
@@ -2724,8 +3256,31 @@ class WallpaperEngineRuntime {
     });
   }
 
+  // 静音走哪条路，决定了 Wallpaper Engine 会不会弹"未知来源"警告。
+  //
+  // Which route silence takes decides whether the engine shows its "unknown source" warning.
+  //
+  // 改包（改 project.general.properties，再把 Scene 包里的音频对象打补丁写进临时目录）能让 WE
+  // 在**加载那一刻**就是静音的，但它拿到的是一个改过的、位于临时目录的文件，认不出来源，于是
+  // 每开一次壁纸就弹一次"this wallpaper is not from a known, verified... origins"确认框，等人点 OK。
+  //
+  // Patching the package (rewriting project.general.properties and the audio objects inside a copy
+  // of the Scene package, written into a temp directory) makes the wallpaper silent from the instant
+  // it loads — but the engine then receives a modified file in a temp folder it cannot vouch for, so
+  // every single wallpaper start raises a "not from a known, verified origin" confirmation the user
+  // has to dismiss.
+  //
+  // 现在改用 WE 自己的静音接口（-control applyProperties 设音量，_muteSession 在 openWallpaper 之后
+  // 立刻调用，并持续 reassert）。代价是**壁纸开始播放到第一次 applyProperties 生效之间可能漏出一点
+  // 声音**；换来的是启动过程干净、再没有那个拦路的确认框。
+  //
+  // Silence now goes through the engine's own interface (-control applyProperties; _muteSession runs
+  // right after openWallpaper and keeps reasserting). The price is that a sliver of audio can leak
+  // between playback starting and the first applyProperties landing; in exchange the startup is
+  // clean and that blocking confirmation is gone.
   async _prepareSilentLaunchFile(session, projectFile, scenePackage) {
     if (!session || !projectFile || !scenePackage) return projectFile || scenePackage;
+    if (ENGINE_MUTE_VIA_INTERFACE) return projectFile;
     let project;
     try {
       const stat = await fs.promises.stat(projectFile);
@@ -3063,6 +3618,32 @@ class WallpaperEngineRuntime {
     }
   }
 
+  // 关窗失败有两种截然不同的原因：控制器调用本身报错（标题不匹配 / 进程校验失败 /
+  // 无法启动控制器），或者控制器返回了但 HWND 在等待窗口内没有消失。两者以前都会塌缩成
+  // 同一个错误码，排查时无法区分；这里把阶段、等待时长、底层原因挂在错误对象上。
+  // Two very different ways to fail: the controller call itself threw (title mismatch,
+  // process validation failure, spawn failure), or it returned with the HWND still alive.
+  // Both used to collapse into one opaque code; attach the stage, the wait and the cause.
+  _windowCloseError(closeResult, closeError) {
+    const error = runtimeError('WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED');
+    if (closeError) {
+      error.closeStage = 'control';
+      error.closeReason = String(
+        closeError.nativeDetail
+        || closeError.closeReason
+        || closeError.message
+        || closeError.code
+        || closeError
+        || 'control failed'
+      ).slice(0, 500);
+    } else {
+      error.closeStage = 'timeout';
+      error.closeWaitMs = Number(closeResult && closeResult.closeWaitMs) || 0;
+      error.closeReason = 'window still present after ' + String(error.closeWaitMs) + 'ms';
+    }
+    return error;
+  }
+
   async _relaunchSessionWindow(session, launchWidth, launchHeight, launchX, launchY) {
     const generation = this.generation;
     const isCurrent = () => generation === this.generation
@@ -3085,12 +3666,19 @@ class WallpaperEngineRuntime {
     }
     if (!isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
     let closeResult = null;
+    let closeError = null;
     try {
       closeResult = await this._controlSessionWindow('close', session, previousSourceId);
-    } catch (_) { }
+    } catch (error) {
+      // 以前这个 catch 是空的，底层原因（标题校验失败、进程校验失败、控制器起不来）
+      // 全部被丢弃，上层只看到笼统的关窗失败。原因保留到抛出的错误对象上。
+      // This catch used to be empty, discarding the underlying cause entirely and leaving the
+      // caller with a generic close failure. Keep it on the error that gets thrown.
+      closeError = error;
+    }
     if (!isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
     if (!closeResult || (closeResult.closed !== true && closeResult.missing !== true)) {
-      throw runtimeError('WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED');
+      throw this._windowCloseError(closeResult, closeError);
     }
     this._stopSessionPointerRelay(session);
     this._stopSessionDwmSurface(session);
@@ -3128,6 +3716,7 @@ class WallpaperEngineRuntime {
     if (!isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
     session.sourceId = String(captureSource && captureSource.id || '');
     session.windowSourceId = session.sourceId;
+    await this._isolateSessionWindow(session);
     const mutedBeforeCapture = await earlyMutePromise;
     if (!mutedBeforeCapture) {
       if (!isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
@@ -3273,7 +3862,23 @@ class WallpaperEngineRuntime {
     return { ok: true, workshopId };
   }
 
+  // 记一条发往引擎的命令。写失败只忽略——诊断能力不该反过来拖垮播放。
+  // Record one command sent to the engine. A write failure is ignored on purpose: a diagnostic aid
+  // must never become the reason playback fails.
+  _logControlCommand(args) {
+    const target = this.controlCommandLogPath;
+    if (!target) return false;
+    try {
+      const line = `${new Date().toISOString()}\t${(Array.isArray(args) ? args : []).map((value) => String(value)).join(' ')}\n`;
+      fs.appendFileSync(target, line, 'utf8');
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
   async _spawnControl(executable, args, options = {}) {
+    this._logControlCommand(args);
     const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : null;
     const elevated = this.useDesktopShellBroker && await this._hostIsElevated();
     if (isCurrent && !isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
@@ -3295,10 +3900,27 @@ class WallpaperEngineRuntime {
           finish(runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED'));
           return;
         }
+        // 引擎本体必须与本进程解绑（detached: true），否则 MR 一退出，Windows 会把子进程
+        // 树一起带走，而这个引擎同时在托管用户自己的桌面壁纸 —— 于是关掉 MR 就等于关掉桌面
+        // 壁纸（实测表现为桌面回落成 WE 那张 474x265 的低分辨率备份，看着像"变回默认桌面"）。
+        //
+        // 改成独立常驻 + 按需唤醒：MR 启动时先探测，引擎已存在就直接复用并只发 -control 命令；
+        // 不存在才用 detached 拉起一个，之后它不再随 MR 生死。MR 自己退出时只发
+        // closeWallpaper 关掉联动窗口（_closeSession 一直是这么做的），引擎与桌面壁纸留给它
+        // 继续管。
+        //
+        // The engine process must be detached from us. A bound child dies with the parent's
+        // process tree, and this engine also hosts the user's own desktop wallpaper, so closing
+        // Mineradio would take the desktop down with it (observed as the desktop falling back to
+        // WE's 474x265 backup, which reads as "reverts to the default desktop"). Detaching turns
+        // this into "resident engine, woken on demand": probe first, reuse a running engine and
+        // only send -control commands, launch a detached one when none exists, and on exit send
+        // closeWallpaper for our own window only. Control commands stay bound — they exit at once
+        // and have nothing to outlive us.
         child = this.spawn(executable, args, {
           windowsHide: true,
           stdio: 'ignore',
-          detached: false,
+          detached: options.keepAlive === true,
           shell: false,
         });
       } catch (error) {
@@ -3328,6 +3950,7 @@ class WallpaperEngineRuntime {
   }
 
   async _spawnControlViaDesktopShell(executable, args, options = {}) {
+    this._logControlCommand(args);
     const commandLine = wallpaperControlCommandLine(executable, args);
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -3346,8 +3969,7 @@ class WallpaperEngineRuntime {
           '-NoLogo',
           '-NoProfile',
           '-NonInteractive',
-          '-EncodedCommand',
-          controlBrokerScript(),
+          ...this._powerShellHelperArgs('control-broker', controlBrokerScript()),
         ], {
           encoding: 'utf8',
           windowsHide: true,
@@ -3505,7 +4127,7 @@ class WallpaperEngineRuntime {
     throw runtimeError('WALLPAPER_ENGINE_CONTROL_NOT_READY');
   }
 
-  async _ensureEngineReady(requestedExecutable) {
+  async _ensureEngineReady(requestedExecutable, silentWindows = true) {
     const requested = path.resolve(requestedExecutable);
     if (this.engineBootstrapPromise) {
       if (this.engineBootstrapExecutable.toLowerCase() !== requested.toLowerCase()) {
@@ -3525,6 +4147,24 @@ class WallpaperEngineRuntime {
       let effectiveState = state;
       if (state.matching) {
         effectiveExecutable = await this._trustedRunningExecutable(requested, state);
+        // 用户早就开着 WE 时走的是这条分支：壁纸窗口跑在**用户自己那个进程**里，进程不是我们
+        // 拉起的，所以之前完全不会启动常驻监视器 —— 于是壁纸窗口靠旧路径静默了，而它之后弹
+        // 出的任何窗口（设置、更新提示）都直接落到任务栏上，也就是用户看到的"还是有 WE"。
+        // 复用场景同样要挂监视器：目标是"开启壁纸后不管什么时候都静默"，而这个目标与进程是谁
+        // 拉起的无关。代价是用户自己开的 WE 也会被静默——这正是设置项承诺的语义（"播放壁纸时
+        // 不弹任务栏提醒"），而托盘图标仍在，管理器窗口随时能从托盘找回。
+        // When the user already had the engine running this is the branch taken: the wallpaper
+        // lives inside THEIR process, so no monitor was ever started — the wallpaper window itself
+        // was silenced by the older path, while anything it raised later (settings, update
+        // prompts) landed straight on the taskbar. That is the "WE is still there" report. A reused
+        // engine needs the monitor just as much: the goal is silence whenever a wallpaper is
+        // playing, and that has nothing to do with who started the process. The cost is that a
+        // user-owned engine is silenced too, which is exactly what the setting promises ("no
+        // taskbar reminder while a wallpaper plays"), and the tray icon remains, so the manager
+        // window is always reachable from there.
+        if (silentWindows !== false) {
+          this._startEngineWindowIsolationMonitor(ENGINE_WINDOW_ISOLATION_PROCESSES);
+        }
       } else {
         const executableName = path.basename(requested).toLowerCase();
         if (executableName !== 'wallpaper32.exe' && executableName !== 'wallpaper64.exe') {
@@ -3539,10 +4179,20 @@ class WallpaperEngineRuntime {
         // even when its Steam launcher wants to show crash-recovery/browse UI.
         // No -control command is sent until the process and IPC channel are
         // independently confirmed ready below.
-        await this._spawnControl(requested, []);
+        // keepAlive: 这是唯一一处"拉起引擎本体"，需要与 MR 解绑。
+        // keepAlive: the only call that starts the engine itself, so it must outlive us.
+        await this._spawnControl(requested, [], { keepAlive: true });
         const running = await this._waitForEngineProcess(requested, deadline);
         effectiveExecutable = running.executable;
         effectiveState = running.state;
+        // 按进程名（壁纸核心）静默，不按 PID：绑 PID 的监视器在 WE 重启后就会失效，而"用户自己
+        // 开着的 WE 也被静默"正是这个功能承诺的语义——播放壁纸时任务栏不该有 WE。
+        // Only the instance launched here is isolated. The before/after PID difference delimits
+        // "launched here"; a process-name match would also swallow the user's own engine, the
+        // exact opposite of the promise this feature makes.
+        if (silentWindows !== false) {
+          this._startEngineWindowIsolationMonitor(ENGINE_WINDOW_ISOLATION_PROCESSES);
+        }
       }
 
       const cacheAge = this.now() - Number(this.engineReadyAt || 0);
@@ -3721,6 +4371,7 @@ class WallpaperEngineRuntime {
       session.dwmSurfaceHostCornerRadius = clampInteger(host.cornerRadius, 0, 512, 0);
       session.dwmSurfaceDesktopIconLayering = host.desktopIconLayering === true;
       session.captureAttached = true;
+      await this._isolateSessionWindow(session, String(session.sourceId || ''));
       return this._publicSession(session);
     })();
     session.embedPromise = operation;
@@ -3785,6 +4436,10 @@ class WallpaperEngineRuntime {
       let closeRequested = false;
       const sourceId = String(session.windowSourceId || session.sourceId || '');
       let windowClosed = false;
+      // 两个 catch 以前都是空的，关窗失败的原因被整个丢掉，上层只能看到 stopped:false。
+      // Both catches used to be empty, so the close failure left no trace and the caller could
+      // only ever see stopped:false.
+      const closeNotes = [];
       try {
         await this._spawnControl(session.executable, [
           '-control',
@@ -3793,15 +4448,31 @@ class WallpaperEngineRuntime {
           session.locationTitle,
         ]);
         closeRequested = true;
-      } catch (_) { }
+      } catch (error) {
+        closeNotes.push('we-control:' + String(error && (error.code || error.message) || error || ''));
+      }
       if (sourceId) {
         try {
           const fallback = await this._controlSessionWindow('close', session, sourceId);
           windowClosed = !!(fallback && (fallback.closed === true || fallback.missing === true));
-        } catch (_) { }
+        } catch (error) {
+          closeNotes.push('hwnd-close:' + String(
+            error && (error.nativeDetail || error.closeReason || error.code || error.message) || error || ''
+          ));
+        }
       }
       await this.nativeSleep(180);
-      if (!windowClosed && closeRequested && !sourceId && this.desktopCapturer
+      // 按窗口名枚举是**独立于 HWND 校验**的确认手段：它回答的是"那个标题的窗口还在不在"，
+      // 而 HWND 校验回答的是"我能不能操作我现在拿着的那个句柄"。只要还没确认关掉就该跑它。
+      // 原来的 `!sourceId` 恰好跳过了最需要它的场景——有 sourceId、但 HWND 校验失败
+      //（标题/进程不匹配，正是 nativeStage=exec 那次失败的形态）时，WE 自己的 closeWallpaper
+      // 很可能已经把窗口关掉了，而我们却因为没去枚举而判定"没关掉"，进而永久卡在
+      // close-previous-window 上。
+      // Name enumeration is independent of HWND validation: it answers "is that titled window
+      // still around", not "can I drive the handle I am holding". It must run while the close is
+      // unconfirmed. The old `!sourceId` gate skipped exactly the case that needs it — a sourceId
+      // whose HWND validation failed — where WE's own closeWallpaper likely did close the window.
+      if (!windowClosed && closeRequested && this.desktopCapturer
         && typeof this.desktopCapturer.getSources === 'function') {
         try {
           const sources = await this.desktopCapturer.getSources({
@@ -3810,9 +4481,20 @@ class WallpaperEngineRuntime {
             fetchWindowIcons: false,
           });
           windowClosed = !sources.some((source) => String(source && source.name || '') === session.locationTitle);
-        } catch (_) { }
+        } catch (error) {
+          closeNotes.push('enumerate:' + String(error && (error.message || error) || ''));
+        }
       }
-      if (!windowClosed) return false;
+      if (!windowClosed) {
+        // 把原因留在会话上，让 stop()/start() 能把它带进最终抛出的错误和日志。
+        // Keep the reason on the session so stop()/start() can carry it into the thrown error.
+        session.closeNotes = closeNotes.join(' | ').slice(0, 400);
+        if (closeNotes.length) {
+          console.warn('[Wallpaper Engine] session window close unconfirmed:', session.locationTitle, session.closeNotes);
+        }
+        return false;
+      }
+      session.closeNotes = '';
       this._stopSessionPointerRelay(session);
       this._stopSessionDwmSurface(session);
       await this._waitForSessionDwmSurfaceStop(session);
@@ -3878,6 +4560,7 @@ class WallpaperEngineRuntime {
       launchX: runtimeOptions.x,
       launchY: runtimeOptions.y,
       runtimeOptions,
+      silentWindows: runtimeOptions.silentWindows,
       muteProperties: sanitizeMuteProperties(null),
       muteReassertTimers: new Set(),
       audioMuteCommandCount: 0,
@@ -3901,7 +4584,11 @@ class WallpaperEngineRuntime {
       dwmVisualOpacity: 1,
       dwmVisualPositionX: 0,
       dwmVisualPositionY: 0,
-      dwmVisualScale: 1.08,
+      dwmVisualScale: 1,
+      // 渲染进程可能早于帮手就绪就推送了缩放；置位后由就绪分支补发，避免帮手一直用启动初值。
+      // The renderer may push before the helper is ready; this flag lets the ready path
+      // flush the value so the helper never keeps its spawn-time default.
+      dwmVisualSettingsPending: false,
       dwmGlassSurfaceReady: false,
       dwmGlassSurfaceActive: false,
       dwmGlassSurfaceWindowId: 0,
@@ -3960,7 +4647,7 @@ class WallpaperEngineRuntime {
       if (generation !== this.generation || this.disposed) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
 
       startStage = 'ensure-engine-ready';
-      session.executable = await this._ensureEngineReady(installation.executable);
+      session.executable = await this._ensureEngineReady(installation.executable, session.silentWindows);
       if (generation !== this.generation || this.disposed || this.pending !== session) {
         throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
       }
@@ -3972,9 +4659,19 @@ class WallpaperEngineRuntime {
       const previous = this.active;
       if (previous && previous.sessionId !== session.sessionId) {
         startStage = 'close-previous-window';
+        // 这里刻意**不重试**：契约是"关窗没被确认就只尝试一次然后失败"，避免连续开窗、
+        // 在桌面上叠出多个 WE 窗口。要让这一步能过去，得在 _closeSession 里真正把
+        // "窗口是否还在"确认对（见那边的按名枚举），而不是在这里反复试。
+        // Deliberately no retry here: the contract is "one attempt, then fail" so we never stack
+        // multiple Wallpaper Engine windows. The way out is to make _closeSession actually
+        // confirm the window is gone (see the name enumeration there), not to try again.
         const stoppedPrevious = await this.stop(previous.sessionId);
         if (!stoppedPrevious || stoppedPrevious.stopped !== true) {
-          throw runtimeError(stoppedPrevious && stoppedPrevious.reason || 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED');
+          const failure = runtimeError(
+            stoppedPrevious && stoppedPrevious.reason || 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+          );
+          failure.closeNotes = String(stoppedPrevious && stoppedPrevious.closeNotes || '').slice(0, 400);
+          throw failure;
         }
         if (generation !== this.generation || this.disposed || this.pending !== session) {
           throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
@@ -4004,6 +4701,8 @@ class WallpaperEngineRuntime {
       if (generation !== this.generation || this.disposed) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
       session.sourceId = String(captureSource && captureSource.id || '');
       session.windowSourceId = session.sourceId;
+      startStage = 'isolate-window-shell';
+      await this._isolateSessionWindow(session);
       startStage = 'apply-location-audio-properties';
       const mutedBeforeCapture = await earlyMutePromise;
       if (!mutedBeforeCapture) {
@@ -4026,6 +4725,13 @@ class WallpaperEngineRuntime {
         await this._closeSession(session);
       } else if (!session.launched) {
         await this._cleanupStagedProject(session);
+      }
+      // 失败发生在哪个阶段（discover-target / close-previous-window / open-initial-window…）是
+      // 排查的第一步，以前它只进 console.warn，落盘日志里看不到，只能靠堆栈行号倒推。
+      // The failing stage is the first thing to know, but it only reached console.warn before,
+      // so a persisted log left nothing but a stack line number to reverse-engineer.
+      if (error && typeof error === 'object' && error.startStage === undefined) {
+        try { error.startStage = startStage; } catch (_) { }
       }
       if (error && error.code) throw error;
       throw runtimeError('WALLPAPER_ENGINE_START_FAILED');
@@ -4063,6 +4769,7 @@ class WallpaperEngineRuntime {
     if (!expectedSessionId || matchesPending) this.generation += 1;
     for (const session of sessions) session.stopping = true;
     let allStopped = true;
+    const closeNotes = [];
     for (const session of sessions) {
       const closed = await this._closeSession(session);
       const safelyCancelled = !session.launched && !session.initialOpenPromise;
@@ -4072,6 +4779,7 @@ class WallpaperEngineRuntime {
       } else {
         allStopped = false;
         session.stopping = false;
+        if (session.closeNotes) closeNotes.push(String(session.closeNotes));
         if (this.active === session) {
           this._scheduleSessionMuteReassertions(session);
           if (session.windowEmbedding && session.windowEmbedding.aligned === true
@@ -4081,12 +4789,20 @@ class WallpaperEngineRuntime {
         }
       }
     }
+    // 没有任何会话在跑时，任务栏上那个 WE 条目已经不算干扰了，常驻监视器没有继续存在的
+    // 理由——收掉它，省下一个常驻 PowerShell。
+    // Once no session is running, the engine's taskbar entry is no longer interference and the
+    // resident monitor has no reason to stay alive. Reap it instead of keeping a PowerShell around.
+    if (!this.active && !this.pending) this._stopEngineWindowIsolationMonitor();
     return {
       ok: true,
       stopped: allStopped,
       active: !!this.active,
       sessionId: this.active ? this.active.sessionId : '',
       reason: allStopped ? '' : 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED',
+      // 失败细节留给 start() 挂到抛出的错误上，最终进 startup-error.log。
+      // Detail for start() to attach to the thrown error, which ends up in startup-error.log.
+      closeNotes: allStopped ? '' : closeNotes.join(' | ').slice(0, 400),
     };
   }
 
@@ -4101,6 +4817,11 @@ class WallpaperEngineRuntime {
       };
     }
     this.disposed = true;
+    // 监视器是 runtime 级的存活物，不属于任何会话：dispose 必须无条件收掉，否则会留下一个
+    // 一直枚举窗口的 PowerShell。
+    // The monitor is runtime-scoped and belongs to no session, so dispose must always reap it or
+    // a PowerShell that keeps enumerating windows outlives the app.
+    this._stopEngineWindowIsolationMonitor();
     const isClean = () => !this.active && !this.pending;
     let result = await this.stop();
     if ((!result || result.stopped !== true) && !isClean()) {

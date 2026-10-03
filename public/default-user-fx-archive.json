@@ -58,6 +58,8 @@
     "lyricContextHighQuality": true,
     "lyricBackdropAdapt": true,
     "coverBackdropAdapt": true,
+    "wallpaperEngineSilentWindows": true,
+    "wallpaperEngineGlassSampler": false,
     "visualTintMode": "auto",
     "visualTintColor": "#9db8cf",
     "uiAccentColor": "#ffffff",

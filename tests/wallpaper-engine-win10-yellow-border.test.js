@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const appRoot = path.resolve(__dirname, '..');
 const libraryText = fs.readFileSync(
@@ -67,4 +68,124 @@ assert.match(
   'WE glass sampler must also use exact source-id capture only'
 );
 
-console.log('[OK] Wallpaper Engine pak capture avoids Win10 display-capture yellow border fallback.');
+// 玻璃采样是可选增强：开关关掉后不得再建立任何捕获会话，否则 Win10 会留下常驻黄框。
+// The glass sampler is opt-in: while it is off no capture session may be opened, or
+// Windows 10 keeps painting its capture border.
+const layerReadyBlock = sourceBlock(
+  libraryText,
+  'function wallpaperEngineLayerReady(kind, token) {',
+  'function wallpaperEngineLayerFailed('
+);
+assert.match(
+  layerReadyBlock,
+  /if \(kind === 'dwm' && fx\.wallpaperEngineGlassSampler !== false\)/,
+  'the glass sampler may only be scheduled while the setting is enabled'
+);
+
+const glassGateBlock = sourceBlock(
+  libraryText,
+  'async function ensureWallpaperEngineGlassSamplerCapture(sessionId, layerToken, attempt) {',
+  'var activeTrack = wallpaperEngineGlassCaptureStream'
+);
+assert.match(
+  glassGateBlock,
+  /fx\.wallpaperEngineGlassSampler === false/,
+  'the glass sampler gate must also reject retries after the setting is turned off'
+);
+
+// 默认值基线：兜底读取路径拿不到平台判定时，基线就是最终值，必须站在"没有黄框"这一边。
+// Baseline: a fallback read that never reaches the platform check uses the baseline verbatim,
+// so it has to stand on the no-border side.
+const defaultsText = fs.readFileSync(
+  path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'),
+  'utf8'
+);
+assert.match(
+  defaultsText,
+  /wallpaperEngineGlassSampler:\s*false,/,
+  'the cross-platform glass sampler baseline must stay off so a fallback read cannot ship a Win10 capture border'
+);
+// 基线关掉不等于永远关掉：读档路径仍要按平台能力把它提升回来，否则 Win11 也拿不到玻璃增强。
+// Off by default is not off forever: the read path still has to promote it per platform, or
+// Win11 loses the enhancement too.
+const persistenceText = fs.readFileSync(
+  path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'),
+  'utf8'
+);
+assert.match(
+  persistenceText,
+  /wallpaperEngineGlassSampler == null\s*\n?\s*\?\s*wallpaperEngineBorderlessCaptureSupported\(\)/,
+  'the read path must still promote the sampler on platforms that can hide the capture border'
+);
+
+// 存档里早就开着、用户早已忘记的情况不会经过"手动切换"那条提示路径，必须在真正调度采样
+// 前补一次提醒。
+// A value stored long ago never goes through the toggle handler, so warn right before the
+// capture is scheduled.
+assert.match(
+  layerReadyBlock,
+  /if \(kind === 'dwm' && fx\.wallpaperEngineGlassSampler !== false\) \{\s*\n\s*notifyWallpaperEngineGlassSamplerBorder\(\);/,
+  'scheduling the glass sampler must remind an unsupported platform about the capture border'
+);
+
+function extractFunction(text, signature) {
+  const from = text.indexOf(signature);
+  assert(from >= 0, `missing function: ${signature}`);
+  const open = from + signature.length - 1;
+  assert(text[open] === '{', `signature must end with the body brace: ${signature}`);
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(from, i + 1);
+    }
+  }
+  throw new Error(`unbalanced body for: ${signature}`);
+}
+
+function runBorderNotification(release) {
+  const toasts = [];
+  const context = vm.createContext({
+    window: { desktopWindow: release === undefined ? undefined : { systemRelease: release } },
+    showToast: (message) => toasts.push(String(message)),
+  });
+  vm.runInContext(
+    extractFunction(defaultsText, 'function wallpaperEngineBorderlessCaptureSupported() {'),
+    context,
+    { filename: 'fx-defaults.js' }
+  );
+  vm.runInContext('var wallpaperEngineGlassBorderNotified = false;', context);
+  vm.runInContext(
+    extractFunction(libraryText, 'function notifyWallpaperEngineGlassSamplerBorder() {'),
+    context,
+    { filename: 'wallpaper-engine-library.js' }
+  );
+  const first = vm.runInContext('notifyWallpaperEngineGlassSamplerBorder()', context);
+  const second = vm.runInContext('notifyWallpaperEngineGlassSamplerBorder()', context);
+  return { first, second, toasts };
+}
+
+const win10Notice = runBorderNotification('10.0.19045');
+assert.strictEqual(win10Notice.first, true, 'Win10 must be reminded that the capture border stays');
+assert.strictEqual(win10Notice.second, false, 'the border reminder must fire once per session');
+assert.strictEqual(win10Notice.toasts.length, 1, 'one reminder, not one per wallpaper restart');
+assert(/Windows 10/.test(win10Notice.toasts[0]), 'the reminder must name the affected platform');
+assert(/黄/.test(win10Notice.toasts[0]), 'the reminder must describe the yellow border itself');
+
+const win11Notice = runBorderNotification('10.0.26100');
+assert.strictEqual(win11Notice.first, false, 'Win11 can hide the border and must not be nagged');
+assert.deepStrictEqual(win11Notice.toasts, [], 'no reminder on a borderless-capable platform');
+
+// 拿不到系统版本是"不确定"，不是"确定有黄框"——不能拿它去打扰用户。
+// An unknown release means undecided, not bordered: it must not earn a reminder.
+for (const release of [undefined, '']) {
+  const unknownNotice = runBorderNotification(release);
+  assert.strictEqual(unknownNotice.first, false, 'an unknown release must not be treated as Win10');
+  assert.deepStrictEqual(unknownNotice.toasts, [], 'an unknown release must stay silent');
+}
+
+console.log('[OK] Wallpaper Engine pak capture avoids Win10 display-capture yellow border fallback, '
+  + 'the glass sampler stays behind its setting, defaults to off, and reminds an unsupported '
+  + 'platform once per session.');

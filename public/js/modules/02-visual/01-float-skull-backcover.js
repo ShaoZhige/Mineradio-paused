@@ -104,7 +104,7 @@ void main(){
     vertexShader: fvs, fragmentShader: ffs,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
-  floatGroup = new THREE.Points(fgeo, fmat);
+  floatGroup = attachParticleDrawBudget(new THREE.Points(fgeo, fmat), FLOAT_COUNT);
   floatGroup.frustumCulled = false;
   scene.add(floatGroup);
 }
@@ -511,7 +511,7 @@ function createSkullParticleLayer() {
     depthTest: true,
     blending: THREE.NormalBlending
   });
-  skullParticleGroup = new THREE.Points(geo, mat);
+  skullParticleGroup = attachParticleDrawBudget(new THREE.Points(geo, mat));
   skullParticleGroup.frustumCulled = false;
   skullParticleGroup.visible = false;
   skullParticleGroup.userData.source = asset ? 'asset' : 'fallback';
@@ -762,7 +762,7 @@ void main(){
     vertexShader: vs, fragmentShader: fs,
     transparent: true, depthWrite: false, blending: THREE.NormalBlending,
   });
-  backCoverGroup = new THREE.Points(bg, mat);
+  backCoverGroup = attachParticleDrawBudget(new THREE.Points(bg, mat), BACK_COVER_COUNT);
   backCoverGroup.frustumCulled = false;
   backCoverColorArr = bc;
   scene.add(backCoverGroup);

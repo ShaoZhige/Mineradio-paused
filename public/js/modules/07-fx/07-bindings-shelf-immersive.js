@@ -408,7 +408,7 @@ function toggleFx(key) {
   if (toggle) toggle.classList.toggle('on', fx[key]);
   if (key === 'lyricGlow' || key === 'lyricGlowBeat') updateLyricGlowControls();
   syncFxUniforms();
-  if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'lyricVerticalFloat' || key === 'lyricLiveViewportFit' || key === 'lyricContextHighQuality' || key === 'lyricBackdropAdapt' || key === 'coverBackdropAdapt' || key === 'backgroundStarRiver' || key === 'lyricPauseHold' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'aiDepth' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'sonicGroundFloatingEnabled' || key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep' || key === 'memoryAutoTrimApp' || key === 'memoryAutoTrimOnBackground' || key === 'memoryAutoSystemTrim' || key === 'memorySystemAutoElevate') saveLyricLayout({ user: true, reason: key });
+  if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'lyricVerticalFloat' || key === 'lyricLiveViewportFit' || key === 'lyricContextHighQuality' || key === 'lyricBackdropAdapt' || key === 'coverBackdropAdapt' || key === 'backgroundStarRiver' || key === 'lyricPauseHold' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'aiDepth' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'sonicGroundFloatingEnabled' || key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep' || key === 'memoryAutoTrimApp' || key === 'memoryAutoTrimOnBackground' || key === 'memoryAutoSystemTrim' || key === 'memorySystemAutoElevate' || key === 'wallpaperEngineSilentWindows' || key === 'wallpaperEngineGlassSampler') saveLyricLayout({ user: true, reason: key });
   if ((key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack') && typeof refreshSonicAudioMonitorUi === 'function') refreshSonicAudioMonitorUi();
   if (key === 'floatLayer') { if (fx.floatLayer) createFloatLayer(); else destroyFloatLayer(); saveLyricLayout({ user: true, reason: key }); }
   if (key === 'desktopLyrics') applyDesktopLyricsState(true);
@@ -463,6 +463,28 @@ function toggleFx(key) {
   if (key === 'memoryAutoTrimOnBackground') showToast(fx.memoryAutoTrimOnBackground ? '最小化后台会自动压缩' : '后台自动压缩已关闭');
   if (key === 'memoryAutoSystemTrim') showToast(fx.memoryAutoSystemTrim ? '系统级 Mem Reduct 已开启' : '系统级 Mem Reduct 已关闭');
   if (key === 'memorySystemAutoElevate') showToast(fx.memorySystemAutoElevate ? '系统释放允许请求管理员权限' : '系统释放不再自动提权');
+  if (key === 'wallpaperEngineSilentWindows') {
+    showToast(fx.wallpaperEngineSilentWindows !== false
+      ? 'WE 窗口静默已开启，播放壁纸时不再占用任务栏'
+      : 'WE 窗口静默已关闭，重开壁纸后 Wallpaper Engine 窗口会回到任务栏');
+  }
+  if (key === 'wallpaperEngineGlassSampler') {
+    var glassSamplerEnabled = fx.wallpaperEngineGlassSampler !== false;
+    if (!glassSamplerEnabled) {
+      if (typeof stopWallpaperEngineGlassCaptureStream === 'function') stopWallpaperEngineGlassCaptureStream(false);
+      showToast('WE 玻璃采样已关闭，不再抓取壁纸像素');
+    } else {
+      // 黄框是系统行为而不是缺陷，这里只告知不拦截，让玩家自己决定取舍。
+      var glassBorderless = typeof wallpaperEngineBorderlessCaptureSupported !== 'function'
+        || wallpaperEngineBorderlessCaptureSupported();
+      showToast(glassBorderless
+        ? 'WE 玻璃采样已开启，控制栏玻璃会跟随壁纸取色'
+        : '已开启玻璃采样：Windows 10 无法隐藏系统捕获黄框，壁纸会多出一圈黄色边框，功能不受影响');
+      if (wallpaperEngineCaptureMode === 'dwm-thumbnail' && typeof scheduleWallpaperEngineGlassSamplerCapture === 'function') {
+        scheduleWallpaperEngineGlassSamplerCapture(String(wallpaperEngineNativeSessionId || ''), wallpaperEngineLayerToken, 0);
+      }
+    }
+  }
   if (key === 'lyricCameraLock') showToast(fx.lyricCameraLock ? '歌词已绑定镜头' : '歌词已恢复自由漂浮');
   if (key === 'bloom') showToast(fx.bloom ? '溢光已开启' : '溢光已关闭');
   if (key === 'edge') showToast(fx.edge ? '已开启轮廓高亮' : '已关闭轮廓高亮');

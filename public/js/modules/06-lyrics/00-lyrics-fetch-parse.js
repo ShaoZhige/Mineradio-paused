@@ -124,6 +124,7 @@ function applyFetchedLyricResponse(song, token, response, options) {
   setOriginalLyricsState(state.lines, state.hasNativeKaraoke, state.timingSource, state.translationLines, state.translationSource);
   applyPreferredLyricsForCurrent(true);
   scheduleNeteaseLyricTranslationFallback(song, token, state);
+  scheduleNeteasePrimaryLyricFallback(song, token, state);
   if (state.usableLyric && options.persist !== false) writePersistentLyricCache(song, mergedResponse);
   return state;
 }
@@ -254,6 +255,118 @@ function scheduleNeteaseLyricTranslationFallback(song, token, state) {
     if (window.requestIdleCallback) requestIdleCallback(start, { timeout: 1800 });
     else start();
   }, 420);
+}
+// ---------------------------------------------------------------------------
+// 网易云云盘歌曲没有歌词（#457 / Netease cloud-disk uploads resolve to no lyric）
+//
+// 上传到网易云盘的音频不是官方曲库条目，按 /api/lyric?id=<云盘歌曲 id> 查询只会拿到空结果，
+// 界面于是退化成「歌名 - 歌手」占位文本、看不到逐行歌词。用户上传的通常是与官方曲库同名同歌手的
+// 录音，所以这里补一层兜底：用「歌名 + 歌手」搜索候选，候选必须先通过既有的
+// sourceCandidateRejectReason（标题规范化后完全一致、歌手有交集、排除翻唱/现场/伴奏等衍生版本）
+// 与 isSameTitleArtist 双重校验，再用候选 id 取一次歌词。校验足够严格（同名且歌手有交集），
+// 且只在当前完全没有可用歌词时执行，因此不会覆盖真实歌词、也不会给纯音乐安上别的歌的歌词。
+//
+// Songs uploaded to the Netease cloud disk are not official catalog entries, so
+// /api/lyric?id=<cloud song id> returns nothing and the UI degrades to a "title - artist"
+// placeholder. Uploaded audio is usually the same recording as the official track, so search by
+// title + artist, require the candidate to pass both sourceCandidateRejectReason (normalised title
+// must match exactly, artists must overlap, covers / live / instrumental versions are rejected) and
+// isSameTitleArtist, then fetch the lyric with the candidate id. The guards are deliberately
+// strict, and the rescue only runs when no usable lyric exists, so real lyrics are never
+// overwritten and instrumental tracks never inherit another song's words.
+var lyricPrimaryFallbackCache = {};
+var lyricPrimaryFallbackMissCache = {};
+var lyricPrimaryFallbackPending = {};
+var LYRIC_PRIMARY_FALLBACK_MISS_TTL_MS = 10 * 60 * 1000;
+var LYRIC_PRIMARY_FALLBACK_TIMEOUT_MS = 5200;
+
+function lyricPrimaryFallbackKey(song) {
+  song = song || {};
+  return [
+    songProviderKey(song) || 'netease',
+    String(song.id || '').trim(),
+    lyricTranslationFallbackKey(song)
+  ].join('|');
+}
+function shouldFetchNeteasePrimaryLyricFallback(song, state) {
+  if (!song || !state) return false;
+  // 已经有可用歌词就什么都不做：兜底只负责"从无到有"。
+  if (state.usableLyric) return false;
+  if (song.type === 'local' || song.source === 'local' || song.localUrl || song.type === 'podcast') return false;
+  if (songProviderKey(song) !== 'netease') return false;
+  if (!String(song.name || song.title || '').trim()) return false;
+  var key = lyricPrimaryFallbackKey(song);
+  if (!key || lyricPrimaryFallbackPending[key]) return false;
+  var missedAt = lyricPrimaryFallbackMissCache[key] || 0;
+  return !missedAt || Date.now() - missedAt > LYRIC_PRIMARY_FALLBACK_MISS_TTL_MS;
+}
+function adoptNeteasePrimaryLyricFallback(song, mergedResponse, token, cacheKey) {
+  if (token !== trackSwitchToken) return false;
+  if (!song || songProviderKey(song) !== 'netease') return false;
+  if (lyricPrimaryFallbackKey(song) !== cacheKey) return false;
+  if (hasUsableLyricLines(originalLyricsState && originalLyricsState.lines)) return false;
+  var merged = mergeInlineLyricResponseForSong(song, mergedResponse || {});
+  var state = parseLyricResponseToOriginalState(song, merged);
+  if (!state.usableLyric) return false;
+  cancelPendingTrackFallbackLyrics();
+  setOriginalLyricsState(state.lines, state.hasNativeKaraoke, state.timingSource, state.translationLines, state.translationSource);
+  applyPreferredLyricsForCurrent(true);
+  // 写入持久缓存：同一首云盘歌曲下次播放直接命中，不再重复搜索。
+  writePersistentLyricCache(song, merged);
+  console.info('[LyricPrimaryFallback] netease cloud track resolved via same title/artist');
+  return true;
+}
+async function fetchNeteasePrimaryLyricFallback(song, token, cacheKey) {
+  if (!song || token !== trackSwitchToken) return false;
+  if (lyricPrimaryFallbackPending[cacheKey]) return false;
+  var cached = lyricPrimaryFallbackCache[cacheKey];
+  if (cached) return adoptNeteasePrimaryLyricFallback(song, cached, token, cacheKey);
+  lyricPrimaryFallbackPending[cacheKey] = true;
+  try {
+    var candidate = await findNeteaseLyricFallbackCandidate(song);
+    if (token !== trackSwitchToken) return false;
+    if (!candidate || !candidate.id) {
+      lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+      return false;
+    }
+    // 搜索命中不足以直接采信，必须再确认是"同名同歌手"，否则宁可保持无歌词。
+    if (typeof isSameTitleArtist !== 'function' || !isSameTitleArtist(song, candidate)) {
+      lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+      return false;
+    }
+    var response = await apiJson('/api/lyric?id=' + encodeURIComponent(candidate.id), { timeoutMs: LYRIC_PRIMARY_FALLBACK_TIMEOUT_MS });
+    if (token !== trackSwitchToken) return false;
+    var merged = mergeInlineLyricResponseForSong({}, response || {});
+    var state = parseLyricResponseToOriginalState(song, merged);
+    if (!state.usableLyric) {
+      lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+      return false;
+    }
+    lyricPrimaryFallbackCache[cacheKey] = merged;
+    return adoptNeteasePrimaryLyricFallback(song, merged, token, cacheKey);
+  } catch (err) {
+    lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+    console.warn('[LyricPrimaryFallback]', err);
+    return false;
+  } finally {
+    lyricPrimaryFallbackPending[cacheKey] = false;
+  }
+}
+function scheduleNeteasePrimaryLyricFallback(song, token, state) {
+  if (!shouldFetchNeteasePrimaryLyricFallback(song, state)) return;
+  var cacheKey = lyricPrimaryFallbackKey(song);
+  var cached = lyricPrimaryFallbackCache[cacheKey];
+  if (cached) {
+    setTimeout(function () { adoptNeteasePrimaryLyricFallback(song, cached, token, cacheKey); }, 0);
+    return;
+  }
+  // 排在翻译兜底之后，等界面先把占位文本渲染出来再补搜，避免和切歌抢带宽。
+  setTimeout(function () {
+    if (token !== trackSwitchToken) return;
+    var start = function () { fetchNeteasePrimaryLyricFallback(song, token, cacheKey); };
+    if (window.requestIdleCallback) requestIdleCallback(start, { timeout: 2400 });
+    else start();
+  }, 620);
 }
 function lyricFallbackTextForSong(song) {
   song = song || {};

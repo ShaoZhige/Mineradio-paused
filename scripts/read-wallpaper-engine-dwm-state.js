@@ -275,6 +275,16 @@ async function main() {
         dwmGlassSurfaceWindowId: String(runtime.dwmGlassSurfaceWindowId || ''),
         dwmGlassSurfaceSampleMode: String(runtime.dwmGlassSurfaceSampleMode || ''),
         dwmGlassSurfaceGeometry: runtime.dwmGlassSurfaceGeometry || null,
+        // 原生帮手实际使用的视觉缩放：1 = 不重采样；只要不是 1，整张壁纸都会被重采样一次
+        // （取值来自会话，助手通过 stdin 的 V| 指令确认后即为最终值）。
+        // Visual scale the native helper renders with: 1 means no resample at all, any other
+        // value resamples the whole wallpaper surface once.
+        dwmVisualScale: Number(runtime.dwmVisualScale || 0),
+        dwmVisualOpacity: Number(runtime.dwmVisualOpacity || 0),
+        dwmVisualPositionX: Number(runtime.dwmVisualPositionX || 0),
+        dwmVisualPositionY: Number(runtime.dwmVisualPositionY || 0),
+        sourceWindowVisibleWidth: Number(runtime.sourceWindowVisibleWidth || 0),
+        sourceWindowVisibleHeight: Number(runtime.sourceWindowVisibleHeight || 0),
         sourceProcessId: Number(runtime.sourceProcessId || 0),
         sourceWindowId: String(runtime.sourceWindowId || ''),
         sourceWindowParked: !!runtime.sourceWindowParked,

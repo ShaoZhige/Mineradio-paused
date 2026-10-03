@@ -79,17 +79,36 @@ function shelfWheelZoneWidth() {
   var ratioWidth = innerWidth * (portrait ? 0.24 : 0.18);
   return Math.min(portrait ? 280 : 360, Math.max(shelfHotZoneWidth(), ratioWidth));
 }
+// 垂直热区边界：沿用原有上下留白，但当窗口太矮、留白把可命中区间压到小于 minSpan 时
+// 以窗口中线为基准撑开一段最小高度。否则矮窗口下区间会退化成空集（高度 285 时
+// (130, innerHeight-150) 只剩 5px），歌单架收起后就再也呼不出来。
+// 中英对照：Keep the original insets, but when the window is short enough that the insets
+// collapse the hit zone below minSpan, expand it symmetrically around the vertical center
+// so the collapsed shelf stays reachable. Large windows keep the exact previous bounds.
+function shelfHotZoneSpan(topInset, bottomInset, minSpan) {
+  var top = topInset;
+  var bottom = innerHeight - bottomInset;
+  if (bottom - top < minSpan) {
+    var center = innerHeight / 2;
+    top = center - minSpan / 2;
+    bottom = center + minSpan / 2;
+  }
+  return { top: Math.max(0, top), bottom: Math.min(innerHeight, bottom) };
+}
 function isShelfClickZone(e) {
   var edge = shelfPinnedOpen ? Math.min(390, Math.max(210, innerWidth * 0.22)) : shelfHotZoneWidth();
-  return e.clientX > innerWidth - edge && e.clientY > 130 && e.clientY < innerHeight - 150;
+  var span = shelfHotZoneSpan(130, 150, 132);
+  return e.clientX > innerWidth - edge && e.clientY > span.top && e.clientY < span.bottom;
 }
 function isShelfPreviewUseZone(e) {
   var edge = shelfPreviewUseZoneWidth();
-  return e.clientX > innerWidth - edge && e.clientY > 96 && e.clientY < innerHeight - 96;
+  var span = shelfHotZoneSpan(96, 96, 140);
+  return e.clientX > innerWidth - edge && e.clientY > span.top && e.clientY < span.bottom;
 }
 function isShelfWheelZone(e) {
   var edge = shelfWheelZoneWidth();
-  return e.clientX > innerWidth - edge && e.clientY > 116 && e.clientY < innerHeight - 116;
+  var span = shelfHotZoneSpan(116, 116, 136);
+  return e.clientX > innerWidth - edge && e.clientY > span.top && e.clientY < span.bottom;
 }
 function canUseSideShelfWithoutPinnedOpen() {
   return !!shelfAlwaysVisible();

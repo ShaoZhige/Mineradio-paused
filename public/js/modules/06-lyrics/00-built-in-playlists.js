@@ -91,9 +91,29 @@ async function createBuiltInPlaylist(name, initialTrack) {
 }
 
 function promptCreateBuiltInPlaylist() {
-  var name = window.prompt('新建 Mineradio 内置歌单', '我的歌单');
-  if (name == null) return;
-  createBuiltInPlaylist(name).catch(function (error) {
+  // Electron 渲染进程从未实现 window.prompt，调用即抛异常（原来的裸调用会直接冒到
+  // window.onerror）。改用自绘输入弹层，取消时返回 null。
+  // 中英对照：Electron's renderer never implemented window.prompt and throws when called, so
+  // this flow uses the in-app dialog. Cancelling resolves null.
+  if (typeof requestMineradioTextInput !== 'function') {
+    if (typeof showToast === 'function') showToast('当前环境无法打开输入框，可在收藏面板中新建内置歌单');
+    return;
+  }
+  requestMineradioTextInput({
+    title: '新建 Mineradio 内置歌单',
+    value: '我的歌单',
+    maxLength: 40,
+    confirmText: '创建',
+    hint: '名称最多 40 个字符，创建后仍可重命名',
+    emptyMessage: '请先输入内置歌单名称'
+  }).then(function (name) {
+    if (name == null) return null;
+    return createBuiltInPlaylist(name).catch(function (error) {
+      console.warn('[BuiltInPlaylistCreate]', error);
+      if (typeof showToast === 'function') showToast('创建内置歌单失败');
+      return null;
+    });
+  }).catch(function (error) {
     console.warn('[BuiltInPlaylistCreate]', error);
     if (typeof showToast === 'function') showToast('创建内置歌单失败');
   });
@@ -131,7 +151,19 @@ async function removeTrackFromBuiltInPlaylist(id, index) {
 }
 
 async function renameBuiltInPlaylist(id, currentName) {
-  var name = window.prompt('重命名内置歌单', String(currentName || ''));
+  // 同上：window.prompt 不可用；这里必须 await，否则拿不到用户输入。
+  // 中英对照：Same reason as above. The dialog must be awaited to obtain the new name.
+  if (typeof requestMineradioTextInput !== 'function') {
+    if (typeof showToast === 'function') showToast('当前环境无法打开输入框，重命名已取消');
+    return false;
+  }
+  var name = await requestMineradioTextInput({
+    title: '重命名内置歌单',
+    value: String(currentName || ''),
+    maxLength: 40,
+    confirmText: '重命名',
+    emptyMessage: '请先输入新的歌单名称'
+  });
   if (name == null || !String(name).trim()) return false;
   var result = await window.desktopWindow.renameBuiltInPlaylist(String(id || ''), String(name).trim());
   if (!result || result.ok !== true) {

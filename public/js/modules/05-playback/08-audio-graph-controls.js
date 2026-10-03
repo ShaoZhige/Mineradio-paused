@@ -3,6 +3,14 @@ function audioGraphHealthy() {
   return !!(audio && audioReady && audioCtx && audioCtx.state !== 'closed' && source && audioSourceMedia === audio && analyser && beatAnalyser && (gainNode || analysisSinkNode));
 }
 function disconnectAudioGraphNodes(keepSource) {
+  // 断开前先给"正在被断开的 prepared graph"打失效标记：这一批节点马上就要失去连接，
+  // 之后不得再被 resetPlaybackAudioGraphForSourceSwitch 采纳回来。
+  // 中英对照：Mark the prepared graph as invalidated before detaching, so it can never
+  // be adopted again after its nodes have lost their connections.
+  var detachedPrepared = audio && audio.__mineradioPreparedAudioGraph;
+  if (detachedPrepared && detachedPrepared.source && detachedPrepared.source === source) {
+    detachedPrepared.invalidated = true;
+  }
   [source, analyser, beatAnalyser, gainNode, analysisSinkNode].forEach(function (node) {
     if (!node) return;
     try { node.disconnect(); } catch (e) { }
@@ -74,8 +82,17 @@ function resetPlaybackAudioGraphForSourceSwitch(reason) {
   var previousSourceMedia = audioSourceMedia;
   var sourceUsesCapture = !!(source && source.__mineradioUsesCapture);
   var mediaElementChanged = !!(source && previousSourceMedia && previousSourceMedia !== audio);
+  // 可复用的 prepared graph 必须同时满足：尚未被采纳过、尚未因断开而失效、且它的
+  // source 不是当前正在使用的这一批节点。后两条是必需的 —— 已被 Cuefield 交接采纳或
+  // 正被使用的图会在下面被 disconnect，若仍把它取回来就会得到一条已断开的输出链：
+  // 播放地址与 UI 正常，但无声且切歌无法恢复。
+  // 中英对照：A reusable prepared graph must not be adopted yet, must not have been
+  // invalidated by a disconnect, and must not be the graph currently in use.
   var canAdoptPrepared = !!(
     preparedGraph
+    && !preparedGraph.adopted
+    && !preparedGraph.invalidated
+    && !(source && preparedGraph.source === source)
     && preparedGraph.context
     && preparedGraph.context.state !== 'closed'
     && preparedGraph.source
@@ -92,15 +109,7 @@ function resetPlaybackAudioGraphForSourceSwitch(reason) {
     return;
   }
   disconnectAudioGraphNodes(!sourceUsesCapture && !mediaElementChanged);
-  if (
-    preparedGraph
-    && preparedGraph.context
-    && preparedGraph.context.state !== 'closed'
-    && preparedGraph.source
-    && preparedGraph.analyser
-    && preparedGraph.beatAnalyser
-    && preparedGraph.gainNode
-  ) {
+  if (canAdoptPrepared) {
     audioCtx = preparedGraph.context;
     source = preparedGraph.source;
     analyser = preparedGraph.analyser;

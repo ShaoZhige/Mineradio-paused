@@ -67,3 +67,21 @@ tmp/
 *.png.tmp
 verification/
 screenshots/
+
+# 本机专属的 Windows 启动器与诊断导出：含本机绝对路径 / 安装盘符，一律不提交
+# Machine-specific Windows launchers and diagnosis dumps stay out of the repository.
+0-setup.bat
+1-run.bat
+2-test.bat
+3-build.bat
+4-release.bat
+start-mineradio.bat
+5-diag-wallpaper.bat
+_dryrun-diag.bat
+wallpaper-diagnosis.txt
+
+# 外部程序误写到工作区的产物（如手动跑 Wallpaper Engine 时它按 CWD 落下日志）
+# Artifacts external programs drop into the working directory (Wallpaper Engine writes its log
+# relative to the CWD when launched by hand).
+log.txt
+wallpaper-diagnosis.log

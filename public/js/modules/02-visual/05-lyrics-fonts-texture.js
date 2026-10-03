@@ -121,6 +121,20 @@ function lyricLetterSpacingPx(fontSize) {
 function lyricLineHeightFactor() {
   return clampRange(Number(fx && fx.lyricLineHeight) || 1, 0.72, 1.80);
 }
+// 行高的唯一来源。行数不参与计算：原先按"载荷里是否多于一行"再乘 0.98 与
+// lyricContextSpread(默认 1.96)，使得单行载荷和多行载荷的行高相差近两倍，行距随歌曲里
+// 恰好有几行而跳变，用户 DIY 的行距被这些系数盖掉。常量 0.98 保留多行分支原本的取值，
+// 保证多行场景的观感不变，只是不再有第二套值。
+// 中英对照：The single source of truth for line height. Line count must not take part: the
+// former per-line-count 0.98 and lyricContextSpread (default 1.96) multipliers made one-line
+// and multi-line payloads differ by nearly 2x, so spacing jumped from song to song and drowned
+// out the user's own setting. The 0.98 constant preserves the multi-line look exactly.
+const LYRIC_MASK_LINE_HEIGHT_BASE = 0.98;
+function lyricMaskLineHeight(fontSize) {
+  var size = Number(fontSize);
+  if (!(size > 0)) size = 128;
+  return size * LYRIC_MASK_LINE_HEIGHT_BASE * lyricLineHeightFactor() * lyricContextSpreadValue();
+}
 var lyricTextMeasureCache = { fonts: {}, order: [], maxFonts: 64, maxCharsPerFont: 512 };
 function clearLyricTextMeasureCache() {
   lyricTextMeasureCache = { fonts: {}, order: [], maxFonts: 64, maxCharsPerFont: 512 };

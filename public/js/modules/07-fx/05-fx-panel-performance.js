@@ -203,6 +203,9 @@ function setPerformanceQualityMode(mode, silent) {
   fx.performanceQuality = next;
   updatePerformanceControls();
   applyRendererPowerMode();
+  // 画质档位是粒子规模的唯一来源：档位一改，所有粒子系统都要重新裁一次。
+  // The quality tier is the source of the particle budget, so every system re-trims on a change.
+  if (typeof refreshParticleBudget === 'function') refreshParticleBudget();
   saveLyricLayout({ user: true, reason: 'performanceQuality' });
   if (!silent) {
     var label = next === 'eco' ? '低' : (next === 'balanced' ? '中' : (next === 'ultra' ? '超高' : '高'));
@@ -373,6 +376,10 @@ function updateFxInputs() {
   if (desktopLyricsCinemaToggle) desktopLyricsCinemaToggle.classList.toggle('on', fx.desktopLyricsCinema !== false);
   var desktopLyricsHighlightToggle = document.getElementById('t-desktopLyricsHighlight');
   if (desktopLyricsHighlightToggle) desktopLyricsHighlightToggle.classList.toggle('on', fx.desktopLyricsHighlight === true);
+  var wallpaperEngineSilentWindowsToggle = document.getElementById('t-wallpaperEngineSilentWindows');
+  if (wallpaperEngineSilentWindowsToggle) wallpaperEngineSilentWindowsToggle.classList.toggle('on', fx.wallpaperEngineSilentWindows !== false);
+  var wallpaperEngineGlassSamplerToggle = document.getElementById('t-wallpaperEngineGlassSampler');
+  if (wallpaperEngineGlassSamplerToggle) wallpaperEngineGlassSamplerToggle.classList.toggle('on', fx.wallpaperEngineGlassSampler !== false);
   updateDesktopLyricsFpsControls();
   updateWallpaperFpsControls();
   var wallpaperModeToggle = document.getElementById('t-wallpaperMode');

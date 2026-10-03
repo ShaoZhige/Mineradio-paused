@@ -240,9 +240,57 @@ test('embedded cover budget rejects oversized pixel dimensions on low-spec devic
   assert.equal(coverWithinBudget(Buffer.alloc(1024 * 1024 + 1), 'image/webp'), false);
 });
 
+test('orphan records stay in the index but never reach the playable list', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mineradio-local-library-orphan-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const audioPath = path.join(root, 'Song.flac');
+  fs.writeFileSync(audioPath, Buffer.from('audio'));
+  const profile = path.join(root, 'profile');
+  const library = new LocalMusicLibrary({
+    userDataPath: profile,
+    parseMetadata: async () => ({ common: { title: 'Song' }, format: { duration: 1 } }),
+  });
+
+  const imported = await library.importFiles([{ path: audioPath }]);
+  assert.equal(imported.count, 1);
+  assert.equal(imported.missing, 0);
+  assert.equal(imported.tracks[0].localMissing, false);
+  const trackId = imported.tracks[0].localFileId;
+
+  fs.rmSync(audioPath);
+  const afterRemoval = library.listTracksSync();
+  assert.equal(afterRemoval.ok, true);
+  assert.equal(afterRemoval.count, 0);
+  assert.equal(afterRemoval.missing, 1);
+  assert.deepEqual(afterRemoval.tracks, []);
+
+  // The index must keep the record: a detached drive is temporary, pruning would be data loss.
+  const manifest = JSON.parse(fs.readFileSync(path.join(profile, 'local-music-library.json'), 'utf8'));
+  assert.equal(manifest.records.length, 1);
+  assert.equal(manifest.records[0].audioPath, audioPath);
+
+  // Single-track resolution keeps the entry but withholds a URL that could only 404.
+  const orphan = library.resolveTrack(trackId);
+  assert.equal(orphan.localKey, trackId);
+  assert.equal(orphan.localMissing, true);
+  assert.equal(orphan.localUrl, '');
+  assert.equal(orphan.cover, '');
+  assert.equal(library.resolveTrack('local:' + trackId).localMissing, true);
+  assert.equal(library.resolveTrack('not-an-id'), null);
+
+  // Reconnecting the drive restores the entries without any manual cleanup.
+  fs.writeFileSync(audioPath, Buffer.from('audio'));
+  const restored = await library.listTracks();
+  assert.equal(restored.count, 1);
+  assert.equal(restored.missing, 0);
+  assert.equal(restored.tracks[0].localMissing, false);
+  assert.match(restored.tracks[0].localUrl, /^mineradio-local:\/\/audio\/[a-f0-9]{24}/);
+});
+
 test('renderer and Electron wiring restore persistent tracks instead of blob-only missing records', () => {
   const appRoot = path.join(__dirname, '..');
   const main = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const localLibrary = fs.readFileSync(path.join(appRoot, 'desktop', 'local-music-library.js'), 'utf8');
   const preload = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const upload = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '05-upload-dragdrop.js'), 'utf8');
   const startup = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '05-startup-bindings.js'), 'utf8');
@@ -253,7 +301,23 @@ test('renderer and Electron wiring restore persistent tracks instead of blob-onl
   const cover = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '03-beat', '05-cover-loading-crop.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 
-  assert.match(main, /new LocalMusicLibrary\(\{ userDataPath: STABLE_USER_DATA_PATH \}\)/);
+  // 断言意图而不是字面形状：曲库必须用稳定用户目录构造，但现在还多带一个监视回调，
+  // 把整个对象字面量钉死会让任何无害的增项都变成红灯。
+  // Assert the intent, not the literal shape: the library must be built on the stable user data
+  // path, but it now also carries a watch callback, and pinning the whole object literal would turn
+  // any harmless addition into a red light.
+  assert.match(main, /new LocalMusicLibrary\(\{[\s\S]{0,240}?userDataPath: STABLE_USER_DATA_PATH/);
+  // 文件夹监视的接线必须完整：构造时给回调、导入后开启、退出前关闭，缺一环都会漏。
+  // The folder watch wiring must be complete — a change callback, a start after import and a stop
+  // before quit. A missing leg leaks either notifications or file handles.
+  assert.match(main, /onWatchChange: \(change\) =>/);
+  assert.match(main, /localMusicLibrary\.startWatching\(\)/);
+  assert.match(main, /localMusicLibrary\.stopWatching\(\)/);
+  assert.match(main, /mineradio-local-library-changed/);
+  assert.match(preload, /onLocalMusicLibraryChanged/);
+  assert.match(upload, /bindPersistentLocalLibraryWatch/);
+  assert.match(upload, /refreshPersistentLocalLibraryTracks/);
+  assert.match(startup, /bindPersistentLocalLibraryWatch/);
   assert.doesNotMatch(main, /mineradio-local-library-read-sync/);
   assert.match(main, /await localMusicLibrary\.listTracks\(\)/);
   assert.match(main, /mineradio-local-library-lyric/);
@@ -281,5 +345,16 @@ test('renderer and Electron wiring restore persistent tracks instead of blob-onl
   assert.match(upload, /return -1;/);
   assert.match(playback, /readLocalMusicLyric\(song\.localFileId\)/);
   assert.match(cover, /mineradio-local:\\\/\\\/cover/);
+  assert.match(localLibrary, /function localRecordFileExists\(record\)/, 'orphan detection must stat the record file');
+  assert.match(localLibrary, /if \(!fileExists\) \{ missing \+= 1; continue; \}/, 'records with a missing file must be filtered out of the list');
+  assert.match(localLibrary, /localUrl: available \? localMediaUrl\('audio'/, 'orphan records must not expose a URL that can only 404');
+  const loadIndexBlock = localLibrary.slice(
+    localLibrary.indexOf('  loadIndex() {'),
+    localLibrary.indexOf('  serializeRecord(record, fileExists) {')
+  );
+  assert.doesNotMatch(loadIndexBlock, /localRecordFileExists/, 'a detached drive must never be pruned at load time');
+  assert.match(main, /resolveBuiltInPlaylistLocalTracks\(builtInPlaylistLibrary\.page\(id, options\)\)/, 'built-in playlist pages must re-resolve local tracks against the live library');
+  assert.match(main, /localMusicLibrary\.resolveTrack\(track\.localFileId \|\| track\.localKey \|\| track\.id\)/, 'the re-resolution must look the track up by local id');
+  assert.match(upload, /Number\(result\.missing\) > 0/, 'the renderer must surface how many local tracks were skipped');
   assert.equal(packageJson.dependencies['music-metadata'], '11.14.0');
 });

@@ -428,6 +428,9 @@
         <div class="fx-color-row-label">Wallpaper Engine<small id="wallpaper-engine-value">未启用 · 原背景保留</small></div>
         <div class="wallpaper-engine-actions">
           <button class="fx-mini-btn ghost" type="button" onclick="openWallpaperEngineLibrary()">识别 / 导入</button>
+          <button class="fx-mini-btn ghost" id="wallpaper-engine-retry-btn" type="button"
+            onclick="retryWallpaperEngineNativeRun()" disabled
+            title="当前显示的可能是项目预览（工程目录里的封面图）而不是动态壁纸；点击会重新按原生引擎拉起一次">重试原生运行</button>
           <button class="fx-mini-btn ghost" id="wallpaper-engine-restore-btn" type="button"
             onclick="deactivateWallpaperEngineBackground()" disabled>恢复原背景</button>
         </div>
@@ -808,6 +811,12 @@
             <div class="fx-toggle" id="t-wallpaperMode" onclick="toggleFx('wallpaperMode')"
               title="把当前完整 Mineradio 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标，Esc 退出">
               <span>完整桌面模式<em class="fx-dev-badge">试验</em></span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-wallpaperEngineSilentWindows" onclick="toggleFx('wallpaperEngineSilentWindows')"
+              title="把 Wallpaper Engine 的运行窗口从任务栏和 Alt+Tab 里隐藏，播放壁纸时不再弹任务栏提醒；只影响本程序拉起的窗口">
+              <span>WE 窗口静默</span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-wallpaperEngineGlassSampler" onclick="toggleFx('wallpaperEngineGlassSampler')"
+              title="抓壁纸真实像素给控制栏玻璃做底。Windows 10 无法关闭系统捕获黄框，因此默认关闭；手动打开后功能可用，但黄框会保留">
+              <span>WE 玻璃采样</span><span class="dot"></span></div>
           </div>
           <div class="fx-section-label">桌面 / 壁纸</div>
           <div class="fx-slider"><label>桌面歌词大小</label><input id="fx-desktoplyricssize" type="range" min="0.72"

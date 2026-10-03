@@ -297,6 +297,13 @@ function animate() {
   mainLoopAnimationRequested = false;
   scheduleNextMainLoopFrame();
   var perfProbe = window.__mineradioPerf;
+  // 粒子规模预算的档位比较：稳定状态下只是一次数值比较，系数变了才让各系统重裁。
+  // The particle budget compares its factor every frame: one numeric compare in a steady state,
+  // and a re-trim across the systems only when the factor actually moves.
+  if (typeof tickParticleBudget === 'function') tickParticleBudget();
+  // 系统媒体控制（任务栏播放条 / 锁屏 / 媒体键）跟着主循环走；内部按秒节流。
+  // The system media controls follow the main loop; their own per-second throttle keeps it cheap.
+  if (typeof syncMediaSession === 'function') syncMediaSession(false);
   var framePerfStart = performance.now();
   var now = performance.now();
   if (mainLoopDeepBackgroundSleeping()) {

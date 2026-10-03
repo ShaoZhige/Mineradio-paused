@@ -143,7 +143,7 @@ function finalizeLyricMaskLayoutBuild(state) {
     return measured;
   }
   function lyricMaskLayoutFits(size, measuredWidth) {
-    var testLineHeight = size * (lines.length > 1 ? 0.98 : 1.0) * lyricLineHeightFactor();
+    var testLineHeight = lyricMaskLineHeight(size);
     var testBlockH = size + (lines.length - 1) * testLineHeight;
     return measuredWidth <= maxWidth && testBlockH <= H - 76;
   }
@@ -153,7 +153,7 @@ function finalizeLyricMaskLayoutBuild(state) {
     var minimumStepFont = fitBaseSize;
     while (minimumStepFont > minFont) minimumStepFont -= 4;
     var baseWidest = measureWidestAtSize(fitBaseSize);
-    var baseLineHeight = fitBaseSize * (lines.length > 1 ? 0.98 : 1.0) * lyricLineHeightFactor();
+    var baseLineHeight = lyricMaskLineHeight(fitBaseSize);
     var baseBlockH = fitBaseSize + (lines.length - 1) * baseLineHeight;
     var fitRatio = Math.min(1, maxWidth / Math.max(1, baseWidest), (H - 76) / Math.max(1, baseBlockH));
     var estimatedFont = Math.floor((fitBaseSize * Math.max(0.01, fitRatio)) / 4) * 4;
@@ -195,7 +195,7 @@ function finalizeLyricMaskLayoutBuild(state) {
   var lockedLineHeight = Number(layoutOverride.lineHeight);
   var lineHeight = isFinite(lockedLineHeight) && lockedLineHeight > 0
     ? lockedLineHeight
-    : fontSize * (lines.length > 1 ? 0.98 : 1.0) * lyricLineHeightFactor() * (lines.length > 1 ? lyricContextSpreadValue() : 1);
+    : lyricMaskLineHeight(fontSize);
   var activeEntry = entries[activeLine] || {};
   var activeTextWidth = activeLine === widestMeasureIndex
     ? widest
@@ -516,7 +516,7 @@ function lyricGlowRasterMetrics(mask) {
   var sourceScale = clampRange(Number(mask.rasterScale) || 1, 0.01, 1);
   var logicalFontSize = Math.max(1, Number(mask.logicalFontSize) || (Number(mask.fontSize) || 128) / sourceScale);
   var logicalTextWidth = Math.max(1, Number(mask.logicalActiveTextWidth) || Number(mask.logicalTextWidth) || (Number(mask.activeTextWidth) || Number(mask.textWidth) || 1) / sourceScale);
-  var logicalLineHeight = Math.max(1, Number(mask.logicalLineHeight) || (Number(mask.lineHeight) || logicalFontSize * lyricLineHeightFactor()) / sourceScale);
+  var logicalLineHeight = Math.max(1, Number(mask.logicalLineHeight) || (Number(mask.lineHeight) || lyricMaskLineHeight(logicalFontSize)) / sourceScale);
   var logicalPadX = Math.max(160, logicalFontSize * 1.45);
   var logicalGlowWidth = logicalTextWidth + logicalPadX * 2;
   var widthBudget = lyricGlowTextureWidthBudget();
@@ -599,7 +599,7 @@ function beginLyricReadabilityTextureBuild(mask) {
   var fontSize = mask && mask.fontSize || 128;
   var lines = mask && Array.isArray(mask.lines) && mask.lines.length ? mask.lines : [''];
   var entries = mask && Array.isArray(mask.entries) ? mask.entries : [];
-  var lineHeight = mask && mask.lineHeight || fontSize * lyricLineHeightFactor();
+  var lineHeight = mask && mask.lineHeight || lyricMaskLineHeight(fontSize);
   var fitScaleX = mask && mask.fitScaleX || 1;
   canvas.width = W; canvas.height = H;
   var ctx = canvas.getContext('2d');

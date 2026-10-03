@@ -440,8 +440,15 @@ async function indexProject(projectRoot, source, scenePackageOverride = '') {
   const manifest = await readProjectManifest(projectRoot);
   if (!manifest) return null;
   const project = manifest.value;
-  const projectType = String(project.type || '').trim().toLowerCase();
   const directExt = path.extname(String(project.file || '')).toLowerCase();
+  // project.json 没写 type 的情况是真实存在的（早期格式、手工整理过），只能靠它声明的
+  // file 扩展名反推。若这里不推断，带 scene.pkg 的场景项目会被判成"仅预览"：原生实时
+  // 运行的能力白白丢掉，用户只能看到一张低分辨率封面图。
+  // Projects without a `type` field do exist (older format, hand-edited folders), so infer
+  // it from the declared file extension. Without this a Scene project holding scene.pkg
+  // degrades to preview-only and the user only ever sees a low-res cover image.
+  const declaredType = String(project.type || '').trim().toLowerCase();
+  let projectType = declaredType || (SCENE_PACKAGE_EXTENSIONS.has(directExt) ? 'scene' : '');
   const inferredMedia = VIDEO_MIME.has(directExt) ? 'video' : (IMAGE_MIME.has(directExt) ? 'image' : '');
   const allowDirectMedia = projectType === 'video' || projectType === 'image' || (!projectType && !!inferredMedia);
   const media = allowDirectMedia
@@ -450,15 +457,21 @@ async function indexProject(projectRoot, source, scenePackageOverride = '') {
   const overrideRelative = scenePackageOverride
     ? path.relative(projectRoot, scenePackageOverride)
     : '';
-  const scenePackageCandidate = projectType === 'scene'
-    ? await firstProjectFile(projectRoot, [
+  // 只要不是"可直接播放的媒体"项目，就去找 PKGV 场景包——场景包的签名校验本身就是
+  // 强判据，比 project.json 里写的 type 更可信（type 缺失/写错时仍能救回原生运行）。
+  // Probe for a PKGV scene package unless the project is a playable media project. The
+  // PKGV signature is a stronger signal than the declared `type`, so a missing or wrong
+  // type no longer costs the project its native realtime path.
+  const scenePackageCandidate = allowDirectMedia
+    ? ''
+    : await firstProjectFile(projectRoot, [
       overrideRelative,
       SCENE_PACKAGE_EXTENSIONS.has(directExt) ? project.file : '',
       'scene.pkg',
       'scene.pak',
-    ], SCENE_PACKAGE_EXTENSIONS)
-    : '';
+    ], SCENE_PACKAGE_EXTENSIONS);
   const scenePackage = await validateScenePackage(scenePackageCandidate);
+  if (scenePackage && projectType !== 'scene') projectType = 'scene';
   const preview = await firstProjectFile(projectRoot, [
     project.preview,
     project.cover,

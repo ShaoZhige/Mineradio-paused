@@ -40,6 +40,8 @@ var FX_CONSOLE_LAYOUT = [
         fxConsoleItem('bg-color-picker', '背景颜色', '纯色 封面取色'),
         fxConsoleItem('bg-media-preview', '背景媒体', '封面 图片 视频 上传 裁切 清除', false),
         fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false),
+        fxConsoleItem('t-wallpaperEngineSilentWindows', 'WE 窗口静默', '任务栏 隐藏 Alt+Tab 进程提醒 静默'),
+        fxConsoleItem('t-wallpaperEngineGlassSampler', 'WE 玻璃采样', '捕获 黄框 玻璃 像素 采样 Win10'),
         fxConsoleItem('fx-bgopacity', '背景透明度', '背景强度'),
         fxConsoleItem('fx-bgcropx', '裁切左右', '背景水平 位置'),
         fxConsoleItem('fx-bgcropy', '裁切上下', '背景垂直 位置'),

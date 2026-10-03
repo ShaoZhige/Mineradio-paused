@@ -74,6 +74,39 @@ function restoredLocalTrackIndex(tracks, snapshot) {
   var fallback = Number(snapshot && snapshot.currentIdx);
   return isFinite(fallback) && fallback >= 0 && fallback < tracks.length ? Math.round(fallback) : 0;
 }
+// 监视到曲库增删后的轻量刷新：只更新列表并重绘，不碰播放状态。
+// 启动恢复那条路会顺手恢复播放快照，监视触发时不能走它——那会把正在放的歌打断。
+// A light refresh after a watched change: update the list and repaint, nothing else. The startup
+// restore path also restores the playback snapshot, which must not run here — it would interrupt
+// whatever happens to be playing.
+async function refreshPersistentLocalLibraryTracks() {
+  if (!window.desktopWindow || typeof window.desktopWindow.listLocalMusicLibrary !== 'function') return 0;
+  var result;
+  try { result = await window.desktopWindow.listLocalMusicLibrary(); } catch (e) { return 0; }
+  if (!result || result.ok !== true || !Array.isArray(result.tracks)) return 0;
+  var tracks = result.tracks.map(function (song) {
+    var copy = hydrateCustomCover(Object.assign({}, song));
+    copy.localMissing = false;
+    return copy;
+  }).filter(function (song) { return song && song.localUrl && song.localKey; });
+  persistentLocalLibraryTracks = tracks.map(cloneSong);
+  safeRenderQueuePanel('local-library-watch');
+  return tracks.length;
+}
+
+function bindPersistentLocalLibraryWatch() {
+  if (!window.desktopWindow || typeof window.desktopWindow.onLocalMusicLibraryChanged !== 'function') return false;
+  window.desktopWindow.onLocalMusicLibraryChanged(function (change) {
+    var added = Number(change && change.added) || 0;
+    var removed = Number(change && change.removed) || 0;
+    refreshPersistentLocalLibraryTracks().then(function (total) {
+      if (added > 0) showToast('本地音乐已自动加入 ' + added + ' 首（当前 ' + total + ' 首）');
+      else if (removed > 0) showToast('本地音乐已自动移除 ' + removed + ' 首（文件已不在原位置）');
+    });
+  });
+  return true;
+}
+
 async function restorePersistedLocalLibrary() {
   if (!window.desktopWindow || typeof window.desktopWindow.listLocalMusicLibrary !== 'function') return false;
   var snapshotAtRequest = restoredLastPlaybackSnapshot;
@@ -88,6 +121,13 @@ async function restorePersistedLocalLibrary() {
     copy.localMissing = false;
     return copy;
   }).filter(function (song) { return song && song.localUrl && song.localKey; });
+  // 主进程会把"文件已不存在"的记录（拔盘 / 改名 / 移动产生）从列表里过滤掉。
+  // 这里把被跳过的数量透出给用户，避免曲目无声消失。
+  // 中英对照：The main process filters out records whose file is gone; surface the skipped
+  // count so tracks do not disappear without explanation.
+  if (Number(result.missing) > 0) {
+    showToast('有 ' + Number(result.missing) + ' 首本地音乐的文件当前不可用（移动磁盘未连接或文件已移动），已暂时跳过');
+  }
   persistentLocalLibraryTracks = tracks.map(cloneSong);
   var snapshot = snapshotAtRequest;
   if (snapshot && !isLocalPlaybackSnapshot(snapshot)) return false;

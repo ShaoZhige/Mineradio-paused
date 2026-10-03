@@ -10,5 +10,8 @@ function clonePackagedDefaultFxSnapshot() {
   return Object.assign({}, PACKAGED_DEFAULT_FX_SNAPSHOT);
 }
 function packagedDefaultLyricLayoutRaw() {
-  return Object.assign({ desktopLyricsSchema: 'desktop-lyrics-v3' }, clonePackagedDefaultFxSnapshot());
+  return Object.assign({ desktopLyricsSchema: 'desktop-lyrics-v3' }, clonePackagedDefaultFxSnapshot(), {
+    // 首次启动的 raw 直接带上本机判定结果，避免 Win10 从打包快照继承到开启态而画出捕获黄框。
+    wallpaperEngineGlassSampler: wallpaperEngineBorderlessCaptureSupported()
+  });
 }

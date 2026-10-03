@@ -74,8 +74,15 @@ function coverParticleGridForResolution(v) {
   grid = Math.max(88, Math.min(183, grid));
   return grid % 2 ? grid : grid + 1;
 }
+// 标签必须显示**实际生效**的网格，而不是用户请求的那个：预算是从上面压下来的，说 183x183
+  // 而实际只画 83x83 就是骗人，用户会以为自己已经调到位了。
+// The label must show the grid that is actually in effect, not the one that was asked for: the
+// budget pushes down from above, so claiming 183x183 while drawing 83x83 lies to the user and hides
+// that the setting already bottomed out.
 function coverParticleCountLabel(v) {
-  var grid = coverParticleGridForResolution(v);
+  var requested = coverParticleGridForResolution(v);
+  var grid = (typeof runtimeCoverParticleGridBudget === 'function')
+    ? runtimeCoverParticleGridBudget(requested) : requested;
   return grid + 'x' + grid;
 }
 function coverTextureSizeForResolution(v) {
@@ -394,6 +401,9 @@ function readSavedLyricLayout() {
       wallpaperMode: false,
       wallpaperOpacity: clampRange(raw.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(raw.wallpaperOpacity), 0.35, 1),
       wallpaperFps: normalizeWallpaperFps(raw.wallpaperFps),
+      wallpaperEngineSilentWindows: raw.wallpaperEngineSilentWindows !== false,
+      wallpaperEngineGlassSampler: raw.wallpaperEngineGlassSampler == null
+        ? wallpaperEngineBorderlessCaptureSupported() : raw.wallpaperEngineGlassSampler !== false,
       coverResolution: normalizeCoverResolution(raw.coverResolution),
       shelf: savedShelfMode,
       shelfPinnedOpen: savedShelfPinnedOpen,
@@ -563,7 +573,9 @@ function currentFxAutosaveTouchedKeys(reason, payload) {
     liveBackgroundKeep: ['performanceBackground', 'liveBackgroundKeep'],
     memorySystemMask: ['memorySystemMask'],
     memorySystemIntervalMin: ['memorySystemIntervalMin'],
-    memorySystemThresholdPercent: ['memorySystemThresholdPercent']
+    memorySystemThresholdPercent: ['memorySystemThresholdPercent'],
+    wallpaperEngineSilentWindows: ['wallpaperEngineSilentWindows'],
+    wallpaperEngineGlassSampler: ['wallpaperEngineGlassSampler']
   };
   if (Object.prototype.hasOwnProperty.call(map, reason)) return map[reason];
   if (reason.indexOf('reset:') === 0) {
@@ -883,6 +895,9 @@ function saveLyricLayout(opts) {
       wallpaperMode: false,
       wallpaperOpacity: clampRange(fx.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(fx.wallpaperOpacity), 0.35, 1),
       wallpaperFps: normalizeWallpaperFps(fx.wallpaperFps),
+      wallpaperEngineSilentWindows: fx.wallpaperEngineSilentWindows !== false,
+      wallpaperEngineGlassSampler: fx.wallpaperEngineGlassSampler == null
+        ? wallpaperEngineBorderlessCaptureSupported() : fx.wallpaperEngineGlassSampler !== false,
       coverResolution: normalizeCoverResolution(fx.coverResolution),
       shelf: /^(off|side|stage)$/.test(String(fx.shelf || '')) ? fx.shelf : fxDefaults.shelf,
       shelfPinnedOpen: fx.shelf === 'side' && normalizeShelfPresence(fx.shelfPresence || fxDefaults.shelfPresence) === 'always' && fx.shelfPinnedOpen === true,

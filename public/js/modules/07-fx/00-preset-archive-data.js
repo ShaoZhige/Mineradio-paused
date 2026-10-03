@@ -274,7 +274,9 @@ var USER_FX_SHARE_KEYS = [
   'coverBackdropAdapt',
   'gesturePlayerActions',
   'gestureHandOverlay',
-  'gestureSensitivity'
+  'gestureSensitivity',
+  'wallpaperEngineSilentWindows',
+  'wallpaperEngineGlassSampler'
 ];
 function defaultUserFxArchiveName(index) {
   return '存档 ' + (index + 1);
@@ -382,6 +384,9 @@ function normalizeFxArchiveSnapshot(raw) {
     lyricContextHighQuality: raw.lyricContextHighQuality !== false,
     lyricBackdropAdapt: raw.lyricBackdropAdapt !== false,
     coverBackdropAdapt: raw.coverBackdropAdapt !== false,
+    wallpaperEngineSilentWindows: raw.wallpaperEngineSilentWindows !== false,
+    wallpaperEngineGlassSampler: raw.wallpaperEngineGlassSampler == null
+      ? wallpaperEngineBorderlessCaptureSupported() : raw.wallpaperEngineGlassSampler !== false,
     visualTintMode: raw.visualTintMode === 'custom' ? 'custom' : 'auto',
     visualTintColor: normalizeHexColor(raw.visualTintColor || fxDefaults.visualTintColor),
     uiAccentColor: normalizeHexColor(raw.uiAccentColor || fxDefaults.uiAccentColor, fxDefaults.uiAccentColor),
@@ -1077,8 +1082,14 @@ async function copyUserFxArchiveShareCode(index) {
     if (copied) {
       showToast(code.length > 12000 ? '完整短码已复制，配置较长' : '用户存档短码已复制');
     } else {
-      window.prompt('复制这段 MR2 短代码', code);
-      showToast('已打开完整短码');
+      // 剪贴板写入失败时改为只读展示：window.prompt 在 Electron 渲染进程会直接抛异常。
+      // 中英对照：Fall back to a read-only view — window.prompt throws in Electron's renderer.
+      if (typeof showMineradioTextDialog === 'function') {
+        showMineradioTextDialog('复制这段 MR2 短代码', code).catch(function () {});
+        showToast('已打开完整短码，可全选复制');
+      } else {
+        showToast('短码复制失败，请检查剪贴板权限后重试');
+      }
     }
   } catch (e) {
     showToast('短码生成失败');
