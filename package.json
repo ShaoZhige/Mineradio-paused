@@ -49,7 +49,9 @@
       "!desktop/wallpaper-preload.js",
       "!public/wallpaper.html",
       "!public/index.*.html",
-      "public/index.html"
+      "public/index.html",
+      "!node_modules/NeteaseCloudMusicApi/public/**",
+      "!node_modules/NeteaseCloudMusicApi/data/**"
     ],
     "asar": false,
     "win": {
