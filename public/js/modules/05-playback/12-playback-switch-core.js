@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function playbackSwitchCoreText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function pauseCurrentAudioForTrackSwitch() {
   playToggleBusy = false;
   if (!audio) return;
@@ -57,18 +84,18 @@ function playbackFailureNoticeFromError(err) {
 function playbackFailureToastText(err) {
   var contextualNotice = playbackFailureNoticeFromError(err);
   if (contextualNotice) return contextualNotice.title + '：' + contextualNotice.body;
-  if (isPlaybackRecursionError(err)) return '播放准备异常，已保持播放器可操作';
+  if (isPlaybackRecursionError(err)) return playbackSwitchCoreText('psc_prepare_error');
   var msg = String(err && err.message ? err.message : (err || '')).trim();
   var lower = msg.toLowerCase();
-  if (/notallowederror|play\(\) failed|user gesture|autoplay/.test(lower)) return '播放失败：浏览器拦截了自动播放，请点一次播放按钮';
-  if (/notsupportederror|no supported source|decode|media_err_decode/.test(lower)) return '播放失败：音频格式或解码失败，建议换源或降低音质';
-  if (/notfounderror|setSinkId|sink|output device|audio output/.test(lower)) return '播放失败：当前输出设备不可用，请切回系统默认输出';
-  if (/aborterror|aborted|interrupted/.test(lower)) return '播放已被新的切歌操作中断';
-  if (/network|failed to fetch|timeout|econnreset|etimedout|err_connection|http 5|502|503|504/.test(lower)) return '播放失败：音频网络请求超时或服务端不可用';
-  if (/401|403|login_required|auth|cookie|credential|unauthorized|forbidden/.test(lower)) return '播放失败：平台登录态或播放授权失效，请重新登录对应接口';
-  if (/vip_required|paid_required|trial_only|need_vip|only_vip|member/.test(lower)) return '播放失败：歌曲需要 VIP、购买或更高权限';
-  if (/copyright|unavailable|not playable|url.*empty|no url/.test(lower)) return '播放失败：平台没有返回可播放地址，建议换源';
-  return '播放失败：' + (msg || '未知原因，请尝试换源或重新登录');
+  if (/notallowederror|play\(\) failed|user gesture|autoplay/.test(lower)) return playbackSwitchCoreText('psc_autoplay_blocked');
+  if (/notsupportederror|no supported source|decode|media_err_decode/.test(lower)) return playbackSwitchCoreText('psc_decode_failed');
+  if (/notfounderror|setSinkId|sink|output device|audio output/.test(lower)) return playbackSwitchCoreText('psc_output_unavailable');
+  if (/aborterror|aborted|interrupted/.test(lower)) return playbackSwitchCoreText('psc_interrupted');
+  if (/network|failed to fetch|timeout|econnreset|etimedout|err_connection|http 5|502|503|504/.test(lower)) return playbackSwitchCoreText('psc_timeout');
+  if (/401|403|login_required|auth|cookie|credential|unauthorized|forbidden/.test(lower)) return playbackSwitchCoreText('psc_auth_expired');
+  if (/vip_required|paid_required|trial_only|need_vip|only_vip|member/.test(lower)) return playbackSwitchCoreText('psc_needs_vip');
+  if (/copyright|unavailable|not playable|url.*empty|no url/.test(lower)) return playbackSwitchCoreText('psc_no_address');
+  return playbackSwitchCoreText('psc_failed_prefix') + (msg || playbackSwitchCoreText('psc_unknown_reason'));
 }
 function scheduleAudioResumePosition(media, seconds, token) {
   seconds = Math.max(0, Number(seconds) || 0);

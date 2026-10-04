@@ -164,7 +164,9 @@ test('playback settles under a wall-clock deadline even when DNS or the response
   const result = await qishui.handleQishuiSongUrl({ id: 'never-connects' }, cookie);
   assert.equal(result.playable, false);
   assert.equal(result.stale, true);
-  assert.deepEqual(deadlines, [3000, 3000, 2500]);
+  // track_v2 的 POST/GET 各自 3000ms，之后 SEO 回退与会员探测并行发起：
+  // 两者互不依赖，因此总等待时间只叠加其中较慢的一路，而不是顺序相加。
+  assert.deepEqual(deadlines, [3000, 3000, 3000, 2500]);
   assert.doesNotMatch(result.message, /Invalid JSON/);
 });
 

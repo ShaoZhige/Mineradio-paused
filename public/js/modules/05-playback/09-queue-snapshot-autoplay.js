@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function queueSnapshotAutoplayText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 // ============================================================
 function queueItemKey(song) {
   if (!song) return '';
@@ -105,8 +132,8 @@ function restoreLastPlaybackSnapshot() {
     updateControlTrackInfo(shownSong);
     var titleEl = document.getElementById('thumb-title');
     var artistEl = document.getElementById('thumb-artist');
-    if (titleEl) titleEl.textContent = shownSong.name || shownSong.title || '上一首';
-    if (artistEl) artistEl.textContent = isLocal ? '本地文件 · 需要重新导入' : (shownSong.artist || songSourceLabel(shownSong));
+    if (titleEl) titleEl.textContent = shownSong.name || shownSong.title || queueSnapshotAutoplayText('hotkey_prev_track');
+    if (artistEl) artistEl.textContent = isLocal ? queueSnapshotAutoplayText('qsa_local_reimport') : (shownSong.artist || songSourceLabel(shownSong));
     var thumbWrap = document.getElementById('thumb-wrap');
     if (thumbWrap) thumbWrap.classList.add('visible');
     if (!isLocal && shownSong.cover) {

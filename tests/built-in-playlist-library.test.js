@@ -69,10 +69,12 @@ test('Electron and renderer wiring exposes built-in playlists in collection, pan
   assert.match(preload, /addBuiltInPlaylistTrack/);
   assert.match(loader, /06-lyrics\/00-built-in-playlists\.js/);
   assert.match(builtInRenderer, /function addTrackToBuiltInPlaylist/);
-  assert.match(panel, /Mineradio 内置歌单/);
+  assert.match(panel, /pl_builtin/);
   assert.match(panel, /fetchPlaylistTracksPage/);
   assert.match(loaders, /mineradio:/);
-  assert.match(collect, /可混合全部平台/);
+  // 「可混合全部平台」提示已按取词键接入（track_count_mixable_html），源码不再内联中文。
+  // The "mixable across all platforms" hint is now keyed (track_count_mixable_html).
+  assert.match(collect, /track_count_mixable_html/);
   assert.doesNotMatch(collect, /function openCollectModal\(song\)[\s\S]{0,240}ensureLoggedInForAction/);
   assert.match(shelf, /provider === 'mineradio'/);
   assert.match(shelfContent, /builtInPlaylistTracksPage/);

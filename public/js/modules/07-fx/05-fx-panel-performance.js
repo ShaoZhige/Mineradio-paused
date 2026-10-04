@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function fxPanelPerformanceText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var homeWaveTrackState = { bars: 0, smooth: [] };
 function ensureHomeWaveTrackBars() {
   var el = document.getElementById('home-wave-track');
@@ -51,11 +88,11 @@ function setRange(id, value) {
 }
 function updateDevelopmentFxControls() {
   [
-    ['desktopLyrics', 't-desktopLyrics', '全屏幕置顶歌词'],
-    ['desktopLyricsClickThrough', 't-desktopLyricsClickThrough', '锁定后防误触；鼠标移到桌面歌词上按中键可锁定/解锁'],
-    ['desktopLyricsCinema', 't-desktopLyricsCinema', '桌面歌词绑定鼓点电影震动，基础漂浮始终保留'],
-    ['desktopLyricsHighlight', 't-desktopLyricsHighlight', '桌面歌词按播放进度高亮'],
-    ['wallpaperMode', 't-wallpaperMode', '把完整 Mineradio 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标；Esc 退出；重启默认关闭']
+    ['desktopLyrics', 't-desktopLyrics', fxPanelPerformanceText('fx_desktop_lyrics_topmost')],
+    ['desktopLyricsClickThrough', 't-desktopLyricsClickThrough', fxPanelPerformanceText('fx_desktop_lyrics_lock_hint')],
+    ['desktopLyricsCinema', 't-desktopLyricsCinema', fxPanelPerformanceText('fx_desktop_lyrics_cinema')],
+    ['desktopLyricsHighlight', 't-desktopLyricsHighlight', fxPanelPerformanceText('fx_desktop_lyrics_progress_highlight')],
+    ['wallpaperMode', 't-wallpaperMode', fxPanelPerformanceText('fx_desktop_mode_hint')]
   ].forEach(function (item) {
     var runtimeUnavailable = item[0] === 'wallpaperMode'
       && typeof desktopWallpaperRuntimeState !== 'undefined'
@@ -67,7 +104,7 @@ function updateDevelopmentFxControls() {
     if (locked) {
       el.classList.remove('on');
       el.setAttribute('aria-disabled', 'true');
-      el.title = runtimeUnavailable ? '当前系统不支持桌面壁纸模式' : '开发中，暂不可用';
+      el.title = runtimeUnavailable ? fxPanelPerformanceText('fx_desktop_wallpaper_unsupported') : fxPanelPerformanceText('fx_dev_unavailable');
     } else {
       el.removeAttribute('aria-disabled');
       el.title = item[2];
@@ -119,7 +156,7 @@ function updateLyricTextureClarityControls() {
 }
 function lyricTextureClarityLabel(value) {
   var tier = normalizeLyricTextureClarity(value);
-  return tier === 4 ? '4× 极致' : (tier === 3 ? '3× 超清' : (tier === 2 ? '2× 高清' : '1× 标清'));
+  return tier === 4 ? fxPanelPerformanceText('fx_res_4x') : (tier === 3 ? fxPanelPerformanceText('fx_res_3x') : (tier === 2 ? fxPanelPerformanceText('fx_res_2x') : fxPanelPerformanceText('fx_res_1x')));
 }
 function setLyricTextureClarity(value, silent) {
   var next = normalizeLyricTextureClarity(value);
@@ -129,7 +166,7 @@ function setLyricTextureClarity(value, silent) {
   if (!changed) return;
   if (typeof invalidateLyricQualityTextures === 'function') invalidateLyricQualityTextures('texture-clarity-change', { release: next <= 1 });
   saveLyricLayout({ user: true, reason: 'lyricTextureClarity' });
-  if (!silent) showToast('歌词清晰度: ' + lyricTextureClarityLabel(next));
+  if (!silent) showToast(fxPanelPerformanceText('fx_lyric_res_prefix') + lyricTextureClarityLabel(next));
 }
 function updatePerformanceControls() {
   fx.performanceBackground = normalizePerformanceBackgroundMode(fx.performanceBackground, fx.liveBackgroundKeep === true);
@@ -195,7 +232,7 @@ function setPerformanceBackgroundMode(mode, silent) {
   if (next === 'keep') recoverVisualsAfterBackground('performance-background-keep');
   else if (next === 'release' && isDeepBackgroundMode()) trimRuntimeCaches('performance-release', true);
   if (!silent) {
-    showToast(next === 'keep' ? '后台策略: 保持运行' : (next === 'release' ? '后台策略: 停止并释放' : '后台策略: 自动优化'));
+    showToast(next === 'keep' ? fxPanelPerformanceText('fx_bg_keep_running') : (next === 'release' ? fxPanelPerformanceText('fx_bg_stop_release') : fxPanelPerformanceText('fx_bg_auto_optimize')));
   }
 }
 function setPerformanceQualityMode(mode, silent) {
@@ -208,8 +245,8 @@ function setPerformanceQualityMode(mode, silent) {
   if (typeof refreshParticleBudget === 'function') refreshParticleBudget();
   saveLyricLayout({ user: true, reason: 'performanceQuality' });
   if (!silent) {
-    var label = next === 'eco' ? '低' : (next === 'balanced' ? '中' : (next === 'ultra' ? '超高' : '高'));
-    showToast('画质档位: ' + label);
+    var label = next === 'eco' ? fxPanelPerformanceText('quality_low', '低') : (next === 'balanced' ? fxPanelPerformanceText('quality_mid', '中') : (next === 'ultra' ? fxPanelPerformanceText('quality_ultra', '超高') : fxPanelPerformanceText('quality_high', '高')));
+    showToast(fxPanelPerformanceText('fx_quality_tier_prefix') + label);
   }
 }
 function setForegroundFpsMode(mode, silent) {
@@ -221,7 +258,7 @@ function setForegroundFpsMode(mode, silent) {
   if (typeof syncWallpaperEngineCaptureFrameRate === 'function') {
     Promise.resolve(syncWallpaperEngineCaptureFrameRate()).catch(function () { });
   }
-  if (!silent) showToast(next === 'vsync' ? '前台帧率: 跟随屏幕垂直同步' : ('前台帧率上限: ' + next + ' FPS'));
+  if (!silent) showToast(next === 'vsync' ? fxPanelPerformanceText('fx_fps_follow_vsync') : (fxPanelPerformanceText('fx_fps_cap_prefix') + next + ' FPS'));
 }
 function updateFxInputs() {
   normalizeDevelopmentLockedFxState();
@@ -510,7 +547,7 @@ function resetFxSliderValue(id, key, btn) {
   syncLyricRealtimeFxChange(key);
   saveLyricLayout({ syncDisk: key === 'controlGlassChromaticOffset', user: true, reason: 'reset:' + key });
   animateFxResetButton(btn);
-  showToast('已恢复默认数值');
+  showToast(fxPanelPerformanceText('fx_restored_defaults'));
 }
 function ensureFxSliderResetButton(id, key) {
   var el = document.getElementById(id);
@@ -518,8 +555,8 @@ function ensureFxSliderResetButton(id, key) {
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'fx-reset-one';
-  btn.title = '恢复当前滑条默认值';
-  btn.setAttribute('aria-label', '恢复当前滑条默认值');
+  btn.title = fxPanelPerformanceText('fx_restore_slider_default');
+  btn.setAttribute('aria-label', fxPanelPerformanceText('fx_restore_slider_default'));
   btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
   btn.addEventListener('click', function (e) {
     e.preventDefault();
@@ -591,11 +628,11 @@ function organizeFxPanel() {
   }
   var head = panel.querySelector('.fx-head');
   var tabMeta = [
-    ['presets', '\u9884\u8bbe'],
-    ['appearance', '\u5916\u89c2'],
-    ['lyrics', '\u6b4c\u8bcd'],
-    ['motion', '\u52a8\u6001'],
-    ['advanced', '\u9ad8\u7ea7']
+    ['presets', fxPanelPerformanceText('fx_cat_preset')],
+    ['appearance', fxPanelPerformanceText('fx_cat_appearance_short')],
+    ['lyrics', fxPanelPerformanceText('hotkey_cat_lyrics')],
+    ['motion', fxPanelPerformanceText('fx_cat_dynamic')],
+    ['advanced', fxPanelPerformanceText('fx_cat_advanced')]
   ];
   var tabs = document.createElement('div');
   tabs.className = 'fx-panel-tabs';
@@ -717,7 +754,7 @@ function ensureLyricPrimaryControls() {
     var label = document.createElement('div');
     label.className = 'fx-section-label';
     label.id = 'fx-lyric-primary-label';
-    label.textContent = '歌词开关';
+    label.textContent = fxPanelPerformanceText('fx_lyric_toggle');
     grid = document.createElement('div');
     grid.className = 'fx-toggle-grid lyric-primary-toggle-grid';
     grid.id = 'fx-lyric-primary-controls';
@@ -742,130 +779,134 @@ function applyBackgroundMediaHint() {
   var value = document.getElementById('bg-image-value');
   if (value && !value.dataset.mediaHint) {
     value.dataset.mediaHint = '1';
-    value.title = '支持封面原图、图片 / 视频上传，已设置媒体可重复裁切';
+    value.title = fxPanelPerformanceText('fx_media_repeat_crop');
   }
-  if (value) value.title = '\u652f\u6301\u5c01\u9762\u539f\u56fe\u3001\u56fe\u7247 / \u89c6\u9891\u4e0a\u4f20\uff0c\u5df2\u8bbe\u7f6e\u5a92\u4f53\u53ef\u91cd\u590d\u88c1\u5207';
+  if (value) value.title = fxPanelPerformanceText('fx_media_repeat_crop');
   var label = value && value.closest ? value.closest('.fx-color-row-label') : null;
   if (label && !document.getElementById('bg-media-hint')) {
     var hint = document.createElement('small');
     hint.id = 'bg-media-hint';
-    hint.textContent = '\u5c01\u9762\u539f\u56fe / \u56fe\u7247 / \u89c6\u9891';
+    hint.textContent = fxPanelPerformanceText('fx_cover_media');
     label.appendChild(hint);
   }
+  // 提示只创建一次，词典就绪后不会自己刷新；relabelFxPanelControls() 里一并重贴。
+  // The hint is created once and never refreshed on its own; relabel it alongside the rest.
+  var hintEl = document.getElementById('bg-media-hint');
+  if (hintEl) hintEl.textContent = fxPanelPerformanceText('fx_cover_media');
 }
 function relabelFxPanelControls() {
-  setFxSliderLabel('fx-windowbgopacity', '\u7a97\u53e3\u80cc\u666f\u900f\u660e');
-  setFxSliderLabel('fx-bgglassopacity', '\u6bdb\u73bb\u7483\u900f\u660e');
-  setFxSliderLabel('fx-bgcropx', '\u88c1\u5207\u5de6\u53f3');
-  setFxSliderLabel('fx-bgcropy', '\u88c1\u5207\u4e0a\u4e0b');
-  setFxSliderLabel('fx-bgzoom', '\u88c1\u5207\u7f29\u653e');
+  setFxSliderLabel('fx-windowbgopacity', fxPanelPerformanceText('fx_window_bg_transparent'));
+  setFxSliderLabel('fx-bgglassopacity', fxPanelPerformanceText('fx_glass_opacity'));
+  setFxSliderLabel('fx-bgcropx', fxPanelPerformanceText('fx_crop_horizontal'));
+  setFxSliderLabel('fx-bgcropy', fxPanelPerformanceText('fx_crop_vertical'));
+  setFxSliderLabel('fx-bgzoom', fxPanelPerformanceText('fx_crop_zoom'));
   var title = document.querySelector('#fx-panel .fx-title');
-  if (title) title.textContent = '视觉控制台';
+  if (title) title.textContent = fxPanelPerformanceText('visual_console', '视觉控制台');
   ensureLyricPrimaryControls();
-  ensureFxRangeControl('fx-lyrictranslationgap', 'fx-lyrictranslationscale', '译文字号', 0.46, 1.12, 0.01);
-  ensureFxRangeControl('fx-lyrictranslationscale', 'fx-lyrictranslationopacity', '译文透明', 0.20, 1, 0.01);
+  ensureFxRangeControl('fx-lyrictranslationgap', 'fx-lyrictranslationscale', fxPanelPerformanceText('fx_translation_size'), 0.46, 1.12, 0.01);
+  ensureFxRangeControl('fx-lyrictranslationscale', 'fx-lyrictranslationopacity', fxPanelPerformanceText('fx_translation_opacity'), 0.20, 1, 0.01);
   applyBackgroundMediaHint();
   var overlayGrid = document.getElementById('t-cinema');
   overlayGrid = overlayGrid && overlayGrid.closest('.fx-toggle-grid');
-  setFxSectionBeforeNode(overlayGrid, '镜头与叠加');
-  setFxSectionBefore('preset-grid', '预设与存档');
-  setFxSectionBefore('user-archive-grid', '用户存档');
-  setFxSectionBefore('ui-accent-picker', '界面与背景');
-  setFxSectionBefore('fx-intensity', '画面基础');
-  setFxSectionBefore('fx-lyricglow', '歌词溢光强度');
-  setFxSectionBefore('lyric-color-grid', '文字颜色');
-  setFxSectionBefore('lyric-highlight-picker', '跟唱高亮');
-  setFxSectionBefore('lyric-glow-row', '歌词溢光颜色');
-  setFxSectionBefore('lyric-source-seg', '歌词来源');
-  setFxSectionBefore('lyric-display-mode-seg', '歌词行数');
-  setFxSectionBefore('lyric-motion-style-seg', '歌词动画');
-  setFxSectionBefore('lyric-font-grid', '字体与字距');
-  setFxSectionBefore('fx-lyricscale', '位置与角度');
-  setFxSectionBefore('fx-desktoplyricssize', '桌面歌词');
-  setFxSectionBefore('desktop-lyrics-fps-seg', '桌面歌词帧率');
-  setFxSectionBefore('wallpaper-fps-seg', '壁纸帧率');
-  setFxSectionBefore('close-behavior-seg', '关闭窗口');
-  setFxSectionBefore('t-startupAutoplay', '启动播放');
-  setFxSectionBefore('fx-playlistblur', '左侧歌单栏');
-  setFxSectionBefore('shelf-seg', '3D 歌单架');
-  setFxSectionBefore('shelf-camera-seg', '歌单架镜头');
-  setFxSectionBefore('shelf-presence-seg', '歌单架显示');
-  setFxSectionBefore('shelf-accent-picker', '歌单架外观');
-  setFxSectionBefore('fx-shelfsize', '歌单架参数');
-  setFxSectionBefore('fx-shelfdetailx', '歌单详情页位置');
-  setFxSectionBefore('fx-shelfdetailopen', '歌单详情页动画');
-  setFxSectionBefore('fx-shelfsummonopen', '歌单架唤出动画');
-  setFxSectionBefore('cam-seg', '摄像头交互');
-  setFxSectionBefore('fx-point', '粒子高级参数');
-  setFxSliderLabel('fx-intensity', '律动强度');
-  setFxSliderLabel('fx-depth', '画面景深');
-  setFxSliderLabel('fx-coverres', '封面清晰度');
-  setFxSliderLabel('fx-cineshake', '电影镜头');
-  setFxSliderLabel('fx-lyricglow', '溢光强度');
-  setFxSliderLabel('fx-bgopacity', '背景透明度');
-  setFxSliderLabel('fx-glassaberration', '玻璃色差');
-  setFxSliderLabel('fx-playlistblur', '左栏雾面');
-  setFxSliderLabel('fx-playlistdensity', '左栏遮挡');
-  setFxSliderLabel('fx-playlistopen', '左栏唤出秒数');
-  setFxSliderLabel('fx-playlistclose', '左栏收起秒数');
-  setFxSliderLabel('fx-lyricspacing', '字间距');
-  setFxSliderLabel('fx-lyriclineheight', '行距');
-  setFxSliderLabel('fx-lyricweight', '字重');
-  setFxSliderLabel('fx-lyriccustomlines', '显示行数');
-  setFxSliderLabel('fx-lyricglitchintensity', '故障强度');
-  setFxSliderLabel('fx-lyricglitchslice', '切片幅度');
-  setFxSliderLabel('fx-lyricglitchchroma', '色散强度');
-  setFxSliderLabel('fx-lyricglitchrate', '触发速度');
-  setFxSliderLabel('fx-lyricglitchjitter', '抖动幅度');
-  setFxSliderLabel('fx-lyriccontextopacity', '上下句清晰');
-  setFxSliderLabel('fx-lyriccontextspread', '上下句间距');
-  setFxSliderLabel('fx-lyrictranslationgap', '译文间距');
-  setFxSliderLabel('fx-lyrictranslationscale', '译文字号');
-  setFxSliderLabel('fx-lyrictranslationopacity', '译文透明');
-  setFxSliderLabel('fx-lyricedgefade', '边缘渐隐');
-  setFxSliderLabel('fx-lyricmotionsoftness', '动画柔顺');
-  setFxSliderLabel('fx-lyricscale', '歌词大小');
-  setFxSliderLabel('fx-lyricx', '左右位置');
-  setFxSliderLabel('fx-lyricy', '上下位置');
-  setFxSliderLabel('fx-lyricz', '前后景深');
-  setFxSliderLabel('fx-lyrictiltx', '上下旋转');
-  setFxSliderLabel('fx-lyrictilty', '左右旋转');
-  setFxSliderLabel('fx-desktoplyricssize', '桌面歌词大小');
-  setFxSliderLabel('fx-desktoplyricsopacity', '桌面歌词透明度');
-  setFxSliderLabel('fx-desktoplyricsy', '桌面歌词高度');
-  setFxSliderLabel('fx-wallpaperopacity', '壁纸透明度');
-  setFxSliderLabel('fx-shelfsize', '歌单架大小');
-  setFxSliderLabel('fx-shelfx', '左右位置');
-  setFxSliderLabel('fx-shelfy', '上下位置');
-  setFxSliderLabel('fx-shelfz', '前后景深');
-  setFxSliderLabel('fx-shelfangle', '侧向角度');
-  setFxSliderLabel('fx-shelfopacity', '整体透明度');
-  setFxSliderLabel('fx-shelfbgalpha', '背景透明度');
-  setFxSliderLabel('fx-shelfdetailx', '详情左右');
-  setFxSliderLabel('fx-shelfdetaily', '详情上下');
-  setFxSliderLabel('fx-shelfdetailz', '详情前后');
-  setFxSliderLabel('fx-shelfdetailscale', '详情大小');
-  setFxSliderLabel('fx-shelfdetailanglex', '详情俯仰');
-  setFxSliderLabel('fx-shelfdetailangley', '详情侧旋');
-  setFxSliderLabel('fx-shelfdetailrowgap', '详情行间距');
-  setFxSliderLabel('fx-shelfdetailopen', '展开秒数');
-  setFxSliderLabel('fx-shelfdetailclose', '关闭秒数');
-  setFxSliderLabel('fx-shelfdetailrowtime', '行入场秒数');
-  setFxSliderLabel('fx-shelfdetailintro', '展开位移');
-  setFxSliderLabel('fx-shelfdetailparallax', '悬浮视差');
-  setFxSliderLabel('fx-shelfsummonopen', '唤出秒数');
-  setFxSliderLabel('fx-shelfsummonclose', '收起秒数');
-  setFxSliderLabel('fx-shelfsummonslide', '唤出位移');
-  setFxSliderLabel('fx-shelfsummonstagger', '卡片错层');
-  setFxSliderLabel('fx-shelfsummonscale', '唤出缩放');
-  setFxSliderLabel('fx-shelfsummonparallax', '唤出视差');
-  setFxSliderLabel('fx-shelfcamenter', '镜头进入速度');
-  setFxSliderLabel('fx-shelfcamexit', '镜头离开速度');
-  setFxSliderLabel('fx-point', '粒子尺寸');
-  setFxSliderLabel('fx-speed', '运动速度');
-  setFxSliderLabel('fx-twist', '粒子扭曲');
-  setFxSliderLabel('fx-color', '色彩张力');
-  setFxSliderLabel('fx-bloom', '光晕强度');
-  setFxSliderLabel('fx-scatter', '离散感');
-  setFxSliderLabel('fx-bgfade', '背景压暗');
+  setFxSectionBeforeNode(overlayGrid, fxPanelPerformanceText('fx_cat_camera_overlay'));
+  setFxSectionBefore('preset-grid', fxPanelPerformanceText('fx_cat_preset_archive'));
+  setFxSectionBefore('user-archive-grid', fxPanelPerformanceText('user_archives', '用户存档'));
+  setFxSectionBefore('ui-accent-picker', fxPanelPerformanceText('fx_cat_ui_background'));
+  setFxSectionBefore('fx-intensity', fxPanelPerformanceText('fx_cat_scene_base'));
+  setFxSectionBefore('fx-lyricglow', fxPanelPerformanceText('fx_lyric_bloom_strength'));
+  setFxSectionBefore('lyric-color-grid', fxPanelPerformanceText('fx_lyric_text_color'));
+  setFxSectionBefore('lyric-highlight-picker', fxPanelPerformanceText('fx_lyric_karaoke_highlight'));
+  setFxSectionBefore('lyric-glow-row', fxPanelPerformanceText('fx_lyric_bloom_color'));
+  setFxSectionBefore('lyric-source-seg', fxPanelPerformanceText('fx_lyric_source'));
+  setFxSectionBefore('lyric-display-mode-seg', fxPanelPerformanceText('display_mode_section', '歌词行数'));
+  setFxSectionBefore('lyric-motion-style-seg', fxPanelPerformanceText('fx_cat_lyric_animation'));
+  setFxSectionBefore('lyric-font-grid', fxPanelPerformanceText('fx_cat_font_spacing'));
+  setFxSectionBefore('fx-lyricscale', fxPanelPerformanceText('fx_cat_position_angle'));
+  setFxSectionBefore('fx-desktoplyricssize', fxPanelPerformanceText('desktop_wallpaper', '桌面 / 壁纸'));
+  setFxSectionBefore('desktop-lyrics-fps-seg', fxPanelPerformanceText('fx_desktop_lyrics_fps'));
+  setFxSectionBefore('wallpaper-fps-seg', fxPanelPerformanceText('fxperf_wallpaper_fps'));
+  setFxSectionBefore('close-behavior-seg', fxPanelPerformanceText('fx_close_window'));
+  setFxSectionBefore('t-startupAutoplay', fxPanelPerformanceText('fx_start_play'));
+  setFxSectionBefore('fx-playlistblur', fxPanelPerformanceText('fx_left_panel'));
+  setFxSectionBefore('shelf-seg', fxPanelPerformanceText('section_3d_shelf', '3D 歌单架'));
+  setFxSectionBefore('shelf-camera-seg', fxPanelPerformanceText('shelf_camera', '歌单架镜头'));
+  setFxSectionBefore('shelf-presence-seg', fxPanelPerformanceText('shelf_presence', '歌单架显示'));
+  setFxSectionBefore('shelf-accent-picker', fxPanelPerformanceText('shelf_appearance', '歌单架外观'));
+  setFxSectionBefore('fx-shelfsize', fxPanelPerformanceText('fx_shelf_params'));
+  setFxSectionBefore('fx-shelfdetailx', fxPanelPerformanceText('fx_detail_pos_title'));
+  setFxSectionBefore('fx-shelfdetailopen', fxPanelPerformanceText('fx_detail_anim_title'));
+  setFxSectionBefore('fx-shelfsummonopen', fxPanelPerformanceText('fx_shelf_reveal_anim_title'));
+  setFxSectionBefore('cam-seg', fxPanelPerformanceText('camera_interaction', '摄像头交互'));
+  setFxSectionBefore('fx-point', fxPanelPerformanceText('fx_particle_advanced'));
+  setFxSliderLabel('fx-intensity', fxPanelPerformanceText('rhythm_intensity', '律动强度'));
+  setFxSliderLabel('fx-depth', fxPanelPerformanceText('fx_scene_depth'));
+  setFxSliderLabel('fx-coverres', fxPanelPerformanceText('cover_clarity', '封面清晰度'));
+  setFxSliderLabel('fx-cineshake', fxPanelPerformanceText('camera_shake', '镜头晃动'));
+  setFxSliderLabel('fx-lyricglow', fxPanelPerformanceText('lyric_glow', '歌词溢光'));
+  setFxSliderLabel('fx-bgopacity', fxPanelPerformanceText('bg_opacity', fxPanelPerformanceText('bg_opacity', '背景透明度')));
+  setFxSliderLabel('fx-glassaberration', fxPanelPerformanceText('fx_glass_chromatic'));
+  setFxSliderLabel('fx-playlistblur', fxPanelPerformanceText('fx_leftbar_frost'));
+  setFxSliderLabel('fx-playlistdensity', fxPanelPerformanceText('fx_leftbar_occlusion'));
+  setFxSliderLabel('fx-playlistopen', fxPanelPerformanceText('fx_leftbar_open_seconds'));
+  setFxSliderLabel('fx-playlistclose', fxPanelPerformanceText('fx_leftbar_close_seconds'));
+  setFxSliderLabel('fx-lyricspacing', fxPanelPerformanceText('lyric_spacing', '字间距'));
+  setFxSliderLabel('fx-lyriclineheight', fxPanelPerformanceText('lyric_line_height', '行距'));
+  setFxSliderLabel('fx-lyricweight', fxPanelPerformanceText('lyric_weight', '字重'));
+  setFxSliderLabel('fx-lyriccustomlines', fxPanelPerformanceText('fx_lyric_line_count'));
+  setFxSliderLabel('fx-lyricglitchintensity', fxPanelPerformanceText('fx_glitch_strength'));
+  setFxSliderLabel('fx-lyricglitchslice', fxPanelPerformanceText('fx_glitch_slice'));
+  setFxSliderLabel('fx-lyricglitchchroma', fxPanelPerformanceText('fx_glitch_dispersion'));
+  setFxSliderLabel('fx-lyricglitchrate', fxPanelPerformanceText('fx_glitch_trigger_speed'));
+  setFxSliderLabel('fx-lyricglitchjitter', fxPanelPerformanceText('fx_glitch_jitter'));
+  setFxSliderLabel('fx-lyriccontextopacity', fxPanelPerformanceText('fx_lyric_context_clarity'));
+  setFxSliderLabel('fx-lyriccontextspread', fxPanelPerformanceText('fx_lyric_context_gap'));
+  setFxSliderLabel('fx-lyrictranslationgap', fxPanelPerformanceText('fx_translation_gap'));
+  setFxSliderLabel('fx-lyrictranslationscale', fxPanelPerformanceText('fx_translation_size'));
+  setFxSliderLabel('fx-lyrictranslationopacity', fxPanelPerformanceText('fx_translation_opacity'));
+  setFxSliderLabel('fx-lyricedgefade', fxPanelPerformanceText('fx_lyric_edge_fade'));
+  setFxSliderLabel('fx-lyricmotionsoftness', fxPanelPerformanceText('fx_lyric_smoothing'));
+  setFxSliderLabel('fx-lyricscale', fxPanelPerformanceText('lyric_size', '歌词大小'));
+  setFxSliderLabel('fx-lyricx', fxPanelPerformanceText('lyric_x', '水平位置'));
+  setFxSliderLabel('fx-lyricy', fxPanelPerformanceText('lyric_y', '垂直位置'));
+  setFxSliderLabel('fx-lyricz', fxPanelPerformanceText('lyric_z', '景深位置'));
+  setFxSliderLabel('fx-lyrictiltx', fxPanelPerformanceText('fx_lyric_pitch'));
+  setFxSliderLabel('fx-lyrictilty', fxPanelPerformanceText('fx_lyric_side_rotation'));
+  setFxSliderLabel('fx-desktoplyricssize', fxPanelPerformanceText('desktop_lyrics_size', '桌面歌词大小'));
+  setFxSliderLabel('fx-desktoplyricsopacity', fxPanelPerformanceText('fx_desktop_lyrics_opacity'));
+  setFxSliderLabel('fx-desktoplyricsy', fxPanelPerformanceText('desktop_lyrics_y', '桌面歌词高度'));
+  setFxSliderLabel('fx-wallpaperopacity', fxPanelPerformanceText('wallpaper_opacity', '壁纸透明度'));
+  setFxSliderLabel('fx-shelfsize', fxPanelPerformanceText('shelf_size', '歌单架大小'));
+  setFxSliderLabel('fx-shelfx', fxPanelPerformanceText('shelf_x', '左右位置'));
+  setFxSliderLabel('fx-shelfy', fxPanelPerformanceText('shelf_y', '上下位置'));
+  setFxSliderLabel('fx-shelfz', fxPanelPerformanceText('shelf_z', '前后景深'));
+  setFxSliderLabel('fx-shelfangle', fxPanelPerformanceText('shelf_angle', '侧向角度'));
+  setFxSliderLabel('fx-shelfopacity', fxPanelPerformanceText('shelf_opacity', '整体透明度'));
+  setFxSliderLabel('fx-shelfbgalpha', fxPanelPerformanceText('shelf_bg_opacity', fxPanelPerformanceText('shelf_bg_opacity', '背景透明度')));
+  setFxSliderLabel('fx-shelfdetailx', fxPanelPerformanceText('fx_detail_horizontal'));
+  setFxSliderLabel('fx-shelfdetaily', fxPanelPerformanceText('fx_detail_vertical'));
+  setFxSliderLabel('fx-shelfdetailz', fxPanelPerformanceText('fx_detail_depth'));
+  setFxSliderLabel('fx-shelfdetailscale', fxPanelPerformanceText('fx_detail_size'));
+  setFxSliderLabel('fx-shelfdetailanglex', fxPanelPerformanceText('fx_detail_pitch'));
+  setFxSliderLabel('fx-shelfdetailangley', fxPanelPerformanceText('fx_detail_side_rotation'));
+  setFxSliderLabel('fx-shelfdetailrowgap', fxPanelPerformanceText('fx_detail_line_gap'));
+  setFxSliderLabel('fx-shelfdetailopen', fxPanelPerformanceText('fx_detail_expand_seconds'));
+  setFxSliderLabel('fx-shelfdetailclose', fxPanelPerformanceText('fx_detail_close_seconds'));
+  setFxSliderLabel('fx-shelfdetailrowtime', fxPanelPerformanceText('fx_detail_row_enter'));
+  setFxSliderLabel('fx-shelfdetailintro', fxPanelPerformanceText('fx_detail_expand_offset'));
+  setFxSliderLabel('fx-shelfdetailparallax', fxPanelPerformanceText('fx_detail_hover_parallax'));
+  setFxSliderLabel('fx-shelfsummonopen', fxPanelPerformanceText('fx_shelf_open_seconds'));
+  setFxSliderLabel('fx-shelfsummonclose', fxPanelPerformanceText('fx_shelf_close_seconds'));
+  setFxSliderLabel('fx-shelfsummonslide', fxPanelPerformanceText('fx_shelf_reveal_offset'));
+  setFxSliderLabel('fx-shelfsummonstagger', fxPanelPerformanceText('fx_shelf_card_layering'));
+  setFxSliderLabel('fx-shelfsummonscale', fxPanelPerformanceText('fx_shelf_reveal_scale'));
+  setFxSliderLabel('fx-shelfsummonparallax', fxPanelPerformanceText('fx_shelf_reveal_parallax'));
+  setFxSliderLabel('fx-shelfcamenter', fxPanelPerformanceText('fx_shelf_camera_enter_speed'));
+  setFxSliderLabel('fx-shelfcamexit', fxPanelPerformanceText('fx_shelf_camera_leave_speed'));
+  setFxSliderLabel('fx-point', fxPanelPerformanceText('particle_size', '粒子尺寸'));
+  setFxSliderLabel('fx-speed', fxPanelPerformanceText('fx_particle_speed'));
+  setFxSliderLabel('fx-twist', fxPanelPerformanceText('fx_particle_twist'));
+  setFxSliderLabel('fx-color', fxPanelPerformanceText('color_tension', '色彩张力'));
+  setFxSliderLabel('fx-bloom', fxPanelPerformanceText('fx_bloom_strength'));
+  setFxSliderLabel('fx-scatter', fxPanelPerformanceText('scatter', '离散感'));
+  setFxSliderLabel('fx-bgfade', fxPanelPerformanceText('fx_bg_darken'));
 }

@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { i18nWindow } = require('./helpers/module-source');
 
 const appRoot = path.resolve(__dirname, '..');
 const fallbackPath = path.join(appRoot, 'public', 'js', 'modules', '05-playback', '11-provider-fallback.js');
@@ -35,6 +36,10 @@ function createSandbox(queue, statusOverrides) {
   }, statusOverrides || {});
   const sandbox = {
     console,
+    // 取词函数读 window.MineradioI18n；注入 zh-CN 词典桩让「当前没有可用音源」等通知标题保持中文。
+    // The accessors read window.MineradioI18n; inject the zh-CN stub so notice titles like
+    // "当前没有可用音源" stay Chinese.
+    window: i18nWindow('zh_cn'),
     Promise,
     Date,
     Object,

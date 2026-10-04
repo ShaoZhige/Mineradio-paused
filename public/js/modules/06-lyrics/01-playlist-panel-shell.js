@@ -1,4 +1,38 @@
 // ============================================================
+// 界面文案统一走 i18n；缺键时退回内置中文模板，界面不会出现空串或裸 key。
+// All UI copy goes through i18n and falls back to the built-in Chinese template, so the
+// UI never shows an empty string or a raw key.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function playlistPanelText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function animateListItems(container, selector, opts) {
   if (!container || !window.gsap) return;
   opts = opts || {};
@@ -117,14 +151,14 @@ function queueHydrationFooterHtml(compact) {
   var total = queueHydrationExpectedTotal();
   if (!queueHydrationState.active && !queueHydrationState.error && (!total || loaded >= total)) return '';
   var label = queueHydrationState.error
-    ? ('后续歌曲载入中断 · 已准备 ' + loaded + (total ? '/' + total : ''))
+    ? (playlistPanelText('pshell_interrupted_prepared') + loaded + (total ? '/' + total : ''))
     : (queueHydrationState.loading
-      ? ('正在载入下一批 · ' + loaded + (total ? '/' + total : ''))
-      : ('已准备 ' + loaded + (total ? '/' + total : '') + ' · 播放或滚动到末尾时继续'));
+      ? (playlistPanelText('pshell_loading_next') + loaded + (total ? '/' + total : ''))
+      : (playlistPanelText('pshell_prepared') + loaded + (total ? '/' + total : '') + playlistPanelText('pshell_continue_hint')));
   var retry = queueHydrationState.error
-    ? '<button type="button" class="queue-hydration-retry" onclick="event.stopPropagation();retryPlaylistQueueHydration()">重试</button>'
+    ? playlistPanelText('pshell_retry_btn')
     : (queueHydrationState.active && !queueHydrationState.loading
-      ? '<button type="button" class="queue-hydration-retry" onclick="event.stopPropagation();requestPlaylistQueueHydrationForBrowse()">再载一批</button>'
+      ? playlistPanelText('pshell_load_more_btn')
       : '');
   return '<div class="queue-hydration-status' + (compact ? ' compact' : '') + '">' +
     '<span class="queue-hydration-spinner' + (queueHydrationState.loading ? ' spinning' : '') + '"></span>' +
@@ -169,14 +203,14 @@ function applyPlaylistPanelPinState(openPanel) {
   }
   if (btn) {
     btn.classList.toggle('active', !!playlistPanelPinned);
-    btn.title = playlistPanelPinned ? '取消常开歌单' : '常开歌单';
+    btn.title = playlistPanelPinned ? playlistPanelText('pshell_unpin') : playlistPanelText('btn_pin_queue', '常开歌单');
   }
 }
 function setPlaylistPanelPinned(on, silent) {
   playlistPanelPinned = !!on;
   saveBooleanPreference(PLAYLIST_PANEL_PIN_STORE_KEY, playlistPanelPinned);
   applyPlaylistPanelPinState(playlistPanelPinned);
-  if (!silent) showToast(playlistPanelPinned ? '左侧歌单已常开' : '左侧歌单已恢复自动隐藏');
+  if (!silent) showToast(playlistPanelPinned ? playlistPanelText('pshell_pinned') : playlistPanelText('pshell_autohide_restored'));
 }
 function togglePlaylistPanelPinned() {
   setPlaylistPanelPinned(!playlistPanelPinned);
@@ -270,10 +304,10 @@ function renderMiniQueuePanel(opts) {
   if (!$list || !$count) return;
   var total = playQueue.length;
   var expectedTotal = queueHydrationExpectedTotal();
-  $count.textContent = total ? ((expectedTotal > total ? (total + '/' + expectedTotal) : total) + ' 首' + (currentIdx >= 0 ? ' · 正在播放 ' + (currentIdx + 1) : '')) : '0 首';
+  $count.textContent = total ? ((expectedTotal > total ? (total + '/' + expectedTotal) : total) + playlistPanelText('dash_track_count_suffix') + (currentIdx >= 0 ? playlistPanelText('pshell_now_playing') + (currentIdx + 1) : '')) : playlistPanelText('home_0_tracks');
   if (!miniQueueOpen && !opts.animate && !opts.scrollCurrent) return;
   if (!total) {
-    $list.innerHTML = '<div class="mini-queue-empty">队列为空，先搜索或打开歌单</div>';
+    $list.innerHTML = '<div class="mini-queue-empty">' + escHtml(playlistPanelText('queue_empty', '队列为空，先搜索或打开歌单')) + '</div>';
     return;
   }
   var windowInfo = queuePanelVirtualWindow($list, $list, total, true, opts.scrollCurrent ? currentIdx : -1);
@@ -285,8 +319,8 @@ function renderMiniQueuePanel(opts) {
     return '<div class="mini-queue-item' + (i === currentIdx ? ' now' : '') + '" data-queue-index="' + i + '" onclick="if(window.__mineradioSuppressReorderClick)return;playQueueAt(' + i + ')">' +
       imgTag +
       '<div class="mini-queue-info"><div class="mini-queue-name">' + escHtml(song.name) + '</div><div class="mini-queue-sub">' + escHtml(song.artist || '') + '</div></div>' +
-      '<button class="mini-queue-remove mini-queue-next" onclick="event.stopPropagation();queueIndexNext(' + i + ')" title="下一首播放">下</button>' +
-      '<button class="mini-queue-remove" onclick="event.stopPropagation();removeFromQueue(' + i + ')" title="移除">×</button>' +
+      '<button class="mini-queue-remove mini-queue-next" onclick="event.stopPropagation();queueIndexNext(' + i + ')" title="' + escHtml(playlistPanelText('next_play', '下一首播放')) + playlistPanelText('pshell_down_button') +
+      '<button class="mini-queue-remove" onclick="event.stopPropagation();removeFromQueue(' + i + ')" title="' + escHtml(playlistPanelText('remove', '移除')) + '">×</button>' +
       '</div>';
   }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + queueHydrationFooterHtml(true);
   if (opts.animate || opts.scrollCurrent) {
@@ -449,7 +483,7 @@ function renderQueuePanel(opts) {
   var $ql = document.getElementById('queue-list');
   var seq = ++queueRenderSeq;
   if (!playQueue.length) {
-    $ql.innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">队列为空，搜索后点 + 设为下一首</div>';
+    $ql.innerHTML = playlistPanelText('pshell_empty_html');
     renderMiniQueuePanel();
     var panel = document.getElementById('playlist-panel');
     if (panel && (panel.classList.contains('show') || panel.classList.contains('peek')) && queueViewTab === 'queue') switchPlaylistTab('playlists', { save: false });
@@ -465,12 +499,12 @@ function renderQueuePanel(opts) {
     var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:38px;height:38px;border-radius:6px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
     return '<div class="queue-item' + (i === currentIdx ? ' now' : '') + '" data-queue-index="' + i + '" onclick="if(window.__mineradioSuppressReorderClick)return;playQueueAt(' + i + ')">' +
       imgTag +
-      '<div class="qi-info"><div class="qi-name">' + escHtml(song.name) + '</div><div class="qi-sub"><button class="queue-artist-link" type="button" onclick="event.stopPropagation();openQueueArtist(' + i + ')">' + escHtml(song.artist || '未知歌手') + '</button></div></div>' +
+      '<div class="qi-info"><div class="qi-name">' + escHtml(song.name) + '</div><div class="qi-sub"><button class="queue-artist-link" type="button" onclick="event.stopPropagation();openQueueArtist(' + i + ')">' + escHtml(song.artist || playlistPanelText('track_unknown_artist')) + '</button></div></div>' +
       '<div class="qi-act">' +
-      '<button class="' + (isSongLiked(song) ? 'liked' : '') + '" onclick="event.stopPropagation();toggleLikeQueueIndex(' + i + ')" title="' + (isSongLiked(song) ? '取消红心' : '红心喜欢') + '">' + heartIconSvg() + '</button>' +
-      '<button class="queue-next" onclick="event.stopPropagation();queueIndexNext(' + i + ')" title="下一首播放">下</button>' +
-      '<button onclick="event.stopPropagation();collectQueueIndex(' + i + ')" title="收藏到歌单">' + playlistPlusIconSvg() + '</button>' +
-      '<button onclick="event.stopPropagation();removeFromQueue(' + i + ')" title="移除">×</button>' +
+      '<button class="' + (isSongLiked(song) ? 'liked' : '') + '" onclick="event.stopPropagation();toggleLikeQueueIndex(' + i + ')" title="' + (isSongLiked(song) ? playlistPanelText('track_unheart') : playlistPanelText('track_heart_like')) + '">' + heartIconSvg() + '</button>' +
+      '<button class="queue-next" onclick="event.stopPropagation();queueIndexNext(' + i + ')" title="' + escHtml(playlistPanelText('next_play', '下一首播放')) + playlistPanelText('pshell_down_button') +
+      '<button onclick="event.stopPropagation();collectQueueIndex(' + i + playlistPanelText('pshell_collect_title_suffix') + playlistPlusIconSvg() + '</button>' +
+      '<button onclick="event.stopPropagation();removeFromQueue(' + i + ')" title="' + escHtml(playlistPanelText('remove', '移除')) + '">×</button>' +
       '</div>' +
       '</div>';
   }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + queueHydrationFooterHtml(false);
@@ -613,7 +647,7 @@ async function refreshUserPlaylists(force) {
     playlistCatalogRevision += 1;
     renderUserPlaylistsList({ animate: isPlaylistPanelVisibleForRender(), preserveScroll: true });
     var podcastListLoggedOut = document.getElementById('podcast-list');
-    if (podcastListLoggedOut) podcastListLoggedOut.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">登录后显示我的播客</div>';
+    if (podcastListLoggedOut) podcastListLoggedOut.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">' + escHtml(playlistPanelText('login_show_podcasts', '登录后显示我的播客')) + '</div>';
     return;
   }
   var catalogNeedsNewProvider = playlistCatalogSyncState.loading && ['netease', 'qq', 'kugou', 'qishui', 'spotify'].some(function (provider) {

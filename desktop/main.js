@@ -26,12 +26,14 @@ const {
 const { extractKugouAuth } = require('../kugou-api');
 const { qishuiCookieHasLogin } = require('../qishui-api');
 const { clearSpotifyToken } = require('../spotify-api');
+const { CustomSourceManager } = require('./custom-source/manager');
 
 registerWallpaperEngineScheme(protocol);
 registerLocalMusicScheme(protocol);
 
 let mainWindow = null;
 let localServer = null;
+let customSourceManager = null;
 let mainServerPort = 0;
 let desktopLyricsWindow = null;
 let desktopLyricsState = {};
@@ -106,6 +108,10 @@ const APP_USER_MODEL_ID = process.env.MINERADIO_APP_USER_MODEL_ID || APP_METADAT
 const APP_ICON_ICO = path.join(__dirname, '..', 'build', 'icon.ico');
 const CURRENT_FX_AUTOSAVE_FILE = 'current-fx-autosave.json';
 const CURRENT_FX_AUTOSAVE_MAX_BYTES = 12 * 1024 * 1024;
+// 音源脚本的体积上限：正常的洛雪脚本只有几十 KB，5 MB 足够宽松又能挡住误选的大文件。
+// Size ceiling for a source script: real LX scripts are tens of KB, so 5 MB is generous
+// while still rejecting an obviously wrong file pick.
+const CUSTOM_SOURCE_MAX_SCRIPT_BYTES = 5 * 1024 * 1024;
 const STARTUP_ERROR_LOG_FILE = 'startup-error.log';
 const STARTUP_STATE_FILE = 'startup-state.json';
 const STARTUP_SERVER_TIMEOUT_MS = 10000;
@@ -2396,7 +2402,7 @@ function showNonBlockingErrorDialog(title, detail, options = {}) {
         title: String(title || 'Mineradio'),
         message: String(title || 'Mineradio'),
         detail: String(detail || ''),
-        buttons: [String(options.confirmText || '确定')],
+        buttons: [String(options.confirmText || desktopText('btn_ok', '确定'))],
         noLink: true,
       }).then(finish, finish);
     } catch (error) {
@@ -2559,7 +2565,7 @@ function qqLoginCompletionFromCookie(cookieText) {
       message: 'QQ 账号验证已完成，但 QQ 音乐播放授权尚未生成，请在官方登录窗口完成授权后再关闭',
     };
   }
-  return { ok: false, cancelled: true, message: 'QQ 登录窗口已关闭' };
+  return { ok: false, cancelled: true, error: 'LOGIN_WINDOW_CLOSED_QQ', message: 'QQ 登录窗口已关闭' };
 }
 
 function neteaseCookieHasLogin(cookieText) {
@@ -2684,7 +2690,7 @@ async function openNeteaseMusicLoginWindow(owner) {
       modal: false,
       show: false,
       autoHideMenuBar: true,
-      title: '网易云音乐登录',
+      title: desktopText('desktop_netease_login', '网易云音乐登录'),
       backgroundColor: '#111111',
       icon: APP_ICON_ICO,
       webPreferences: {
@@ -2748,6 +2754,12 @@ async function openNeteaseMusicLoginWindow(owner) {
       `, true).catch(() => {});
     });
 
+    loginWindow.__mineradioLoginWindow = true;
+    loginWindow.__mineradioLoginTitleKey = 'desktop_netease_login';
+    loginWindow.__mineradioLoginTitleFallback = '网易云音乐登录';
+    loginWindow.__mineradioLoginWindow = true;
+    loginWindow.__mineradioLoginTitleKey = 'desktop_kugou_login';
+    loginWindow.__mineradioLoginTitleFallback = '酷狗音乐登录';
     loginWindow.on('ready-to-show', () => loginWindow.show());
     loginWindow.on('closed', async () => {
       if (settled) return;
@@ -2756,7 +2768,7 @@ async function openNeteaseMusicLoginWindow(owner) {
         const cookie = await readNeteaseLoginCookieHeader(cookieSession);
         resolve(neteaseCookieHasLogin(cookie)
           ? { ok: true, cookie }
-          : { ok: false, cancelled: true, message: '网易云登录窗口已关闭' });
+          : { ok: false, cancelled: true, error: 'LOGIN_WINDOW_CLOSED_NETEASE', message: '网易云登录窗口已关闭' });
       } catch (e) {
         resolve({ ok: false, error: e.message || '网易云登录窗口已关闭' });
       }
@@ -2798,7 +2810,7 @@ async function openQQMusicLoginWindow(owner, options) {
       modal: false,
       show: false,
       autoHideMenuBar: true,
-      title: 'QQ 音乐登录',
+      title: desktopText('desktop_qq_login', 'QQ 音乐登录'),
       backgroundColor: '#111111',
       icon: APP_ICON_ICO,
       webPreferences: {
@@ -2971,6 +2983,9 @@ async function openQQMusicLoginWindow(owner, options) {
       `, true).catch(() => {});
     });
 
+    loginWindow.__mineradioLoginWindow = true;
+    loginWindow.__mineradioLoginTitleKey = 'desktop_qq_login';
+    loginWindow.__mineradioLoginTitleFallback = 'QQ 音乐登录';
     loginWindow.on('ready-to-show', showLoginWindow);
     loginWindow.on('closed', async () => {
       if (settled) return;
@@ -3027,7 +3042,7 @@ async function openKugouMusicLoginWindow(owner, options) {
       modal: false,
       show: false,
       autoHideMenuBar: true,
-      title: '酷狗音乐登录',
+      title: desktopText('desktop_kugou_login', '酷狗音乐登录'),
       backgroundColor: '#111111',
       icon: APP_ICON_ICO,
       webPreferences: {
@@ -3098,8 +3113,8 @@ async function openKugouMusicLoginWindow(owner, options) {
         resolve(kugouCookieHasPlayback(cookie)
           ? { ok: true, cookie }
           : (kugouCookieHasLogin(cookie)
-            ? { ok: true, cookie, partial: true, message: '酷狗账号已登录，但播放 token 不完整，请稍后在播放器内重试登录' }
-            : { ok: false, cancelled: true, message: '酷狗登录窗口已关闭' }));
+            ? { ok: true, cookie, partial: true, error: 'KUGOU_PLAYBACK_TOKEN_INCOMPLETE', message: '酷狗账号已登录，但播放 token 不完整，请稍后在播放器内重试登录' }
+            : { ok: false, cancelled: true, error: 'LOGIN_WINDOW_CLOSED_KUGOU', message: '酷狗登录窗口已关闭' }));
       } catch (e) {
         resolve({ ok: false, error: e.message || '酷狗登录窗口已关闭' });
       }
@@ -3891,7 +3906,7 @@ function createDesktopLyricsWindow(payload = {}) {
     focusable: false,
     skipTaskbar: true,
     show: false,
-    title: 'Mineradio Desktop Lyrics',
+    title: desktopText('desktop_lyrics_window_title', 'Mineradio 桌面歌词'),
     webPreferences: {
       preload: path.join(__dirname, 'overlay-preload.js'),
       contextIsolation: true,
@@ -3900,6 +3915,7 @@ function createDesktopLyricsWindow(payload = {}) {
       backgroundThrottling: false,
     },
   });
+  desktopLyricsWindow.__mineradioDesktopLyricsWindow = true;
   try {
     desktopLyricsWindow.setAlwaysOnTop(true, 'screen-saver');
     desktopLyricsWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -4148,6 +4164,78 @@ function closeOverlayWindows(reason = 'overlay-close') {
   });
 }
 
+
+// ============================================================================
+//  主进程 i18n
+//  原生对话框（文件选择器、错误框、登录窗口标题）由 Electron 直接绘制，渲染进程的
+//  data-i18n 够不到它。渲染端切换语言时通过 IPC 推一次当前语言，这里自读同一份
+//  public/locales/<lang>.json 取词 —— 打包后该路径落在 asar 内，fs 读 asar 内的普通
+//  文件是支持的（与既有 path.join(__dirname, '..', 'public', ...) 的用法一致）。
+// ============================================================================
+// Native dialogs are drawn by Electron, out of reach of the renderer's data-i18n. The
+// renderer pushes the active language once per switch and the main process reads the same
+// dictionary file. Inside a package that path lives in the asar archive, which fs reads
+// like any other file — the same path.join(__dirname, '..') idiom the codebase already uses.
+const LOCALES_DIR = path.join(__dirname, '..', 'public', 'locales');
+const SUPPORTED_LOCALES = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
+const FALLBACK_LOCALE = 'zh_cn';
+let desktopLocale = FALLBACK_LOCALE;
+const desktopLocaleCache = new Map();
+
+function normalizeDesktopLocale(value) {
+  const raw = String(value || '').trim();
+  if (SUPPORTED_LOCALES.includes(raw)) return raw;
+  const base = raw.toLowerCase().split(/[-_]/)[0];
+  if (base === 'zh') return 'zh_cn';
+  const hit = SUPPORTED_LOCALES.find((code) => code.toLowerCase().split(/[-_]/)[0] === base);
+  return hit || FALLBACK_LOCALE;
+}
+
+function readDesktopLocale(lang) {
+  const code = normalizeDesktopLocale(lang);
+  if (desktopLocaleCache.has(code)) return desktopLocaleCache.get(code);
+  let table = null;
+  try {
+    table = JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, code + '.json'), 'utf8'));
+  } catch (error) {
+    // 读不到词典时退回中文内置值：主进程没有 i18n 运行时可依赖，抛异常会让对话框全打不开。
+    // Fall back to the built-in Chinese title: the main process has no i18n runtime to fall
+    // back on, and throwing here would stop every dialog from opening.
+    console.warn('[i18n] cannot read locale', code, error && error.message || error);
+  }
+  desktopLocaleCache.set(code, table);
+  return table;
+}
+
+// 界面文案取词。缺键或词典不可用时退回调用方给的中文兜底。
+// UI copy lookup. Missing key or unreadable dictionary falls back to the caller's Chinese.
+function desktopText(key, fallback) {
+  const table = readDesktopLocale(desktopLocale);
+  if (table && typeof table[key] === 'string' && table[key]) return table[key];
+  return String(fallback == null ? '' : fallback);
+}
+
+function setDesktopLocale(lang) {
+  desktopLocale = normalizeDesktopLocale(lang);
+  // 登录窗口的标题在窗口创建时就定下了，语言切换后需要补写一次。
+  // Login window titles are fixed at creation time, so a language switch must reapply them.
+  applyDesktopLocaleToOpenWindows();
+  return desktopLocale;
+}
+
+function applyDesktopLocaleToOpenWindows() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win || win.isDestroyed()) continue;
+    if (win.__mineradioLoginWindow) {
+      try { win.setTitle(desktopText(win.__mineradioLoginTitleKey, win.__mineradioLoginTitleFallback)); } catch (e) {}
+    } else if (win.__mineradioDesktopLyricsWindow) {
+      try { win.setTitle(desktopText('desktop_lyrics_window_title', 'Mineradio 桌面歌词')); } catch (e) {}
+    }
+  }
+}
+
+ipcMain.handle('mineradio-set-locale', (_event, lang) => setDesktopLocale(lang));
+
 ipcMain.handle('desktop-window-minimize', async (event) => {
   const win = getSenderWindow(event);
   if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-minimize').enabled === true) {
@@ -4366,7 +4454,7 @@ ipcMain.handle('mineradio-cache-get-settings', async () => {
 
 ipcMain.handle('mineradio-cache-choose-directory', async () => {
   const result = await dialog.showOpenDialog({
-    title: '选择 Mineradio 缓存目录',
+    title: desktopText('dialog_choose_cache_dir', '选择 Mineradio 缓存目录'),
     defaultPath: cacheSettings.rootPath,
     properties: ['openDirectory', 'createDirectory'],
   });
@@ -4444,8 +4532,8 @@ ipcMain.handle('mineradio-wallpaper-engine-choose-directory', async (event) => {
   try {
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, canceled: false, projects: [], count: 0, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
     const options = {
-      title: '识别并导入 Wallpaper Engine 项目',
-      buttonLabel: '识别此目录',
+      title: desktopText('dialog_we_import_title', '识别并导入 Wallpaper Engine 项目'),
+      buttonLabel: desktopText('dialog_we_detect_button', '识别此目录'),
       properties: ['openDirectory'],
     };
     const result = mainWindow && !mainWindow.isDestroyed()
@@ -4464,11 +4552,11 @@ ipcMain.handle('mineradio-wallpaper-engine-choose-project-file', async (event) =
   try {
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, canceled: false, projects: [], count: 0, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
     const options = {
-      title: '选择 Wallpaper Engine 的 project.json 或场景包（.pkg/.pak）',
-      buttonLabel: '导入此项目',
+      title: desktopText('dialog_we_choose_title', '选择 Wallpaper Engine 的 project.json 或场景包（.pkg/.pak）'),
+      buttonLabel: desktopText('dialog_we_import_button', '导入此项目'),
       properties: ['openFile'],
       filters: [
-        { name: 'Wallpaper Engine 项目', extensions: ['pkg', 'pak', 'json'] },
+        { name: desktopText('dialog_we_project_filter', 'Wallpaper Engine 项目'), extensions: ['pkg', 'pak', 'json'] },
       ],
     };
     const result = mainWindow && !mainWindow.isDestroyed()
@@ -5116,7 +5204,7 @@ ipcMain.handle('mineradio-export-json-file', async (event, payload = {}) => {
     const owner = getSenderWindow(event);
     const defaultName = String(payload.defaultName || 'mineradio-export.json').replace(/[\\/:*?"<>|]+/g, '-');
     const result = await dialog.showSaveDialog(owner, {
-      title: '导出 Mineradio 存档',
+      title: desktopText('desktop_export_title', '导出 Mineradio 存档'),
       defaultPath: defaultName.toLowerCase().endsWith('.json') ? defaultName : `${defaultName}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
@@ -5133,7 +5221,7 @@ ipcMain.handle('mineradio-import-json-file', async (event) => {
   try {
     const owner = getSenderWindow(event);
     const result = await dialog.showOpenDialog(owner, {
-      title: '导入 Mineradio 存档',
+      title: desktopText('desktop_import_title', '导入 Mineradio 存档'),
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
@@ -5144,6 +5232,124 @@ ipcMain.handle('mineradio-import-json-file', async (event) => {
   } catch (e) {
     return { ok: false, error: e.message || 'IMPORT_FAILED' };
   }
+});
+
+// ============================================================
+// 洛雪自定义音源 / LX custom sources
+// ============================================================
+// 脚本运行环境、HTTP 代理、脱敏和播放解析都在主进程侧；渲染进程只负责列脚本和转达意图。
+// 任何一个脚本都读不到 Mineradio 的 DOM、账号 Cookie、用户歌单或本地文件。
+// Script environment, HTTP proxying, redaction and URL resolution all live in the main
+// process; the renderer only lists scripts and forwards user intent. No script can reach
+// the Mineradio DOM, account cookies, user playlists or local files.
+
+function customSourceSnapshot(extra = {}) {
+  if (!customSourceManager) return { items: [], active: false, activeId: '', sources: {}, ...extra };
+  return { items: customSourceManager.list(), ...customSourceManager.getStatus(), ...extra };
+}
+
+// 只有主窗口自己可以操作音源：其它渲染进程（含脚本宿主窗口）一律拒绝。
+// Only the main window may drive custom sources; every other webContents is rejected.
+function requireCustomSourceManager(event) {
+  if (!customSourceManager) throw new Error('CUSTOM_SOURCE_UNAVAILABLE');
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    throw new Error('CUSTOM_SOURCE_UNAUTHORIZED');
+  }
+  return customSourceManager;
+}
+
+function sendCustomSourceStatus(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('mineradio-custom-source-status', customSourceSnapshot(payload));
+}
+
+async function chooseCustomSourceScript(event, title) {
+  const result = await dialog.showOpenDialog(getSenderWindow(event), {
+    title,
+    properties: ['openFile'],
+    filters: [{ name: desktopText('dialog_source_script_filter', 'JavaScript 音源'), extensions: ['js'] }],
+  });
+  if (result.canceled || !result.filePaths?.[0]) return null;
+  const filePath = result.filePaths[0];
+  if (path.extname(filePath).toLowerCase() !== '.js') throw new Error('IMPORT_INVALID: 请选择 .js 音源脚本');
+  if (fs.statSync(filePath).size > CUSTOM_SOURCE_MAX_SCRIPT_BYTES) {
+    throw new Error('IMPORT_INVALID: 音源脚本不能超过 5 MB');
+  }
+  return { filePath, script: fs.readFileSync(filePath, 'utf8') };
+}
+
+async function initializeCustomSourceManager() {
+  if (!localServer) return;
+  // 音源存储盘写不动之类的问题不能拦住启动：自定义音源是可选功能，
+  // 启动失败就静默降级成「没有启用自定义音源」。
+  // An unwritable source directory must not block startup: custom sources are optional, so
+  // any failure silently degrades to "no custom source active".
+  try {
+    if (!customSourceManager) {
+      customSourceManager = new CustomSourceManager({
+        userDataPath: app.getPath('userData'),
+        app,
+        BrowserWindow,
+        ipcMain,
+      });
+      customSourceManager.on('status', status => sendCustomSourceStatus(status));
+      customSourceManager.on('updateAlert', updateAlert => sendCustomSourceStatus({ updateAlert }));
+      customSourceManager.on('runtimeError', error => sendCustomSourceStatus({ error: error.message || 'RUNTIME_STOP_FAILED' }));
+    }
+    if (typeof localServer.setCustomSourceResolver === 'function') {
+      localServer.setCustomSourceResolver(({ song, quality, signal }) => (
+        customSourceManager.resolveMusicUrl(song, quality, { signal })
+      ));
+    }
+    // 上次启用的脚本在这里恢复。startActive 自己吞掉失败，坏脚本不会拖住启动。
+    // The previously active script is restored here. startActive swallows its own failures,
+    // so a broken script never holds up startup.
+    await customSourceManager.startActive();
+  } catch (error) {
+    console.warn('[CustomSource] initialization skipped:', error && error.message || error);
+    customSourceManager = null;
+  }
+}
+
+ipcMain.handle('mineradio-custom-source-list', event => {
+  requireCustomSourceManager(event);
+  return customSourceSnapshot();
+});
+
+ipcMain.handle('mineradio-custom-source-import', async event => {
+  const manager = requireCustomSourceManager(event);
+  const selected = await chooseCustomSourceScript(event, desktopText('dialog_source_import_title', '导入洛雪 JavaScript 音源'));
+  if (!selected) return customSourceSnapshot({ canceled: true });
+  await manager.importScript(selected.filePath, selected.script);
+  return customSourceSnapshot();
+});
+
+ipcMain.handle('mineradio-custom-source-replace', async (event, id) => {
+  const manager = requireCustomSourceManager(event);
+  const selected = await chooseCustomSourceScript(event, desktopText('dialog_source_replace_title', '替换洛雪 JavaScript 音源'));
+  if (!selected) return customSourceSnapshot({ canceled: true });
+  await manager.replaceScript(String(id || ''), selected.script);
+  return customSourceSnapshot();
+});
+
+ipcMain.handle('mineradio-custom-source-activate', async (event, id) => {
+  await requireCustomSourceManager(event).activate(String(id || ''));
+  return customSourceSnapshot();
+});
+
+ipcMain.handle('mineradio-custom-source-deactivate', async event => {
+  await requireCustomSourceManager(event).deactivate();
+  return customSourceSnapshot();
+});
+
+ipcMain.handle('mineradio-custom-source-remove', async (event, id) => {
+  await requireCustomSourceManager(event).remove(String(id || ''));
+  return customSourceSnapshot();
+});
+
+ipcMain.handle('mineradio-custom-source-set-update-alert', (event, id, enabled) => {
+  requireCustomSourceManager(event).setAllowUpdateAlert(String(id || ''), !!enabled);
+  return customSourceSnapshot();
 });
 
 ipcMain.on('mineradio-current-fx-autosave-read-sync', (event) => {
@@ -5841,6 +6047,12 @@ function recoverMainWindowAfterRendererGone(win, details = {}, cleanupPromise = 
     if (cleanupPromise) await Promise.resolve(cleanupPromise);
     if (appQuitting || win.isDestroyed() || win !== mainWindow) return false;
     await ensureLocalServerStarted();
+    // 服务器模块被重新 require 后是一个全新实例，resolver 必须重新注入，否则
+    // 崩溃恢复之后自定义音源会静默失效（内置音源不受影响，属于降级而非报错）。
+    // ensureLocalServerStarted re-requires server.js, which yields a brand new module
+    // instance; the resolver has to be re-injected or custom sources silently stop
+    // resolving after a renderer recovery (a degradation, not a crash).
+    await initializeCustomSourceManager();
     await loadMainWindowWithRetry(win);
     if (keepFullscreen && !win.isFullScreen()) {
       windowFullscreenActive = true;
@@ -6244,6 +6456,7 @@ async function createWindowOnce() {
   }
 
   await ensureLocalServerStarted();
+  await initializeCustomSourceManager();
   await loadMainWindowWithRetry(win);
   if (win.isDestroyed()) throw new Error('Main BrowserWindow was destroyed after navigation');
   startupCompleted = true;
@@ -6344,6 +6557,17 @@ if (!gotSingleInstanceLock) {
     unregisterFullDesktopEscapeShortcut();
     unregisterMineradioGlobalHotkeys();
     closeDesktopLyricsWindow();
+    // 先收脚本宿主再关本地服务：宿主窗口是本地服务解析 URL 的消费者，反过来会留下悬挂请求。
+    // Tear down the script host before the local server: the host windows consume URL
+    // resolution from that server, and the reverse order leaves dangling requests.
+    if (customSourceManager) {
+      const manager = customSourceManager;
+      customSourceManager = null;
+      void manager.dispose();
+    }
+    if (localServer && typeof localServer.setCustomSourceResolver === 'function') {
+      localServer.setCustomSourceResolver(null);
+    }
     if (localServer && localServer.close) localServer.close();
     if (tray) {
       try { tray.destroy(); } catch (e) {}

@@ -85,3 +85,23 @@ wallpaper-diagnosis.txt
 # relative to the CWD when launched by hand).
 log.txt
 wallpaper-diagnosis.log
+
+# ⚠️ 汽水音乐官方客户端的专有二进制：bdms.node / metasecml.dll 等一律不得入库，
+#    也不得随安装包分发（授权缓存默认在用户主目录 ~/.mineradio/qishui-native，不在仓库内）。
+#    These guard the repository in case a local cache is ever pointed at the working directory.
+# Proprietary SodaMusic client binaries must never be committed or shipped.
+qishui-native/
+*.node
+bdms.node
+metasecml.dll
+metasecml.dylib
+libmetasecml.so
+
+# ⚠️ 洛雪自定义音源脚本：第三方脚本一律不得入库，也不得随安装包分发。
+#    运行时的脚本仓库在 Electron userData 下的 custom-sources/，正常不会出现在仓库里；
+#    这几条只为防止把测试用的 userData 目录指向工作区后误提交用户的音源列表。
+# LX custom source scripts must never be committed or shipped with the installer. The live
+# store lives in custom-sources/ under Electron userData; these lines only guard against a
+# test userData directory being pointed at the working tree.
+custom-sources/
+*.user.js

@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function uploadDragdropText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 // ============================================================
 var AUDIO_UPLOAD_EXT_RE = /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i;
 var IMAGE_UPLOAD_EXT_RE = /\.(jpg|jpeg|png|webp)$/i;
@@ -26,14 +53,14 @@ function firstImageUploadFile(files) {
 }
 function localSongFromAudioFile(file) {
   var rel = String(file.webkitRelativePath || file.name || '');
-  var filename = String(file.name || rel || '本地音乐');
+  var filename = String(file.name || rel || uploadDragdropText('discover_local_music'));
   var title = filename.replace(/\.[^.]+$/, '');
   return hydrateCustomCover({
     type: 'local',
     source: 'local',
     provider: 'local',
-    name: title || '本地音乐',
-    artist: '本地文件',
+    name: title || uploadDragdropText('discover_local_music'),
+    artist: uploadDragdropText('track_local_file'),
     album: rel && rel !== filename ? rel.split(/[\\/]/).slice(0, -1).join(' / ') : '',
     localKey: [rel || filename, file.size || 0, file.lastModified || 0].join(':'),
     localUrl: URL.createObjectURL(file),
@@ -100,8 +127,8 @@ function bindPersistentLocalLibraryWatch() {
     var added = Number(change && change.added) || 0;
     var removed = Number(change && change.removed) || 0;
     refreshPersistentLocalLibraryTracks().then(function (total) {
-      if (added > 0) showToast('本地音乐已自动加入 ' + added + ' 首（当前 ' + total + ' 首）');
-      else if (removed > 0) showToast('本地音乐已自动移除 ' + removed + ' 首（文件已不在原位置）');
+      if (added > 0) showToast(uploadDragdropText('upload_auto_added') + added + uploadDragdropText('upload_songs_current') + total + uploadDragdropText('upload_songs_close'));
+      else if (removed > 0) showToast(uploadDragdropText('upload_auto_removed') + removed + uploadDragdropText('upload_moved_suffix'));
     });
   });
   return true;
@@ -126,7 +153,7 @@ async function restorePersistedLocalLibrary() {
   // 中英对照：The main process filters out records whose file is gone; surface the skipped
   // count so tracks do not disappear without explanation.
   if (Number(result.missing) > 0) {
-    showToast('有 ' + Number(result.missing) + ' 首本地音乐的文件当前不可用（移动磁盘未连接或文件已移动），已暂时跳过');
+    showToast(uploadDragdropText('upload_has_prefix') + Number(result.missing) + uploadDragdropText('upload_skipped_unavailable'));
   }
   persistentLocalLibraryTracks = tracks.map(cloneSong);
   var snapshot = snapshotAtRequest;
@@ -170,8 +197,8 @@ async function restorePersistedLocalLibrary() {
   updateControlTrackInfo(current);
   var titleEl = document.getElementById('thumb-title');
   var artistEl = document.getElementById('thumb-artist');
-  if (titleEl) titleEl.textContent = current.name || current.title || '本地音乐';
-  if (artistEl) artistEl.textContent = current.artist || '本地文件';
+  if (titleEl) titleEl.textContent = current.name || current.title || uploadDragdropText('discover_local_music');
+  if (artistEl) artistEl.textContent = current.artist || uploadDragdropText('track_local_file');
   var thumbWrap = document.getElementById('thumb-wrap');
   if (thumbWrap) thumbWrap.classList.add('visible');
   if (current.cover) {
@@ -305,7 +332,7 @@ function importLocalAudioSongs(songs, opts) {
   safeShelfRebuild('local-import', true);
   forcePlaybackControlsInteractive();
   updateEmptyHomeVisibility({ forceLoad: false });
-  showToast(songs.length > 1 ? ('已导入 ' + songs.length + ' 首本地音乐') : '正在播放本地音乐');
+  showToast(songs.length > 1 ? (uploadDragdropText('upload_imported') + songs.length + uploadDragdropText('upload_local_songs_suffix')) : uploadDragdropText('upload_playing_local'));
   Promise.resolve(playQueueAt(0, { manual: true })).then(function () {
     if (opts.coverFile && currentIdx === 0 && playQueue[0]) {
       loadCoverFromFile(opts.coverFile, { trackToken: trackSwitchToken, deferHeavy: false, delay: 0, timeout: 260 });
@@ -317,7 +344,7 @@ function handleCoverFiles(files) {
   finishUploadFilePicker(true);
   var imgFile = firstImageUploadFile(files);
   if (!imgFile) {
-    showToast('没有找到可用的封面图片');
+    showToast(uploadDragdropText('upload_no_cover'));
     return;
   }
   loadCoverFromFile(imgFile, null);
@@ -332,14 +359,14 @@ async function handleFiles(files, opts) {
     var songs;
     var persistenceFailed = false;
     if (canUsePersistentLocalMusicLibrary()) {
-      showToast('正在读取 ' + audioFiles.length + ' 首本地音乐的标签与歌词…');
+      showToast(uploadDragdropText('upload_reading') + audioFiles.length + uploadDragdropText('upload_reading_tags'));
       try {
         var persisted = await importPersistentLocalAudioFiles(audioFiles);
         songs = persisted && persisted.tracks;
         if (!songs || !songs.length) throw new Error('LOCAL_LIBRARY_IMPORT_EMPTY');
         persistentLocalLibraryTracks = songs.map(cloneSong);
         if (persisted && Array.isArray(persisted.failures) && persisted.failures.length) {
-          setTimeout(function () { showToast('有 ' + persisted.failures.length + ' 个文件无法读取，其余歌曲已保存'); }, 900);
+          setTimeout(function () { showToast(uploadDragdropText('upload_has_prefix') + persisted.failures.length + uploadDragdropText('upload_files_unreadable')); }, 900);
         }
       } catch (e) {
         persistenceFailed = true;
@@ -349,7 +376,7 @@ async function handleFiles(files, opts) {
     if (!songs || !songs.length) songs = audioFiles.map(localSongFromAudioFile);
     importLocalAudioSongs(songs, { coverFile: songs.length === 1 ? imgFile : null, mode: opts.mode || '' });
     if (persistenceFailed) {
-      setTimeout(function () { showToast('本地曲库保存失败：这些歌曲仅本次可用，重启后不会保留'); }, 260);
+      setTimeout(function () { showToast(uploadDragdropText('upload_lib_save_failed')); }, 260);
     }
     return;
   }
@@ -357,7 +384,7 @@ async function handleFiles(files, opts) {
     handleCoverFiles([imgFile]);
     return;
   }
-  showToast('没有找到可导入的音乐或封面文件');
+  showToast(uploadDragdropText('upload_none_found'));
 }
 var fileInput = document.getElementById('file-input');
 if (fileInput) fileInput.addEventListener('change', function (e) { handleFiles(e.target.files, { mode: 'audio' }); e.target.value = ''; });

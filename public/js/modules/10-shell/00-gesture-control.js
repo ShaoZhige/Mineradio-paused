@@ -2,6 +2,47 @@
 function startHeadTracking() { }     // stub: 兼容旧调用
 function stopHeadTracking() { }      // stub
 
+// 手势 HUD 文案统一走 i18n；缺键时退回内置中文，HUD 不会出现空串或裸 key。
+// Gesture HUD copy goes through i18n and falls back to the built-in Chinese text, so
+// the HUD never shows an empty string or a raw key.
+// 注意：HUD 是瞬态显示，每帧都会按当前语言重写，所以不需要订阅语言变更。
+// Note: the HUD is transient and is rewritten every frame in the current language, so
+// it does not need a language-change subscription to stay correct.
+// params 既透传给 t()，也插值进兜底模板 —— 缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template, so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function gestureText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 var gestureVideo = null, gestureCamera = null, gestureHands = null;
 var gestureActive = false;
 // 21 个关键点的平滑缓存 (EMA): [{x,y}, ...]
@@ -162,7 +203,7 @@ function setGestureCandidate(candidate, now, holdMs, label, detail) {
     gestureActionState.fired = false;
   }
   var progress = Math.max(0, Math.min(1, (now - gestureActionState.since) / Math.max(1, holdMs)));
-  showGestureHUD(label, progress, gestureActionState.fired ? '已执行，松手后可再次触发' : detail);
+  showGestureHUD(label, progress, gestureActionState.fired ? gestureText('gesture_done_release') : detail);
   return progress;
 }
 
@@ -174,22 +215,22 @@ function executeGesturePlayerAction(action, now, cooldownMs) {
   try {
     if (action === 'play') {
       Promise.resolve(togglePlay()).catch(function () { });
-      showToast('手势: 播放 / 暂停');
+      showToast(gestureText('gesture_play_pause'));
     } else if (action === 'like') {
       if (typeof toggleLikeCurrent === 'function') toggleLikeCurrent();
-      showToast('手势: 喜欢当前歌曲');
+      showToast(gestureText('gesture_liked'));
     } else if (action === 'lyrics') {
       if (typeof setParticleLyricsSilently === 'function') {
         setParticleLyricsSilently(!fx.particleLyrics);
         saveLyricLayout({ user: true, reason: 'gesture-lyrics' });
-        showToast(fx.particleLyrics ? '手势: 已显示歌词' : '手势: 已隐藏歌词');
+        showToast(fx.particleLyrics ? gestureText('gesture_lyrics_shown') : gestureText('gesture_lyrics_hidden'));
       }
     } else if (action === 'next') {
       nextTrack(true);
-      showToast('手势: 下一首');
+      showToast(gestureText('gesture_next'));
     } else if (action === 'previous') {
       prevTrack(true);
-      showToast('手势: 上一首');
+      showToast(gestureText('gesture_prev'));
     }
     return true;
   } catch (e) {
@@ -217,7 +258,7 @@ function updateGestureSwipeAction(palm, openness, now, profile) {
   gestureActionState.fired = false;
   gestureActionState.swipeAnchor = null;
   executeGesturePlayerAction(action, now, profile.cooldown);
-  showGestureHUD(dx < 0 ? '左滑 · 下一首' : '右滑 · 上一首', 1, '已执行，回到中央后可继续');
+  showGestureHUD(dx < 0 ? gestureText('gesture_swipe_next') : gestureText('gesture_swipe_prev'), 1, gestureText('gesture_done_recenter'));
   return true;
 }
 
@@ -246,7 +287,7 @@ function updateGesturePlayerActions(lm, palm, openness, pinchDist, isPinch, isFi
     return false;
   }
   if (pose === 'volume') {
-    var volumeProgress = setGestureCandidate('volume', now, profile.volumeHold, '食指音量', '保持后上下移动调节音量');
+    var volumeProgress = setGestureCandidate('volume', now, profile.volumeHold, gestureText('gesture_index_label'), gestureText('gesture_hold_volume'));
     if (volumeProgress >= 1 && !gestureActionState.volumeArmed) {
       gestureActionState.volumeArmed = true;
       gestureActionState.volumeBaseY = palm.y;
@@ -259,15 +300,15 @@ function updateGesturePlayerActions(lm, palm, openness, pinchDist, isPinch, isFi
         gestureActionState.volumeLastApply = now;
         if (typeof setVolume === 'function') setVolume(nextVolume, true);
       }
-      showGestureHUD('音量 ' + Math.round(nextVolume * 100) + '%', nextVolume, '食指向上增加 · 向下降低');
+      showGestureHUD(gestureText('gesture_volume') + Math.round(nextVolume * 100) + '%', nextVolume, gestureText('gesture_index_volume'));
     }
     return true;
   }
 
   var labels = {
-    play: ['V 手势 · 播放', '保持以播放 / 暂停'],
-    like: ['拇指向上 · 喜欢', '保持以收藏 / 取消收藏'],
-    lyrics: ['三指 · 歌词', '保持以显示 / 隐藏歌词']
+    play: [gestureText('gesture_v_play'), gestureText('gesture_hold_play')],
+    like: [gestureText('gesture_thumb_like'), gestureText('gesture_hold_favorite')],
+    lyrics: [gestureText('gesture_three_lyrics'), gestureText('gesture_hold_lyrics')]
   };
   var progress = setGestureCandidate(pose, now, profile.hold, labels[pose][0], labels[pose][1]);
   if (progress >= 1) executeGesturePlayerAction(pose, now, profile.cooldown);
@@ -292,7 +333,7 @@ function toggleGesturePlayerActions() {
   resetGesturePlayerActionState(true);
   applyGestureSettingsUi();
   saveLyricLayout({ user: true, reason: 'gesturePlayerActions' });
-  showToast(fx.gesturePlayerActions ? '播放器手势已开启' : '仅保留粒子视觉手势');
+  showToast(fx.gesturePlayerActions ? gestureText('gesture_enabled') : gestureText('gesture_particles_only'));
 }
 
 function toggleGestureHandOverlay() {
@@ -300,7 +341,7 @@ function toggleGestureHandOverlay() {
   applyGestureSettingsUi();
   if (!fx.gestureHandOverlay && handCanvasCtx) handCanvasCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
   saveLyricLayout({ user: true, reason: 'gestureHandOverlay' });
-  showToast(fx.gestureHandOverlay ? '手部光迹已显示' : '手部光迹已隐藏，识别继续运行');
+  showToast(fx.gestureHandOverlay ? gestureText('gesture_trail_shown') : gestureText('gesture_trail_hidden'));
 }
 
 function setGestureSensitivity(mode) {
@@ -416,7 +457,7 @@ async function startGestureControl() {
 }
 
 async function startGestureControlInternal(epoch) {
-  showToast('正在加载手势识别…');
+  showToast(gestureText('gesture_loading', '正在加载手势识别…'));
   try {
     var desktopApi = typeof getDesktopWindowApi === 'function' ? getDesktopWindowApi() : window.desktopWindow;
     if (desktopApi && typeof desktopApi.requestGestureCameraPermission === 'function') {
@@ -474,8 +515,8 @@ async function startGestureControlInternal(epoch) {
     resizeHandCanvas();
     handCanvas.classList.toggle('show', fx.gestureHandOverlay !== false);
     applyGestureSettingsUi();
-    showToast('手势已开启: 粒子交互 + 播放控制');
-    showGestureHUD('待命', 0, '把手放进视野');
+    showToast(gestureText('gesture_started', '手势已开启: 粒子交互 + 播放控制'));
+    showGestureHUD(gestureText('gesture_standby', '待命'), 0, gestureText('gesture_put_hand', '把手放进视野'));
     return true;
   } catch (e) {
     if (epoch !== gestureStartEpoch || !fx || fx.cam !== 'gesture') {
@@ -485,7 +526,7 @@ async function startGestureControlInternal(epoch) {
     console.warn('Gesture failed:', e);
     cleanupGestureControlRuntime('error');
     var denied = /NotAllowed|Permission|permission|GESTURE_CAMERA/i.test(String(e && (e.name + ' ' + e.message) || e || ''));
-    showToast(denied ? '摄像头权限未开启，请在 Windows 隐私设置中允许桌面应用访问摄像头' : '手势启动失败，请检查摄像头是否被其他程序占用');
+    showToast(denied ? gestureText('gesture_failed', '摄像头权限未开启，请在 Windows 隐私设置中允许桌面应用访问摄像头') : gestureText('gesture_start_failed'));
     persistGestureCameraDisabled(e && (e.message || e.name) || e || 'startup-failed');
     return false;
   }
@@ -547,7 +588,7 @@ function onHandLost() {
   if (performance.now() - handLmLastSeen > 600) {
     handLmSmooth = null;
     if (handCanvasCtx) handCanvasCtx.clearRect(0, 0, innerWidth, innerHeight);
-    showGestureHUD('待命', 0, '把手放进视野');
+    showGestureHUD(gestureText('gesture_standby', '待命'), 0, gestureText('gesture_put_hand', '把手放进视野'));
   }
 }
 
@@ -623,7 +664,7 @@ function processHandFrame(rawLm) {
     pinchState.lastT = performance.now();
     particleSpin.vx = particleSpin.vy = 0;
     gestureGrip.target = Math.min(0.34, gestureGrip.target);
-    if (!playerActionVisible) showGestureHUD('捏合拖动', 1, '移动手掌 -> 旋转封面');
+    if (!playerActionVisible) showGestureHUD(gestureText('gesture_pinch_drag', '捏合拖动'), 1, gestureText('gesture_pinch_drag_hint', '移动手掌 -> 旋转封面'));
   } else if (isPinch && pinchState.active) {
     unlockCenteredView();
     var dx = palm.x - pinchState.lastX;
@@ -641,23 +682,23 @@ function processHandFrame(rawLm) {
     pinchState.lastY = palm.y;
     pinchState.lastT = nowPinch;
     gestureGrip.target = Math.min(0.34, gestureGrip.target);
-    if (!playerActionVisible) showGestureHUD('拖动中', 1, '松手后保留惯性');
+    if (!playerActionVisible) showGestureHUD(gestureText('gesture_dragging', '拖动中'), 1, gestureText('gesture_drag_hint', '松手后保留惯性'));
   } else if (!isPinch && pinchState.active) {
     pinchState.active = false;
-    if (!playerActionVisible) showGestureHUD('松开', 0.4, '可继续触碰或捏合');
+    if (!playerActionVisible) showGestureHUD(gestureText('gesture_release', '松开'), 0.4, gestureText('gesture_release_hint', '可继续触碰或捏合'));
   } else if (isFist) {
     if (gestureGrip.lastState !== 'fist') {
       gestureGrip.pulse = 1;
       uniforms.uBurstAmt.value = Math.max(uniforms.uBurstAmt.value, 0.26);
     }
     gestureGrip.lastState = 'fist';
-    if (!playerActionVisible) showGestureHUD('握拳收束', Math.max(0.55, gripTarget), '粒子向中心收缩');
+    if (!playerActionVisible) showGestureHUD(gestureText('gesture_fist', '握拳收束'), Math.max(0.55, gripTarget), gestureText('gesture_fist_hint', '粒子向中心收缩'));
   } else {
     if (gestureGrip.lastState === 'fist' && openness > 0.58) {
       uniforms.uBurstAmt.value = Math.max(uniforms.uBurstAmt.value, 0.18);
     }
     gestureGrip.lastState = openness > 0.62 ? 'open' : 'hover';
-    if (!playerActionVisible) showGestureHUD(openness > 0.62 ? '张开恢复' : '悬停', 0.30 + openness * 0.34, openness > 0.72 ? '快速左右滑动可切歌' : '手掌推开粒子 / 捏合旋转 / 握拳收束');
+    if (!playerActionVisible) showGestureHUD(openness > 0.62 ? gestureText('gesture_open', '张开恢复') : gestureText('gesture_hover', '悬停'), 0.30 + openness * 0.34, openness > 0.72 ? gestureText('gesture_swipe_hint') : gestureText('gesture_hint_all', '手掌推开粒子 / 捏合旋转 / 握拳收束'));
   }
 
   if (fx.gestureHandOverlay !== false) drawHandSkeleton(lm, isPinch, openness, isFist);
@@ -782,8 +823,8 @@ function tickGestureRotation(dt) {
 function showGestureHUD(label, progress, detail) {
   var hud = document.getElementById('gesture-hud');
   if (!hud) return;
-  var safeLabel = label || '待命';
-  var safeDetail = detail || '将手放进摄像头视野';
+  var safeLabel = label || gestureText('gesture_standby', '待命');
+  var safeDetail = detail || gestureText('gesture_confirm', '将手放进摄像头视野');
   var safeProgress = Math.max(0, Math.min(100, (progress || 0) * 100));
   var signature = safeLabel + '|' + safeDetail + '|' + Math.round(safeProgress / 2);
   var now = performance.now();

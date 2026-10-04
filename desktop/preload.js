@@ -11,6 +11,7 @@ function readSystemRelease() {
 
 contextBridge.exposeInMainWorld('desktopWindow', {
   isDesktop: true,
+  setLocale: (lang) => ipcRenderer.invoke('mineradio-set-locale', lang),
   systemRelease: readSystemRelease(),
   minimize: () => ipcRenderer.invoke('desktop-window-minimize'),
   restore: () => ipcRenderer.invoke('desktop-window-restore'),
@@ -116,6 +117,27 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   readCurrentFxAutosaveSync: () => ipcRenderer.sendSync('mineradio-current-fx-autosave-read-sync'),
   saveCurrentFxAutosaveSync: (payload) => ipcRenderer.sendSync('mineradio-current-fx-autosave-save-sync', payload || {}),
   saveCurrentFxAutosave: (payload) => ipcRenderer.invoke('mineradio-current-fx-autosave-save', payload || {}),
+  // 洛雪自定义音源：渲染进程只能列脚本、导入、启用与删除；
+  // 脚本本身在隔离的沙箱窗口里跑，永远不经过这个桥。
+  // LX custom sources: the renderer can only list, import, activate and delete. The script
+  // itself runs in an isolated sandboxed window and never crosses this bridge.
+  listCustomSources: () => ipcRenderer.invoke('mineradio-custom-source-list'),
+  importCustomSource: () => ipcRenderer.invoke('mineradio-custom-source-import'),
+  replaceCustomSource: (id) => ipcRenderer.invoke('mineradio-custom-source-replace', String(id || '')),
+  activateCustomSource: (id) => ipcRenderer.invoke('mineradio-custom-source-activate', String(id || '')),
+  deactivateCustomSource: () => ipcRenderer.invoke('mineradio-custom-source-deactivate'),
+  removeCustomSource: (id) => ipcRenderer.invoke('mineradio-custom-source-remove', String(id || '')),
+  setCustomSourceUpdateAlert: (id, enabled) => ipcRenderer.invoke(
+    'mineradio-custom-source-set-update-alert',
+    String(id || ''),
+    !!enabled,
+  ),
+  onCustomSourceStatus: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, value) => callback(value || {});
+    ipcRenderer.on('mineradio-custom-source-status', listener);
+    return () => ipcRenderer.removeListener('mineradio-custom-source-status', listener);
+  },
   onGlobalHotkey: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});

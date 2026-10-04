@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function podcastPlaylistLoadersText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var podcastListEl = document.getElementById('podcast-list');
 if (podcastListEl) {
   podcastListEl.addEventListener('click', function (e) {
@@ -19,17 +56,17 @@ function renderMyPodcastRadioItems(key, title, items) {
   var $pod = document.getElementById('podcast-list');
   if (!$pod) return;
   if (!items.length) {
-    $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || '我的播客') + '</div><button class="fx-mini-btn ghost" data-podcast-back="1" style="height:24px;padding:0 9px;font-size:10.5px">返回</button></div>' +
-      '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">暂无内容</div>';
+    $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || podcastPlaylistLoadersText('tab_podcasts', '我的播客')) + podcastPlaylistLoadersText('pod_back_button') +
+      podcastPlaylistLoadersText('pod_empty_html');
     return;
   }
-  $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || '我的播客') + '</div><button class="fx-mini-btn ghost" data-podcast-back="1" style="height:24px;padding:0 9px;font-size:10.5px">返回</button></div>' +
+  $pod.innerHTML = '<div class="podcast-inline-head"><div class="pl-section-label">' + escHtml(title || podcastPlaylistLoadersText('tab_podcasts', '我的播客')) + podcastPlaylistLoadersText('pod_back_button') +
     items.map(function (r) {
       var thumb = r.cover ? coverUrlWithSize(r.cover, 88) : '';
       var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(0,245,212,.07);flex-shrink:0"></div>';
       return '<div class="pl-card podcast-card podcast-child" data-podcast-radio-id="' + escHtml(String(r.id || r.radioId || '')) + '" data-podcast-title="' + escHtml(r.name || '') + '">' +
         imgTag +
-        '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(r.name || '') + '</div><div class="pl-sub">' + escHtml((r.djName || r.artist || 'Podcast') + (r.programCount ? (' · ' + r.programCount + ' 集') : '')) + '</div></div>' +
+        '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(r.name || '') + '</div><div class="pl-sub">' + escHtml((r.djName || r.artist || 'Podcast') + (r.programCount ? (' · ' + r.programCount + podcastPlaylistLoadersText('pod_episodes_suffix')) : '')) + '</div></div>' +
         '</div>';
     }).join('');
   animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
@@ -43,7 +80,7 @@ async function openMyPodcastCollection(key, title) {
     var items = r.items || [];
     myPodcastItems[key] = items;
     if (!items.length) {
-      showToast('暂无内容: ' + (title || key));
+      showToast(podcastPlaylistLoadersText('pod_no_content_prefix') + (title || key));
       renderMyPodcastRadioItems(key, title, []);
       return;
     }
@@ -55,13 +92,13 @@ async function openMyPodcastCollection(key, title) {
       safeShelfRebuild('podcast-collection-voice', true);
       forcePlaybackControlsInteractive();
       await playQueueAt(0);
-      showToast('载入: ' + (title || '喜欢的声音'));
+      showToast(podcastPlaylistLoadersText('pod_loading_prefix') + (title || podcastPlaylistLoadersText('pod_liked_voices')));
       return;
     }
     renderMyPodcastRadioItems(key, title, items);
   } catch (e) {
     console.warn(e);
-    showToast('播客加载失败');
+    showToast(podcastPlaylistLoadersText('pod_load_failed'));
   } finally {
     hideLoading();
   }
@@ -71,8 +108,8 @@ async function loadPodcastRadioIntoQueue(id, autoplay, title) {
   showLoading();
   try {
     var r = await apiJson('/api/podcast/programs?id=' + encodeURIComponent(id) + '&limit=' + PLAYLIST_LAZY_BATCH_SIZE);
-    if (r.error) { showToast('播客加载失败: ' + r.error); return; }
-    if (!r.programs || !r.programs.length) { showToast('播客暂无可播放节目'); return; }
+    if (r.error) { showToast(podcastPlaylistLoadersText('pod_load_failed_prefix') + r.error); return; }
+    if (!r.programs || !r.programs.length) { showToast(podcastPlaylistLoadersText('pod_no_playable')); return; }
     playQueue = r.programs.map(cloneSong);
     currentIdx = 0;
     safeRenderQueuePanel('podcast-radio');
@@ -80,10 +117,10 @@ async function loadPodcastRadioIntoQueue(id, autoplay, title) {
     safeShelfRebuild('podcast-radio', true);
     forcePlaybackControlsInteractive();
     if (autoplay) await playQueueAt(0);
-    showToast('载入: ' + (title || '播客'));
+    showToast(podcastPlaylistLoadersText('pod_loading_prefix') + (title || podcastPlaylistLoadersText('pod_podcast')));
   } catch (e) {
     console.warn(e);
-    showToast('播客加载失败');
+    showToast(podcastPlaylistLoadersText('pod_load_failed'));
   } finally {
     hideLoading();
   }
@@ -236,13 +273,13 @@ async function loadPlaylistIntoQueueById(id, autoplay, title, opts) {
     }
   } catch (e) {
     console.warn('[PlaylistLoadFirstPage]', id, e);
-    showToast('歌单首批加载失败');
+    showToast(podcastPlaylistLoadersText('pod_first_failed'));
     hideLoading();
     return false;
   }
   try {
     if (!seedTracks.length) {
-      showToast(r && (r.message || r.error) || '歌单为空');
+      showToast(r && (r.message || r.error) || podcastPlaylistLoadersText('pod_empty'));
       return false;
     }
     playQueue = seedTracks;
@@ -287,24 +324,24 @@ async function loadPlaylistIntoQueueById(id, autoplay, title, opts) {
         await playQueueAt(currentIdx, { preserveHomeState: !!opts.preserveHomeState });
       } catch (playErr) {
         console.warn('[PlaylistAutoplay]', id, playErr);
-        showToast('歌单已载入，播放启动失败');
+        showToast(podcastPlaylistLoadersText('pod_play_failed'));
       }
     }
     forcePlaybackControlsInteractive();
     if (queueHydrationState.active) {
-      showToast('已开始播放，后续歌曲会按需流式加入队列');
+      showToast(podcastPlaylistLoadersText('pod_started_streaming'));
       if (queueHydrationState.warmPagesRemaining > 0) {
         queueHydrationState.warmPagesRemaining -= 1;
         schedulePlaylistQueueHydration(180, 'initial-warm-page');
       }
     } else {
-      showToast('载入: ' + (title || ('歌单 ' + id)));
+      showToast(podcastPlaylistLoadersText('pod_loading_prefix') + (title || (podcastPlaylistLoadersText('pod_playlist_prefix') + id)));
     }
     return true;
   } catch (e) {
     console.warn('[PlaylistLoadState]', id, e);
     forcePlaybackControlsInteractive();
-    showToast('歌单已载入，界面刷新失败');
+    showToast(podcastPlaylistLoadersText('pod_ui_refresh_failed'));
     return false;
   } finally {
     hideLoading();

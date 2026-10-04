@@ -76,3 +76,40 @@ The web security runtime resources under `qishui-auth-v6/` are retained
 byte-for-byte for protocol compatibility and remain the property of their
 respective rights holders. They are loaded only inside the isolated authentication
 partition for the user's own official login session.
+
+## LX Music custom source host (upstream PR #129)
+
+- Upstream: `XxHuberrr/Mineradio-paused` PR #129, `lidonghaofirst:feat/lx-custom-source`
+- Reference revision: `981768627aec574d5794a056587db71f26983318`
+- Base revision: `6b130103f759e5dcd1e133700071c8216b8fa5a6`
+- License: GNU GPL v3 (`GPL-3.0-only`)
+- Port date: 2026-10-03
+
+Mineradio implements the public LX Music Desktop 2.0.0 custom-source host so existing
+`.js` source scripts run unmodified inside a dedicated, sandboxed Electron renderer.
+The port keeps the upstream `CustomSourceStore` / `LxSourceRuntime` / `CustomSourceManager`
+decomposition, the metadata limits, the quality-intersection rules, the request/response
+validation, the `updateAlert` single-shot rule, and the redaction rules.
+
+Adaptations to this project:
+
+- `music-info.js` maps only `netease` and `qq`, because this project has five providers
+  while the public LX contract only exposes `wy` and `tx` search sources.
+- Resolution results carry `handled`, and `customSourcePolicy` respects it: platforms a
+  script does not declare are handed back to the built-in resolver instead of failing.
+  Upstream treated "script does not cover this platform" as ownership, which would have
+  made Kugou, Qishui and Spotify tracks unplayable whenever a script was active.
+- The host, the `/api/custom-source/resolve` route, the preload bridge and the renderer
+  module were rewired against this project's modular `public/js/modules/**` loader and
+  its existing provider fallback, album-gapless and quality-cap machinery.
+- The custom-source result is excluded from the platform runtime quality cap and from the
+  platform downgrade notice, and the QQ compatibility-quality retry no longer runs while a
+  script owns the track.
+- UI copy goes through this project's i18n dictionaries (zh_cn / en_us / ja_jp / ru_ru) instead of
+  hardcoded strings, and failure codes stay machine-readable on the backend.
+- The upstream change that quit the application on main-window close was not taken: this
+  project already implements tray-resident close behavior through its own `closeBehavior`
+  and `window-all-closed` paths.
+
+No third-party source script ships with this project. Imported scripts live under the
+user's Electron `userData` directory and are excluded from Git and the installer.

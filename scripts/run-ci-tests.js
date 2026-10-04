@@ -5,6 +5,7 @@
 // Used by ci.yml and package.json "test:ci" script.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -13,6 +14,16 @@ const files = fs
   .readdirSync(TESTS_DIR)
   .filter((f) => f.endsWith('.test.js'))
   .sort();
+
+// 汽水音乐签名桥接会把官方客户端的专有二进制复制到本地缓存并 require 它。
+// 测试进程一律不加载这些二进制：默认关闭桥接并给一个沙箱缓存目录；
+// 需要覆盖签名降级行为的用例自行打开开关并指定沙箱（见 qishui-seo-playback-fallback.test.js）。
+const testEnv = {
+  ...process.env,
+  QISHUI_CLIENT_BRIDGE: '0',
+  QISHUI_NATIVE_CACHE_DIR: path.join(os.tmpdir(), 'mineradio-tests-qishui-native'),
+  QISHUI_CLIENT_DIR: path.join(os.tmpdir(), 'mineradio-tests-qishui-empty-client'),
+};
 
 let failed = 0;
 let passed = 0;
@@ -24,6 +35,7 @@ for (const file of files) {
   const result = spawnSync(process.execPath, [filePath], {
     stdio: 'inherit',
     timeout: 120_000,
+    env: testEnv,
   });
   if (result.status !== 0) {
     failed++;

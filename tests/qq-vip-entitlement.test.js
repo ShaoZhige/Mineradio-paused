@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const qqVip = require('../qq-vip-api');
+const { accessorBlock } = require('./helpers/module-source');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -381,7 +382,9 @@ async function testTransientFrontendFailureKeepsLastKnownGood() {
     renderUserBtn() {},
   };
   vm.createContext(context);
-  vm.runInContext(source.slice(normalizeStart, normalizeEnd) + '\n' + source.slice(refreshStart, refreshEnd), context);
+  // 片段沙箱只装了被切片的那几段函数，取词函数定义在文件头部，必须一起带进去。
+  // The sliced fragments call accessors defined at the top of the file; carry them in.
+  vm.runInContext(accessorBlock(source) + '\n' + source.slice(normalizeStart, normalizeEnd) + '\n' + source.slice(refreshStart, refreshEnd), context);
   const status = await context.refreshQQLoginStatus({});
   assert.strictEqual(status.loggedIn, true, 'transient refresh failure must keep the current account');
   assert.strictEqual(status.isVip, true, 'transient refresh failure must keep last-known verified VIP');
@@ -550,7 +553,9 @@ function testDesktopReauthCookieSelectionAndBudgets() {
 
   const fallbackSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/05-playback/11-provider-fallback.js'), 'utf8');
   assert(/membershipUnknown[\s\S]{0,700}!membershipUnknown/.test(fallbackSource));
-  assert(/会员待同步/.test(fallbackSource), 'unknown QQ membership must not be rendered as an ordinary account');
+  // 「会员待同步」提示已按取词键接入（pf_vip_pending），源码不再内联中文。
+  // The "membership pending sync" hint is now keyed (pf_vip_pending).
+  assert(/pf_vip_pending/.test(fallbackSource), 'unknown QQ membership must not be rendered as an ordinary account');
   assert(/membershipUnknown[\s\S]{0,500}vipSyncState:\s*authIncomplete/.test(serverSource));
   assert(
     /preserveQQVipStalePositive\(cached,\s*value/.test(serverSource),

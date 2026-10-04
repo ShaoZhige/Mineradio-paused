@@ -117,7 +117,9 @@ test('platform recommendation entry uses real feeds and does not synthesize radi
   assert.match(namedFunctionSource(dashboardScript, 'loadHomePlatformFeedRecommendations'), /feedState\.mode/);
   assert.match(namedFunctionSource(dashboardScript, 'renderHomePlatformRecommendations'), /liked-affinity/);
   assert.match(namedFunctionSource(dashboardScript, 'renderHomePlatformRecommendations'), /personal-top/);
-  assert.match(dashboardScript, /当前版本没有可验证的平台推荐接口，未使用关键词搜索替代/);
+  // 无可用推荐接口时的提示已按取词键接入（dash_no_verifiable_api）。
+  // The "no verifiable recommendation API" notice is now keyed (dash_no_verifiable_api).
+  assert.match(dashboardScript, /dash_no_verifiable_api/);
   const discoverySongs = namedFunctionSource(dashboardScript, 'homeDashboardDiscoverySongs');
   assert.doesNotMatch(discoverySongs, /homeWeatherRadioState/);
   assert.doesNotMatch(indexHtml.match(/<button class="home-insight-card home-ranking-entry home-radio-entry"[\s\S]*?<\/button>/)[0], /天气|通勤|深夜|专注/);

@@ -6,6 +6,8 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 
+const qishuiClientBridge = require('./qishui-client-bridge');
+
 const QISHUI_API_BASE = (process.env.QISHUI_API_BASE || 'https://open.douyin.com').replace(/\/+$/, '');
 const QISHUI_RELATED_MEDIA_PATH = '/api/luna/v1/platform/feed/related-media/';
 const QISHUI_FEED_SONG_TAB_PATH = '/api/luna/v1/platform/feed/song-tab/';
@@ -17,6 +19,11 @@ const QISHUI_OAUTH_TOKEN_URL = process.env.QISHUI_OAUTH_TOKEN_URL || 'https://op
 const QISHUI_PUBLIC_ENABLED = process.env.QISHUI_PUBLIC_ENABLED !== '0';
 const QISHUI_PUBLIC_SEARCH_URL = process.env.QISHUI_PUBLIC_SEARCH_URL || 'https://api-vehicle.volcengine.com/v2/search/type';
 const QISHUI_PUBLIC_CONTENTS_URL = process.env.QISHUI_PUBLIC_CONTENTS_URL || 'https://api-vehicle.volcengine.com/v2/custom/contents';
+// 免签名 H5 SEO 接口：track_v2 因签名校验失效时的播放回退来源。免费曲返回全曲，
+// 会员曲只返回试听片段（服务端在 VOD 侧硬切，客户端无法绕过）。
+const QISHUI_SEO_TRACK_URL = process.env.QISHUI_SEO_TRACK_URL || 'https://beta-luna.douyin.com/luna/h5/seo_track';
+// 回退请求必须短：它是失败路径上的补救，不能把播放失败的整体等待时间拖长。
+const QISHUI_SEO_PLAYBACK_TIMEOUT_MS = Math.max(1000, Number(process.env.QISHUI_SEO_PLAYBACK_TIMEOUT_MS) || 3000);
 const QISHUI_VIRTUAL_FEED_PLAYLIST_ID = 'qishui-feed';
 const QISHUI_WEB_LIKED_PLAYLIST_ID = 'qishui-liked';
 const QISHUI_WEB_RECENT_PLAYLIST_ID = 'qishui-recent';
@@ -594,6 +601,8 @@ function getQishuiStatus(cookieText) {
     membershipKnown: false,
     tokenFile: tokenInfo.file,
     tokenSource: tokenInfo.source,
+    // 本机官方客户端的签名桥接状态：决定 VIP 曲目能否完整播放，以及是否需要提示安装客户端。
+    signatureBridge: qishuiClientBridge.getQishuiClientBridgeStatus(),
     oauthConfigured: oauthConfig.configured,
     oauthMissing: oauthConfig.missing,
     oauthScope: oauthConfig.scope,
@@ -3151,12 +3160,14 @@ function extractQishuiLyrics(payload) {
   return found;
 }
 
-async function fetchQishuiSeoTrack(trackId) {
-  return requestJson(urlWithParams('https://beta-luna.douyin.com/luna/h5/seo_track', {
+async function fetchQishuiSeoTrack(trackId, opts) {
+  opts = opts || {};
+  const timeoutMs = Math.max(1000, Number(opts.timeoutMs) || 8000);
+  return requestJson(urlWithParams(QISHUI_SEO_TRACK_URL, {
     track_id: trackId,
     device_platform: 'web',
   }), {
-    timeoutMs: 8000,
+    timeoutMs,
     headers: {
       'Accept': 'application/json,text/plain,*/*',
       'User-Agent': QISHUI_WEB_UA,
@@ -3215,7 +3226,20 @@ async function handleQishuiLyric(id, cookieText) {
 
 function qishuiPrimaryTrackFromV2(payload) {
   const data = (payload && payload.data) || payload || {};
-  return pickObject(data.track, data.track_info, data.trackInfo, payload && payload.track, payload && payload.track_info, payload && payload.trackInfo);
+  // SEO 回退payload把曲目挂在 seo_track.track 下，这里一并兼容，使同一套下游解析
+  // （play_info_list / video_model / bit_rates）能同时服务 track_v2 与 SEO 两种来源。
+  const seoTrack = pickObject(data.seo_track, payload && payload.seo_track);
+  return pickObject(
+    data.track,
+    data.track_info,
+    data.trackInfo,
+    seoTrack.track,
+    seoTrack.track_info,
+    seoTrack.trackInfo,
+    payload && payload.track,
+    payload && payload.track_info,
+    payload && payload.trackInfo
+  );
 }
 
 function qishuiTrackPlayerFromV2(payload, track) {
@@ -3230,6 +3254,64 @@ function qishuiTrackPlayerFromV2(payload, track) {
   );
 }
 
+// 带签名时使用官方客户端实测可用的版本组合；未签名时保持原有参数，避免影响其它链路。
+const QISHUI_PC_TRACK_V2_VERSION_NAME = '3.7.0';
+const QISHUI_PC_TRACK_V2_VERSION_CODE = '30080000';
+const QISHUI_PC_TRACK_V2_UA = 'LunaPC/3.7.0(30080000)';
+
+function qishuiPersistedDeviceId() {
+  // 扫码登录用的设备身份：签名与登录态绑定，两处 device_id 一致才能通过服务端校验。
+  const file = process.env.QISHUI_QR_CONFIG_FILE || path.join(__dirname, '.qishui-qr-login.json');
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    const value = normalizeText(parsed && parsed.deviceId);
+    return /^\d{6,24}$/.test(value) ? value : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * 组装一次 track_v2 请求 / Build one track_v2 request
+ *
+ * 签名覆盖最终 URL 与最终请求头，所以参数、URL、请求头、签名必须在同一处一次成形，
+ * 任何一处事后改动都会让签名失效。
+ */
+function buildQishuiTrackV2Request(options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const bridge = qishuiClientBridge.getQishuiClientBridgeStatus();
+  const cookie = opts.cookie || '';
+  let params = Object.assign({}, opts.params || {});
+  // 只有「原生模块已加载」且「用户已显式授权」时才按签名请求组装，否则保持原有未签名形态。
+  if (bridge.signing) {
+    // 设备身份与版本号参与签名，必须与授权时绑定的设备身份一致。
+    const deviceId = qishuiClientBridge.getQishuiClientDeviceId(qishuiPersistedDeviceId());
+    params = Object.assign({
+      device_id: deviceId,
+      fp: deviceId,
+      version_name: QISHUI_PC_TRACK_V2_VERSION_NAME,
+      version_code: QISHUI_PC_TRACK_V2_VERSION_CODE,
+    }, params);
+  }
+  Object.keys(params).forEach(key => { if (params[key] === undefined) delete params[key]; });
+  const url = qishuiPcUrl('/luna/pc/track_v2', qishuiPcAppParams(params));
+  const headers = Object.assign(
+    qishuiWebHeaders(cookie, { sessionOnly: true, pcApp: true }),
+    { 'Referer': 'https://www.qishui.com/' },
+    opts.headers || {}
+  );
+  if (bridge.signing) headers['User-Agent'] = QISHUI_PC_TRACK_V2_UA;
+  const signature = bridge.signing
+    ? qishuiClientBridge.signQishuiClientRequest(url, headers)
+    : { ok: false, headers: {}, reason: 'bridge_unavailable', deviceId: '' };
+  return {
+    url,
+    headers: signature.ok ? Object.assign({}, headers, signature.headers) : headers,
+    signed: !!signature.ok,
+    signatureReason: signature.reason || '',
+  };
+}
+
 async function fetchQishuiPcTrackV2Post(trackId, cookieText) {
   const body = JSON.stringify({
     track_id: trackId,
@@ -3237,13 +3319,14 @@ async function fetchQishuiPcTrackV2Post(trackId, cookieText) {
     queue_type: 'favorite_track_playlist',
     scene_name: 'library',
   });
-  const json = await requestJson(qishuiPcUrl('/luna/pc/track_v2', qishuiPcAppParams()), {
+  const request = buildQishuiTrackV2Request({
+    cookie: cookieText,
+    headers: { 'Content-Length': Buffer.byteLength(body) },
+  });
+  const json = await requestJson(request.url, {
     method: 'POST',
     timeoutMs: 3000,
-    headers: Object.assign(qishuiWebHeaders(cookieText, { sessionOnly: true, pcApp: true }), {
-      'Content-Length': Buffer.byteLength(body),
-      'Referer': 'https://www.qishui.com/',
-    }),
+    headers: request.headers,
   }, body);
   const err = qishuiPcStatusError(json, 'QISHUI_PC_TRACK_V2_FAILED');
   if (err) throw err;
@@ -3251,14 +3334,13 @@ async function fetchQishuiPcTrackV2Post(trackId, cookieText) {
 }
 
 async function fetchQishuiPcTrackV2Get(trackId, cookieText) {
-  const json = await requestJson(qishuiPcUrl('/luna/pc/track_v2', qishuiPcAppParams({
-    track_id: trackId,
-    media_type: 'track',
-  })), {
+  const request = buildQishuiTrackV2Request({
+    cookie: cookieText,
+    params: { track_id: trackId, media_type: 'track' },
+  });
+  const json = await requestJson(request.url, {
     timeoutMs: 3000,
-    headers: Object.assign(qishuiWebHeaders(cookieText, { sessionOnly: true, pcApp: true }), {
-      'Referer': 'https://www.qishui.com/',
-    }),
+    headers: request.headers,
   });
   const err = qishuiPcStatusError(json, 'QISHUI_PC_TRACK_V2_GET_FAILED');
   if (err) throw err;
@@ -3282,9 +3364,9 @@ async function fetchQishuiPcTrackV2(trackId, cookieText) {
   });
 }
 
-async function fetchQishuiPlayerInfo(playerInfoUrl, cookieText, membership) {
+async function fetchQishuiPlayerInfoStreams(playerInfoUrl, cookieText) {
   playerInfoUrl = normalizeText(playerInfoUrl);
-  if (!/^https?:\/\//i.test(playerInfoUrl)) return null;
+  if (!/^https?:\/\//i.test(playerInfoUrl)) return [];
   const json = await requestJson(playerInfoUrl, {
     timeoutMs: 3000,
     headers: qishuiHeadersWithCookie({
@@ -3297,15 +3379,19 @@ async function fetchQishuiPlayerInfo(playerInfoUrl, cookieText, membership) {
   const data = pickObject(result.Data, result.data, json && json.Data, json && json.data);
   const list = pickArray(data.PlayInfoList, data.playInfoList, data.play_info_list, json && json.PlayInfoList);
   const streams = list.map(item => qishuiStreamFromObject(item)).filter(Boolean);
+  if (streams.length) return streams;
+  const error = pickObject(json && json.ResponseMetadata && json.ResponseMetadata.Error, json && json.responseMetadata && json.responseMetadata.error);
+  if (error && (error.Message || error.message)) throw new Error(normalizeText(error.Message || error.message));
+  return [];
+}
+
+async function fetchQishuiPlayerInfo(playerInfoUrl, cookieText, membership) {
+  const streams = await fetchQishuiPlayerInfoStreams(playerInfoUrl, cookieText);
   const best = qishuiBestStreamCandidateForMembership(streams, membership);
   if (best) return best;
   // Keep a blocked candidate internal so the caller can report the precise
   // VIP/SVIP boundary without ever exposing its URL in an unavailable result.
-  const blocked = qishuiBestStreamCandidate(streams);
-  if (blocked) return blocked;
-  const error = pickObject(json && json.ResponseMetadata && json.ResponseMetadata.Error, json && json.responseMetadata && json.responseMetadata.error);
-  if (error && (error.Message || error.message)) throw new Error(normalizeText(error.Message || error.message));
-  return null;
+  return qishuiBestStreamCandidate(streams);
 }
 
 function collectQishuiTrackV2Streams(payload) {
@@ -3364,6 +3450,148 @@ async function resolveQishuiDownloadInfo(trackId, payload, cookieText, membershi
   return Object.assign(collected, { best });
 }
 
+// ---------------------------------------------------------------------------
+// SEO 播放回退 / SEO playback fallback
+//
+// /luna/pc/track_v2 的服务端签名校验升级后，未签名请求会得到 HTTP 200 + 空 body。
+// 免签名的 H5 SEO 接口是同一份播放元数据的另一条通路：免费曲返回全曲，会员曲由服务端直接
+// 裁成试听片段。因此这一路不需要我们再做会员判定——服务端已经完成权益裁剪，只需要把
+// 「片段是否被裁剪」如实报给上层。
+// ---------------------------------------------------------------------------
+
+/**
+ * SEO payload 的会员判定必须收窄 / Narrow membership detection for SEO payloads
+ *
+ * 这里不能复用 qishuiTrackPlaybackRestriction：SEO payload 里
+ * label_info.quality_map.<音质>.play_detail.need_vip 表达的是「某一档音质是否需要会员」，
+ * 免费曲同样会出现 need_vip=true（如 lossless / hi_res），按 key 名递归匹配会把整曲误判成付费。
+ */
+function qishuiSeoVipOnlySignal(payload) {
+  const track = qishuiPrimaryTrackFromV2(payload);
+  const label = pickObject(track.label_info, track.labelInfo);
+  const onlyVipPlayable = qishuiExplicitPositive(label.only_vip_playable)
+    || qishuiExplicitPositive(label.onlyVipPlayable)
+    || qishuiExplicitPositive(track.only_vip_playable)
+    || qishuiExplicitPositive(track.onlyVipPlayable);
+  // limited_free_info 是服务端为受限期/限免曲目挂的权益记录：字段本身常常是空的
+  // （queue_types=[]、expire_time=0、sign=''），存在与否才是判据，免费曲则为 null。
+  const limitedFree = pickObject(track.limited_free_info, track.limitedFreeInfo);
+  const limitedFreeActive = Object.keys(limitedFree).length > 0;
+  return { vipOnly: !!(onlyVipPlayable || limitedFreeActive), onlyVipPlayable, limitedFreeActive };
+}
+
+/**
+ * 通过 SEO 接口解析一次可播放信息 / Resolve playback metadata through the SEO endpoint
+ * 失败时抛错，由调用方决定是继续降级还是整体不可用。
+ */
+async function resolveQishuiSeoPlayback(trackId) {
+  const payload = await fetchQishuiSeoTrack(trackId, { timeoutMs: QISHUI_SEO_PLAYBACK_TIMEOUT_MS });
+  if (payload && payload.status_code && !payload.seo_track) {
+    const message = payload.status_info && payload.status_info.status_msg;
+    const err = new Error(normalizeText(message) || '汽水音乐 SEO 接口未返回曲目信息');
+    err.code = 'QISHUI_SEO_TRACK_UNKNOWN';
+    throw err;
+  }
+  const collected = collectQishuiTrackV2Streams(payload);
+  const streams = collected.streams.slice();
+  const playerInfoUrl = qishuiObjectString(collected.player, ['url_player_info', 'URLPlayerInfo', 'urlPlayerInfo']);
+  if (playerInfoUrl) {
+    try {
+      (await fetchQishuiPlayerInfoStreams(playerInfoUrl, '')).forEach(stream => streams.push(stream));
+    } catch (err) {
+      collected.playerInfoError = err && err.message || String(err);
+    }
+  }
+  const best = qishuiBestStreamCandidate(streams);
+  if (!best) return null;
+  return {
+    track: collected.track,
+    streams,
+    best,
+    fullDuration: qishuiObjectNumber(collected.track, ['duration_ms', 'durationMs', 'duration']) || 0,
+    vipOnlySignal: qishuiSeoVipOnlySignal(payload),
+  };
+}
+
+/**
+ * 会员曲 + 本机无法完整播放时的提示 / Prompt when a VIP track cannot be fully played
+ *
+ * 分三种处境给出不同的下一步，避免把「没装客户端」和「装了但还没授权」混成一句无用的提示。
+ */
+function qishuiVipClientHint(bridgeStatus) {
+  const status = bridgeStatus || qishuiClientBridge.getQishuiClientBridgeStatus();
+  if (!status.installed) {
+    return {
+      required: true,
+      clientInstalled: false,
+      authorized: false,
+      canAuthorize: false,
+      reason: 'client_missing',
+      message: '该曲目在汽水音乐需要 VIP，本机未检测到官方汽水音乐客户端，当前只能播放试听片段。安装官方客户端后可在本机完整播放。',
+    };
+  }
+  if (!status.signing) {
+    return {
+      required: true,
+      clientInstalled: true,
+      authorized: !!status.authorized,
+      canAuthorize: true,
+      reason: status.authorized ? 'signature_unavailable' : 'client_not_authorized',
+      message: status.authorized
+        ? '该曲目在汽水音乐需要 VIP，本机官方客户端的签名模块暂时不可用，当前只能播放试听片段。'
+        : '该曲目在汽水音乐需要 VIP。已检测到本机官方客户端，打开它完成授权后即可完整播放，当前先播放试听片段。',
+    };
+  }
+  // 已授权且签名可用却仍只有片段：多半是账号权益或单曲限制，不再引导用户装/开客户端。
+  return {
+    required: true,
+    clientInstalled: true,
+    authorized: true,
+    canAuthorize: false,
+    reason: 'entitlement_limited',
+    message: '该曲目在汽水音乐需要 VIP。本机签名已可用，但仍只返回试听片段，通常是账号权益或单曲限制。',
+  };
+}
+
+function qishuiSeoPlaybackResult(seo, extra) {
+  extra = extra || {};
+  const stream = seo.best;
+  const fullDuration = qishuiNormalizeDurationSeconds(seo.fullDuration);
+  const duration = qishuiNormalizeDurationSeconds(stream.duration) || fullDuration;
+  // 服务端已完成权益裁剪：片段明显短于整曲时长即代表这是试听片段。
+  const trial = !!(duration > 0 && fullDuration > 0 && duration + 5 < fullDuration);
+  const membership = extra.membership || qishuiUnknownMembership();
+  const vipOnly = !!(trial || seo.vipOnlySignal.vipOnly);
+  const level = qishuiPlaybackLevel(stream.quality, stream.format, stream.bitrate);
+  return {
+    provider: 'qishui',
+    playbackMode: 'direct-url',
+    url: qishuiUrlWithAuth(stream.url, stream.auth),
+    playable: true,
+    trial,
+    loggedIn: !!extra.loggedIn,
+    playbackKeyReady: true,
+    // 这一路不依赖账号权益：能拿到什么档位由服务端决定，如实标注给上层。
+    membershipKnown: !!membership.membershipKnown,
+    vipType: membership.vipType || 0,
+    vipLevel: membership.membershipKnown ? (membership.vipLevel || 'none') : 'unknown',
+    isVip: !!membership.isVip,
+    isSvip: !!membership.isSvip,
+    vipLabel: membership.membershipKnown ? (membership.vipLabel || '无VIP') : '未知会员状态',
+    level,
+    quality: normalizeText(stream.quality || stream.format || level),
+    requiredTier: vipOnly ? 'vip' : 'free',
+    vipRequired: vipOnly,
+    br: qishuiBitrateForUi(stream.bitrate),
+    size: Number(stream.size) || 0,
+    duration,
+    requestedQuality: extra.requestedQuality || '',
+    source: 'qishui-beta-seo-track',
+    encrypted: !!stream.auth,
+    vipClientHint: vipOnly && trial ? qishuiVipClientHint(extra.bridgeStatus) : null,
+  };
+}
+
 function qishuiUrlWithAuth(url, auth) {
   url = normalizeText(url);
   auth = normalizeText(auth);
@@ -3376,37 +3604,63 @@ async function handleQishuiSongUrl(opts, cookieText) {
   const id = normalizeText(opts.id || opts.trackId || opts.track_id || '');
   const cookie = normalizeQishuiCookieInput(cookieText || opts.cookie || '');
   if (!id) return qishuiUnavailable('Missing Qishui track id', 'missing_id', { loggedIn: qishuiCookieHasLogin(cookie), playbackKeyReady: false });
-  if (!qishuiCookieHasLogin(cookie)) {
-    return qishuiUnavailable('Qishui playback requires the local SodaMusic PC login state.', 'login_required', {
-      loggedIn: false,
-      playbackKeyReady: false,
-    });
-  }
+  const loggedIn = qishuiCookieHasLogin(cookie);
   const requestedQuality = normalizeText(opts.quality || '');
-  let payload;
-  try {
-    payload = await fetchQishuiPcTrackV2(id, cookie);
-  } catch (err) {
-    const checked = qishuiSessionExpired(err)
-      ? { reauthRequired: true }
-      : await fetchQishuiPlaybackMembership(cookie);
-    if (checked.reauthRequired) {
+  // SEO 回退是唯一不依赖账号态的通路：它在 track_v2 失败或未登录时兜底，保证免费曲目仍可播放。
+  const seoFallback = async () => {
+    try {
+      const seo = await resolveQishuiSeoPlayback(id);
+      if (!seo) return null;
+      return qishuiSeoPlaybackResult(seo, {
+        loggedIn,
+        requestedQuality,
+        bridgeStatus: qishuiClientBridge.getQishuiClientBridgeStatus(),
+      });
+    } catch (_) {
+      return null;
+    }
+  };
+  let payload = null;
+  let trackPayloadError = null;
+  if (loggedIn) {
+    try {
+      payload = await fetchQishuiPcTrackV2(id, cookie);
+    } catch (err) {
+      trackPayloadError = err;
+    }
+  }
+  if (!payload) {
+    // SEO 回退与会员探测互不依赖，并行发起，避免在失败路径上把等待时间叠加起来。
+    const [seoResult, checked] = await Promise.all([
+      seoFallback(),
+      trackPayloadError && !qishuiSessionExpired(trackPayloadError)
+        ? fetchQishuiPlaybackMembership(cookie)
+        : Promise.resolve({ reauthRequired: !!trackPayloadError }),
+    ]);
+    if (seoResult) return seoResult;
+    if (checked && checked.reauthRequired) {
       return qishuiUnavailable('汽水音乐登录状态已失效，请重新扫码登录。', 'login_required', {
         loggedIn: false, webSession: false, reauthRequired: true,
         error: 'QISHUI_SESSION_EXPIRED', membershipKnown: false, vipLevel: 'unknown',
       });
     }
-    return qishuiUnavailable('Qishui did not return track playback metadata: ' + (err && err.message || String(err)), 'source_unavailable', {
-      loggedIn: !!checked.sessionValidated,
-      stale: !checked.sessionValidated,
+    if (trackPayloadError) {
+      return qishuiUnavailable('Qishui did not return track playback metadata: ' + (trackPayloadError && trackPayloadError.message || String(trackPayloadError)), 'source_unavailable', {
+        loggedIn: !!checked.sessionValidated,
+        stale: !checked.sessionValidated,
+        playbackKeyReady: false,
+        membershipKnown: false,
+        vipType: 0,
+        vipLevel: 'unknown',
+        isVip: false,
+        isSvip: false,
+        vipLabel: '未知会员状态',
+        rawError: trackPayloadError && trackPayloadError.message || String(trackPayloadError),
+      });
+    }
+    return qishuiUnavailable('Qishui playback requires the local SodaMusic PC login state.', 'login_required', {
+      loggedIn: false,
       playbackKeyReady: false,
-      membershipKnown: false,
-      vipType: 0,
-      vipLevel: 'unknown',
-      isVip: false,
-      isSvip: false,
-      vipLabel: '未知会员状态',
-      rawError: err && err.message || String(err),
     });
   }
   let membership = qishuiPlaybackMembershipFromPayload(payload);
@@ -3482,6 +3736,13 @@ async function handleQishuiSongUrl(opts, cookieText) {
         encrypted: !!stream.auth,
       };
     } catch (err) {
+      // 元数据拿到了却没有任何可播流：再走一次 SEO 回退（不同服务端通路，可能仍有可用直链）。
+      // 因权益不足导致的空流属于正常的会员边界，不做回退，避免多余的跨站请求。
+      const emptySource = !err || !err.code || err.code === 'QISHUI_AUDIO_SOURCE_EMPTY';
+      if (emptySource) {
+        const seoResult = await seoFallback();
+        if (seoResult) return seoResult;
+      }
       const entitlementReason = err && err.code === 'QISHUI_MEMBERSHIP_UNKNOWN'
         ? 'membership_unknown'
         : (err && err.code === 'QISHUI_SVIP_REQUIRED'
@@ -3512,6 +3773,34 @@ async function handleQishuiSongUrl(opts, cookieText) {
   });
 }
 
+/**
+ * 本机签名桥接的授权入口 / Authorization entry for the local signature bridge
+ *
+ * 由用户在前端显式触发（「打开客户端授权」）：先打开官方客户端让用户在其中登录，
+ * 再在本地记录设备身份。未授权时签名一律不可用，播放自动降级到 SEO 回退。
+ */
+async function handleQishuiSignatureAuthorize() {
+  const result = await qishuiClientBridge.authorizeQishuiClientBridge({
+    deviceId: qishuiPersistedDeviceId(),
+  });
+  return Object.assign({
+    provider: 'qishui',
+    bridge: qishuiClientBridge.getQishuiClientBridgeStatus(),
+  }, result);
+}
+
+function handleQishuiSignatureRevoke() {
+  return {
+    provider: 'qishui',
+    ok: qishuiClientBridge.revokeQishuiClientAuthorization(),
+    bridge: qishuiClientBridge.getQishuiClientBridgeStatus(),
+  };
+}
+
+function getQishuiSignatureBridgeStatus() {
+  return { provider: 'qishui', bridge: qishuiClientBridge.getQishuiClientBridgeStatus() };
+}
+
 module.exports = {
   getQishuiStatus,
   handleQishuiStatus,
@@ -3536,6 +3825,9 @@ module.exports = {
   handleQishuiCreateComment,
   handleQishuiLyric,
   handleQishuiSongUrl,
+  handleQishuiSignatureAuthorize,
+  handleQishuiSignatureRevoke,
+  getQishuiSignatureBridgeStatus,
   qishuiUnavailable,
   _test: {
     qishuiPublicSearchScore,
@@ -3556,5 +3848,11 @@ module.exports = {
     qishuiStreamAllowedForMembership,
     qishuiBestStreamCandidateForMembership,
     clearQishuiRuntimeCaches,
+    // SEO 回退与签名桥接的单元测试入口。
+    qishuiSeoVipOnlySignal,
+    qishuiSeoPlaybackResult,
+    resolveQishuiSeoPlayback,
+    buildQishuiTrackV2Request,
+    fetchQishuiPlayerInfoStreams,
   },
 };

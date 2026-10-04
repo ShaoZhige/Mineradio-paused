@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function bindingsShelfImmersiveText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function bindFxPanel() {
   liftFxFloatingPopups();
   relabelFxPanelControls();
@@ -163,7 +200,7 @@ function bindFxPanel() {
     lyricPicker.addEventListener('input', function () { setLyricColorCustom(lyricPicker.value, true); });
     lyricPicker.addEventListener('change', function () {
       setLyricColorCustom(lyricPicker.value, true);
-      showToast('歌词颜色: ' + normalizeHexColor(lyricPicker.value).toUpperCase());
+      showToast(bindingsShelfImmersiveText('bind_lyrics_color_prefix') + normalizeHexColor(lyricPicker.value).toUpperCase());
     });
   }
   var lyricHighlightPicker = document.getElementById('lyric-highlight-picker');
@@ -171,7 +208,7 @@ function bindFxPanel() {
     lyricHighlightPicker.addEventListener('input', function () { setLyricHighlightCustom(lyricHighlightPicker.value, true); });
     lyricHighlightPicker.addEventListener('change', function () {
       setLyricHighlightCustom(lyricHighlightPicker.value, true);
-      showToast('高亮颜色: ' + normalizeHexColor(lyricHighlightPicker.value).toUpperCase());
+      showToast(bindingsShelfImmersiveText('bind_highlight_color_prefix') + normalizeHexColor(lyricHighlightPicker.value).toUpperCase());
     });
   }
   var lyricGlowPicker = document.getElementById('lyric-glow-picker');
@@ -179,14 +216,14 @@ function bindFxPanel() {
     lyricGlowPicker.addEventListener('input', function () { setLyricGlowCustom(lyricGlowPicker.value, true); });
     lyricGlowPicker.addEventListener('change', function () {
       setLyricGlowCustom(lyricGlowPicker.value, true);
-      showToast('溢光颜色: ' + normalizeHexColor(lyricGlowPicker.value).toUpperCase());
+      showToast(bindingsShelfImmersiveText('bind_bloom_color_prefix') + normalizeHexColor(lyricGlowPicker.value).toUpperCase());
     });
   }
   var uiAccentPicker = document.getElementById('ui-accent-picker');
   if (uiAccentPicker) {
     uiAccentPicker.addEventListener('input', function () { setUiAccentColor(uiAccentPicker.value, true); });
     uiAccentPicker.addEventListener('change', function () {
-      showToast('界面高亮: ' + normalizeHexColor(
+      showToast(bindingsShelfImmersiveText('bind_ui_highlight_prefix') + normalizeHexColor(
         uiAccentPicker.value,
         fxDefaults.uiAccentColor || '#ffffff'
       ).toUpperCase());
@@ -195,7 +232,7 @@ function bindFxPanel() {
   var visualTintPicker = document.getElementById('visual-tint-picker');
   if (visualTintPicker) {
     visualTintPicker.addEventListener('input', function () { setVisualTintCustom(visualTintPicker.value, true); });
-    visualTintPicker.addEventListener('change', function () { showToast('视觉主色: ' + normalizeHexColor(visualTintPicker.value).toUpperCase()); });
+    visualTintPicker.addEventListener('change', function () { showToast(bindingsShelfImmersiveText('bind_visual_primary_prefix') + normalizeHexColor(visualTintPicker.value).toUpperCase()); });
   }
   [
     ['sonic-ground-base-picker', 'sonicGroundBaseColor'],
@@ -224,27 +261,27 @@ function bindFxPanel() {
   var homeAccentPicker = document.getElementById('home-accent-picker');
   if (homeAccentPicker) {
     homeAccentPicker.addEventListener('input', function () { setHomeAccentColor(homeAccentPicker.value, true); });
-    homeAccentPicker.addEventListener('change', function () { showToast('Home 填充: ' + normalizeHexColor(homeAccentPicker.value).toUpperCase()); });
+    homeAccentPicker.addEventListener('change', function () { showToast(bindingsShelfImmersiveText('bind_home_fill_prefix') + normalizeHexColor(homeAccentPicker.value).toUpperCase()); });
   }
   var homeIconPicker = document.getElementById('home-icon-picker');
   if (homeIconPicker) {
     homeIconPicker.addEventListener('input', function () { setHomeIconColor(homeIconPicker.value, true); });
-    homeIconPicker.addEventListener('change', function () { showToast('主页图标: ' + normalizeHexColor(homeIconPicker.value, '#f4d28a').toUpperCase()); });
+    homeIconPicker.addEventListener('change', function () { showToast(bindingsShelfImmersiveText('bind_home_icon_prefix') + normalizeHexColor(homeIconPicker.value, '#f4d28a').toUpperCase()); });
   }
   var visualIconPicker = document.getElementById('visual-icon-picker');
   if (visualIconPicker) {
     visualIconPicker.addEventListener('input', function () { setVisualIconColor(visualIconPicker.value, true); });
-    visualIconPicker.addEventListener('change', function () { showToast('视觉图标: ' + normalizeHexColor(visualIconPicker.value, '#7fd8ff').toUpperCase()); });
+    visualIconPicker.addEventListener('change', function () { showToast(bindingsShelfImmersiveText('bind_visual_icon_prefix') + normalizeHexColor(visualIconPicker.value, '#7fd8ff').toUpperCase()); });
   }
   var bgColorPicker = document.getElementById('bg-color-picker');
   if (bgColorPicker) {
     bgColorPicker.addEventListener('input', function () { setCustomBackgroundColor(bgColorPicker.value, true); });
-    bgColorPicker.addEventListener('change', function () { showToast('背景颜色: ' + normalizeHexColor(bgColorPicker.value, '#000000').toUpperCase()); });
+    bgColorPicker.addEventListener('change', function () { showToast(bindingsShelfImmersiveText('bind_bg_color_prefix') + normalizeHexColor(bgColorPicker.value, '#000000').toUpperCase()); });
   }
   var shelfAccentPicker = document.getElementById('shelf-accent-picker');
   if (shelfAccentPicker) {
     shelfAccentPicker.addEventListener('input', function () { setShelfAccentColor(shelfAccentPicker.value, true); });
-    shelfAccentPicker.addEventListener('change', function () { showToast('歌单架颜色: ' + shelfAccentHex().toUpperCase()); });
+    shelfAccentPicker.addEventListener('change', function () { showToast(bindingsShelfImmersiveText('bind_shelf_color_prefix') + shelfAccentHex().toUpperCase()); });
   }
   var bgImageInput = document.getElementById('background-image-input');
   if (bgImageInput) {
@@ -341,7 +378,7 @@ function bindFxPanel() {
       updateDesktopLyricsFpsControls();
       saveLyricLayout({ user: true, reason: 'desktopLyricsFps' });
       pushDesktopLyricsState(true);
-      showToast(fx.desktopLyricsFps ? ('桌面歌词帧数 ' + fx.desktopLyricsFps) : '桌面歌词帧数无上限');
+      showToast(fx.desktopLyricsFps ? (bindingsShelfImmersiveText('bind_desktop_fps_prefix') + fx.desktopLyricsFps) : bindingsShelfImmersiveText('bind_desktop_fps_unlimited'));
     });
   });
   document.querySelectorAll('#wallpaper-fps-seg [data-wallpaper-fps]').forEach(function (btn) {
@@ -350,7 +387,7 @@ function bindFxPanel() {
       updateWallpaperFpsControls();
       saveLyricLayout({ user: true, reason: 'wallpaperFps' });
       if (fx.wallpaperMode) pushWallpaperState(true);
-      showToast('壁纸帧数 ' + fx.wallpaperFps);
+      showToast(bindingsShelfImmersiveText('bind_wallpaper_fps_prefix') + fx.wallpaperFps);
     });
   });
   document.querySelectorAll('#performance-background-seg [data-performance-background]').forEach(function (btn) {
@@ -373,7 +410,7 @@ function bindFxPanel() {
 }
 function toggleWallpaperModeFromUi() {
   if (typeof desktopWallpaperRuntimeState !== 'undefined' && desktopWallpaperRuntimeState.supported === false) {
-    showToast('当前系统不支持桌面壁纸模式');
+    showToast(bindingsShelfImmersiveText('fx_desktop_wallpaper_unsupported'));
     return Promise.resolve({ ok: false, enabled: false, error: 'WALLPAPER_PLATFORM_UNSUPPORTED' });
   }
   var desired = !fx.wallpaperMode;
@@ -382,9 +419,9 @@ function toggleWallpaperModeFromUi() {
   return applyWallpaperModeState(true).then(function (result) {
     if (result && result.rendererStale) return result;
     var accepted = !!(result && result.ok === true && result.enabled === desired);
-    if (accepted) showToast(desired ? ('完整桌面模式已开启 · ' + desktopInteractionHotkeyHint()) : '完整桌面模式已关闭');
-    else if (desired) showToast('完整桌面模式启动失败：' + desktopWallpaperErrorLabel(result && result.error));
-    else showToast('完整桌面模式关闭失败：' + desktopWallpaperErrorLabel(result && result.error));
+    if (accepted) showToast(desired ? (bindingsShelfImmersiveText('bind_full_desktop_on') + desktopInteractionHotkeyHint()) : bindingsShelfImmersiveText('bind_full_desktop_off'));
+    else if (desired) showToast(bindingsShelfImmersiveText('bind_full_desktop_start_failed') + desktopWallpaperErrorLabel(result && result.error));
+    else showToast(bindingsShelfImmersiveText('bind_full_desktop_close_failed') + desktopWallpaperErrorLabel(result && result.error));
     return result;
   });
 }
@@ -395,7 +432,7 @@ function toggleFx(key) {
     updateFxInputs();
     applyDesktopLyricsState(true);
     applyWallpaperModeState(true);
-    showToast('开发中，暂不可用');
+    showToast(bindingsShelfImmersiveText('fx_dev_unavailable'));
     return;
   }
   if (key === 'wallpaperMode') {
@@ -419,7 +456,7 @@ function toggleFx(key) {
   }
   if (key === 'backgroundStarRiver') {
     if (typeof updateBackgroundStarRiverState === 'function') updateBackgroundStarRiverState(0.016, true);
-    showToast(fx.backgroundStarRiver !== false ? '背景星河已开启' : '背景星河已关闭');
+    showToast(fx.backgroundStarRiver !== false ? bindingsShelfImmersiveText('bind_starfield_on') : bindingsShelfImmersiveText('bind_starfield_off'));
   }
   if (key === 'wallpaperMode') applyWallpaperModeState(true);
   if (key === 'shelfShowPodcasts' || key === 'shelfMergeCollections') {
@@ -442,66 +479,66 @@ function toggleFx(key) {
     if (typeof updateMemoryControls === 'function') updateMemoryControls();
     if (typeof configureMemoryReductFromFx === 'function') configureMemoryReductFromFx('toggle', key === 'memoryAutoSystemTrim' && fx.memoryAutoSystemTrim);
   }
-  if (key === 'lyricGlow') showToast(fx.lyricGlow ? '歌词溢光已开启' : '歌词溢光已关闭');
-  if (key === 'lyricGlowBeat') showToast(fx.lyricGlowBeat ? '歌词溢光跟随鼓点' : '歌词溢光已脱离鼓点');
-  if (key === 'lyricGlowParticles') showToast(fx.lyricGlowParticles ? '歌词光粒已开启' : '歌词光粒已关闭');
-  if (key === 'lyricVerticalFloat') showToast(fx.lyricVerticalFloat !== false ? '歌词上下浮动已开启' : '歌词上下浮动已关闭');
-  if (key === 'lyricLiveViewportFit') showToast(fx.lyricLiveViewportFit !== false ? '歌词实时边界已开启' : '歌词实时边界已关闭，已停止逐帧投影');
-  if (key === 'lyricContextHighQuality') showToast(fx.lyricContextHighQuality !== false ? '上下句高清纹理已开启' : '上下句高清纹理已关闭，仅保留当前双语高清');
-  if (key === 'lyricBackdropAdapt') showToast(fx.lyricBackdropAdapt !== false ? '全局歌词避光已开启' : '全局歌词避光已关闭');
-  if (key === 'coverBackdropAdapt') showToast(fx.coverBackdropAdapt !== false ? '封面粒子避光已开启' : '封面粒子避光已关闭');
-  if (key === 'lyricPauseHold') showToast(fx.lyricPauseHold !== false ? '暂停时保留歌词' : '暂停时隐藏歌词');
-  if (key === 'desktopLyrics') showToast(fx.desktopLyrics ? '桌面歌词已开启' : '桌面歌词已关闭');
-  if (key === 'desktopLyricsClickThrough') showToast(fx.desktopLyricsClickThrough !== false ? '桌面歌词已锁定' : '桌面歌词可移动');
-  if (key === 'desktopLyricsCinema') showToast(fx.desktopLyricsCinema !== false ? '桌面歌词电影震动已开启' : '桌面歌词电影震动已关闭，基础漂浮保留');
-  if (key === 'desktopLyricsHighlight') showToast(fx.desktopLyricsHighlight === true ? '桌面歌词高亮跟随已开启' : '桌面歌词高亮跟随已关闭');
-  if (key === 'wallpaperMode') showToast(fx.wallpaperMode ? '壁纸模式已开启' : '壁纸模式已关闭');
-  if (key === 'shelfShowPodcasts') showToast(fx.shelfShowPodcasts !== false ? '3D歌单架已显示播客歌单' : '3D歌单架已隐藏播客歌单');
-  if (key === 'shelfMergeCollections') showToast(fx.shelfMergeCollections === true ? '我的歌单与收藏歌单已合并滚动' : '收藏歌单恢复滚到底切页');
-  if (key === 'liveBackgroundKeep') showToast(fx.liveBackgroundKeep ? '直播后台保持已开启' : '直播后台保持已关闭');
-  if (key === 'memoryAutoTrimApp') showToast(fx.memoryAutoTrimApp ? '播放器进程压缩已开启' : '播放器进程压缩已关闭');
-  if (key === 'memoryAutoTrimOnBackground') showToast(fx.memoryAutoTrimOnBackground ? '最小化后台会自动压缩' : '后台自动压缩已关闭');
-  if (key === 'memoryAutoSystemTrim') showToast(fx.memoryAutoSystemTrim ? '系统级 Mem Reduct 已开启' : '系统级 Mem Reduct 已关闭');
-  if (key === 'memorySystemAutoElevate') showToast(fx.memorySystemAutoElevate ? '系统释放允许请求管理员权限' : '系统释放不再自动提权');
+  if (key === 'lyricGlow') showToast(fx.lyricGlow ? bindingsShelfImmersiveText('bind_lyrics_bloom_on') : bindingsShelfImmersiveText('bind_lyrics_bloom_off'));
+  if (key === 'lyricGlowBeat') showToast(fx.lyricGlowBeat ? bindingsShelfImmersiveText('bind_lyrics_bloom_beat') : bindingsShelfImmersiveText('bind_lyrics_bloom_offbeat'));
+  if (key === 'lyricGlowParticles') showToast(fx.lyricGlowParticles ? bindingsShelfImmersiveText('bind_lyrics_particles_on') : bindingsShelfImmersiveText('bind_lyrics_particles_off'));
+  if (key === 'lyricVerticalFloat') showToast(fx.lyricVerticalFloat !== false ? bindingsShelfImmersiveText('bind_lyrics_float_on') : bindingsShelfImmersiveText('bind_lyrics_float_off'));
+  if (key === 'lyricLiveViewportFit') showToast(fx.lyricLiveViewportFit !== false ? bindingsShelfImmersiveText('bind_lyrics_bounds_on') : bindingsShelfImmersiveText('bind_lyrics_bounds_off'));
+  if (key === 'lyricContextHighQuality') showToast(fx.lyricContextHighQuality !== false ? bindingsShelfImmersiveText('bind_adjacent_hd_on') : bindingsShelfImmersiveText('bind_adjacent_hd_off'));
+  if (key === 'lyricBackdropAdapt') showToast(fx.lyricBackdropAdapt !== false ? bindingsShelfImmersiveText('bind_global_lyrics_on') : bindingsShelfImmersiveText('bind_global_lyrics_off'));
+  if (key === 'coverBackdropAdapt') showToast(fx.coverBackdropAdapt !== false ? bindingsShelfImmersiveText('bind_cover_particle_on') : bindingsShelfImmersiveText('bind_cover_particle_off'));
+  if (key === 'lyricPauseHold') showToast(fx.lyricPauseHold !== false ? bindingsShelfImmersiveText('bind_keep_lyrics_paused') : bindingsShelfImmersiveText('bind_hide_lyrics_paused'));
+  if (key === 'desktopLyrics') showToast(fx.desktopLyrics ? bindingsShelfImmersiveText('desktop_lyrics_on', '桌面歌词已开启') : bindingsShelfImmersiveText('desktop_lyrics_off', '桌面歌词已关闭'));
+  if (key === 'desktopLyricsClickThrough') showToast(fx.desktopLyricsClickThrough !== false ? bindingsShelfImmersiveText('desktop_lyrics_locked', '桌面歌词已锁定') : bindingsShelfImmersiveText('desktop_lyrics_unlocked', '桌面歌词可移动'));
+  if (key === 'desktopLyricsCinema') showToast(fx.desktopLyricsCinema !== false ? bindingsShelfImmersiveText('bind_desktop_cinema_on') : bindingsShelfImmersiveText('bind_desktop_cinema_off'));
+  if (key === 'desktopLyricsHighlight') showToast(fx.desktopLyricsHighlight === true ? bindingsShelfImmersiveText('bind_desktop_hl_on') : bindingsShelfImmersiveText('bind_desktop_hl_off'));
+  if (key === 'wallpaperMode') showToast(fx.wallpaperMode ? bindingsShelfImmersiveText('bind_wallpaper_on') : bindingsShelfImmersiveText('bind_wallpaper_off'));
+  if (key === 'shelfShowPodcasts') showToast(fx.shelfShowPodcasts !== false ? bindingsShelfImmersiveText('bind_shelf_show_podcast') : bindingsShelfImmersiveText('bind_shelf_hide_podcast'));
+  if (key === 'shelfMergeCollections') showToast(fx.shelfMergeCollections === true ? bindingsShelfImmersiveText('bind_merged_scroll') : bindingsShelfImmersiveText('bind_fav_scroll_paging'));
+  if (key === 'liveBackgroundKeep') showToast(fx.liveBackgroundKeep ? bindingsShelfImmersiveText('bind_stream_keepalive_on') : bindingsShelfImmersiveText('bind_stream_keepalive_off'));
+  if (key === 'memoryAutoTrimApp') showToast(fx.memoryAutoTrimApp ? bindingsShelfImmersiveText('bind_player_compress_on') : bindingsShelfImmersiveText('bind_player_compress_off'));
+  if (key === 'memoryAutoTrimOnBackground') showToast(fx.memoryAutoTrimOnBackground ? bindingsShelfImmersiveText('bind_bg_compress_on') : bindingsShelfImmersiveText('bind_bg_compress_off'));
+  if (key === 'memoryAutoSystemTrim') showToast(fx.memoryAutoSystemTrim ? bindingsShelfImmersiveText('bind_memreduct_on') : bindingsShelfImmersiveText('bind_memreduct_off'));
+  if (key === 'memorySystemAutoElevate') showToast(fx.memorySystemAutoElevate ? bindingsShelfImmersiveText('bind_allow_elevate') : bindingsShelfImmersiveText('bind_no_auto_elevate'));
   if (key === 'wallpaperEngineSilentWindows') {
     showToast(fx.wallpaperEngineSilentWindows !== false
-      ? 'WE 窗口静默已开启，播放壁纸时不再占用任务栏'
-      : 'WE 窗口静默已关闭，重开壁纸后 Wallpaper Engine 窗口会回到任务栏');
+      ? bindingsShelfImmersiveText('bind_we_quiet_on')
+      : bindingsShelfImmersiveText('bind_we_quiet_off'));
   }
   if (key === 'wallpaperEngineGlassSampler') {
     var glassSamplerEnabled = fx.wallpaperEngineGlassSampler !== false;
     if (!glassSamplerEnabled) {
       if (typeof stopWallpaperEngineGlassCaptureStream === 'function') stopWallpaperEngineGlassCaptureStream(false);
-      showToast('WE 玻璃采样已关闭，不再抓取壁纸像素');
+      showToast(bindingsShelfImmersiveText('bind_we_glass_off'));
     } else {
       // 黄框是系统行为而不是缺陷，这里只告知不拦截，让玩家自己决定取舍。
       var glassBorderless = typeof wallpaperEngineBorderlessCaptureSupported !== 'function'
         || wallpaperEngineBorderlessCaptureSupported();
       showToast(glassBorderless
-        ? 'WE 玻璃采样已开启，控制栏玻璃会跟随壁纸取色'
-        : '已开启玻璃采样：Windows 10 无法隐藏系统捕获黄框，壁纸会多出一圈黄色边框，功能不受影响');
+        ? bindingsShelfImmersiveText('bind_we_glass_on')
+        : bindingsShelfImmersiveText('bind_glass_sampling_on'));
       if (wallpaperEngineCaptureMode === 'dwm-thumbnail' && typeof scheduleWallpaperEngineGlassSamplerCapture === 'function') {
         scheduleWallpaperEngineGlassSamplerCapture(String(wallpaperEngineNativeSessionId || ''), wallpaperEngineLayerToken, 0);
       }
     }
   }
-  if (key === 'lyricCameraLock') showToast(fx.lyricCameraLock ? '歌词已绑定镜头' : '歌词已恢复自由漂浮');
-  if (key === 'bloom') showToast(fx.bloom ? '溢光已开启' : '溢光已关闭');
-  if (key === 'edge') showToast(fx.edge ? '已开启轮廓高亮' : '已关闭轮廓高亮');
-  if (key === 'cinema') showToast(fx.cinema ? '已开启电影镜头' : '已关闭电影镜头');
+  if (key === 'lyricCameraLock') showToast(fx.lyricCameraLock ? bindingsShelfImmersiveText('bind_lyrics_bound_cam') : bindingsShelfImmersiveText('bind_lyrics_free_float'));
+  if (key === 'bloom') showToast(fx.bloom ? bindingsShelfImmersiveText('bind_bloom_on') : bindingsShelfImmersiveText('bind_bloom_off'));
+  if (key === 'edge') showToast(fx.edge ? bindingsShelfImmersiveText('bind_outline_on') : bindingsShelfImmersiveText('bind_outline_off'));
+  if (key === 'cinema') showToast(fx.cinema ? bindingsShelfImmersiveText('bind_cinema_on') : bindingsShelfImmersiveText('bind_cinema_off'));
   if (key === 'aiDepth') {
     if (fx.aiDepth) {
       aiDepthFailUntil = 0;
       queueAIDepthForCurrentCover(true);
     }
-    showToast(fx.aiDepth ? '已开启后台 AI 立体增强' : '已关闭 AI 立体增强, 使用轻量弧面');
+    showToast(fx.aiDepth ? bindingsShelfImmersiveText('bind_ai_depth_on') : bindingsShelfImmersiveText('bind_ai_depth_off'));
   }
 }
 function toggleFxPanel(force) {
   var el = document.getElementById('fx-panel');
   if (!el) return;
   if (!diyPlayerMode && force !== false) {
-    showToast('开启 DIY 玩家模式后可打开视觉控制台');
+    showToast(bindingsShelfImmersiveText('toast_diy_tip', '开启 DIY 玩家模式后可打开视觉控制台'));
     return;
   }
   var currentlyOpen = el.classList.contains('show') || el.classList.contains('peek');
@@ -552,7 +589,7 @@ function resetFx() {
   if (shelfManager && shelfManager.rebuild) shelfManager.rebuild(true);
   if (shelfManager && shelfManager.refreshTheme) shelfManager.refreshTheme();
   saveLyricLayout({ user: true, reason: 'resetFx' });
-  showToast('已恢复默认参数');
+  showToast(bindingsShelfImmersiveText('fx_reset_done', '已恢复默认参数'));
 }
 
 function setShelfMode(m, opts) {
@@ -618,7 +655,7 @@ function setShelfCameraMode(mode) {
     setFocusZone(null, true);
   }
   saveLyricLayout({ user: true, reason: 'shelfCameraMode' });
-  showToast(fx.shelfCameraMode === 'static' ? '3D歌单架: 静态镜头' : '3D歌单架: 动态镜头');
+  showToast(fx.shelfCameraMode === 'static' ? bindingsShelfImmersiveText('bind_shelf_static_cam') : bindingsShelfImmersiveText('bind_shelf_dynamic_cam'));
 }
 function setShelfPresence(mode) {
   fx.shelfPresence = normalizeShelfPresence(mode);
@@ -641,13 +678,13 @@ function setShelfPresence(mode) {
   }
   updateShelfControlUi();
   saveLyricLayout({ user: true, reason: 'shelfPresence' });
-  showToast(fx.shelfPresence === 'always' ? '3D歌单架: 常驻' : '3D歌单架: 自动隐藏');
+  showToast(fx.shelfPresence === 'always' ? bindingsShelfImmersiveText('bind_shelf_always') : bindingsShelfImmersiveText('bind_shelf_autohide'));
 }
 function setShelfAccentColor(color, silent) {
   fx.shelfAccentColor = normalizeHexColor(color || fxDefaults.shelfAccentColor, fxDefaults.shelfAccentColor);
   refreshShelfVisuals('color');
   saveLyricLayout({ user: true, reason: 'shelfAccentColor' });
-  if (!silent) showToast('歌单架颜色: ' + fx.shelfAccentColor.toUpperCase());
+  if (!silent) showToast(bindingsShelfImmersiveText('bind_shelf_color_prefix') + fx.shelfAccentColor.toUpperCase());
 }
 function resetShelfAccentColor() {
   setShelfAccentColor(fxDefaults.shelfAccentColor || '#f4d28a');
@@ -678,7 +715,7 @@ function updateImmersiveButton() {
   if (!btn) return;
   btn.classList.toggle('active', immersiveMode);
   btn.setAttribute('aria-pressed', immersiveMode ? 'true' : 'false');
-  btn.title = immersiveMode ? '退出全沉浸式' : '全沉浸式';
+  btn.title = immersiveMode ? bindingsShelfImmersiveText('bind_exit_immersive_action') : bindingsShelfImmersiveText('bind_full_immersive');
   btn.setAttribute('aria-label', btn.title);
 }
 
@@ -746,7 +783,7 @@ function setImmersiveMode(on) {
   var bottomBarExit = document.getElementById('bottom-bar');
   if (immersiveState.bottomVisible) revealBottomControls(900);
   else if (bottomBarExit) bottomBarExit.classList.remove('visible', 'soft-hidden');
-  showToast('已退出全沉浸式');
+  showToast(bindingsShelfImmersiveText('bind_exit_immersive'));
 }
 
 function toggleImmersiveMode() {

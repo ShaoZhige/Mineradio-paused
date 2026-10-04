@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function playerControlsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function waitForAudioReadyToPlay(media, timeoutMs) {
   if (!media) return Promise.resolve(false);
   if (media.readyState >= 2) return Promise.resolve(true);
@@ -156,8 +183,8 @@ function showQishuiTrackStartStallNotice() {
   var now = performance.now();
   if (now - (playbackResumeRecovery.lastQishuiStartNoticeAt || 0) < 8000) return;
   playbackResumeRecovery.lastQishuiStartNoticeAt = now;
-  var title = '汽水播放未响应';
-  var body = '音频开头解码卡住，已尝试重新接入；如果仍不播放，请拖动一下进度或切换音质。';
+  var title = playerControlsText('pc_qishui_unresponsive');
+  var body = playerControlsText('pc_decode_stuck');
   if (typeof showSourceFallbackNotice === 'function') showSourceFallbackNotice(title, body);
   else if (typeof showToast === 'function') showToast(title + '：' + body);
 }
@@ -210,7 +237,7 @@ async function recoverCurrentTrackPlaybackFromFreshUrl(reason, opts) {
     return settleSourceFallbackTerminal(
       currentIdx,
       trackSwitchToken,
-      '当前歌曲重新取链后仍无法播放，已停止自动重试。',
+      playerControlsText('pc_rechain_failed'),
       { silent: !!opts.silent, sourceFallbackRecovery: recovery }
     );
   }
@@ -223,7 +250,7 @@ async function recoverCurrentTrackPlaybackFromFreshUrl(reason, opts) {
   var resumeAt = currentResumeSeconds(opts.resumeAt);
   try {
     if (!opts.silent && typeof showSourceFallbackNotice === 'function') {
-      showSourceFallbackNotice('播放恢复保护', '旧播放链接可能已失效，正在重新取链并回到原进度。');
+      showSourceFallbackNotice(playerControlsText('pc_resume_guard'), playerControlsText('pc_rechaining'));
     }
     var recovered = await playQueueAt(currentIdx, {
       manual: true,
@@ -238,7 +265,7 @@ async function recoverCurrentTrackPlaybackFromFreshUrl(reason, opts) {
       return settleSourceFallbackTerminal(
         currentIdx,
         trackSwitchToken,
-        '当前歌曲重新取链后仍无法播放，已停止自动重试。',
+        playerControlsText('pc_rechain_failed'),
         { silent: !!opts.silent, sourceFallbackRecovery: recovery }
       );
     }
@@ -249,7 +276,7 @@ async function recoverCurrentTrackPlaybackFromFreshUrl(reason, opts) {
       settleSourceFallbackTerminal(
         currentIdx,
         trackSwitchToken,
-        '当前歌曲恢复失败，已停止自动重试。',
+        playerControlsText('pc_resume_failed'),
         { silent: !!opts.silent, sourceFallbackRecovery: recovery }
       );
     }
@@ -547,7 +574,7 @@ async function attemptAudioPlay(opts) {
     playing = false; setPlayIcon(false);
     hideLoading();
     forcePlaybackControlsInteractive();
-    if (!opts.silent && !opts.trackSwitch) showToast(opts.manual ? '播放启动失败, 请重新选择歌曲' : '播放被系统拦截, 请点击播放按钮');
+    if (!opts.silent && !opts.trackSwitch) showToast(opts.manual ? playerControlsText('pc_start_failed') : playerControlsText('pc_blocked'));
     return false;
   }
 }
@@ -569,7 +596,7 @@ async function togglePlay() {
       return;
     }
     if ((!audio || !audio.src) && currentLocalSong && (currentLocalSong.localMissing || !currentLocalSong.localUrl)) {
-      showToast('上次播放的是本地文件，请重新导入后继续');
+      showToast(playerControlsText('pc_last_local'));
       return;
     }
     if (!audio) return;
@@ -601,7 +628,7 @@ async function togglePlay() {
     setPlayIcon(playing);
     hideLoading();
     forcePlaybackControlsInteractive();
-    if (!audio || !audio.src) showToast('播放控制失败');
+    if (!audio || !audio.src) showToast(playerControlsText('pc_control_failed'));
   } finally {
     playToggleBusy = false;
   }
@@ -652,7 +679,7 @@ function nextTrack(userInitiated) {
     var previousTail = currentIdx;
     Promise.resolve(hydratePlaylistQueueNextPage('queue-tail')).then(function () {
       if (playQueue.length <= previousTail + 1 && queueHydrationState && queueHydrationState.error) {
-        showToast('后续歌曲载入失败，当前歌曲保持不变');
+        showToast(playerControlsText('pc_more_failed'));
         return false;
       }
       currentIdx = playQueue.length > previousTail + 1 ? previousTail + 1 : 0;
@@ -679,7 +706,7 @@ function prevTrack(userInitiated) {
 }
 function shuffleQueue() {
   reorderQueueForShufflePlaybackOrder(currentIdx, { reason: 'shuffle-queue' });
-  showToast('队列已随机');
+  showToast(playerControlsText('pc_shuffled'));
 }
 function clearQueue() {
   if (typeof cancelPlaylistQueueHydration === 'function') cancelPlaylistQueueHydration('clear-queue');
@@ -706,7 +733,7 @@ function removeFromQueue(idx) {
   updateEmptyHomeVisibility({ forceLoad: false });
 }
 function playModeLabel(mode) {
-  return { loop: '顺序循环', shuffle: '随机播放', single: '单曲循环' }[mode] || '顺序循环';
+  return { loop: playerControlsText('play_mode_loop', '顺序循环'), shuffle: playerControlsText('pc_shuffle'), single: playerControlsText('pc_loop_one') }[mode] || playerControlsText('play_mode_loop', '顺序循环');
 }
 
 function playModeIconMarkup(mode) {
@@ -766,6 +793,6 @@ function cyclePlayMode() {
     if (typeof resetCuefieldAutoMix === 'function') resetCuefieldAutoMix('play-mode-single');
   }
   updatePlayModeButton(true);
-  showToast('播放模式: ' + playModeLabel(playMode));
+  showToast(playerControlsText('pc_mode_prefix') + playModeLabel(playMode));
 }
 updatePlayModeButton(false);

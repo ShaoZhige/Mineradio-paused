@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function accentBackgroundControlsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function applyHomeAccentColor() {
   var color = normalizeHexColor(fx.homeAccentColor || '#00f5d4');
   var rgb = hexToRgb(color);
@@ -16,7 +53,7 @@ function setHomeAccentColor(color, silent) {
   fx.homeAccentColor = normalizeHexColor(color || '#00f5d4');
   updateHomeAccentControls();
   saveLyricLayout({ user: true, reason: 'homeAccentColor' });
-  if (!silent) showToast('Home 填充: ' + fx.homeAccentColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('bind_home_fill_prefix') + fx.homeAccentColor.toUpperCase());
 }
 function resetHomeAccentColor() {
   setHomeAccentColor(fxDefaults.homeAccentColor || '#00f5d4');
@@ -49,7 +86,7 @@ function setHomeIconColor(color, silent) {
   fx.homeIconColor = normalizeHexColor(color || fxDefaults.homeIconColor || '#f4d28a', '#f4d28a');
   updateIconAccentControls();
   saveLyricLayout({ user: true, reason: 'homeIconColor' });
-  if (!silent) showToast('主页图标: ' + fx.homeIconColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('bind_home_icon_prefix') + fx.homeIconColor.toUpperCase());
 }
 function resetHomeIconColor() {
   setHomeIconColor(fxDefaults.homeIconColor || '#f4d28a');
@@ -58,7 +95,7 @@ function setVisualIconColor(color, silent) {
   fx.visualIconColor = normalizeHexColor(color || fxDefaults.visualIconColor || '#7fd8ff', '#7fd8ff');
   updateIconAccentControls();
   saveLyricLayout({ user: true, reason: 'visualIconColor' });
-  if (!silent) showToast('视觉图标: ' + fx.visualIconColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('bind_visual_icon_prefix') + fx.visualIconColor.toUpperCase());
 }
 function resetVisualIconColor() {
   setVisualIconColor(fxDefaults.visualIconColor || '#7fd8ff');
@@ -233,7 +270,7 @@ function updateCustomBackgroundControls() {
   var cropBtn = document.getElementById('bg-media-crop-btn');
   var customColor = fx.backgroundColorMode === 'custom' || !!fx.backgroundColorCustom;
   if (picker) picker.value = color;
-  if (value) value.textContent = customColor ? color.toUpperCase() : '\u5c01\u9762\u6e10\u53d8';
+  if (value) value.textContent = customColor ? color.toUpperCase() : accentBackgroundControlsText('accent_cover_gradient');
   if (picker && picker.closest) {
     var row = picker.closest('.lyric-color-row');
     if (row) row.classList.toggle('bg-cover-mode', !customColor);
@@ -251,7 +288,7 @@ function updateCustomBackgroundControls() {
   }
   if (cropBtn) {
     cropBtn.disabled = !activeMedia;
-    cropBtn.title = activeMedia ? '\u91cd\u65b0\u88c1\u5207\u5df2\u8bbe\u7f6e\u7684\u80cc\u666f\u5a92\u4f53' : '\u5148\u9009\u62e9\u5c01\u9762\u3001\u56fe\u7247\u6216\u89c6\u9891';
+    cropBtn.title = activeMedia ? accentBackgroundControlsText('accent_recrop_bg') : accentBackgroundControlsText('accent_pick_media_first');
   }
   updateCustomBackgroundMediaPreview(activeMedia);
   applyBackgroundMediaHint();
@@ -262,7 +299,7 @@ function setCustomBackgroundColor(color, silent, customFlag) {
   fx.backgroundColorCustom = customFlag !== false;
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundColor' });
-  if (!silent) showToast('背景颜色: ' + fx.backgroundColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('bind_bg_color_prefix') + fx.backgroundColor.toUpperCase());
 }
 function setCustomBackgroundCoverMode(silent) {
   fx.backgroundColorMode = 'cover';
@@ -270,7 +307,7 @@ function setCustomBackgroundCoverMode(silent) {
   fx.backgroundColor = normalizeHexColor(fx.backgroundColor || fxDefaults.backgroundColor || '#000000', '#000000');
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundColorCover' });
-  if (!silent) showToast('\u80cc\u666f\u989c\u8272: \u5c01\u9762\u6e10\u53d8');
+  if (!silent) showToast(accentBackgroundControlsText('accent_bg_cover_gradient'));
 }
 function resetCustomBackgroundColor() {
   setCustomBackgroundCoverMode(false);
@@ -281,19 +318,19 @@ function setCustomBackgroundOpacity(value, silent) {
   fx.backgroundColorCustom = true;
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundOpacity' });
-  if (!silent) showToast('背景透明度: ' + Math.round(fx.backgroundOpacity * 100) + '%');
+  if (!silent) showToast(accentBackgroundControlsText('accent_bg_opacity_prefix') + Math.round(fx.backgroundOpacity * 100) + '%');
 }
 function setWindowBackgroundOpacity(value, silent) {
   fx.windowBackgroundOpacity = clampRange(Number(value), 0, 1);
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'windowBackgroundOpacity' });
-  if (!silent) showToast('\u7a97\u53e3\u80cc\u666f\u900f\u660e: ' + Math.round(fx.windowBackgroundOpacity * 100) + '%');
+  if (!silent) showToast(accentBackgroundControlsText('accent_window_opacity_prefix') + Math.round(fx.windowBackgroundOpacity * 100) + '%');
 }
 function setBackgroundGlassOpacity(value, silent) {
   fx.backgroundGlassOpacity = clampRange(Number(value), 0, 1);
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundGlassOpacity' });
-  if (!silent) showToast('\u6bdb\u73bb\u7483\u900f\u660e: ' + Math.round(fx.backgroundGlassOpacity * 100) + '%');
+  if (!silent) showToast(accentBackgroundControlsText('accent_frosted_opacity_prefix') + Math.round(fx.backgroundGlassOpacity * 100) + '%');
 }
 function setCustomBackgroundAlbumCover(enabled, silent) {
   fx.backgroundAlbumCover = enabled === true;
@@ -303,7 +340,7 @@ function setCustomBackgroundAlbumCover(enabled, silent) {
   }
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundAlbumCover' });
-  if (!silent) showToast(fx.backgroundAlbumCover ? '\u80cc\u666f\u5a92\u4f53: \u5c01\u9762\u539f\u56fe' : '\u80cc\u666f\u5a92\u4f53: \u5df2\u5173\u95ed\u5c01\u9762');
+  if (!silent) showToast(fx.backgroundAlbumCover ? accentBackgroundControlsText('accent_bg_media_cover_original') : accentBackgroundControlsText('accent_bg_media_cover_off'));
 }
 function toggleCustomBackgroundAlbumCover() {
   setCustomBackgroundAlbumCover(!(typeof customBackgroundUsesAlbumCover === 'function' && customBackgroundUsesAlbumCover()));
@@ -320,7 +357,7 @@ function setCustomBackgroundCrop(key, value, silent) {
   fx[key] = isFinite(next) ? next : meta[2];
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundMediaCrop' });
-  if (!silent) showToast('\u80cc\u666f\u88c1\u5207\u5df2\u66f4\u65b0');
+  if (!silent) showToast(accentBackgroundControlsText('accent_bg_crop_updated'));
 }
 function resetCustomBackgroundCrop() {
   fx.backgroundMediaCropX = fxDefaults.backgroundMediaCropX == null ? 50 : fxDefaults.backgroundMediaCropX;
@@ -328,7 +365,7 @@ function resetCustomBackgroundCrop() {
   fx.backgroundMediaZoom = fxDefaults.backgroundMediaZoom == null ? 1 : fxDefaults.backgroundMediaZoom;
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundMediaCrop' });
-  showToast('\u80cc\u666f\u88c1\u5207\u5df2\u590d\u4f4d');
+  showToast(accentBackgroundControlsText('accent_bg_crop_reset'));
 }
 function customBackgroundCropSnapshot() {
   return {
@@ -463,7 +500,7 @@ function setCustomBackgroundCropModalSource(media, src) {
 function openCustomBackgroundCropModal() {
   var media = customBackgroundActiveMedia();
   if (!media) {
-    showToast('\u5148\u9009\u62e9\u5c01\u9762\u3001\u56fe\u7247\u6216\u89c6\u9891');
+    showToast(accentBackgroundControlsText('accent_pick_media_first'));
     return;
   }
   bindCustomBackgroundCropModal();
@@ -484,7 +521,7 @@ function openCustomBackgroundCropModal() {
       releaseCustomBackgroundCropModalObjectUrl();
       customBackgroundCropModalObjectUrl = URL.createObjectURL(blob);
       setCustomBackgroundCropModalSource(media, customBackgroundCropModalObjectUrl);
-    }).catch(function () { showToast('\u80cc\u666f\u89c6\u9891\u8bfb\u53d6\u5931\u8d25'); });
+    }).catch(function () { showToast(accentBackgroundControlsText('accent_bg_video_load_failed')); });
   } else {
     setCustomBackgroundCropModalSource(media, src);
   }
@@ -515,7 +552,7 @@ function resetCustomBackgroundCropInModal() {
 }
 function commitCustomBackgroundCropModal() {
   saveLyricLayout({ user: true, reason: 'backgroundMediaCrop' });
-  showToast('\u80cc\u666f\u88c1\u5207\u5df2\u66f4\u65b0');
+  showToast(accentBackgroundControlsText('accent_bg_crop_updated'));
   closeCustomBackgroundCropModal(false);
 }
 function openCustomBackgroundCropModalSoon() {
@@ -530,7 +567,7 @@ function setCustomBackgroundImage(src, silent) {
   fx.backgroundAlbumCover = false;
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundImage' });
-  if (!silent) showToast(fx.backgroundImage ? '背景图片已应用' : '背景图片已清除');
+  if (!silent) showToast(fx.backgroundImage ? accentBackgroundControlsText('accent_bg_image_applied') : accentBackgroundControlsText('accent_bg_image_cleared'));
 }
 function clearCustomBackgroundImage() {
   setCustomBackgroundImage('');
@@ -546,11 +583,11 @@ function setCustomBackgroundMedia(media, silent) {
   fx.backgroundAlbumCover = false;
   updateCustomBackgroundControls();
   saveLyricLayout({ user: true, reason: 'backgroundMedia' });
-  if (!silent) showToast(media ? (media.type === 'video' ? '背景视频已应用' : '背景图片已应用') : '背景媒体已清除');
+  if (!silent) showToast(media ? (media.type === 'video' ? accentBackgroundControlsText('accent_bg_video_applied') : accentBackgroundControlsText('accent_bg_image_applied')) : accentBackgroundControlsText('accent_bg_media_cleared'));
 }
 function readBackgroundImageFile(file) {
   if (!file || !/^image\//i.test(file.type || '')) {
-    showToast('请选择图片文件');
+    showToast(accentBackgroundControlsText('accent_pick_image'));
     return;
   }
   var reader = new FileReader();
@@ -575,15 +612,15 @@ function readBackgroundImageFile(file) {
       setCustomBackgroundImage(out);
       openCustomBackgroundCropModalSoon();
     };
-    img.onerror = function () { showToast('背景图片读取失败'); };
+    img.onerror = function () { showToast(accentBackgroundControlsText('accent_bg_image_load_failed')); };
     img.src = e.target.result;
   };
-  reader.onerror = function () { showToast('背景图片读取失败'); };
+  reader.onerror = function () { showToast(accentBackgroundControlsText('accent_bg_image_load_failed')); };
   reader.readAsDataURL(file);
 }
 function readBackgroundVideoFile(file) {
   if (!file || !/^video\//i.test(file.type || '')) {
-    showToast('请选择视频文件');
+    showToast(accentBackgroundControlsText('accent_pick_video'));
     return;
   }
   var id = 'bg-video-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -593,7 +630,7 @@ function readBackgroundVideoFile(file) {
   }).catch(function (err) {
     console.warn('background video store failed:', err);
     if ((file.size || 0) > 18 * 1024 * 1024) {
-      showToast('视频较大，当前环境无法保存，请换小一点的视频');
+      showToast(accentBackgroundControlsText('accent_video_too_large'));
       return;
     }
     var reader = new FileReader();
@@ -601,7 +638,7 @@ function readBackgroundVideoFile(file) {
       setCustomBackgroundMedia({ type: 'video', src: String(e.target.result || ''), name: file.name || '', mime: file.type || '', size: file.size || 0 });
       openCustomBackgroundCropModalSoon();
     };
-    reader.onerror = function () { showToast('背景视频读取失败'); };
+    reader.onerror = function () { showToast(accentBackgroundControlsText('accent_bg_video_load_failed')); };
     reader.readAsDataURL(file);
   });
 }
@@ -609,7 +646,7 @@ function readBackgroundMediaFile(file) {
   if (!file) return;
   if (/^image\//i.test(file.type || '')) readBackgroundImageFile(file);
   else if (/^video\//i.test(file.type || '')) readBackgroundVideoFile(file);
-  else showToast('请选择图片或视频文件');
+  else showToast(accentBackgroundControlsText('accent_pick_image_video'));
 }
 function defaultUiAccentColor() {
   return normalizeHexColor(fxDefaults.uiAccentColor || '#ffffff', '#ffffff');
@@ -640,7 +677,7 @@ function setUiAccentColor(color, silent) {
   updateUiAccentControls();
   if (shelfManager && shelfManager.refreshTheme) shelfManager.refreshTheme();
   saveLyricLayout({ user: true, reason: 'uiAccentColor' });
-  if (!silent) showToast('界面高亮: ' + fx.uiAccentColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('bind_ui_highlight_prefix') + fx.uiAccentColor.toUpperCase());
 }
 function resetUiAccentColor() {
   setUiAccentColor(defaultUiAccentColor());
@@ -652,7 +689,7 @@ function updateVisualTintControls() {
   var color = normalizeHexColor(fx.visualTintColor || '#9db8cf');
   document.documentElement.style.setProperty('--visual-tint', color);
   if (picker) picker.value = color;
-  if (value) value.textContent = fx.visualTintMode === 'custom' ? color.toUpperCase() : '封面取色';
+  if (value) value.textContent = fx.visualTintMode === 'custom' ? color.toUpperCase() : accentBackgroundControlsText('cover_pick_color', '封面取色');
   if (autoBtn) autoBtn.classList.toggle('active', fx.visualTintMode !== 'custom');
 }
 function setVisualTintAuto() {
@@ -660,7 +697,7 @@ function setVisualTintAuto() {
   updateVisualTintControls();
   syncFxUniforms();
   saveLyricLayout({ user: true, reason: 'visualTintAuto' });
-  showToast('视觉主色: 封面取色');
+  showToast(accentBackgroundControlsText('accent_primary_cover'));
 }
 function resetVisualTintColor() {
   fx.visualTintMode = 'auto';
@@ -668,7 +705,7 @@ function resetVisualTintColor() {
   updateVisualTintControls();
   syncFxUniforms();
   saveLyricLayout({ user: true, reason: 'visualTintReset' });
-  showToast('视觉主色已恢复默认');
+  showToast(accentBackgroundControlsText('accent_primary_restored'));
 }
 function setVisualTintCustom(color, silent) {
   fx.visualTintMode = 'custom';
@@ -676,18 +713,20 @@ function setVisualTintCustom(color, silent) {
   updateVisualTintControls();
   syncFxUniforms();
   saveLyricLayout({ user: true, reason: 'visualTintColor' });
-  if (!silent) showToast('视觉主色: ' + fx.visualTintColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('bind_visual_primary_prefix') + fx.visualTintColor.toUpperCase());
 }
 
-var SONIC_GROUND_COLOR_CONTROLS = [
-  { key: 'sonicGroundBaseColor', picker: 'sonic-ground-base-picker', value: 'sonic-ground-base-value', label: '地形暗部' },
-  { key: 'sonicGroundCoolColor', picker: 'sonic-ground-cool-picker', value: 'sonic-ground-cool-value', label: '冷色峰值' },
-  { key: 'sonicGroundWarmColor', picker: 'sonic-ground-warm-picker', value: 'sonic-ground-warm-value', label: '暖色峰值' },
-  { key: 'sonicGroundAccentColor', picker: 'sonic-ground-accent-picker', value: 'sonic-ground-accent-value', label: '涟漪高光' }
-];
+function sonicGroundColorControls() {
+  return [
+  { key: 'sonicGroundBaseColor', picker: 'sonic-ground-base-picker', value: 'sonic-ground-base-value', label: accentBackgroundControlsText('fx_terrain_shadow') },
+  { key: 'sonicGroundCoolColor', picker: 'sonic-ground-cool-picker', value: 'sonic-ground-cool-value', label: accentBackgroundControlsText('fx_cool_peak') },
+  { key: 'sonicGroundWarmColor', picker: 'sonic-ground-warm-picker', value: 'sonic-ground-warm-value', label: accentBackgroundControlsText('fx_warm_peak') },
+  { key: 'sonicGroundAccentColor', picker: 'sonic-ground-accent-picker', value: 'sonic-ground-accent-value', label: accentBackgroundControlsText('fx_ripple_highlight') }
+  ];
+}
 function sonicGroundColorControl(key) {
-  for (var i = 0; i < SONIC_GROUND_COLOR_CONTROLS.length; i++) {
-    if (SONIC_GROUND_COLOR_CONTROLS[i].key === key || SONIC_GROUND_COLOR_CONTROLS[i].picker === key) return SONIC_GROUND_COLOR_CONTROLS[i];
+  for (var i = 0; i < sonicGroundColorControls().length; i++) {
+    if (sonicGroundColorControls()[i].key === key || sonicGroundColorControls()[i].picker === key) return sonicGroundColorControls()[i];
   }
   return null;
 }
@@ -736,21 +775,21 @@ function sonicGroundCoverPreviewColors() {
 function updateSonicGroundColorControls() {
   var customMode = fx.sonicGroundColorMode === 'custom';
   var coverPreview = customMode ? null : sonicGroundCoverPreviewColors();
-  SONIC_GROUND_COLOR_CONTROLS.forEach(function (item) {
+  sonicGroundColorControls().forEach(function (item) {
     var fallback = fxDefaults[item.key] || '#33e6ff';
     var color = customMode ? normalizeHexColor(fx[item.key] || fallback, fallback) : normalizeHexColor(coverPreview[item.key] || fallback, fallback);
     var picker = document.getElementById(item.picker);
     var value = document.getElementById(item.value);
     if (picker) picker.value = color;
-    if (value && !customMode) value.textContent = '封面 ' + color.toUpperCase();
-    if (value) value.textContent = customMode ? color.toUpperCase() : '封面取色';
+    if (value && !customMode) value.textContent = accentBackgroundControlsText('accent_cover_prefix') + color.toUpperCase();
+    if (value) value.textContent = customMode ? color.toUpperCase() : accentBackgroundControlsText('cover_pick_color', '封面取色');
   });
   if (!customMode) {
-    SONIC_GROUND_COLOR_CONTROLS.forEach(function (item) {
+    sonicGroundColorControls().forEach(function (item) {
       var fallback = fxDefaults[item.key] || '#33e6ff';
       var color = normalizeHexColor((coverPreview && coverPreview[item.key]) || fallback, fallback);
       var value = document.getElementById(item.value);
-      if (value) value.textContent = '封面 ' + color.toUpperCase();
+      if (value) value.textContent = accentBackgroundControlsText('accent_cover_prefix') + color.toUpperCase();
     });
   }
 }
@@ -769,13 +808,13 @@ function resetSonicGroundColor(key) {
   var item = sonicGroundColorControl(key);
   if (!item) return;
   fx.sonicGroundColorMode = 'cover';
-  SONIC_GROUND_COLOR_CONTROLS.forEach(function (control) {
+  sonicGroundColorControls().forEach(function (control) {
     fx[control.key] = normalizeHexColor(fxDefaults[control.key] || '#33e6ff', '#33e6ff');
   });
   updateSonicGroundColorControls();
   syncFxUniforms();
   saveLyricLayout({ user: true, reason: 'sonicGroundColorAuto' });
-  showToast('音域回响颜色: 封面取色');
+  showToast(accentBackgroundControlsText('accent_soundfield_cover'));
 }
 function setSonicGroundColorFromPicker(pickerId, color, silent) {
   var item = sonicGroundColorControl(pickerId);
@@ -790,25 +829,29 @@ var SONIC_WORKSHOP_THEME_ALIASES = {
   aurora: 'arctic-aurora',
   'violet-dream': 'neon-tokyo'
 };
-var SONIC_WORKSHOP_THEMES = {
-  'coral-mirage': { label: '\u73ca\u745a', color: '#cb6c89', base: '#16060f', warm: '#cb6c89', cool: '#99c4ff', ripple: '#f8d8ff', peak: '#99c4ff' },
-  'ocean-deep': { label: '\u6df1\u6d77', color: '#1b6fb8', base: '#031025', warm: '#2e8ed4', cool: '#7fdcff', ripple: '#b7f5ff', peak: '#80b8ff' },
-  'arctic-aurora': { label: '\u51b0\u84dd', color: '#79e1c4', base: '#05161d', warm: '#79e1c4', cool: '#99c4ff', ripple: '#e6fbff', peak: '#b7e6ff' },
-  'cyber-forest': { label: '\u7fe0\u7eff', color: '#3fc78a', base: '#04150d', warm: '#3fc78a', cool: '#74f5ff', ripple: '#b9ffd8', peak: '#d1ffe9' },
-  'minimal-monochrome': { label: '\u6781\u7b80', color: '#d9dde3', base: '#0b0c0e', warm: '#d9dde3', cool: '#ffffff', ripple: '#ffffff', peak: '#f2f5f8' },
-  'neon-tokyo': { label: '\u9713\u8679', color: '#ff4fb8', base: '#100018', warm: '#ff4fb8', cool: '#39d7ff', ripple: '#ffd6f2', peak: '#e8ff6e' },
-  'golden-hour': { label: '\u91d1\u8272', color: '#e8b44c', base: '#160d02', warm: '#e8b44c', cool: '#89c8ff', ripple: '#fff0b8', peak: '#ffffff' },
-  'ember-fire': { label: '\u70ed\u706b', color: '#f27a28', base: '#180603', warm: '#f27a28', cool: '#76c8ff', ripple: '#ffd2a1', peak: '#fff2cf' },
-  'crimson-sunset': { label: '\u6df1\u7ea2', color: '#d84252', base: '#180307', warm: '#d84252', cool: '#8ec7ff', ripple: '#ffd5df', peak: '#fff1f4' }
-};
-var SONIC_WORKSHOP_COLOR_CONTROLS = [
-  { id: 'theme', role: 'primary', modeKey: 'sonicWorkshopColorMode', colorKey: 'sonicWorkshopCustomColor', picker: 'sonic-workshop-cover-picker', value: 'sonic-workshop-theme-value', button: 'sonic-workshop-cover-btn', fallback: '#cb6c89', label: '\u4e3b\u9898\u57fa\u8272' },
-  { id: 'base', role: 'base', modeKey: 'sonicWorkshopBaseColorMode', colorKey: 'sonicWorkshopBaseColor', picker: 'sonic-workshop-base-picker', value: 'sonic-workshop-base-value', button: 'sonic-workshop-base-btn', fallback: '#16060f', label: '\u5730\u5f62\u5e95\u8272' },
-  { id: 'warm', role: 'warm', modeKey: 'sonicWorkshopWarmColorMode', colorKey: 'sonicWorkshopWarmColor', picker: 'sonic-workshop-warm-picker', value: 'sonic-workshop-warm-value', button: 'sonic-workshop-warm-btn', fallback: '#cb6c89', label: '\u6696\u8272\u4e3b\u4f53' },
-  { id: 'cool', role: 'cool', modeKey: 'sonicWorkshopCoolColorMode', colorKey: 'sonicWorkshopCoolColor', picker: 'sonic-workshop-cool-picker', value: 'sonic-workshop-cool-value', button: 'sonic-workshop-cool-btn', fallback: '#99c4ff', label: '\u4e0a\u5c42\u9ad8\u5149' },
-  { id: 'ripple', role: 'ripple', modeKey: 'sonicWorkshopRippleColorMode', colorKey: 'sonicWorkshopRippleColor', picker: 'sonic-workshop-ripple-picker', value: 'sonic-workshop-ripple-value', button: 'sonic-workshop-ripple-btn', fallback: '#f8d8ff', label: '\u6ce2\u7eb9\u4eae\u533a' },
-  { id: 'peak', role: 'peak', modeKey: 'sonicWorkshopPeakColorMode', colorKey: 'sonicWorkshopPeakColor', picker: 'sonic-workshop-peak-picker', value: 'sonic-workshop-peak-value', button: 'sonic-workshop-peak-btn', fallback: '#99c4ff', label: '\u5cf0\u503c\u9ad8\u5149' }
-];
+function sonicWorkshopThemes() {
+  return {
+  'coral-mirage': { label: accentBackgroundControlsText('accent_coral'), color: '#cb6c89', base: '#16060f', warm: '#cb6c89', cool: '#99c4ff', ripple: '#f8d8ff', peak: '#99c4ff' },
+  'ocean-deep': { label: accentBackgroundControlsText('accent_deep_sea'), color: '#1b6fb8', base: '#031025', warm: '#2e8ed4', cool: '#7fdcff', ripple: '#b7f5ff', peak: '#80b8ff' },
+  'arctic-aurora': { label: accentBackgroundControlsText('accent_ice_blue'), color: '#79e1c4', base: '#05161d', warm: '#79e1c4', cool: '#99c4ff', ripple: '#e6fbff', peak: '#b7e6ff' },
+  'cyber-forest': { label: accentBackgroundControlsText('accent_emerald'), color: '#3fc78a', base: '#04150d', warm: '#3fc78a', cool: '#74f5ff', ripple: '#b9ffd8', peak: '#d1ffe9' },
+  'minimal-monochrome': { label: accentBackgroundControlsText('accent_minimal'), color: '#d9dde3', base: '#0b0c0e', warm: '#d9dde3', cool: '#ffffff', ripple: '#ffffff', peak: '#f2f5f8' },
+  'neon-tokyo': { label: accentBackgroundControlsText('accent_neon'), color: '#ff4fb8', base: '#100018', warm: '#ff4fb8', cool: '#39d7ff', ripple: '#ffd6f2', peak: '#e8ff6e' },
+  'golden-hour': { label: accentBackgroundControlsText('accent_gold'), color: '#e8b44c', base: '#160d02', warm: '#e8b44c', cool: '#89c8ff', ripple: '#fff0b8', peak: '#ffffff' },
+  'ember-fire': { label: accentBackgroundControlsText('accent_fire'), color: '#f27a28', base: '#180603', warm: '#f27a28', cool: '#76c8ff', ripple: '#ffd2a1', peak: '#fff2cf' },
+  'crimson-sunset': { label: accentBackgroundControlsText('accent_crimson'), color: '#d84252', base: '#180307', warm: '#d84252', cool: '#8ec7ff', ripple: '#ffd5df', peak: '#fff1f4' }
+  }
+}
+function sonicWorkshopColorControls() {
+  return [
+  { id: 'theme', role: 'primary', modeKey: 'sonicWorkshopColorMode', colorKey: 'sonicWorkshopCustomColor', picker: 'sonic-workshop-cover-picker', value: 'sonic-workshop-theme-value', button: 'sonic-workshop-cover-btn', fallback: '#cb6c89', label: accentBackgroundControlsText('accent_theme_base') },
+  { id: 'base', role: 'base', modeKey: 'sonicWorkshopBaseColorMode', colorKey: 'sonicWorkshopBaseColor', picker: 'sonic-workshop-base-picker', value: 'sonic-workshop-base-value', button: 'sonic-workshop-base-btn', fallback: '#16060f', label: accentBackgroundControlsText('fx_we_terrain_base') },
+  { id: 'warm', role: 'warm', modeKey: 'sonicWorkshopWarmColorMode', colorKey: 'sonicWorkshopWarmColor', picker: 'sonic-workshop-warm-picker', value: 'sonic-workshop-warm-value', button: 'sonic-workshop-warm-btn', fallback: '#cb6c89', label: accentBackgroundControlsText('fx_we_warm_body') },
+  { id: 'cool', role: 'cool', modeKey: 'sonicWorkshopCoolColorMode', colorKey: 'sonicWorkshopCoolColor', picker: 'sonic-workshop-cool-picker', value: 'sonic-workshop-cool-value', button: 'sonic-workshop-cool-btn', fallback: '#99c4ff', label: accentBackgroundControlsText('fx_we_upper_highlight') },
+  { id: 'ripple', role: 'ripple', modeKey: 'sonicWorkshopRippleColorMode', colorKey: 'sonicWorkshopRippleColor', picker: 'sonic-workshop-ripple-picker', value: 'sonic-workshop-ripple-value', button: 'sonic-workshop-ripple-btn', fallback: '#f8d8ff', label: accentBackgroundControlsText('fx_we_ripple_bright') },
+  { id: 'peak', role: 'peak', modeKey: 'sonicWorkshopPeakColorMode', colorKey: 'sonicWorkshopPeakColor', picker: 'sonic-workshop-peak-picker', value: 'sonic-workshop-peak-value', button: 'sonic-workshop-peak-btn', fallback: '#99c4ff', label: accentBackgroundControlsText('fx_we_peak_highlight') }
+  ];
+}
 var sonicWorkshopCoverUiSample = {
   key: '',
   palette: null,
@@ -819,12 +862,12 @@ var sonicWorkshopCoverUiSample = {
 function normalizeSonicWorkshopTheme(theme) {
   theme = String(theme || '');
   theme = SONIC_WORKSHOP_THEME_ALIASES[theme] || theme;
-  return SONIC_WORKSHOP_THEMES[theme] ? theme : (fxDefaults.sonicWorkshopTheme || 'coral-mirage');
+  return sonicWorkshopThemes()[theme] ? theme : (fxDefaults.sonicWorkshopTheme || 'coral-mirage');
 }
 function sonicWorkshopRegionControl(id) {
   if (id && typeof id === 'object' && id.id) return id;
-  for (var i = 0; i < SONIC_WORKSHOP_COLOR_CONTROLS.length; i++) {
-    var item = SONIC_WORKSHOP_COLOR_CONTROLS[i];
+  for (var i = 0; i < sonicWorkshopColorControls().length; i++) {
+    var item = sonicWorkshopColorControls()[i];
     if (item.id === id || item.role === id || item.picker === id || item.colorKey === id || item.modeKey === id) return item;
   }
   return null;
@@ -1090,8 +1133,8 @@ function sonicWorkshopRegionHex(item) {
 function updateSonicWorkshopColorControls() {
   ensureSonicWorkshopCoverPaletteForUi();
   var theme = currentSonicWorkshopTheme();
-  var meta = SONIC_WORKSHOP_THEMES[theme] || SONIC_WORKSHOP_THEMES['coral-mirage'];
-  SONIC_WORKSHOP_COLOR_CONTROLS.forEach(function (item) {
+  var meta = sonicWorkshopThemes()[theme] || sonicWorkshopThemes()['coral-mirage'];
+  sonicWorkshopColorControls().forEach(function (item) {
     var coverMode = fx[item.modeKey] !== 'custom';
     var hex = sonicWorkshopRegionHex(item);
     var picker = document.getElementById(item.picker);
@@ -1100,8 +1143,8 @@ function updateSonicWorkshopColorControls() {
     if (picker) picker.value = normalizeHexColor(hex, item.fallback);
     if (value) {
       value.textContent = coverMode
-        ? ('\u5c01\u9762 ' + hex.toUpperCase() + (item.id === 'theme' ? ' / ' + meta.label : ''))
-        : ('\u56fa\u5b9a ' + hex.toUpperCase() + (item.id === 'theme' ? ' / ' + meta.label : ''));
+        ? (accentBackgroundControlsText('accent_cover_prefix') + hex.toUpperCase() + (item.id === 'theme' ? ' / ' + meta.label : ''))
+        : (accentBackgroundControlsText('accent_fixed_prefix') + hex.toUpperCase() + (item.id === 'theme' ? ' / ' + meta.label : ''));
     }
     if (coverBtn) coverBtn.classList.toggle('active', coverMode);
   });
@@ -1121,39 +1164,39 @@ function setSonicWorkshopRegionColorMode(id, mode, silent) {
   if (!item) return;
   fx[item.modeKey] = mode === 'custom' ? 'custom' : 'cover';
   pushSonicWorkshopColorChange(item.id === 'theme' ? 'sonicWorkshopColorMode' : item.colorKey);
-  if (!silent) showToast('\u97f3\u57df\u56de\u54cd\u00b7WE ' + item.label + ': ' + (fx[item.modeKey] === 'cover' ? '\u5c01\u9762\u53d6\u8272' : '\u56fa\u5b9a\u989c\u8272'));
+  if (!silent) showToast(accentBackgroundControlsText('accent_soundfield_we_prefix') + item.label + ': ' + (fx[item.modeKey] === 'cover' ? '\u5c01\u9762\u53d6\u8272' : accentBackgroundControlsText('accent_fixed_color')));
 }
 function setSonicWorkshopColorMode(mode, silent) {
   setSonicWorkshopRegionColorMode('theme', mode, silent);
 }
 function setSonicWorkshopTheme(theme, silent) {
   theme = normalizeSonicWorkshopTheme(theme);
-  var meta = SONIC_WORKSHOP_THEMES[theme] || SONIC_WORKSHOP_THEMES['coral-mirage'];
+  var meta = sonicWorkshopThemes()[theme] || sonicWorkshopThemes()['coral-mirage'];
   fx.sonicWorkshopColorMode = 'custom';
   fx.sonicWorkshopTheme = theme;
   fx.sonicWorkshopCustomColor = normalizeHexColor(meta.color, '#cb6c89');
-  SONIC_WORKSHOP_COLOR_CONTROLS.forEach(function (item) {
+  sonicWorkshopColorControls().forEach(function (item) {
     if (item.id === 'theme') return;
     fx[item.modeKey] = 'custom';
     fx[item.colorKey] = normalizeHexColor(meta[item.id] || item.fallback, item.fallback);
   });
   pushSonicWorkshopColorChange('sonicWorkshopRegionColors');
-  if (!silent) showToast('\u97f3\u57df\u56de\u54cd\u00b7WE: ' + meta.label);
+  if (!silent) showToast(accentBackgroundControlsText('accent_soundfield_we_colon') + meta.label);
 }
 function setSonicWorkshopThemeFromPicker(color, silent) {
   var hex = normalizeHexColor(color || '#cb6c89', '#cb6c89');
   var theme = sonicWorkshopThemeForColor(hex);
-  var meta = SONIC_WORKSHOP_THEMES[theme] || SONIC_WORKSHOP_THEMES['coral-mirage'];
+  var meta = sonicWorkshopThemes()[theme] || sonicWorkshopThemes()['coral-mirage'];
   fx.sonicWorkshopColorMode = 'custom';
   fx.sonicWorkshopTheme = theme;
   fx.sonicWorkshopCustomColor = hex;
-  SONIC_WORKSHOP_COLOR_CONTROLS.forEach(function (item) {
+  sonicWorkshopColorControls().forEach(function (item) {
     if (item.id === 'theme') return;
     fx[item.modeKey] = 'custom';
     fx[item.colorKey] = normalizeHexColor(meta[item.id] || item.fallback, item.fallback);
   });
   pushSonicWorkshopColorChange('sonicWorkshopRegionColors');
-  if (!silent) showToast('\u97f3\u57df\u56de\u54cd\u00b7WE ' + SONIC_WORKSHOP_COLOR_CONTROLS[0].label + ': ' + fx.sonicWorkshopCustomColor.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('accent_soundfield_we_prefix') + sonicWorkshopColorControls()[0].label + ': ' + fx.sonicWorkshopCustomColor.toUpperCase());
 }
 function setSonicWorkshopRegionColorFromPicker(id, color, silent) {
   var item = sonicWorkshopRegionControl(id);
@@ -1166,5 +1209,5 @@ function setSonicWorkshopRegionColorFromPicker(id, color, silent) {
   fx[item.modeKey] = 'custom';
   fx[item.colorKey] = hex;
   pushSonicWorkshopColorChange(item.colorKey);
-  if (!silent) showToast('\u97f3\u57df\u56de\u54cd\u00b7WE ' + item.label + ': ' + hex.toUpperCase());
+  if (!silent) showToast(accentBackgroundControlsText('accent_soundfield_we_prefix') + item.label + ': ' + hex.toUpperCase());
 }

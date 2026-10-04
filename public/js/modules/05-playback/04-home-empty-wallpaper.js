@@ -1,3 +1,37 @@
+// 界面文案统一走 i18n；缺键时退回内置中文模板，界面不会出现空串或裸 key。
+// All UI copy goes through i18n and falls back to the built-in Chinese template, so the
+// UI never shows an empty string or a raw key.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function homeWallpaperText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var emptyHomeStartEl = document.getElementById('empty-home');
 if (emptyHomeStartEl) {
   emptyHomeStartEl.addEventListener('click', function (e) {
@@ -67,7 +101,7 @@ function openHomePlayerConsole() {
   forcePlaybackControlsInteractive();
   updateControlsChromeState();
   if (controlsAutoHide) scheduleControlsHide(1800);
-  showToast('播放器控制台已展开');
+  showToast(homeWallpaperText('homeempty_console_open'));
 }
 function ensureHomeWallpaperParticles(opts) {
   opts = opts || {};
@@ -207,7 +241,7 @@ async function playHomeDaily() {
     await loadHomeDiscover(true);
   }
   if (!homeDiscoverState.songs.length) {
-    runHomeSearch('每日推荐');
+    runHomeSearch(homeWallpaperText('home_daily', '每日推荐'));
     return;
   }
   playQueue = homeDiscoverState.songs.map(cloneSong);
@@ -240,7 +274,7 @@ async function playHomePrivateRadio() {
   }
   var item = homeDiscoverState.playlists[0];
   if (item && item.id) {
-    await loadPlaylistIntoQueueById(item.id, true, item.name || '私人雷达');
+    await loadPlaylistIntoQueueById(item.id, true, item.name || homeWallpaperText('home_private_radio', '私人电台'));
     return;
   }
   openHomeLibrary();
@@ -311,7 +345,7 @@ function openHomeLibrary() {
 function goHome() {
   if (homeForcedOpen || emptyHomeActive) {
     dismissHomePage({ toast: true });
-    showToast('已关闭 Home');
+    showToast(homeWallpaperText('homeempty_closed'));
     return;
   }
   homeSuppressed = false;
@@ -326,7 +360,7 @@ function goHome() {
   if (typeof setFocusZone === 'function') setFocusZone(null, true);
   if (orbit && orbit.focus) orbit.focus.active = false;
   updateEmptyHomeVisibility({ forceLoad: true });
-  showToast('已回到 Home');
+  showToast(homeWallpaperText('homeempty_back_home'));
 }
 function dismissHomePage(opts) {
   opts = opts || {};

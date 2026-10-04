@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { accessorBlock, i18nWindow } = require('./helpers/module-source');
 
 const appRoot = path.resolve(__dirname, '..');
 const libraryText = fs.readFileSync(
@@ -148,7 +149,15 @@ function extractFunction(text, signature) {
 function runBorderNotification(release) {
   const toasts = [];
   const context = vm.createContext({
-    window: { desktopWindow: release === undefined ? undefined : { systemRelease: release } },
+    // 通知函数调用了取词函数；带上访问器本体，并用 zh-CN 词典桩让 /Windows 10/ 与 /黄/
+    // 断言继续成立。桌面版本号是判定函数要读的，二者合并在同一个 window 上。
+    // The notifier calls the accessor; carry it along and answer from the zh-CN dictionary so
+    // the /Windows 10/ and /黄/ assertions hold. The desktop release is read by the gate helper,
+    // so both live on the same `window` object.
+    window: Object.assign(
+      { desktopWindow: release === undefined ? undefined : { systemRelease: release } },
+      i18nWindow('zh_cn')
+    ),
     showToast: (message) => toasts.push(String(message)),
   });
   vm.runInContext(
@@ -157,6 +166,7 @@ function runBorderNotification(release) {
     { filename: 'fx-defaults.js' }
   );
   vm.runInContext('var wallpaperEngineGlassBorderNotified = false;', context);
+  vm.runInContext(accessorBlock(libraryText), context, { filename: 'wallpaper-engine-library.js' });
   vm.runInContext(
     extractFunction(libraryText, 'function notifyWallpaperEngineGlassSamplerBorder() {'),
     context,

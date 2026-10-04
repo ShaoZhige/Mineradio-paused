@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
+const { i18nWindow } = require('./helpers/module-source');
 const root = path.resolve(__dirname, '..');
 
 function renderer() {
@@ -12,6 +13,10 @@ function renderer() {
   const notices = [];
   const context = vm.createContext({
     console: { warn() {} },
+    // 01/02 模块的取词函数读 window.MineradioI18n；注入 zh-CN 词典桩让「普通」等中文断言成立。
+    // The accessors in the 01/02 modules read window.MineradioI18n; inject the zh-CN stub so
+    // assertions like "普通" keep holding.
+    window: i18nWindow('zh_cn'),
     localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) },
     document: { getElementById: () => null },
     PROVIDER_VIP_AUDIT_STORE_KEY: 'audit',
@@ -161,6 +166,7 @@ test('a rejected fresh session stops the QR poll and displays a rescan action', 
   let stopped = false;
   const context = vm.createContext({
     console, qishuiQrPollGeneration: 1, loginProvider: 'qishui', qrKey: 'fixture-token', qishuiQrPollBusy: false,
+    window: i18nWindow('zh_cn'),
     document: { getElementById: () => element },
     apiJson: async () => ({ loggedIn: false, reauthRequired: true, status: 'reauth_required' }),
   });

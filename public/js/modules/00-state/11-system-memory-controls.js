@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function systemMemoryControlsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 var MEMORY_REDUCT_MASK_BITS = {
   workingSet: 1,
   modifiedList: 4,
@@ -62,30 +89,30 @@ function configureMemoryReductFromFx(reason, runNow) {
     updateMemoryControls();
     return payload;
   }).catch(function (error) {
-    updateMemoryStatusText('Mem Reduct 配置失败: ' + String(error && error.message || error || ''));
+    updateMemoryStatusText(systemMemoryControlsText('mem_reduct_config_failed') + String(error && error.message || error || ''));
     return null;
   });
 }
 
 function memoryFormatSnapshot(snapshot) {
-  if (!snapshot) return '系统内存读取中...';
+  if (!snapshot) return systemMemoryControlsText('mem_reading');
   var total = Math.round(Number(snapshot.totalMB) || 0);
   var used = Math.round(Number(snapshot.usedMB) || 0);
   var free = Math.round(Number(snapshot.freeMB) || 0);
   var percent = Math.round(Number(snapshot.usedPercent) || 0);
   var proc = snapshot.process || {};
   var rss = Math.round(Number(proc.rssMB) || 0);
-  return '系统 ' + used + '/' + total + ' MB (' + percent + '%), 可用 ' + free + ' MB, 播放器 ' + rss + ' MB';
+  return systemMemoryControlsText('mem_system_label') + used + '/' + total + ' MB (' + percent + systemMemoryControlsText('mem_available_label') + free + systemMemoryControlsText('mem_player_label') + rss + ' MB';
 }
 
 function updateMemoryStatusText(text) {
   var chip = document.getElementById('memory-status-chip');
-  if (chip) chip.textContent = text || '系统内存读取中...';
+  if (chip) chip.textContent = text || systemMemoryControlsText('mem_reading');
 }
 
 function refreshMemorySnapshot(force) {
   if (!window.desktopWindow || typeof window.desktopWindow.getMemorySnapshot !== 'function') {
-    updateMemoryStatusText('当前不是桌面版，系统内存优化不可用');
+    updateMemoryStatusText(systemMemoryControlsText('mem_desktop_only_unavailable'));
     return Promise.resolve(null);
   }
   var now = performance.now();
@@ -96,13 +123,13 @@ function refreshMemorySnapshot(force) {
   return window.desktopWindow.getMemorySnapshot().then(function (payload) {
     if (payload) rememberMemoryStatusPayload(payload);
     else memoryLastStatusPayload = null;
-    var status = payload && payload.ok ? memoryFormatSnapshot(payload.snapshot) : '系统内存读取失败';
-    if (payload && payload.elevated) status += ' | 管理员';
+    var status = payload && payload.ok ? memoryFormatSnapshot(payload.snapshot) : systemMemoryControlsText('mem_read_failed_short');
+    if (payload && payload.elevated) status += systemMemoryControlsText('mem_admin_suffix');
     updateMemoryStatusText(status);
     updateMemoryControls();
     return payload;
   }).catch(function (error) {
-    updateMemoryStatusText('系统内存读取失败: ' + String(error && error.message || error || ''));
+    updateMemoryStatusText(systemMemoryControlsText('mem_read_failed') + String(error && error.message || error || ''));
     return null;
   });
 }
@@ -172,27 +199,27 @@ function toggleMemoryMaskPart(part) {
 
 function runAppMemoryTrim(reason) {
   if (!window.desktopWindow || typeof window.desktopWindow.trimAppMemory !== 'function') {
-    showToast('桌面版才支持进程内存压缩');
+    showToast(systemMemoryControlsText('mem_trim_desktop_only'));
     return;
   }
-  updateMemoryStatusText('正在压缩播放器工作集...');
+  updateMemoryStatusText(systemMemoryControlsText('mem_trimming'));
   window.desktopWindow.trimAppMemory({ reason: reason || 'manual' }).then(function (payload) {
-    if (payload && payload.ok && payload.after) updateMemoryStatusText('播放器已压缩: ' + memoryFormatSnapshot(payload.after));
-    else if (payload && payload.skipped && payload.reason === 'foreground-visible') updateMemoryStatusText('前台可见时不压缩，避免操作卡顿；最小化/隐藏后自动处理');
-    else updateMemoryStatusText('播放器压缩未完成');
+    if (payload && payload.ok && payload.after) updateMemoryStatusText(systemMemoryControlsText('mem_trim_done') + memoryFormatSnapshot(payload.after));
+    else if (payload && payload.skipped && payload.reason === 'foreground-visible') updateMemoryStatusText(systemMemoryControlsText('mem_trim_skip_foreground'));
+    else updateMemoryStatusText(systemMemoryControlsText('mem_trim_incomplete'));
     refreshMemorySnapshot(true);
   }).catch(function (error) {
-    updateMemoryStatusText('播放器压缩失败: ' + String(error && error.message || error || ''));
+    updateMemoryStatusText(systemMemoryControlsText('mem_trim_failed') + String(error && error.message || error || ''));
   });
 }
 
 function runSystemMemoryPurge(autoElevate) {
   ensureMemoryFxDefaults();
   if (!window.desktopWindow || typeof window.desktopWindow.purgeSystemMemory !== 'function') {
-    showToast('桌面版才支持系统级释放');
+    showToast(systemMemoryControlsText('mem_system_purge_desktop_only'));
     return;
   }
-  updateMemoryStatusText(autoElevate ? '正在请求提权系统释放（前台可见时会跳过）...' : '正在尝试系统级手动释放（前台可见时会跳过）...');
+  updateMemoryStatusText(autoElevate ? systemMemoryControlsText('mem_trying_elevated_purge') : systemMemoryControlsText('mem_trying_manual_purge'));
   window.desktopWindow.purgeSystemMemory({
     mask: normalizeMemorySystemMask(fx && fx.memorySystemMask),
     autoElevate: !!autoElevate,
@@ -201,20 +228,20 @@ function runSystemMemoryPurge(autoElevate) {
     rememberMemoryStatusPayload(payload);
     var result = payload && payload.result;
     if (result && result.skipped && result.reason === 'foreground-visible') {
-      updateMemoryStatusText('前台可见时不执行系统释放；先最小化/隐藏再用，避免操作卡顿');
-      showToast('前台已跳过系统释放，最小化后再用');
+      updateMemoryStatusText(systemMemoryControlsText('mem_skip_foreground'));
+      showToast(systemMemoryControlsText('mem_skipped_foreground_toast'));
     } else if (result && result.ok) {
-      updateMemoryStatusText('系统释放完成，约释放 ' + (result.freedMB || 0) + ' MB' + (result.partial ? '（部分权限）' : ''));
-      showToast('系统释放完成');
+      updateMemoryStatusText(systemMemoryControlsText('mem_purge_done_freed') + (result.freedMB || 0) + ' MB' + (result.partial ? systemMemoryControlsText('mem_partial_suffix') : ''));
+      showToast(systemMemoryControlsText('mem_purge_done'));
     } else if (result && result.needAdmin) {
-      updateMemoryStatusText(autoElevate ? '提权释放未完成：可能取消了管理员权限或被系统拦截' : '当前权限只能完成部分释放；需要时可最小化后点提权释放');
-      showToast(autoElevate ? '提权释放未完成' : '需要管理员权限的部分已跳过');
+      updateMemoryStatusText(autoElevate ? systemMemoryControlsText('mem_elevated_incomplete_reason') : systemMemoryControlsText('mem_partial_only'));
+      showToast(autoElevate ? systemMemoryControlsText('mem_elevated_purge_incomplete') : systemMemoryControlsText('mem_admin_part_skipped'));
     } else {
-      updateMemoryStatusText('系统释放未完成: ' + String(result && result.message || payload && payload.error || ''));
+      updateMemoryStatusText(systemMemoryControlsText('mem_purge_incomplete') + String(result && result.message || payload && payload.error || ''));
     }
     refreshMemorySnapshot(true);
   }).catch(function (error) {
-    updateMemoryStatusText('系统释放失败: ' + String(error && error.message || error || ''));
+    updateMemoryStatusText(systemMemoryControlsText('mem_purge_failed') + String(error && error.message || error || ''));
   });
 }
 

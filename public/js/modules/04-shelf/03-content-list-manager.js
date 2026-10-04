@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function contentListManagerText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 // ============================================================
 function makeContentListManager() {
   var group = null;
@@ -112,15 +139,15 @@ function makeContentListManager() {
     ctx.stroke();
     ctx.font = '800 38px Inter, "Microsoft YaHei", Arial';
     ctx.fillStyle = 'rgba(255,246,220,0.94)';
-    ctx.fillText(ellipsize(ctx, playlistTitle || '歌单详情', W - 310), 72, 92);
+    ctx.fillText(ellipsize(ctx, playlistTitle || contentListManagerText('pl_detail'), W - 310), 72, 92);
     ctx.font = '500 18px Inter, "Microsoft YaHei", Arial';
     ctx.fillStyle = canvasAccent(0.62);
     var playableCount = allTracks.filter(function (song) { return song && song.id && song.type !== 'podcast-radio'; }).length;
     var contentCount = allTracks.filter(function (song) { return song && song.id; }).length;
     var isLoading = allTracks.length === 1 && isLoadingLabel(allTracks[0] && allTracks[0].name);
     var countLabel = contentKind === 'podcast'
-      ? (contentCount ? (contentCount + ' 项播客内容') : (isLoading ? '正在载入' : '暂无播客内容'))
-      : (playableCount ? (playableCount + ' 首歌曲') : (isLoading ? '正在载入' : '暂无可播放歌曲'));
+      ? (contentCount ? (contentCount + contentListManagerText('clm_podcast_items_suffix')) : (isLoading ? contentListManagerText('clm_loading_short') : contentListManagerText('clm_no_podcast')))
+      : (playableCount ? (playableCount + contentListManagerText('clm_songs_suffix')) : (isLoading ? contentListManagerText('clm_loading_short') : contentListManagerText('clm_no_playable')));
     if (contentKind !== 'podcast' && contentTotalCount && contentTotalCount > playableCount) {
       countLabel = playableCount + '/' + contentTotalCount + (contentLoadingMore ? ' loading' : ' loaded');
     }
@@ -291,7 +318,7 @@ function makeContentListManager() {
       return added > 0;
     } catch (e) {
       console.warn('[ShelfContentLoadMore]', reason || '', e);
-      if (open && token === requestToken) showToast('歌单后续加载失败');
+      if (open && token === requestToken) showToast(contentListManagerText('clm_more_failed'));
       return false;
     } finally {
       if (open && token === requestToken) {
@@ -385,7 +412,7 @@ function makeContentListManager() {
     if (loadingRow) {
       ctx.font = '700 22px Inter, "Microsoft YaHei", Arial';
       ctx.fillStyle = 'rgba(255,247,224,0.88)';
-      ctx.fillText('正在载入歌单', textX, 42);
+      ctx.fillText(contentListManagerText('clm_loading_playlist'), textX, 42);
       var phase = ((uniforms.uTime.value || 0) * 0.85) % 1;
       for (var sk = 0; sk < 3; sk++) {
         var barY = 58 + sk * 13;
@@ -482,7 +509,7 @@ function makeContentListManager() {
       ctx.stroke();
       ctx.font = '700 15px Inter, Arial';
       ctx.fillStyle = readableInkForHex(shelfAccentHex());
-      ctx.fillText('播放', btnX + 36, btnY + 29);
+      ctx.fillText(contentListManagerText('hotkey_cat_playback'), btnX + 36, btnY + 29);
     }
     row.texture.needsUpdate = true;
   }
@@ -694,7 +721,7 @@ function makeContentListManager() {
         // 清旧
         disposeRows();
         // loading 行
-        allTracks = [{ name: '加载中…', artist: '' }];
+        allTracks = [{ name: contentListManagerText('clm_loading'), artist: '' }];
         panelDirty = true;
         rowsDirty = true;
         syncRenderedRows(true);
@@ -732,7 +759,7 @@ function makeContentListManager() {
         if (!open || token !== requestToken) return;
         console.warn('[ShelfContentLoadApi]', playlistId, e);
         try {
-          allTracks = [{ name: '歌单加载失败', artist: '' }];
+          allTracks = [{ name: contentListManagerText('clm_playlist_load_failed'), artist: '' }];
           panelDirty = true;
           rowsDirty = true;
           startRowsLoadedIntro();
@@ -740,7 +767,7 @@ function makeContentListManager() {
         } catch (renderErrorErr) {
           console.warn('[ShelfContentErrorRender]', playlistId, renderErrorErr);
         }
-        showToast('歌单加载失败');
+        showToast(contentListManagerText('clm_playlist_load_failed'));
         return;
       }
       if (!open || token !== requestToken) return;
@@ -749,7 +776,7 @@ function makeContentListManager() {
         disposeRows();
         var tracks = podcastCollectionKey ? (r.items || []) : (r.tracks || []);
         if (!tracks.length) {
-          allTracks = [{ name: podcastCollectionKey ? '播客为空' : '歌单为空', artist: '' }];
+          allTracks = [{ name: podcastCollectionKey ? contentListManagerText('clm_podcast_empty') : contentListManagerText('pod_empty'), artist: '' }];
           panelDirty = true;
           rowsDirty = true;
           startRowsLoadedIntro();
@@ -771,7 +798,7 @@ function makeContentListManager() {
         scheduleContentWarmPrefetch(token);
       } catch (renderReadyErr) {
         console.warn('[ShelfContentReadyRender]', playlistId, renderReadyErr);
-        showToast('歌单已载入，3D列表刷新失败');
+        showToast(contentListManagerText('clm_3d_refresh_failed'));
       }
     },
     close: function () {

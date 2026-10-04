@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function ripplesCoverDepthText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 // ============================================================
 var rippleIdx = 0;
 var lastRippleAt = 0;
@@ -189,7 +216,7 @@ async function ensureAIDepthPipeline() {
   if (aiDepthBusy) return null;
   aiDepthBusy = true;
   try {
-    showAIDepthChip('加载 AI 深度模型 (首次需下载 50MB)…');
+    showAIDepthChip(ripplesCoverDepthText('depth_loading_model'));
     var mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
     mod.env.allowLocalModels = false;
     if (mod.env.backends && mod.env.backends.onnx && mod.env.backends.onnx.wasm) mod.env.backends.onnx.wasm.numThreads = 1;
@@ -221,7 +248,7 @@ function makeAIDepthInputCanvas(srcCanvas) {
 async function estimateAIDepth(srcCanvas, token) {
   if (!fx.aiDepth) return null;
   if (performance.now() < aiDepthFailUntil) return null;
-  showAIDepthChip('后台增强封面深度…');
+  showAIDepthChip(ripplesCoverDepthText('depth_enhancing'));
   try {
     var pipe = await ensureAIDepthPipeline();
     if (!pipe) { hideAIDepthChip(); return null; }
@@ -305,7 +332,7 @@ function queueAIDepthForCover(srcCanvas, edgeCanvas, token, opts, cacheSeed, for
     coverEdgeTex.needsUpdate = true;
     setCoverDepthState(1, 1.0, 360);
     setCoverDepthCache(cacheSeed, edgeCanvas, true);
-    showToast('AI 深度已后台增强');
+    showToast(ripplesCoverDepthText('depth_ai_enhanced'));
   }, force ? 240 : 1800, force ? 1200 : 3000);
 }
 

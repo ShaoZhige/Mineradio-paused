@@ -1,13 +1,57 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function consoleWorkspaceText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 'use strict';
 
-var FX_CONSOLE_TABS = [
-  { key: 'home', label: '常用' },
-  { key: 'interface', label: '界面' },
-  { key: 'lyrics', label: '歌词' },
-  { key: 'motion', label: '动效' },
-  { key: 'shelf', label: '歌单架' },
-  { key: 'system', label: '系统' }
-];
+// ⚠️ 同样是函数，原因与 fxConsoleLayout() 完全一致：顶层求值会把解析期取到的键名固化下来，
+// 6 个分类标签页会一直显示 fx_cat_common / fx_cat_ui / hotkey_cat_lyrics 等键名。
+// Same reason as fxConsoleLayout(): evaluating at module scope freezes the key names resolved
+// during parse, leaving the six category tabs labelled fx_cat_common / fx_cat_ui /
+// hotkey_cat_lyrics instead of 常用 / 界面 / 歌词.
+function fxConsoleTabs() {
+  return [
+    { key: 'home', label: consoleWorkspaceText('fx_cat_common') },
+    { key: 'interface', label: consoleWorkspaceText('fx_cat_ui') },
+    { key: 'lyrics', label: consoleWorkspaceText('hotkey_cat_lyrics') },
+    { key: 'motion', label: consoleWorkspaceText('fx_cat_motion') },
+    { key: 'shelf', label: consoleWorkspaceText('fx_cat_shelf') },
+    { key: 'system', label: consoleWorkspaceText('fx_cat_system') }
+  ];
+}
 
 // `child: true` 把该项渲染成上一个 toggle 的从属控件（缩进 + 左侧导线），用于"开关 + 它的参数"
 // 这种层级：参数在语义上依附于那个开关，而不是组里的并列项。
@@ -24,17 +68,37 @@ function fxConsoleItem(ref, title, aliases, history, child) {
   };
 }
 
-var FX_CONSOLE_LAYOUT = [
+// ⚠️ 必须是**函数**，不能在模块顶层求值成常量。
+// 这里的 consoleWorkspaceText() 在解析期就会跑，而词典要等 DOMContentLoaded 才异步加载完，
+// 于是取到的是键名本身。写成 `var FX_CONSOLE_LAYOUT = [...]` 时，这份数据在首次求值那一刻
+// 就被永久固化成键名 —— 之后无论重建多少次 DOM，标题栏那些 hint 都还是 fx_xxx_hint，
+// 因为**坏的是数据源，不是显示层**。改成函数后，每次重建都重新取词。
+// （实测：修好之前 6 个分组标题里仍显示 fx_preset_flow_hint / fx_background_hint 等 21 处键名。）
+//
+// 分类标签页数据同理，同样必须是函数：顶层求值会把解析期取到的键名固化，
+// 6 个标签页会一直显示 fx_cat_common / fx_cat_ui / hotkey_cat_lyrics 等键名。
+// The tab metadata is a function for the same reason: as a module-level constant it froze the
+// key names resolved during parse, leaving all six tabs labelled fx_cat_common / fx_cat_ui /
+// hotkey_cat_lyrics.
+//
+// It must be a FUNCTION, not a module-level constant. The consoleWorkspaceText() calls below
+// run during parse, but the dictionary only finishes loading asynchronously at
+// DOMContentLoaded, so they resolve to the key itself. As a `var ... = [...]` constant that
+// text was frozen into the data at first evaluation — no amount of DOM rebuilding could fix
+// it, because the data source, not the view, was stale. Measured before this change: 21 key
+// names such as fx_preset_flow_hint / fx_background_hint still showed in group headings.
+function fxConsoleLayout() {
+  return [
   {
     key: 'home',
     groups: [
-      { key: 'presets', title: '视觉预设', hint: '先选整体风格，再进入细节调整', open: true, items: [
+      { key: 'presets', title: '视觉预设', hint: consoleWorkspaceText('fx_preset_flow_hint'), open: true, items: [
         fxConsoleItem('preset-grid', '视觉预设', '风格 场景 Emily 安魂 音域 星河 唱片 星球 滚筒 虚空 月蚀圣环 雨幕霓虹 折光蝶群 深海绽放 Eclipse Halo Neon Drizzle Prism Flock Abyssal Bloom')
       ] },
-      { key: 'archives', title: '用户存档', hint: '保存、应用和分享整套视觉参数', items: [
+      { key: 'archives', title: '用户存档', hint: consoleWorkspaceText('fx_preset_hint'), items: [
         fxConsoleItem('user-archive-grid', '用户存档', '方案 快照 预设码 应用 回退')
       ] },
-      { key: 'reset', title: '恢复与整理', hint: '恢复全部默认参数', items: [
+      { key: 'reset', title: consoleWorkspaceText('fx_cat_reset'), hint: consoleWorkspaceText('fx_reset_all'), items: [
         fxConsoleItem({ selector: '.fx-actions' }, '恢复默认', '重置 全部默认')
       ] }
     ]
@@ -42,13 +106,13 @@ var FX_CONSOLE_LAYOUT = [
   {
     key: 'interface',
     groups: [
-      { key: 'background', title: '背景媒体', hint: '颜色、封面、图片与视频', open: true, items: [
-        fxConsoleItem('bg-color-picker', '背景颜色', '纯色 封面取色'),
-        fxConsoleItem('bg-media-preview', '背景媒体', '封面 图片 视频 上传 裁切 清除', false),
-        fxConsoleItem('fx-bgopacity', '背景透明度', '背景强度'),
-        fxConsoleItem('fx-bgcropx', '裁切左右', '背景水平 位置'),
-        fxConsoleItem('fx-bgcropy', '裁切上下', '背景垂直 位置'),
-        fxConsoleItem('fx-bgzoom', '裁切缩放', '背景放大 缩小')
+      { key: 'background', title: consoleWorkspaceText('bg_media', '背景媒体'), hint: consoleWorkspaceText('fx_background_hint'), open: true, items: [
+        fxConsoleItem('bg-color-picker', consoleWorkspaceText('bg_color_label', '背景颜色'), '纯色 封面取色'),
+        fxConsoleItem('bg-media-preview', consoleWorkspaceText('bg_media', '背景媒体'), '封面 图片 视频 上传 裁切 清除', false),
+        fxConsoleItem('fx-bgopacity', consoleWorkspaceText('bg_opacity', '背景透明度'), '背景强度'),
+        fxConsoleItem('fx-bgcropx', consoleWorkspaceText('fx_crop_horizontal'), '背景水平 位置'),
+        fxConsoleItem('fx-bgcropy', consoleWorkspaceText('fx_crop_vertical'), '背景垂直 位置'),
+        fxConsoleItem('fx-bgzoom', consoleWorkspaceText('fx_crop_zoom'), '背景放大 缩小')
       ] },
       // Wallpaper Engine 独立成组：它自带一个识别/导入/恢复的状态行和两个行为开关，
       // 再加一组只在壁纸为背景时才生效的构图滑块，混在"背景媒体"里既互相干扰也不好找。
@@ -58,59 +122,59 @@ var FX_CONSOLE_LAYOUT = [
       // the background. Mixed into "背景媒体" they crowd each other and are hard to find. Those four
       // WE sliders had no group registration at all and were being swept into "其他设置" by the
       // residual fallback; register them here as well.
-      { key: 'wallpaper-engine', title: 'Wallpaper Engine', hint: '识别导入、窗口行为与壁纸构图', items: [
+      { key: 'wallpaper-engine', title: 'Wallpaper Engine', hint: consoleWorkspaceText('fx_we_compose_hint'), items: [
         fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false),
-        fxConsoleItem('t-wallpaperEngineSilentWindows', 'WE 窗口静默', '任务栏 隐藏 Alt+Tab 进程提醒 静默'),
-        fxConsoleItem('t-wallpaperEngineGlassSampler', 'WE 玻璃采样', '捕获 黄框 玻璃 像素 采样 Win10'),
-        fxConsoleItem('wallpaper-engine-opacity', 'WE 壁纸透明度', 'WE 透明 壁纸 淡'),
-        fxConsoleItem('wallpaper-engine-position-x', 'WE 水平位置', 'WE 左右 水平 位移'),
-        fxConsoleItem('wallpaper-engine-position-y', 'WE 垂直位置', 'WE 上下 垂直 位移'),
-        fxConsoleItem('wallpaper-engine-scale', 'WE 壁纸缩放', 'WE 缩放 放大 缩小')
+        fxConsoleItem('t-wallpaperEngineSilentWindows', consoleWorkspaceText('fx_we_window_silence'), '任务栏 隐藏 Alt+Tab 进程提醒 静默'),
+        fxConsoleItem('t-wallpaperEngineGlassSampler', consoleWorkspaceText('fx_we_glass'), '捕获 黄框 玻璃 像素 采样 Win10'),
+        fxConsoleItem('wallpaper-engine-opacity', consoleWorkspaceText('fx_we_opacity'), 'WE 透明 壁纸 淡'),
+        fxConsoleItem('wallpaper-engine-position-x', consoleWorkspaceText('bg_we_pos_x'), 'WE 左右 水平 位移'),
+        fxConsoleItem('wallpaper-engine-position-y', consoleWorkspaceText('bg_we_pos_y'), 'WE 上下 垂直 位移'),
+        fxConsoleItem('wallpaper-engine-scale', consoleWorkspaceText('fx_we_zoom'), 'WE 缩放 放大 缩小')
       ] },
-      { key: 'colors', title: '界面配色', hint: '界面高亮、视觉主色与图标颜色', items: [
-        fxConsoleItem('ui-accent-picker', '界面高亮', '主题色 强调色'),
-        fxConsoleItem('visual-tint-picker', '视觉主色', '粒子主色 封面取色'),
-        fxConsoleItem('home-accent-picker', 'Home 填充', '主页颜色'),
-        fxConsoleItem('home-icon-picker', '主页图标', 'Home 图标颜色'),
-        fxConsoleItem('visual-icon-picker', '视觉图标', '控制台图标颜色')
+      { key: 'colors', title: consoleWorkspaceText('fx_cat_ui_color'), hint: consoleWorkspaceText('fx_ui_color_hint'), items: [
+        fxConsoleItem('ui-accent-picker', consoleWorkspaceText('ui_accent_label', '界面高亮'), '主题色 强调色'),
+        fxConsoleItem('visual-tint-picker', consoleWorkspaceText('visual_main_color', '视觉主色'), '粒子主色 封面取色'),
+        fxConsoleItem('home-accent-picker', consoleWorkspaceText('home_fill_label', 'Home 填充'), '主页颜色'),
+        fxConsoleItem('home-icon-picker', consoleWorkspaceText('home_icon_color', '主页图标'), 'Home 图标颜色'),
+        fxConsoleItem('visual-icon-picker', consoleWorkspaceText('visual_icon_color', '视觉图标'), '控制台图标颜色')
       ] },
-      { key: 'glass', title: '玻璃与左栏', hint: '窗口玻璃质感和歌单栏唤出手感', items: [
-        fxConsoleItem('fx-windowbgopacity', '窗口背景透明', '窗口透明度'),
-        fxConsoleItem('fx-bgglassopacity', '毛玻璃透明', '玻璃 背景模糊'),
-        fxConsoleItem('fx-glassaberration', '控制台玻璃色差', 'RGB 色散 玻璃质感'),
-        fxConsoleItem('fx-playlistblur', '左栏雾面', '歌单栏 模糊'),
-        fxConsoleItem('fx-playlistdensity', '左栏遮挡', '歌单栏 密度 透明'),
-        fxConsoleItem('fx-playlistopen', '左栏唤出', '打开速度 秒数'),
-        fxConsoleItem('fx-playlistclose', '左栏收起', '关闭速度 秒数')
+      { key: 'glass', title: consoleWorkspaceText('fx_cat_glass_leftbar'), hint: consoleWorkspaceText('fx_glass_hint'), items: [
+        fxConsoleItem('fx-windowbgopacity', consoleWorkspaceText('fx_window_bg_transparent'), '窗口透明度'),
+        fxConsoleItem('fx-bgglassopacity', consoleWorkspaceText('fx_glass_opacity'), '玻璃 背景模糊'),
+        fxConsoleItem('fx-glassaberration', consoleWorkspaceText('console_glass_aberration', '控制台玻璃色差'), 'RGB 色散 玻璃质感'),
+        fxConsoleItem('fx-playlistblur', consoleWorkspaceText('fx_leftbar_frost'), '歌单栏 模糊'),
+        fxConsoleItem('fx-playlistdensity', consoleWorkspaceText('fx_leftbar_occlusion'), '歌单栏 密度 透明'),
+        fxConsoleItem('fx-playlistopen', consoleWorkspaceText('fx_leftbar_open'), '打开速度 秒数'),
+        fxConsoleItem('fx-playlistclose', consoleWorkspaceText('fx_left_close'), '关闭速度 秒数')
       ] }
     ]
   },
   {
     key: 'lyrics',
     groups: [
-      { key: 'display', title: '显示与翻译', hint: '歌词来源、行数和双语译文', open: true, items: [
-        fxConsoleItem('lyric-source-seg', '歌词来源', '原词 自定义歌词', false),
+      { key: 'display', title: consoleWorkspaceText('fx_cat_lyric_translation'), hint: consoleWorkspaceText('fx_lyric_display_hint'), open: true, items: [
+        fxConsoleItem('lyric-source-seg', consoleWorkspaceText('fx_lyric_source'), '原词 自定义歌词', false),
         fxConsoleItem('lyric-display-mode-seg', '歌词行数', '单行 双行 三行 沉浸 自定义'),
-        fxConsoleItem('fx-lyriccustomlines', '显示行数', '自定义歌词行数'),
+        fxConsoleItem('fx-lyriccustomlines', consoleWorkspaceText('fx_lyric_line_count'), '自定义歌词行数'),
         fxConsoleItem('lyric-translation-mode-seg', '双语翻译', '译文 当前 双行 多行 关闭'),
-        fxConsoleItem('fx-lyrictranslationgap', '译文间距', '翻译距离'),
-        fxConsoleItem('fx-lyrictranslationscale', '译文字号', '翻译大小'),
-        fxConsoleItem('fx-lyrictranslationopacity', '译文透明', '翻译透明度')
+        fxConsoleItem('fx-lyrictranslationgap', consoleWorkspaceText('fx_translation_gap'), '翻译距离'),
+        fxConsoleItem('fx-lyrictranslationscale', consoleWorkspaceText('fx_translation_size'), '翻译大小'),
+        fxConsoleItem('fx-lyrictranslationopacity', consoleWorkspaceText('fx_translation_opacity'), '翻译透明度')
       ] },
-      { key: 'colors', title: '颜色与光效', hint: '文字、高亮、溢光和亮底可读性', items: [
+      { key: 'colors', title: consoleWorkspaceText('fx_cat_lyric_color'), hint: consoleWorkspaceText('fx_lyric_color_hint'), items: [
         fxConsoleItem('lyric-color-grid', '歌词颜色', '文字颜色 封面取色'),
-        fxConsoleItem('lyric-color-picker', '歌词自定义颜色', '文字色轮'),
-        fxConsoleItem('lyric-highlight-picker', '跟唱高亮', '高亮颜色 逐字'),
-        fxConsoleItem('lyric-glow-picker', '歌词溢光颜色', '辉光 光晕 颜色'),
-        fxConsoleItem({ selector: '.lyric-glow-effect-row' }, '歌词溢光开关', '后层溢光 跟随鼓点'),
+        fxConsoleItem('lyric-color-picker', consoleWorkspaceText('fx_lyric_custom_color'), '文字色轮'),
+        fxConsoleItem('lyric-highlight-picker', consoleWorkspaceText('fx_lyric_karaoke_highlight'), '高亮颜色 逐字'),
+        fxConsoleItem('lyric-glow-picker', consoleWorkspaceText('fx_lyric_bloom_color'), '辉光 光晕 颜色'),
+        fxConsoleItem({ selector: '.lyric-glow-effect-row' }, consoleWorkspaceText('fx_lyric_bloom_toggle'), '后层溢光 跟随鼓点'),
         fxConsoleItem('fx-lyricglow', '溢光强度', '歌词辉光 强度'),
-        fxConsoleItem('fx-lyricbgadapt', '亮底避光', '亮背景 可读性 自动压光'),
+        fxConsoleItem('fx-lyricbgadapt', consoleWorkspaceText('fx_lyric_bright_avoid'), '亮背景 可读性 自动压光'),
         fxConsoleItem('t-lyricGlow', '歌词溢光', '后层辉光 开关'),
         fxConsoleItem('t-lyricGlowBeat', '鼓点溢光', '歌词辉光 跟随节拍'),
         fxConsoleItem('t-lyricGlowParticles', '歌词光粒', '歌词粒子 光点')
       ] },
-      { key: 'type', title: '字体与排版', hint: '字体、字重、大小、位置和角度', items: [
-        fxConsoleItem('lyric-texture-quality-seg', '歌词清晰度', '分辨率 纹理 1x 2x 3x 4x 标清 高清 超清 极致 低配 显存 放大 清楚'),
+      { key: 'type', title: consoleWorkspaceText('fx_cat_typography'), hint: consoleWorkspaceText('fx_typography_hint'), items: [
+        fxConsoleItem('lyric-texture-quality-seg', consoleWorkspaceText('fx_lyric_resolution'), '分辨率 纹理 1x 2x 3x 4x 标清 高清 超清 极致 低配 显存 放大 清楚'),
         fxConsoleItem('lyric-font-grid', '歌词字体', '黑体 宋体 楷宋 Serif Gothic 等宽 上传字体'),
         fxConsoleItem('fx-lyricspacing', '字间距', '文字间距'),
         fxConsoleItem('fx-lyriclineheight', '行距', '歌词行间距'),
@@ -119,121 +183,121 @@ var FX_CONSOLE_LAYOUT = [
         fxConsoleItem('fx-lyricx', '左右位置', '歌词水平'),
         fxConsoleItem('fx-lyricy', '上下位置', '歌词垂直 高度'),
         fxConsoleItem('fx-lyricz', '前后景深', '歌词远近 Z'),
-        fxConsoleItem('fx-lyrictiltx', '上下旋转', '歌词俯仰'),
-        fxConsoleItem('fx-lyrictilty', '左右旋转', '歌词侧旋')
+        fxConsoleItem('fx-lyrictiltx', consoleWorkspaceText('fx_lyric_pitch'), '歌词俯仰'),
+        fxConsoleItem('fx-lyrictilty', consoleWorkspaceText('fx_lyric_side_rotation'), '歌词侧旋')
       ] },
-      { key: 'motion', title: '歌词动画', hint: '滚动手感、上下文层次与故障效果', items: [
-        fxConsoleItem('lyric-motion-style-seg', '歌词动画', '漂浮 柔滑 玻璃 线光 故障'),
-        fxConsoleItem('lyric-glitch-controls', '故障细节', '故障强度 切片 色散 触发速度 抖动 鼓点'),
-        fxConsoleItem('fx-lyriccontextopacity', '上下句清晰', '上下文透明度'),
-        fxConsoleItem('fx-lyriccontextspread', '上下句间距', '上下文距离'),
-        fxConsoleItem('fx-lyricedgefade', '边缘渐隐', '歌词边缘淡出'),
-        fxConsoleItem('fx-lyricmotionsoftness', '动画柔顺', '歌词滚动 丝滑 缓动'),
-        fxConsoleItem('t-lyricVerticalFloat', '歌词上下浮动', '漂浮 垂直'),
+      { key: 'motion', title: consoleWorkspaceText('fx_cat_lyric_animation'), hint: consoleWorkspaceText('fx_lyric_scroll_hint'), items: [
+        fxConsoleItem('lyric-motion-style-seg', consoleWorkspaceText('fx_cat_lyric_animation'), '漂浮 柔滑 玻璃 线光 故障'),
+        fxConsoleItem('lyric-glitch-controls', consoleWorkspaceText('fx_glitch_detail'), '故障强度 切片 色散 触发速度 抖动 鼓点'),
+        fxConsoleItem('fx-lyriccontextopacity', consoleWorkspaceText('fx_lyric_context_clarity'), '上下文透明度'),
+        fxConsoleItem('fx-lyriccontextspread', consoleWorkspaceText('fx_lyric_context_gap'), '上下文距离'),
+        fxConsoleItem('fx-lyricedgefade', consoleWorkspaceText('fx_lyric_edge_fade'), '歌词边缘淡出'),
+        fxConsoleItem('fx-lyricmotionsoftness', consoleWorkspaceText('fx_lyric_smoothing'), '歌词滚动 丝滑 缓动'),
+        fxConsoleItem('t-lyricVerticalFloat', consoleWorkspaceText('fx_lyric_float'), '漂浮 垂直'),
         fxConsoleItem('t-lyricCameraLock', '歌词镜头绑定', '跟随镜头 锁定'),
-        fxConsoleItem('t-lyricPauseHold', '暂停保留歌词', '暂停不隐藏')
+        fxConsoleItem('t-lyricPauseHold', consoleWorkspaceText('fx_pause_keep_lyric'), '暂停不隐藏')
       ] },
-      { key: 'desktop', title: '桌面歌词', hint: '桌面层开关、位置、透明度和帧数', items: [
+      { key: 'desktop', title: '桌面歌词', hint: consoleWorkspaceText('fx_desktop_lyrics_hint'), items: [
         fxConsoleItem('t-desktopLyrics', '桌面歌词', '全屏置顶歌词'),
         fxConsoleItem('t-desktopLyricsClickThrough', '桌面歌词锁定', '鼠标穿透 防误触'),
         fxConsoleItem('t-desktopLyricsCinema', '桌面歌词电影震动', '桌面歌词 鼓点'),
         fxConsoleItem('t-desktopLyricsHighlight', '桌面歌词高亮跟随', '桌面逐字高亮'),
         fxConsoleItem('fx-desktoplyricssize', '桌面歌词大小', '桌面字号'),
-        fxConsoleItem('fx-desktoplyricsopacity', '桌面歌词透明度', '桌面歌词透明'),
+        fxConsoleItem('fx-desktoplyricsopacity', consoleWorkspaceText('fx_desktop_lyrics_opacity'), '桌面歌词透明'),
         fxConsoleItem('fx-desktoplyricsy', '桌面歌词高度', '桌面位置'),
-        fxConsoleItem('desktop-lyrics-fps-seg', '桌面歌词帧率', '24 30 60 120 无上限 FPS')
+        fxConsoleItem('desktop-lyrics-fps-seg', consoleWorkspaceText('fx_desktop_lyrics_fps'), '24 30 60 120 无上限 FPS')
       ] }
     ]
   },
   {
     key: 'motion',
     groups: [
-      { key: 'base', title: '基础画面', hint: '整体律动、景深、封面和电影镜头', open: true, items: [
-        fxConsoleItem('fx-intensity', '律动强度', '音乐响应 节奏'),
-        fxConsoleItem('fx-depth', '画面景深', '立体感 深度'),
-        fxConsoleItem('fx-coverres', '封面清晰度', '粒子数量 分辨率'),
-        fxConsoleItem('fx-cineshake', '电影镜头', '镜头晃动 强度'),
-        fxConsoleItem('t-cinema', '电影镜头开关', '动态镜头')
+      { key: 'base', title: consoleWorkspaceText('fx_cat_scene'), hint: consoleWorkspaceText('fx_scene_hint'), open: true, items: [
+        fxConsoleItem('fx-intensity', consoleWorkspaceText('rhythm_intensity', '律动强度'), '音乐响应 节奏'),
+        fxConsoleItem('fx-depth', consoleWorkspaceText('fx_scene_depth'), '立体感 深度'),
+        fxConsoleItem('fx-coverres', consoleWorkspaceText('cover_clarity', '封面清晰度'), '粒子数量 分辨率'),
+        fxConsoleItem('fx-cineshake', consoleWorkspaceText('toggle_cinema', '电影镜头'), '镜头晃动 强度'),
+        fxConsoleItem('t-cinema', consoleWorkspaceText('fx_cinema_toggle'), consoleWorkspaceText('shelf_camera_dynamic', '动态镜头'))
       ] },
-      { key: 'particles', title: '粒子与光影', hint: '粒子尺寸、运动、扭曲和溢光', items: [
-        fxConsoleItem('t-float', '浮空粒子层', '漂浮粒子'),
-        fxConsoleItem('t-bloom', '粒子溢光', '粒子光晕'),
-        fxConsoleItem('t-edge', '轮廓高亮', '边缘光'),
-        fxConsoleItem('t-backgroundStarRiver', '背景星河', '星空 粒子背景'),
-        fxConsoleItem('fx-point', '粒子尺寸', '点大小'),
-        fxConsoleItem('fx-speed', '运动速度', '粒子流速'),
-        fxConsoleItem('fx-twist', '粒子扭曲', '旋转 扭曲'),
-        fxConsoleItem('fx-color', '色彩张力', '粒子颜色 饱和'),
-        fxConsoleItem('fx-bloom', '光晕强度', '溢光 bloom'),
-        fxConsoleItem('fx-scatter', '离散感', '粒子散开'),
-        fxConsoleItem('fx-bgfade', '背景压暗', '背景压缩 暗度')
+      { key: 'particles', title: consoleWorkspaceText('fx_cat_particles'), hint: consoleWorkspaceText('fx_particle_hint'), items: [
+        fxConsoleItem('t-float', consoleWorkspaceText('toggle_float_layer', '浮空粒子层'), '漂浮粒子'),
+        fxConsoleItem('t-bloom', consoleWorkspaceText('toggle_bloom', '粒子溢光'), '粒子光晕'),
+        fxConsoleItem('t-edge', consoleWorkspaceText('toggle_edge', '轮廓高亮'), '边缘光'),
+        fxConsoleItem('t-backgroundStarRiver', consoleWorkspaceText('fx_starfield'), '星空 粒子背景'),
+        fxConsoleItem('fx-point', consoleWorkspaceText('particle_size', '粒子尺寸'), '点大小'),
+        fxConsoleItem('fx-speed', consoleWorkspaceText('fx_particle_speed'), '粒子流速'),
+        fxConsoleItem('fx-twist', consoleWorkspaceText('fx_particle_twist'), '旋转 扭曲'),
+        fxConsoleItem('fx-color', consoleWorkspaceText('color_tension', '色彩张力'), '粒子颜色 饱和'),
+        fxConsoleItem('fx-bloom', consoleWorkspaceText('fx_bloom_strength'), '溢光 bloom'),
+        fxConsoleItem('fx-scatter', consoleWorkspaceText('scatter', '离散感'), '粒子散开'),
+        fxConsoleItem('fx-bgfade', consoleWorkspaceText('fx_bg_darken'), '背景压缩 暗度')
       ] },
-      { key: 'sonic-terrain', title: '音域地形', hint: '地面形态、颜色和空间位置', items: [
-        fxConsoleItem('fx-sonicamp', '地面起伏', '音域振幅'),
-        fxConsoleItem('fx-sonicspeed', '起伏速度', '地形运动'),
-        fxConsoleItem('fx-sonicdensity', '地形密度', '网格密度'),
-        fxConsoleItem('fx-sonicrange', '地面范围', '地形大小'),
-        fxConsoleItem('fx-soniclower', '歌词避让', '地形降低'),
-        fxConsoleItem('fx-sonicdepth', '地面远近', '地形景深'),
-        fxConsoleItem('fx-sonicautorotate', '地形自转', '旋转速度'),
-        fxConsoleItem('sonic-ground-base-picker', '地形暗部', '音域底色'),
-        fxConsoleItem('sonic-ground-cool-picker', '冷色峰值', '音域冷色'),
-        fxConsoleItem('sonic-ground-warm-picker', '暖色峰值', '音域暖色'),
-        fxConsoleItem('sonic-ground-accent-picker', '涟漪高光', '音域强调色'),
-        fxConsoleItem('fx-sonicglow', '音域光强', '地形辉光')
+      { key: 'sonic-terrain', title: consoleWorkspaceText('fx_sonic_ground'), hint: consoleWorkspaceText('fx_terrain_hint'), items: [
+        fxConsoleItem('fx-sonicamp', consoleWorkspaceText('fx_ground_undulation'), '音域振幅'),
+        fxConsoleItem('fx-sonicspeed', consoleWorkspaceText('fx_terrain_wave_speed'), '地形运动'),
+        fxConsoleItem('fx-sonicdensity', consoleWorkspaceText('fx_terrain_density'), '网格密度'),
+        fxConsoleItem('fx-sonicrange', consoleWorkspaceText('fx_ground_range'), '地形大小'),
+        fxConsoleItem('fx-soniclower', consoleWorkspaceText('fx_lyric_avoid'), '地形降低'),
+        fxConsoleItem('fx-sonicdepth', consoleWorkspaceText('fx_ground_depth'), '地形景深'),
+        fxConsoleItem('fx-sonicautorotate', consoleWorkspaceText('fx_terrain_rotate'), '旋转速度'),
+        fxConsoleItem('sonic-ground-base-picker', consoleWorkspaceText('fx_terrain_shadow'), '音域底色'),
+        fxConsoleItem('sonic-ground-cool-picker', consoleWorkspaceText('fx_cool_peak'), '音域冷色'),
+        fxConsoleItem('sonic-ground-warm-picker', consoleWorkspaceText('fx_warm_peak'), '音域暖色'),
+        fxConsoleItem('sonic-ground-accent-picker', consoleWorkspaceText('fx_ripple_highlight'), '音域强调色'),
+        fxConsoleItem('fx-sonicglow', consoleWorkspaceText('fx_tonal_glow'), '地形辉光')
       ] },
-      { key: 'sonic-audio', title: '频谱响应', hint: 'Kick 检测、频段范围和各段权重', items: [
-        fxConsoleItem('t-sonicAudioMonitorEnabled', '实时频谱', '音频分析 频谱开关'),
-        fxConsoleItem('t-sonicAudioAutoTrack', 'Kick 自动', '鼓点自动追踪'),
-        fxConsoleItem('sonic-audio-monitor-toggle', '频谱面板', '音频监视器'),
-        fxConsoleItem('fx-sonicaudiosensitivity', 'Kick 灵敏', '鼓点灵敏度'),
-        fxConsoleItem('fx-sonicaudiobandstart', '范围起点', '频谱起点'),
-        fxConsoleItem('fx-sonicaudiobandend', '范围终点', '频谱终点'),
-        fxConsoleItem('fx-sonicaudiothreshold', '触发阈值', '频谱门限'),
-        fxConsoleItem('fx-sonicaudiopulse', '触发力度', '频谱脉冲'),
-        fxConsoleItem('fx-sonicsubbass', '中心低频', 'Sub Bass'),
-        fxConsoleItem('fx-sonicbass', '低频重量', 'Bass'),
-        fxConsoleItem('fx-soniclowmid', '慢波流动', 'Low Mid'),
-        fxConsoleItem('fx-sonicmid', '方向流', 'Mid'),
-        fxConsoleItem('fx-sonichighmid', '尖峰', 'High Mid'),
-        fxConsoleItem('fx-sonicpresence', '闪光触发', 'Presence'),
-        fxConsoleItem('fx-sonicbrilliance', '边缘微闪', 'Brilliance'),
-        fxConsoleItem('fx-sonicair', '空气颗粒', 'Air 高频')
+      { key: 'sonic-audio', title: consoleWorkspaceText('fx_spectrum_response'), hint: consoleWorkspaceText('fx_spectrum_hint'), items: [
+        fxConsoleItem('t-sonicAudioMonitorEnabled', consoleWorkspaceText('fx_realtime_spectrum'), '音频分析 频谱开关'),
+        fxConsoleItem('t-sonicAudioAutoTrack', consoleWorkspaceText('fx_kick_auto'), '鼓点自动追踪'),
+        fxConsoleItem('sonic-audio-monitor-toggle', consoleWorkspaceText('fx_spectrum_panel'), '音频监视器'),
+        fxConsoleItem('fx-sonicaudiosensitivity', consoleWorkspaceText('fx_kick_sensitivity'), '鼓点灵敏度'),
+        fxConsoleItem('fx-sonicaudiobandstart', consoleWorkspaceText('fx_band_start'), '频谱起点'),
+        fxConsoleItem('fx-sonicaudiobandend', consoleWorkspaceText('fx_band_end'), '频谱终点'),
+        fxConsoleItem('fx-sonicaudiothreshold', consoleWorkspaceText('fx_threshold'), '频谱门限'),
+        fxConsoleItem('fx-sonicaudiopulse', consoleWorkspaceText('fx_trigger_pulse'), '频谱脉冲'),
+        fxConsoleItem('fx-sonicsubbass', consoleWorkspaceText('fx_center_low'), 'Sub Bass'),
+        fxConsoleItem('fx-sonicbass', consoleWorkspaceText('fx_low_freq_weight'), 'Bass'),
+        fxConsoleItem('fx-soniclowmid', consoleWorkspaceText('fx_slow_wave'), 'Low Mid'),
+        fxConsoleItem('fx-sonicmid', consoleWorkspaceText('fx_directional_flow'), 'Mid'),
+        fxConsoleItem('fx-sonichighmid', consoleWorkspaceText('fx_spike'), 'High Mid'),
+        fxConsoleItem('fx-sonicpresence', consoleWorkspaceText('fx_flash_trigger'), 'Presence'),
+        fxConsoleItem('fx-sonicbrilliance', consoleWorkspaceText('fx_edge_flicker'), 'Brilliance'),
+        fxConsoleItem('fx-sonicair', consoleWorkspaceText('fx_air_particles'), 'Air 高频')
       ] },
-      { key: 'sonic-blocks', title: '音域方块', hint: '浮空方块的数量、尺寸和速度', items: [
-        fxConsoleItem('t-sonicGroundFloatingEnabled', '浮空方块', '音域方块开关'),
-        fxConsoleItem('fx-sonicfloatcount', '方块数量', '浮空数量'),
-        fxConsoleItem('fx-sonicfloatintensity', '方块强度', '浮空强度'),
-        fxConsoleItem('fx-sonicfloatmin', '方块小值', '最小尺寸'),
-        fxConsoleItem('fx-sonicfloatmax', '方块大值', '最大尺寸'),
-        fxConsoleItem('fx-sonicfloatspeed', '方块速度', '浮空速度')
+      { key: 'sonic-blocks', title: consoleWorkspaceText('fx_cube_section'), hint: consoleWorkspaceText('fx_cubes_hint'), items: [
+        fxConsoleItem('t-sonicGroundFloatingEnabled', consoleWorkspaceText('fx_floating_cubes'), '音域方块开关'),
+        fxConsoleItem('fx-sonicfloatcount', consoleWorkspaceText('fx_cube_count'), '浮空数量'),
+        fxConsoleItem('fx-sonicfloatintensity', consoleWorkspaceText('fx_cube_strength'), '浮空强度'),
+        fxConsoleItem('fx-sonicfloatmin', consoleWorkspaceText('fx_cube_min'), '最小尺寸'),
+        fxConsoleItem('fx-sonicfloatmax', consoleWorkspaceText('fx_cube_max'), '最大尺寸'),
+        fxConsoleItem('fx-sonicfloatspeed', consoleWorkspaceText('fx_cube_speed'), '浮空速度')
       ] },
-      { key: 'sonic-we', title: '音域回响 · WE', hint: 'Wallpaper Engine 派生地形的响应与配色', items: [
-        fxConsoleItem('fx-sonicwegain', '输入压制', 'WE 输入增益'),
-        fxConsoleItem('fx-sonicweaudio', '音频响应', 'WE 音频强度'),
-        fxConsoleItem('fx-sonicwerange', '响应范围', 'WE 范围'),
-        fxConsoleItem('fx-sonicwepeak', '中心高光', 'WE 峰值'),
-        fxConsoleItem('sonic-workshop-cover-picker', 'WE 主题基色', '主题 封面取色'),
-        fxConsoleItem('sonic-workshop-base-picker', '地形底色', 'WE 底色'),
-        fxConsoleItem('sonic-workshop-warm-picker', '暖色主体', 'WE 暖色'),
-        fxConsoleItem('sonic-workshop-cool-picker', '上层高光', 'WE 冷色'),
-        fxConsoleItem('sonic-workshop-ripple-picker', '波纹亮区', 'WE 波纹'),
-        fxConsoleItem('sonic-workshop-peak-picker', '峰值高光', 'WE 高光'),
-        fxConsoleItem('sonic-workshop-theme-seg', 'WE 主题', '珊瑚 深海 冰蓝 翠绿 极简')
+      { key: 'sonic-we', title: consoleWorkspaceText('fx_we_section'), hint: consoleWorkspaceText('fx_we_hint'), items: [
+        fxConsoleItem('fx-sonicwegain', consoleWorkspaceText('fx_we_input_compression'), 'WE 输入增益'),
+        fxConsoleItem('fx-sonicweaudio', consoleWorkspaceText('fx_audio_response'), 'WE 音频强度'),
+        fxConsoleItem('fx-sonicwerange', consoleWorkspaceText('fx_response_range'), 'WE 范围'),
+        fxConsoleItem('fx-sonicwepeak', consoleWorkspaceText('fx_center_highlight'), 'WE 峰值'),
+        fxConsoleItem('sonic-workshop-cover-picker', consoleWorkspaceText('fx_we_theme_base'), '主题 封面取色'),
+        fxConsoleItem('sonic-workshop-base-picker', consoleWorkspaceText('fx_we_terrain_base'), 'WE 底色'),
+        fxConsoleItem('sonic-workshop-warm-picker', consoleWorkspaceText('fx_we_warm_body'), 'WE 暖色'),
+        fxConsoleItem('sonic-workshop-cool-picker', consoleWorkspaceText('fx_we_upper_highlight'), 'WE 冷色'),
+        fxConsoleItem('sonic-workshop-ripple-picker', consoleWorkspaceText('fx_we_ripple_bright'), 'WE 波纹'),
+        fxConsoleItem('sonic-workshop-peak-picker', consoleWorkspaceText('fx_we_peak_highlight'), 'WE 高光'),
+        fxConsoleItem('sonic-workshop-theme-seg', consoleWorkspaceText('fx_we_theme'), '珊瑚 深海 冰蓝 翠绿 极简')
       ] }
     ]
   },
   {
     key: 'shelf',
     groups: [
-      { key: 'display', title: '显示方式', hint: '模式、镜头、常驻状态和内容来源', open: true, items: [
+      { key: 'display', title: consoleWorkspaceText('fx_cat_display'), hint: consoleWorkspaceText('fx_shelf_display_hint'), open: true, items: [
         fxConsoleItem('shelf-seg', '3D 歌单架', '关闭 侧栏 舞台'),
         fxConsoleItem('shelf-camera-seg', '歌单架镜头', '动态镜头 静态镜头'),
         fxConsoleItem('shelf-presence-seg', '歌单架显示', '自动隐藏 常驻'),
         fxConsoleItem('t-shelfShowPodcasts', '显示播客歌单', '3D 播客'),
         fxConsoleItem('t-shelfMergeCollections', '合并收藏歌单', '我的歌单 收藏 连续滚动')
       ] },
-      { key: 'look', title: '外观与位置', hint: '歌单架颜色、大小、位置和透明度', items: [
+      { key: 'look', title: consoleWorkspaceText('fx_cat_appearance'), hint: consoleWorkspaceText('fx_shelf_appearance_hint'), items: [
         fxConsoleItem('shelf-accent-picker', '歌单架颜色', '3D 强调色'),
         fxConsoleItem('fx-shelfsize', '歌单架大小', '3D 缩放'),
         fxConsoleItem('fx-shelfx', '左右位置', '歌单架水平'),
@@ -243,77 +307,77 @@ var FX_CONSOLE_LAYOUT = [
         fxConsoleItem('fx-shelfopacity', '整体透明度', '歌单架透明'),
         fxConsoleItem('fx-shelfbgalpha', '背景透明度', '歌单架背景')
       ] },
-      { key: 'detail-position', title: '详情页位置', hint: '详情页位置、比例、角度与行距', items: [
-        fxConsoleItem('fx-shelfdetailx', '详情左右', '详情页水平'),
-        fxConsoleItem('fx-shelfdetaily', '详情上下', '详情页垂直'),
-        fxConsoleItem('fx-shelfdetailz', '详情前后', '详情页景深'),
-        fxConsoleItem('fx-shelfdetailscale', '详情大小', '详情页缩放'),
-        fxConsoleItem('fx-shelfdetailanglex', '详情俯仰', '详情页上下角度'),
-        fxConsoleItem('fx-shelfdetailangley', '详情侧旋', '详情页左右角度'),
-        fxConsoleItem('fx-shelfdetailrowgap', '详情行间距', '歌曲行距')
+      { key: 'detail-position', title: consoleWorkspaceText('fx_detail_position'), hint: consoleWorkspaceText('fx_detail_pos_hint'), items: [
+        fxConsoleItem('fx-shelfdetailx', consoleWorkspaceText('fx_detail_horizontal'), '详情页水平'),
+        fxConsoleItem('fx-shelfdetaily', consoleWorkspaceText('fx_detail_vertical'), '详情页垂直'),
+        fxConsoleItem('fx-shelfdetailz', consoleWorkspaceText('fx_detail_depth'), '详情页景深'),
+        fxConsoleItem('fx-shelfdetailscale', consoleWorkspaceText('fx_detail_size'), '详情页缩放'),
+        fxConsoleItem('fx-shelfdetailanglex', consoleWorkspaceText('fx_detail_pitch'), '详情页上下角度'),
+        fxConsoleItem('fx-shelfdetailangley', consoleWorkspaceText('fx_detail_side_rotation'), '详情页左右角度'),
+        fxConsoleItem('fx-shelfdetailrowgap', consoleWorkspaceText('fx_detail_line_gap'), '歌曲行距')
       ] },
-      { key: 'detail-motion', title: '详情页动画', hint: '展开、关闭和歌曲行入场手感', items: [
-        fxConsoleItem('fx-shelfdetailopen', '展开秒数', '详情打开速度'),
-        fxConsoleItem('fx-shelfdetailclose', '关闭秒数', '详情关闭速度'),
-        fxConsoleItem('fx-shelfdetailrowtime', '行入场秒数', '歌曲行动画'),
-        fxConsoleItem('fx-shelfdetailintro', '展开位移', '详情入场位移'),
-        fxConsoleItem('fx-shelfdetailparallax', '悬浮视差', '详情视差')
+      { key: 'detail-motion', title: consoleWorkspaceText('fx_detail_animation'), hint: consoleWorkspaceText('fx_detail_anim_hint'), items: [
+        fxConsoleItem('fx-shelfdetailopen', consoleWorkspaceText('fx_detail_expand_seconds'), '详情打开速度'),
+        fxConsoleItem('fx-shelfdetailclose', consoleWorkspaceText('fx_detail_close_seconds'), '详情关闭速度'),
+        fxConsoleItem('fx-shelfdetailrowtime', consoleWorkspaceText('fx_detail_row_enter'), '歌曲行动画'),
+        fxConsoleItem('fx-shelfdetailintro', consoleWorkspaceText('fx_detail_expand_offset'), '详情入场位移'),
+        fxConsoleItem('fx-shelfdetailparallax', consoleWorkspaceText('fx_detail_hover_parallax'), '详情视差')
       ] },
-      { key: 'summon', title: '唤出动画', hint: '歌单架整体唤出、收起和镜头速度', items: [
-        fxConsoleItem('fx-shelfsummonopen', '唤出秒数', '歌单架打开速度'),
-        fxConsoleItem('fx-shelfsummonclose', '收起秒数', '歌单架关闭速度'),
-        fxConsoleItem('fx-shelfsummonslide', '唤出位移', '歌单架滑入'),
-        fxConsoleItem('fx-shelfsummonstagger', '卡片错层', '卡片延迟'),
-        fxConsoleItem('fx-shelfsummonscale', '唤出缩放', '卡片缩放'),
-        fxConsoleItem('fx-shelfsummonparallax', '唤出视差', '卡片视差'),
-        fxConsoleItem('fx-shelfcamenter', '镜头进入速度', '歌单镜头进入'),
-        fxConsoleItem('fx-shelfcamexit', '镜头离开速度', '歌单镜头退出')
+      { key: 'summon', title: consoleWorkspaceText('fx_shelf_reveal_anim'), hint: consoleWorkspaceText('fx_shelf_reveal_hint'), items: [
+        fxConsoleItem('fx-shelfsummonopen', consoleWorkspaceText('fx_shelf_open_seconds'), '歌单架打开速度'),
+        fxConsoleItem('fx-shelfsummonclose', consoleWorkspaceText('fx_shelf_close_seconds'), '歌单架关闭速度'),
+        fxConsoleItem('fx-shelfsummonslide', consoleWorkspaceText('fx_shelf_reveal_offset'), '歌单架滑入'),
+        fxConsoleItem('fx-shelfsummonstagger', consoleWorkspaceText('fx_shelf_card_layering'), '卡片延迟'),
+        fxConsoleItem('fx-shelfsummonscale', consoleWorkspaceText('fx_shelf_reveal_scale'), '卡片缩放'),
+        fxConsoleItem('fx-shelfsummonparallax', consoleWorkspaceText('fx_shelf_reveal_parallax'), '卡片视差'),
+        fxConsoleItem('fx-shelfcamenter', consoleWorkspaceText('fx_shelf_camera_enter_speed'), '歌单镜头进入'),
+        fxConsoleItem('fx-shelfcamexit', consoleWorkspaceText('fx_shelf_camera_leave_speed'), '歌单镜头退出')
       ] },
-      { key: 'camera', title: '摄像头交互', hint: '摄像头手势触碰开关', items: [
+      { key: 'camera', title: '摄像头交互', hint: consoleWorkspaceText('fx_camera_gesture_toggle'), items: [
         fxConsoleItem('cam-seg', '摄像头交互', '关闭 手势触碰'),
-        fxConsoleItem('gesture-settings-card', '播放手势', '播放 暂停 上一首 下一首 音量 喜欢 歌词 手部光迹 灵敏度')
+        fxConsoleItem('gesture-settings-card', consoleWorkspaceText('fx_play_gesture'), '播放 暂停 上一首 下一首 音量 喜欢 歌词 手部光迹 灵敏度')
       ] }
     ]
   },
   {
     key: 'system',
     groups: [
-      { key: 'startup', title: '启动与退出', hint: '关闭窗口行为和恢复播放方式', open: true, items: [
-        fxConsoleItem('close-behavior-seg', '关闭窗口', '直接退出 后台托盘'),
-        fxConsoleItem('t-startupAutoplay', '启动自动播放', '打开软件继续播放'),
-        fxConsoleItem('t-startupFastSkip', '秒启动跳过启动页', '快速启动'),
-        fxConsoleItem('startup-resume-mode-seg', '恢复播放位置', '按上次进度 重播整首')
+      { key: 'startup', title: consoleWorkspaceText('fx_cat_startup_exit'), hint: consoleWorkspaceText('fx_close_hint'), open: true, items: [
+        fxConsoleItem('close-behavior-seg', consoleWorkspaceText('fx_close_window'), '直接退出 后台托盘'),
+        fxConsoleItem('t-startupAutoplay', consoleWorkspaceText('fx_autoplay'), '打开软件继续播放'),
+        fxConsoleItem('t-startupFastSkip', consoleWorkspaceText('fx_fast_skip'), '快速启动'),
+        fxConsoleItem('startup-resume-mode-seg', consoleWorkspaceText('fx_resume_position'), '按上次进度 重播整首')
       ] },
-      { key: 'output', title: '播放输出', hint: '音频输出设备和路由面板', items: [
-        fxConsoleItem('audio-output-panel', '播放输出设备', '声卡 耳机 扬声器 路由', false)
+      { key: 'output', title: consoleWorkspaceText('fx_cat_output'), hint: consoleWorkspaceText('fx_output_hint'), items: [
+        fxConsoleItem('audio-output-panel', consoleWorkspaceText('fx_output_device'), '声卡 耳机 扬声器 路由', false)
       ] },
-      { key: 'performance', title: '性能与后台', hint: '画质档位、后台渲染和直播保持', items: [
-        fxConsoleItem('performance-quality-seg', '画质档位', '低配 中 高 超高 渲染质量'),
-        fxConsoleItem('foreground-fps-seg', '前台帧率上限', 'FPS 跟随屏幕 垂直同步 VSync 高刷 节能 45 60 75 90 120'),
-        fxConsoleItem('t-lyricLiveViewportFit', '歌词实时边界', '逐帧 投影 长歌词 屏幕余量 性能'),
-        fxConsoleItem('t-lyricContextHighQuality', '上下句高清纹理', '歌词 高清 预热 GPU 显存'),
-        fxConsoleItem('t-lyricBackdropAdapt', '全局歌词避光', '歌词 亮底 可读性 动态'),
-        fxConsoleItem('t-coverBackdropAdapt', '封面粒子避光', '粒子 亮底 GPU 着色器'),
-        fxConsoleItem('performance-background-seg', '后台渲染策略', '自动优化 保持运行 停止释放'),
-        fxConsoleItem('t-liveBackgroundKeep', '直播后台保持', '最小化继续渲染')
+      { key: 'performance', title: consoleWorkspaceText('fx_cat_performance'), hint: consoleWorkspaceText('fx_perf_hint'), items: [
+        fxConsoleItem('performance-quality-seg', consoleWorkspaceText('section_quality', '画质档位'), '低配 中 高 超高 渲染质量'),
+        fxConsoleItem('foreground-fps-seg', consoleWorkspaceText('fx_foreground_fps'), 'FPS 跟随屏幕 垂直同步 VSync 高刷 节能 45 60 75 90 120'),
+        fxConsoleItem('t-lyricLiveViewportFit', consoleWorkspaceText('fx_lyric_bound'), '逐帧 投影 长歌词 屏幕余量 性能'),
+        fxConsoleItem('t-lyricContextHighQuality', consoleWorkspaceText('fx_lyric_hd_texture'), '歌词 高清 预热 GPU 显存'),
+        fxConsoleItem('t-lyricBackdropAdapt', consoleWorkspaceText('fx_global_avoid'), '歌词 亮底 可读性 动态'),
+        fxConsoleItem('t-coverBackdropAdapt', consoleWorkspaceText('fx_cover_avoid'), '粒子 亮底 GPU 着色器'),
+        fxConsoleItem('performance-background-seg', consoleWorkspaceText('fx_background_render'), '自动优化 保持运行 停止释放'),
+        fxConsoleItem('t-liveBackgroundKeep', consoleWorkspaceText('toggle_live_bg_keep', '直播后台保持'), '最小化继续渲染')
       ] },
-      { key: 'memory', title: '内存管理', hint: '播放器压缩、系统释放范围和阈值', items: [
-        fxConsoleItem('memory-status-chip', '系统内存状态', 'Mem Reduct 占用', false),
-        fxConsoleItem('memory-status-sub', '内存说明', '工作集 待机页', false),
-        fxConsoleItem('t-memoryAutoTrimApp', '自动压缩播放器', '内存 压缩 Electron'),
-        fxConsoleItem('t-memoryAutoTrimOnBackground', '后台触发压缩', '最小化内存'),
-        fxConsoleItem('t-memoryAutoSystemTrim', '系统级定时释放', 'Mem Reduct 自动'),
-        fxConsoleItem('t-memorySystemAutoElevate', '需要时请求管理员', 'UAC 提权'),
-        fxConsoleItem('memory-mask-seg', '系统释放范围', '工作集 修改页 待机页'),
-        fxConsoleItem('fx-memory-interval', '定时释放', '分钟 间隔'),
-        fxConsoleItem('fx-memory-threshold', '占用阈值', '内存百分比'),
-        fxConsoleItem({ selector: '.memory-action-row' }, '手动内存操作', '压缩播放器 系统释放 提权释放', false)
+      { key: 'memory', title: consoleWorkspaceText('fx_cat_memory'), hint: consoleWorkspaceText('fx_memory_hint'), items: [
+        fxConsoleItem('memory-status-chip', consoleWorkspaceText('fx_memory_status'), 'Mem Reduct 占用', false),
+        fxConsoleItem('memory-status-sub', consoleWorkspaceText('fx_memory_note'), '工作集 待机页', false),
+        fxConsoleItem('t-memoryAutoTrimApp', consoleWorkspaceText('fx_mem_auto'), '内存 压缩 Electron'),
+        fxConsoleItem('t-memoryAutoTrimOnBackground', consoleWorkspaceText('fx_memory_background_trim'), '最小化内存'),
+        fxConsoleItem('t-memoryAutoSystemTrim', consoleWorkspaceText('fx_memory_auto_system'), 'Mem Reduct 自动'),
+        fxConsoleItem('t-memorySystemAutoElevate', consoleWorkspaceText('fx_mem_admin'), 'UAC 提权'),
+        fxConsoleItem('memory-mask-seg', consoleWorkspaceText('fx_memory_purge_scope'), '工作集 修改页 待机页'),
+        fxConsoleItem('fx-memory-interval', consoleWorkspaceText('fx_memory_scheduled'), '分钟 间隔'),
+        fxConsoleItem('fx-memory-threshold', consoleWorkspaceText('fx_memory_threshold'), '内存百分比'),
+        fxConsoleItem({ selector: '.memory-action-row' }, consoleWorkspaceText('fx_memory_manual'), '压缩播放器 系统释放 提权释放', false)
       ] },
-      { key: 'cache', title: '缓存与存储', hint: '统一缓存目录、占用和各类路径', items: [
-        fxConsoleItem('cache-storage-panel', '本地缓存', '缓存路径 缓存目录 占用 歌词 封面 音频 更新', false)
+      { key: 'cache', title: consoleWorkspaceText('fx_cat_cache_storage'), hint: consoleWorkspaceText('fx_cache_hint'), items: [
+        fxConsoleItem('cache-storage-panel', consoleWorkspaceText('server_local_cache', '本地缓存'), '缓存路径 缓存目录 占用 歌词 封面 音频 更新', false)
       ] },
-      { key: 'experimental', title: '实验功能', hint: '尚未开放或需要谨慎使用的能力', items: [
-        fxConsoleItem('t-wallpaperMode', '完整桌面模式', '完整 Mineradio 进入桌面层 Ctrl Shift M 切换操作层 本次启动有效', false),
+      { key: 'experimental', title: consoleWorkspaceText('fx_cat_experimental'), hint: consoleWorkspaceText('fx_experimental_hint'), items: [
+        fxConsoleItem('t-wallpaperMode', consoleWorkspaceText('toggle_wallpaper', '完整桌面模式'), '完整 Mineradio 进入桌面层 Ctrl Shift M 切换操作层 本次启动有效', false),
         // 完整桌面模式的两项配套参数，标成 child 以缩进挂在那个开关下面：整个 Mineradio 作为桌面
         // 壁纸时的透明度与帧率。它们在代码里与该模式共用一把锁、同一套 disabled 逻辑，此前没有
         // 分组登记，被兜底收进「其他设置」。
@@ -325,14 +389,15 @@ var FX_CONSOLE_LAYOUT = [
         // lock and disabled logic and had no group registration, so the residual sweep took them.
         // Their markup carries `hidden`, but the author-level .fx-slider{display:grid} /
         // .fx-seg{display:flex} rules outrank the UA [hidden]{display:none}, so they are visible.
-        fxConsoleItem('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡', true, true),
-        fxConsoleItem('wallpaper-fps-seg', '壁纸帧数', '24 30 60 FPS 帧率', true, true),
-        fxConsoleItem('t-windowsGameMode', 'Windows 游戏模式', '登记为游戏 电源计划 调度优先级 整活 非 Windows 置灰', false),
+        fxConsoleItem('fx-wallpaperopacity', consoleWorkspaceText('wallpaper_opacity', '壁纸透明度'), '壁纸 透明 淡', true, true),
+        fxConsoleItem('wallpaper-fps-seg', consoleWorkspaceText('fx_wallpaper_fps'), '24 30 60 FPS 帧率', true, true),
+        fxConsoleItem('t-windowsGameMode', consoleWorkspaceText('fx_game_mode'), '登记为游戏 电源计划 调度优先级 整活 非 Windows 置灰', false),
         fxConsoleItem('t-cuefieldAutoMix', 'Cuefield AutoMix', '自动混音 过渡 节拍分析 下一首 预载 交叉淡化')
       ] }
     ]
   }
 ];
+}
 
 var fxConsoleRegistry = [];
 var fxConsoleGroups = {};
@@ -349,21 +414,39 @@ function fxConsoleResolveBlock(ref) {
 }
 
 function fxConsoleMakeToolbar(panel) {
+  // 工具栏（搜索框 / 撤销 / 历史）已整体移除：撤销默认 disabled、历史浮层长期为空，
+  // 搜索框也几乎不用，而它们要在词典就绪后重贴、还要各自维护一套浮层与事件绑定。
+  // 面板现在直接从分类标签页开始。下方仍保留 fx-console-toolbar 这个 class 名，
+  // 因为 fxConsoleClickIsReversible / fxConsoleFindUnclassifiedControls 靠它排除
+  // 工具栏区域的控件（分类排除项比同步改判据更稳）。
+  // The toolbar (search box / undo / history) is gone: undo ships disabled, the history
+  // popover stays empty, and the search box barely gets used — yet all three needed a
+  // repaint after the dictionary loads plus their own popovers and event bindings. The
+  // panel now starts straight at the category tabs. The .fx-console-toolbar class name is
+  // kept below because fxConsoleClickIsReversible and fxConsoleFindUnclassifiedControls
+  // use it to exclude that region (renaming the exclusions is riskier than keeping it).
   var toolbar = document.createElement('div');
   toolbar.className = 'fx-console-toolbar';
   toolbar.id = 'fx-console-toolbar';
-  toolbar.innerHTML =
-    '<div class="fx-console-search-row" role="search">' +
-    '<span class="fx-console-search-icon" aria-hidden="true">⌕</span>' +
-    '<input id="fx-console-search" class="fx-console-search" type="search" autocomplete="off" spellcheck="false" aria-label="搜索视觉控制台功能" aria-controls="fx-console-search-results" aria-expanded="false" placeholder="搜索功能，如：粒子、缓存、歌词">' +
-    '<button id="fx-console-undo" class="fx-console-tool-btn" type="button" disabled aria-label="撤销上一步设置" title="撤销上一步设置">↶<span>撤销</span></button>' +
-    '<button id="fx-console-history-toggle" class="fx-console-tool-btn" type="button" aria-label="最近操作" aria-controls="fx-console-history" aria-haspopup="true" aria-expanded="false" title="最近操作">◷<span>历史</span></button>' +
-    '</div>' +
-    '<div id="fx-console-search-results" class="fx-console-popover fx-console-search-results" hidden></div>' +
-    '<div id="fx-panel-tabs" class="fx-panel-tabs" role="tablist" aria-label="视觉控制台分类"></div>' +
-    '<div id="fx-console-history" class="fx-console-popover fx-console-history-popover" hidden></div>';
+  toolbar.innerHTML = consoleWorkspaceText('fx_panel_tabs_html');
   var tabs = toolbar.querySelector('#fx-panel-tabs');
-  FX_CONSOLE_TABS.forEach(function (meta) {
+  // 词典还没加载完时，fx_panel_tabs_html 会退化成键名本身，innerHTML 里就没有
+  // #fx-panel-tabs 这个壳，querySelector 返回 null。这里必须自己兜一个空壳出来：
+  // index-loader 把所有模块拼成同一个脚本，这行一旦抛错，后面 18 个模块（含 splash
+  // 揭幕、startup 绑定与主循环）全部不会执行，界面就成了只剩外壳的黑屏。
+  // Before the dictionary resolves, fx_panel_tabs_html degrades to its own key, so the
+  // innerHTML has no #fx-panel-tabs shell and querySelector returns null. An empty shell
+  // must be synthesized here: index-loader concatenates every module into one script, so a
+  // throw on this line would stop the 18 modules after it (splash reveal, startup bindings
+  // and the main loop) from ever running — a black screen with nothing but the frame left.
+  if (!tabs) {
+    tabs = document.createElement('div');
+    tabs.id = 'fx-panel-tabs';
+    tabs.className = 'fx-panel-tabs';
+    tabs.setAttribute('role', 'tablist');
+    toolbar.appendChild(tabs);
+  }
+  fxConsoleTabs().forEach(function (meta) {
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.id = 'fx-console-tab-' + meta.key;
@@ -505,15 +588,18 @@ function organizeFxConsoleWorkspace() {
     setFxPanelTab(fxPanelTab);
     return;
   }
-  var head = panel.querySelector('.fx-head');
-  var oldRoots = Array.prototype.slice.call(panel.children).filter(function (node) { return node !== head; });
+  // 面板的子节点全是上一轮留下的（.fx-head 挂载点已随热键按钮一起移出控制台），
+  // 所以 oldRoots 就是 panel.children 的全部，直接整批清掉。
+  // Every child of the panel is a leftover from the previous build (the .fx-head mount point
+  // left with the hotkey button), so oldRoots is simply all of panel.children.
+  var oldRoots = Array.prototype.slice.call(panel.children);
   fxConsoleRegistry = [];
   fxConsoleGroups = {};
   var oldTabs = document.getElementById('fx-panel-tabs');
   if (oldTabs && oldTabs.parentNode) oldTabs.parentNode.removeChild(oldTabs);
   var toolbar = fxConsoleMakeToolbar(panel);
   var pages = {};
-  FX_CONSOLE_TABS.forEach(function (meta) {
+  fxConsoleTabs().forEach(function (meta) {
     var page = document.createElement('div');
     page.id = 'fx-console-page-' + meta.key;
     page.className = 'fx-tab-page';
@@ -524,9 +610,9 @@ function organizeFxConsoleWorkspace() {
     panel.appendChild(page);
     pages[meta.key] = page;
   });
-  FX_CONSOLE_LAYOUT.forEach(function (tabLayout) {
+  fxConsoleLayout().forEach(function (tabLayout) {
     var tabMeta = null;
-    FX_CONSOLE_TABS.some(function (meta) {
+    fxConsoleTabs().some(function (meta) {
       if (meta.key === tabLayout.key) { tabMeta = meta; return true; }
       return false;
     });
@@ -541,20 +627,32 @@ function organizeFxConsoleWorkspace() {
   });
   var residual = fxConsoleFindUnclassifiedControls(oldRoots);
   if (residual.length) {
-    var fallbackMeta = { key: 'other', title: '其他设置', hint: '尚未归入明确分类的兼容项' };
-    var fallbackBody = fxConsoleMakeGroup(pages.system, { key: 'system', label: '系统' }, fallbackMeta);
+    var fallbackMeta = { key: 'other', title: consoleWorkspaceText('fx_cat_other'), hint: consoleWorkspaceText('fx_compat_uncategorized') };
+    var fallbackBody = fxConsoleMakeGroup(pages.system, { key: 'system', label: consoleWorkspaceText('fx_cat_system') }, fallbackMeta);
     residual.forEach(function (node, index) {
-      fxConsoleAppendItem(fallbackBody, { key: 'system', label: '系统' }, fallbackMeta, {
+      fxConsoleAppendItem(fallbackBody, { key: 'system', label: consoleWorkspaceText('fx_cat_system') }, fallbackMeta, {
         ref: { element: node },
-        title: String(node.textContent || '兼容设置').trim().slice(0, 40) || '兼容设置',
+        title: String(node.textContent || consoleWorkspaceText('fx_cat_compat')).trim().slice(0, 40) || consoleWorkspaceText('fx_cat_compat'),
         aliases: '其他 兼容',
         history: true
       }, { toggleGrid: null, childNest: null });
     });
     console.warn('[FxConsole] residual controls:', residual.length);
   }
+  // oldRoots 是**本轮创建任何新节点之前**对 panel 子节点拍的快照，所以里面每一项都必然是
+  // 旧节点，直接删掉即可。之前这里多了一个 `!node.classList.contains('fx-tab-page')` 排除，
+  // 意图是"别误删本轮新建的 page"，但新旧 page 同名同类，根本区分不开 ——
+  // 结果就是每次重建都把上一轮的 6 个 tab page 留在原地，重贴一次翻一倍。
+  // 实测：重贴后 fx-console-page-* 在 panel 下各出现两次，内容重复且键名残留。
+  //
+  // oldRoots is a snapshot taken BEFORE this run creates any new nodes, so everything in it
+  // is necessarily stale and can simply be removed. The old guard excluded .fx-tab-page to
+  // "avoid deleting this run's new pages", but new and old pages share the same id and class,
+  // so it could not tell them apart — every rebuild left the previous run's six tab pages in
+  // place, doubling the panel on each repaint (measured: each fx-console-page-* appeared
+  // twice, with duplicated content and leftover key names).
   oldRoots.forEach(function (node) {
-    if (node && node.isConnected && node.parentNode === panel && node !== toolbar && !node.classList.contains('fx-tab-page')) node.remove();
+    if (node && node.isConnected && node.parentNode === panel && node !== toolbar) node.remove();
   });
   toolbar.querySelector('#fx-panel-tabs').addEventListener('click', function (e) {
     var btn = e.target && e.target.closest ? e.target.closest('[data-fx-tab]') : null;
@@ -572,9 +670,52 @@ function organizeFxConsoleWorkspace() {
     buttons[next].focus();
     setFxPanelTab(buttons[next].getAttribute('data-fx-tab'));
   });
+  // 快捷键设置按钮曾在 .fx-head 里，需要注册进 registry 才能被归类。
+  // 现在它已移到标题栏（index.html 静态声明），**必须不再登记**：
+  // 注册会让重建把它当作面板内控件搬进 tab page，标题栏就少了一个按钮。
+  // 早期靠 `!hotkey.closest('.fx-console-toolbar')` 之类的排除项是挡不住的 ——
+  // 它根本不在 panel 里。唯一的做法就是不把它登记进控制台。
+  //
+  // The hotkey button used to live in .fx-head and had to be registered to be categorized.
+  // It now lives in the title bar (declared statically in index.html) and must NOT be
+  // registered: an entry makes the rebuild treat it as a panel control and move it into a tab
+  // page, costing the title bar a button. Exclusions like `closest('.fx-console-toolbar')`
+  // cannot help — the node is not inside the panel at all. The only fix is to not register it.
   panel._fxConsoleWorkspaceOrganized = true;
   panel.setAttribute('data-console-layout', 'task-first-v2');
   setFxPanelTab(fxPanelTab);
+}
+
+// 词典是异步加载的，而 bindFxPanel() 在解析期就跑了 —— 那时词典还没到，
+// consoleWorkspaceText() 缺键会返回键名本身，于是面板上铺满 fx_cat_xxx / fx_lyric_xxx。
+// organizeFxConsoleWorkspace() 开头有幂等短路，直接重跑会早退、什么也不重贴；
+// 而 fxConsoleRegistry 里存的是**已经求值过**的文案，键名已经固化进去了。
+// 所以只能把幂等标记清掉、整个工作区重建一遍。
+//
+// The dictionary loads asynchronously while bindFxPanel() runs synchronously during
+// parse, so a missing key used to render as the key itself and the panel filled up with
+// fx_cat_xxx / fx_lyric_xxx. organizeFxConsoleWorkspace() short-circuits on its idempotency
+// flag and fxConsoleRegistry stores already-evaluated text, so the only reliable repaint is
+// to clear the flag and rebuild the whole workspace.
+function relabelFxConsoleWorkspace() {
+  var panel = document.getElementById('fx-panel');
+  if (!panel) return;
+  panel._fxConsoleWorkspaceOrganized = false;
+  try {
+    organizeFxConsoleWorkspace();
+  } catch (e) {
+    console.warn('[FxConsole] relabel failed:', e);
+  }
+  if (typeof relabelFxPanelControls === 'function') {
+    try { relabelFxPanelControls(); } catch (e) { console.warn('[FxConsole] relabel controls failed:', e); }
+  }
+}
+
+// 语言就绪（init 完成会广播一次）与后续切换都要重贴，否则键名会一直留在界面上。
+// Repaint once the dictionary is ready (init broadcasts) and on every later switch —
+// otherwise the key names stay on screen.
+if (typeof window !== 'undefined' && window.MineradioI18n && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(function () { relabelFxConsoleWorkspace(); });
 }
 
 function fxConsoleEntryForElement(element) {
@@ -601,7 +742,7 @@ function fxConsoleCurrentValue(entry) {
   }
   var color = el.matches && el.matches('input[type="color"]') ? el : el.querySelector && el.querySelector('input[type="color"]');
   if (color) return String(color.value || '').toUpperCase();
-  if (el.classList && el.classList.contains('fx-toggle')) return el.classList.contains('on') ? '已开启' : '已关闭';
+  if (el.classList && el.classList.contains('fx-toggle')) return el.classList.contains('on') ? consoleWorkspaceText('fx_state_on') : consoleWorkspaceText('fx_state_off');
   var active = el.querySelector && el.querySelector('.active');
   if (active && active.textContent) return active.textContent.trim();
   return '';
@@ -653,56 +794,6 @@ function fxConsoleFocusEntry(entry) {
       }, reduceMotion ? 1100 : 1650);
     }, reduceMotion ? 0 : 220);
   });
-}
-
-function renderFxConsoleSearchResults(query) {
-  var results = document.getElementById('fx-console-search-results');
-  var history = document.getElementById('fx-console-history');
-  var historyBtn = document.getElementById('fx-console-history-toggle');
-  var search = document.getElementById('fx-console-search');
-  if (!results) return;
-  var needle = fxConsoleNormalizeSearch(query);
-  results.innerHTML = '';
-  if (!needle) {
-    results.hidden = true;
-    if (search) search.setAttribute('aria-expanded', 'false');
-    return;
-  }
-  if (history) history.hidden = true;
-  if (historyBtn) historyBtn.setAttribute('aria-expanded', 'false');
-  var matches = fxConsoleRegistry.filter(function (entry) {
-    var text = [entry.title, entry.aliases, entry.tabLabel, entry.groupLabel, entry.element && entry.element.textContent].join(' ');
-    return fxConsoleNormalizeSearch(text).indexOf(needle) >= 0;
-  }).slice(0, 18);
-  if (!matches.length) {
-    var empty = document.createElement('div');
-    empty.className = 'fx-console-empty';
-    empty.textContent = '没有找到“' + String(query || '').trim().slice(0, 30) + '”';
-    results.appendChild(empty);
-  } else {
-    matches.forEach(function (entry) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'fx-console-search-result';
-      var main = document.createElement('span');
-      main.className = 'fx-console-result-main';
-      var title = document.createElement('strong');
-      title.textContent = entry.title;
-      var crumb = document.createElement('small');
-      crumb.className = 'fx-console-breadcrumb';
-      crumb.textContent = entry.tabLabel + ' › ' + entry.groupLabel;
-      main.appendChild(title);
-      main.appendChild(crumb);
-      var value = document.createElement('b');
-      value.textContent = fxConsoleCurrentValue(entry);
-      btn.appendChild(main);
-      btn.appendChild(value);
-      btn.addEventListener('click', function () { fxConsoleFocusEntry(entry); });
-      results.appendChild(btn);
-    });
-  }
-  results.hidden = false;
-  if (search) search.setAttribute('aria-expanded', 'true');
 }
 
 var fxConsoleHistory = [];
@@ -758,10 +849,10 @@ function fxConsoleStateEqual(a, b) {
 }
 
 function fxConsoleFormatHistoryValue(value) {
-  if (value === true) return '开启';
-  if (value === false) return '关闭';
+  if (value === true) return consoleWorkspaceText('feature_state_on', '开启');
+  if (value === false) return consoleWorkspaceText('shelf_off', '关闭');
   if (typeof value === 'number') return Math.abs(value - Math.round(value)) < 0.0001 ? String(Math.round(value)) : String(Math.round(value * 100) / 100);
-  if (value == null) return '无';
+  if (value == null) return consoleWorkspaceText('value_none', '无');
   return String(value);
 }
 
@@ -775,12 +866,12 @@ function fxConsoleHistoryDetail(before, after, changes) {
     changed.push([before[key], after[key]]);
   });
   if (!changed.length) return '';
-  if (changed.length > 1) return changed.length + ' 项参数';
+  if (changed.length > 1) return changed.length + consoleWorkspaceText('fx_params_count');
   return fxConsoleFormatHistoryValue(changed[0][0]) + ' → ' + fxConsoleFormatHistoryValue(changed[0][1]);
 }
 
 function fxConsoleHistoryControlLabel(entry, target) {
-  var label = entry ? entry.title : '视觉设置';
+  var label = entry ? entry.title : consoleWorkspaceText('fx_cat_visual');
   var button = target && target.closest ? target.closest('button') : null;
   if (button && button.textContent && !button.classList.contains('fx-reset-one')) {
     var text = button.textContent.replace(/\s+/g, ' ').trim();
@@ -883,16 +974,16 @@ function fxConsoleApplyState(state, label, records, allowAdapter) {
       var current = captureFxConsoleState();
       var merged = Object.assign({}, current.fx);
       changes.fx.forEach(function (key) { merged[key] = state.fx[key]; });
-      if (typeof applyFxArchiveSnapshot !== 'function' || !applyFxArchiveSnapshot(merged)) throw new Error('视觉状态恢复失败');
+      if (typeof applyFxArchiveSnapshot !== 'function' || !applyFxArchiveSnapshot(merged)) throw new Error(consoleWorkspaceText('fx_visual_restore_failed'));
     }
     fxConsoleApplyPreferences(state, changes);
     if (typeof configureMemoryReductFromFx === 'function') configureMemoryReductFromFx('history-undo', false);
     if (typeof saveLyricLayout === 'function') saveLyricLayout({ user: true, reason: 'consoleHistoryUndo' });
-    if (typeof showToast === 'function') showToast('已回退：' + label);
+    if (typeof showToast === 'function') showToast(consoleWorkspaceText('fx_undo_applied') + label);
     return true;
   } catch (error) {
     console.error('[FxConsole] history rollback failed', error);
-    if (typeof showToast === 'function') showToast('回退失败，请重试');
+    if (typeof showToast === 'function') showToast(consoleWorkspaceText('fx_undo_failed'));
     return false;
   } finally {
     setTimeout(function () {
@@ -927,12 +1018,12 @@ function renderFxConsoleHistory() {
   pop.innerHTML = '';
   var head = document.createElement('div');
   head.className = 'fx-console-popover-head';
-  head.innerHTML = '<strong>最近操作</strong><small>当前会话 · 最多 40 条</small>';
+  head.innerHTML = consoleWorkspaceText('fx_recent_ops_html');
   pop.appendChild(head);
   if (!fxConsoleHistory.length) {
     var empty = document.createElement('div');
     empty.className = 'fx-console-empty';
-    empty.textContent = '调整设置后会在这里留下可回退记录';
+    empty.textContent = consoleWorkspaceText('fx_history_hint');
     pop.appendChild(empty);
     return;
   }
@@ -951,7 +1042,7 @@ function renderFxConsoleHistory() {
       text.appendChild(meta);
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = index === fxConsoleHistory.length - 1 ? '撤销' : '撤销至此项前';
+      btn.textContent = index === fxConsoleHistory.length - 1 ? consoleWorkspaceText('fx_undo') : consoleWorkspaceText('fx_undo_to_here');
       btn.addEventListener('click', function () {
         if (index === fxConsoleHistory.length - 1) undoFxConsoleHistory();
         else rollbackFxConsoleHistoryTo(index);
@@ -971,7 +1062,7 @@ function fxConsoleClickIsReversible(target, entry) {
   var archive = target.closest('#user-archive-grid');
   if (archive) {
     var archiveBtn = target.closest('button');
-    return !!(archiveBtn && archiveBtn.textContent.trim() === '应用');
+    return !!(archiveBtn && archiveBtn.textContent.trim() === consoleWorkspaceText('fx_apply'));
   }
   return !!target.closest('button,.fx-toggle,.fx-seg,.lyric-color-row,.fx-font-grid,.preset-card,.fx-actions');
 }
@@ -1006,53 +1097,22 @@ function fxConsoleCommitRangeTxn(target) {
   });
 }
 
-function fxConsoleRegisterHotkeySearchEntry() {
-  var hotkey = document.getElementById('hotkey-settings-btn');
-  if (!hotkey || hotkey.getAttribute('data-fx-console-entry')) return;
-  var entry = {
-    id: 'fx-console-entry-' + (fxConsoleRegistry.length + 1),
-    title: '热键设置',
-    aliases: '快捷键 局内热键 全局热键 键盘',
-    tab: 'system',
-    tabLabel: '系统',
-    group: 'startup',
-    groupLabel: '启动与退出',
-    history: false,
-    element: hotkey
-  };
-  hotkey.setAttribute('data-fx-console-entry', entry.id);
-  hotkey.setAttribute('data-fx-console-history', 'off');
-  fxConsoleRegistry.push(entry);
-}
 
+// 视觉控制台的交互绑定。工具栏（搜索框 / 撤销 / 历史）已移除，搜索与历史相关的绑定
+// 一并删掉；但**滑块拖拽事务**（pointerdown/focusin → fxConsoleBeginRangeTxn →
+// fxConsoleCommitRangeTxn）与搜索无关，必须照旧绑定。
+// 这里的守卫只判 panel，不再判 search —— 早退条件里带着已删除的搜索框，
+// 会连带把下面这些事务监听一起跳过，拖动滑块将不再产生一次可撤销的快照。
+//
+// Interaction wiring for the visual console. The toolbar (search / undo / history) is
+// gone along with its bindings, but the slider drag transactions are unrelated to search
+// and must stay bound. The guard checks only `panel` now: a guard that also required the
+// removed search box would skip every transaction listener below, and dragging a slider
+// would silently stop producing a snapshot.
 function initFxConsoleSearchAndHistory() {
   var panel = document.getElementById('fx-panel');
-  var search = document.getElementById('fx-console-search');
-  if (!panel || !search || panel._fxConsoleSearchHistoryBound) return;
+  if (!panel || panel._fxConsoleSearchHistoryBound) return;
   panel._fxConsoleSearchHistoryBound = true;
-  fxConsoleRegisterHotkeySearchEntry();
-  search.addEventListener('input', function () { renderFxConsoleSearchResults(search.value); });
-  search.addEventListener('focus', function () { if (search.value) renderFxConsoleSearchResults(search.value); });
-  search.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      search.value = '';
-      renderFxConsoleSearchResults('');
-      search.blur();
-    } else if (e.key === 'Enter') {
-      var first = document.querySelector('#fx-console-search-results .fx-console-search-result');
-      if (first) { e.preventDefault(); first.click(); }
-    }
-  });
-  var undo = document.getElementById('fx-console-undo');
-  if (undo) undo.addEventListener('click', undoFxConsoleHistory);
-  var historyBtn = document.getElementById('fx-console-history-toggle');
-  var historyPop = document.getElementById('fx-console-history');
-  if (historyBtn && historyPop) historyBtn.addEventListener('click', function () {
-    var open = historyPop.hidden;
-    closeFxConsolePopovers();
-    historyPop.hidden = !open;
-    historyBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  });
   panel.addEventListener('pointerdown', function (e) {
     if (e.target && e.target.matches && e.target.matches('input[type="range"],input[type="color"]')) fxConsoleBeginRangeTxn(e.target);
   }, true);
@@ -1116,12 +1176,12 @@ function initFxConsoleSearchAndHistory() {
     var history = document.getElementById('fx-console-history');
     if ((!results || results.hidden) && (!history || history.hidden)) return;
     closeFxConsolePopovers();
-    if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.fx-console-popover')) search.focus();
+    // 原来这里会把焦点还给搜索框；搜索框已删，焦点交给仍在焦点位的元素即可。
+    // The search box used to regain focus here; it is gone, so leave focus where it is.
   }, true);
   window.addEventListener('blur', function () {
     if (fxConsoleHistoryTxn) fxConsoleCommitRangeTxn(null);
   });
-  renderFxConsoleHistory();
 }
 
 window.undoFxConsoleHistory = undoFxConsoleHistory;

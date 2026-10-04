@@ -115,7 +115,9 @@ test('Qishui login product surface uses only the signed Passport QR flow', () =>
   assert.doesNotMatch(server, /pn === '\/api\/qishui\/login\/token'/);
   assert.doesNotMatch(server, /pn === '\/api\/qishui\/login\/cookie'/);
 
-  assert.match(ui, /请使用抖音 App 扫码并确认登录/);
+  // 扫码登录提示已按取词键接入（login_scan_douyin_confirm），源码不再内联中文。
+  // The "scan with Douyin to log in" hint is now keyed (login_scan_douyin_confirm).
+  assert.match(ui, /login_scan_douyin_confirm/);
   assert.match(ui, /pollQishuiQr/);
   assert.match(ui, /\/api\/qishui\/login\/qrcode/);
   assert.match(ui, /\/api\/qishui\/login\/check/);

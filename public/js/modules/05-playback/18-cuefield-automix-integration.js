@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function cuefieldAutomixIntegrationText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var CUEFIELD_AUTOMIX_STORE_KEY = 'mineradio-cuefield-automix-v1';
 var cuefieldAutoMixEnabled = false;
 var cuefieldAutoMix = null;
@@ -40,17 +77,17 @@ function cuefieldAutoMixNextIndex(index) {
 
 function cuefieldAutoMixStatusText(status) {
   return {
-    disabled: '已关闭',
-    waiting: '等待播放',
-    preparing: '正在分析下一首',
-    'waiting-beatmap': '正在准备节拍图',
-    'missing-audio': '下一首暂不可用',
-    fallback: '本组歌曲暂不适合混音',
-    'technical-error': '分析暂不可用',
-    ready: '过渡已准备',
-    handoff: '正在自动过渡',
-    error: '准备失败'
-  }[status] || status || '待命';
+    disabled: cuefieldAutomixIntegrationText('fx_state_off'),
+    waiting: cuefieldAutomixIntegrationText('cue_waiting_play'),
+    preparing: cuefieldAutomixIntegrationText('cue_analyzing_next'),
+    'waiting-beatmap': cuefieldAutomixIntegrationText('cue_preparing_beatmap'),
+    'missing-audio': cuefieldAutomixIntegrationText('cue_next_unavailable'),
+    fallback: cuefieldAutomixIntegrationText('cue_group_unsuitable'),
+    'technical-error': cuefieldAutomixIntegrationText('cue_analysis_unavailable'),
+    ready: cuefieldAutomixIntegrationText('cue_transition_ready'),
+    handoff: cuefieldAutomixIntegrationText('cue_auto_transitioning'),
+    error: cuefieldAutomixIntegrationText('cue_prepare_failed')
+  }[status] || status || cuefieldAutomixIntegrationText('gesture_standby', '待命');
 }
 
 // 开关现在挂在 DIY 面板的"实验功能"分组里（与完整桌面模式同处），不再是控制栏上的图标按钮，
@@ -68,8 +105,8 @@ function updateCuefieldAutoMixUi(status) {
   toggle.classList.toggle('cuefield-automix-ready', !!cuefieldAutoMixEnabled && ready);
   toggle.setAttribute('aria-pressed', cuefieldAutoMixEnabled ? 'true' : 'false');
   toggle.title = cuefieldAutoMixEnabled
-    ? ('Cuefield AutoMix · ' + (ready ? '过渡已准备' : state) + '（只在当前队列自动过渡）')
-    : '按节拍分析当前队列的下一首并自动过渡；默认关闭，只在当前播放队列内生效';
+    ? ('Cuefield AutoMix · ' + (ready ? cuefieldAutomixIntegrationText('cue_transition_ready') : state) + cuefieldAutomixIntegrationText('cue_current_queue_only'))
+    : cuefieldAutomixIntegrationText('cue_automix_desc');
 }
 
 function cuefieldAutoMixAudioDescriptor(song) {
@@ -311,7 +348,7 @@ function toggleCuefieldAutoMix() {
   if (runtime) runtime.setEnabled(cuefieldAutoMixEnabled);
   if (!cuefieldAutoMixEnabled) resetCuefieldAutoMix('disabled');
   updateCuefieldAutoMixUi(cuefieldAutoMixEnabled ? 'waiting' : 'disabled');
-  showToast(cuefieldAutoMixEnabled ? 'Cuefield AutoMix 已开启：只在当前队列自动过渡' : 'Cuefield AutoMix 已关闭');
+  showToast(cuefieldAutoMixEnabled ? cuefieldAutomixIntegrationText('cue_automix_on') : cuefieldAutomixIntegrationText('cue_automix_off'));
   if (cuefieldAutoMixEnabled) scheduleCuefieldAutoMixPrepare(trackSwitchToken, currentIdx, 720);
 }
 
@@ -363,7 +400,7 @@ async function runCuefieldAutoMixPrepare(token, currentIndex, nextIndex, attempt
   updateCuefieldAutoMixUi(result && result.status);
   if (result && result.status === 'ready' && result.pending) {
     prepareCuefieldPendingAudio(result.pending);
-    showToast('Cuefield 已准备下一首过渡');
+    showToast(cuefieldAutomixIntegrationText('cue_prepared_next'));
     return;
   }
   if (result && (result.status === 'waiting-beatmap' || result.status === 'missing-audio' || result.status === 'busy') && attempt < 3) {
@@ -877,7 +914,7 @@ function showCuefieldFeedback(context) {
   cuefieldFeedbackState.submitted = false;
   var root = document.getElementById('cuefield-feedback');
   var meta = document.getElementById('cuefield-feedback-meta');
-  if (meta) meta.textContent = (context.pair.fromTitle || '当前歌曲') + ' → ' + (context.pair.toTitle || '下一首');
+  if (meta) meta.textContent = (context.pair.fromTitle || cuefieldAutomixIntegrationText('track_current_song')) + ' → ' + (context.pair.toTitle || cuefieldAutomixIntegrationText('hotkey_next_track'));
   if (root) root.classList.add('show');
   if (cuefieldFeedbackState.timer) clearTimeout(cuefieldFeedbackState.timer);
   cuefieldFeedbackState.timer = setTimeout(function () { if (root) root.classList.remove('show'); }, 30000);
@@ -894,10 +931,10 @@ function submitCuefieldFeedback(rating) {
   }).then(function () {
     var root = document.getElementById('cuefield-feedback');
     if (root) root.classList.remove('show');
-    showToast('Cuefield 评分已保存');
+    showToast(cuefieldAutomixIntegrationText('cue_score_saved'));
   }).catch(function () {
     cuefieldFeedbackState.submitted = false;
-    showToast('Cuefield 评分保存失败');
+    showToast(cuefieldAutomixIntegrationText('cue_score_save_failed'));
   });
 }
 
@@ -1004,7 +1041,7 @@ async function executeCuefieldAutoMix(pending) {
     if (cuefieldActiveTransitionContext === transitionContext) cuefieldActiveTransitionContext = null;
     updateCuefieldAutoMixUi('error');
     recoverCuefieldAutoMixEndedOutgoing(pending, transitionContext, 'error');
-    showToast('Cuefield AutoMix：下一首预载失败');
+    showToast(cuefieldAutomixIntegrationText('cue_preload_failed'));
     return;
   }
   var feedback = cuefieldFeedbackContext(pending);

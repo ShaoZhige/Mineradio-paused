@@ -1,14 +1,41 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function audioBeatAnalysisText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 async function analyzeAudioBeats(audioUrl, durationSec, token, options) {
   options = options || {};
   var analysisProfile = cinemaAnalysisProfileForSong(options.song);
   var softGrooveAnalysis = !!(analysisProfile && analysisProfile.softGroove);
   try {
     beatMapBusy = true;
-    if (options.prefetch) showBeatChip('预热下一首节奏…');
-    else if (options.background) showBeatChip('后台缓冲节奏…');
+    if (options.prefetch) showBeatChip(audioBeatAnalysisText('aba_preheating'));
+    else if (options.background) showBeatChip(audioBeatAnalysisText('aba_buffering_bg'));
     await yieldToIdle(beatAnalysisYieldMs(options, 140, 760));
     if (token !== beatMapToken) { hideBeatChip(); beatMapBusy = false; return null; }
-    showBeatChip('正在分析节奏…');
+    showBeatChip(audioBeatAnalysisText('aba_analyzing'));
     var resp = await fetch(audioUrl);
     if (token !== beatMapToken) { hideBeatChip(); return null; }
     var ab = await resp.arrayBuffer();
@@ -748,7 +775,7 @@ async function analyzeAudioBeats(audioUrl, durationSec, token, options) {
     await yieldToPaint();
     if (token !== beatMapToken) { hideBeatChip(); return null; }
     if (options.prefetch) hideBeatChip();
-    else showBeatChip('节奏缓冲中…');
+    else showBeatChip(audioBeatAnalysisText('beatmap_buffering'));
     return { kicks: kicks, beats: beats, pulseBeats: pulseBeats, cameraBeats: cameraBeats, gridStep: gridStep, tempoSource: musicTempoBeats.length >= 4 ? 'music-tempo' : 'local', analysisProfile: analysisProfile.id || 'default', duration: buffer.duration, visualBeatCount: visualBeatCount, analyzedAt: Date.now() };
   } catch (e) {
     console.warn('beat analysis failed:', e);

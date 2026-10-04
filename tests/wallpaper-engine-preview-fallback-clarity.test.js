@@ -9,6 +9,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { accessorBlock, i18nWindow } = require('./helpers/module-source');
 
 const appRoot = path.resolve(__dirname, '..');
 const rendererPath = path.join(appRoot, 'public', 'js', 'modules', '07-fx', '03-wallpaper-engine-library.js');
@@ -265,7 +266,12 @@ const previewMarkerPrelude = [
 // ② 常驻标注 + 重试入口：一次性 toast 不是可发现的入口。
 // A persistent label plus a discoverable retry entry (the one-shot toast is not enough).
 // ---------------------------------------------------------------------------
+// 取词函数定义在文件头部、不在切片内；入口行的沙箱里要一起带上，并用 zh-CN 词典桩让
+// 中文断言继续成立。
+// The accessor lives at the top of the file, outside the extracted slice; the entry-row
+// sandbox carries it along and answers from the zh-CN dictionary so the Chinese assertions hold.
 const entryUiPrelude = [
+  accessorBlock(rendererText),
   extractVarLiteral(rendererText, 'WALLPAPER_ENGINE_SELECTION_STORE_KEY'),
   'var wallpaperEngineSelection = null;',
   'var wallpaperEngineRuntimeError = \'\';',
@@ -285,6 +291,7 @@ function entryUiSandbox() {
     nodes,
     sandbox: {
       console,
+      window: i18nWindow('zh_cn'),
       document: { getElementById: (id) => nodes[id] || null },
     },
   };

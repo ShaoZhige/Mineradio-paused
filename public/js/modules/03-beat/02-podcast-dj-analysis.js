@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function podcastDjAnalysisText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function schedulePodcastDjAnalysis(songKey, audioUrl, token, durationSec) {
   cancelDjBeatAnalysisTimer();
   if (!songKey || !audioUrl) return;
@@ -414,13 +441,13 @@ async function buildPodcastDjLowOnlyBeatMap(buffer, token) {
 async function analyzePodcastDjBeats(audioUrl, token, durationSec) {
   try {
     djBeatMapBusy = true;
-    showBeatChip('DJ 离线锁拍…');
+    showBeatChip(podcastDjAnalysisText('dj_offline_lock'));
     await yieldToIdle(520);
     if (token !== djBeatMapToken || !djMode.active) { hideBeatChip(); return null; }
     durationSec = Math.max(0, Number(durationSec) || 0);
     var preferServerAnalysis = /^https?:\/\//i.test(audioUrl || '') && (durationSec <= 0 || durationSec > 3300);
     if (preferServerAnalysis) {
-      showBeatChip('DJ 长播客后端锁拍...');
+      showBeatChip(podcastDjAnalysisText('dj_long_podcast'));
       var serverResp = await fetch('/api/podcast/dj-beatmap?url=' + encodeURIComponent(audioUrl) + '&duration=' + encodeURIComponent(durationSec));
       if (token !== djBeatMapToken || !djMode.active) { hideBeatChip(); return null; }
       var serverData = await serverResp.json().catch(function () { return null; });
@@ -435,7 +462,7 @@ async function analyzePodcastDjBeats(audioUrl, token, durationSec) {
     var ab = await resp.arrayBuffer();
     if (token !== djBeatMapToken || !djMode.active) { hideBeatChip(); return null; }
 
-    showBeatChip('DJ 解码音频…');
+    showBeatChip(podcastDjAnalysisText('dj_decode'));
     var TmpCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     var DecodeCtx = window.AudioContext || window.webkitAudioContext;
     if (!DecodeCtx) { hideBeatChip(); return null; }
@@ -450,7 +477,7 @@ async function analyzePodcastDjBeats(audioUrl, token, durationSec) {
 
     var sr = buffer.sampleRate;
     async function renderDjBand(hpFreq, lpFreq, label) {
-      showBeatChip('DJ 分离' + label + '…');
+      showBeatChip(podcastDjAnalysisText('dj_separate') + label + '…');
       var off = new TmpCtx(1, buffer.length, sr);
       var src = off.createBufferSource();
       src.buffer = buffer;
@@ -479,17 +506,17 @@ async function analyzePodcastDjBeats(audioUrl, token, durationSec) {
       return rendered.getChannelData(0);
     }
 
-    var lowPcm = await renderDjBand(34, 170, '低频');
+    var lowPcm = await renderDjBand(34, 170, podcastDjAnalysisText('dj_low'));
     if (!lowPcm) { hideBeatChip(); return null; }
-    var bodyPcm = await renderDjBand(150, 560, '鼓身');
+    var bodyPcm = await renderDjBand(150, 560, podcastDjAnalysisText('dj_drum_body'));
     if (!bodyPcm) { hideBeatChip(); return null; }
-    var snapPcm = await renderDjBand(1700, 9200, '高频');
+    var snapPcm = await renderDjBand(1700, 9200, podcastDjAnalysisText('dj_high'));
     if (!snapPcm) { hideBeatChip(); return null; }
 
     var hopSec = 0.012;
     var hopSize = Math.max(256, Math.floor(sr * hopSec));
     async function makeEnergy(pcm, label) {
-      showBeatChip('DJ 读取' + label + '…');
+      showBeatChip(podcastDjAnalysisText('dj_read') + label + '…');
       var frames = Math.floor(pcm.length / hopSize);
       var out = new Float32Array(frames);
       for (var f = 0; f < frames; f++) {
@@ -508,9 +535,9 @@ async function analyzePodcastDjBeats(audioUrl, token, durationSec) {
       return out;
     }
 
-    var lowEnergy = await makeEnergy(lowPcm, '低频');
-    var bodyEnergy = await makeEnergy(bodyPcm, '鼓身');
-    var snapEnergy = await makeEnergy(snapPcm, '高频');
+    var lowEnergy = await makeEnergy(lowPcm, podcastDjAnalysisText('dj_low'));
+    var bodyEnergy = await makeEnergy(bodyPcm, podcastDjAnalysisText('dj_drum_body'));
+    var snapEnergy = await makeEnergy(snapPcm, podcastDjAnalysisText('dj_high'));
     if (!lowEnergy || !bodyEnergy || !snapEnergy || token !== djBeatMapToken || !djMode.active) { hideBeatChip(); return null; }
 
     var nFrames = Math.min(lowEnergy.length, bodyEnergy.length, snapEnergy.length);
@@ -532,7 +559,7 @@ async function analyzePodcastDjBeats(audioUrl, token, durationSec) {
     var bodyRef = Math.max(0.0008, percentile(bodyEnergy, 0.84));
     var snapRef = Math.max(0.0008, percentile(snapEnergy, 0.84));
 
-    showBeatChip('DJ 计算主拍…');
+    showBeatChip(podcastDjAnalysisText('dj_computing'));
     var onset = new Float32Array(nFrames);
     for (var oi = 2; oi < nFrames; oi++) {
       var lowRise = Math.max(0, lowEnergy[oi] - lowEnergy[oi - 1]);
@@ -783,7 +810,7 @@ function applyPodcastDjProfileFromMap(map) {
 
 function smoothPodcastDjMapHandoff(songKey, map, token) {
   if (!map) return;
-  showBeatChip('DJ 锁拍完成…');
+  showBeatChip(podcastDjAnalysisText('dj_lock_done'));
   var apply = function () {
     if (token !== djBeatMapToken || !djMode.active || djMode.songKey !== songKey) return;
     djBeatMapCache[songKey] = map;
@@ -792,7 +819,7 @@ function smoothPodcastDjMapHandoff(songKey, map, token) {
     syncPodcastDjMapCursor(audio ? audio.currentTime : 0, true);
     notifyDesktopLyricsBeatMapReady();
     hideBeatChip();
-    showToast('DJ 离线锁拍完成: ' + (map.visualBeatCount || 0) + ' 个主拍');
+    showToast(podcastDjAnalysisText('dj_offline_lock_done') + (map.visualBeatCount || 0) + podcastDjAnalysisText('beatcache_main_beats'));
   };
   scheduleVisualApply(apply, 260, 360);
 }
@@ -807,7 +834,7 @@ function smoothPodcastDjIntroHandoff(songKey, map, token) {
     applyPodcastDjProfileFromMap(map);
     syncPodcastDjMapCursor(audio ? audio.currentTime : 0, true);
     notifyDesktopLyricsBeatMapReady();
-    showBeatChip('DJ 开头已锁拍，全曲继续分析…');
+    showBeatChip(podcastDjAnalysisText('dj_locked_continue'));
   };
   scheduleVisualApply(apply, 0, 240);
 }

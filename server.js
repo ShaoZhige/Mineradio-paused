@@ -109,6 +109,9 @@ const {
   handleQishuiCreateComment,
   handleQishuiLyric,
   handleQishuiSongUrl,
+  handleQishuiSignatureAuthorize,
+  handleQishuiSignatureRevoke,
+  getQishuiSignatureBridgeStatus,
 } = require('./qishui-api');
 const qishuiQrLogin = require('./qishui-qr-login');
 const { clearSpotifyToken } = require('./spotify-api');
@@ -4631,10 +4634,58 @@ function loginEasterEggGateUnlocked() {
   }
 }
 
+// 由 Electron 主进程在启动时注入；没有注入时自定义音源视为未启用。
+// Injected by the Electron main process at startup; without it the custom source is inactive.
+let customSourceResolver = null;
+
 const server = http.createServer(async (req, res) => {
   refreshConfiguredCookieStores(false);
   const url = new URL(req.url, 'http://localhost:' + PORT);
   const pn = url.pathname;
+
+  if (pn === '/api/custom-source/resolve') {
+    // 自定义音源是桌面端的运行环境，路由只是转达：真正的脚本宿主在主进程里。
+    // 浏览器直接访问这个地址（没有 Electron 主进程注入解析器）时返回「未启用」，
+    // 而不是把它当成一个正常的播放解析失败。
+    // The custom source host lives in the Electron main process; this route only forwards.
+    // A plain browser hitting it (no injected resolver) gets "inactive" instead of a
+    // spurious playback failure.
+    if (req.method !== 'POST') {
+      sendJSON(res, { active: false, handled: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+      return;
+    }
+    try {
+      const body = await readRequestBody(req);
+      if (!customSourceResolver) {
+        sendJSON(res, { active: false, handled: false });
+        return;
+      }
+      // 切歌时前端会 abort，把取消一路传到脚本宿主，别让旧请求继续占着 runtime。
+      // The renderer aborts on track switches; forward the cancellation all the way to the
+      // script host so a stale request stops occupying the runtime.
+      const controller = new AbortController();
+      req.once('aborted', () => controller.abort(new Error('REQUEST_ABORTED')));
+      res.once('close', () => {
+        if (!res.writableEnded) controller.abort(new Error('REQUEST_ABORTED'));
+      });
+      const result = await customSourceResolver({
+        song: body && typeof body.song === 'object' ? body.song : {},
+        quality: String(body?.quality || 'hires'),
+        signal: controller.signal,
+      });
+      if (!res.destroyed) sendJSON(res, result || { active: false, handled: false });
+    } catch (error) {
+      if (!res.destroyed) {
+        sendJSON(res, {
+          active: true,
+          handled: true,
+          url: '',
+          error: error?.message || 'CUSTOM_SOURCE_FAILED',
+        }, 502);
+      }
+    }
+    return;
+  }
 
   if (pn === '/api/spotify' || pn.indexOf('/api/spotify/') === 0) {
     sendJSON(res, { ok: false, error: 'PROVIDER_REMOVED', message: '该平台接口已从 Mineradio 移除。' }, 404);
@@ -5377,6 +5428,47 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[QishuiLogout]', err);
       sendJSON(res, { provider: 'qishui', ok: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qishui/signature/status') {
+    sendJSON(res, getQishuiSignatureBridgeStatus());
+    return;
+  }
+
+  // 签名桥接的授权必须由用户显式触发：本机会打开官方客户端让用户在其中登录，
+  // 仅在本地记录设备身份，不读取任何账号凭据。
+  if (pn === '/api/qishui/signature/authorize') {
+    if (req.method !== 'POST') {
+      sendJSON(res, { provider: 'qishui', ok: false, reason: 'method_not_allowed' }, 405);
+      return;
+    }
+    try {
+      sendJSON(res, await handleQishuiSignatureAuthorize());
+    } catch (err) {
+      console.error('[QishuiSignatureAuthorize]', err);
+      sendJSON(res, {
+        provider: 'qishui',
+        ok: false,
+        reason: 'authorize_failed',
+        error: err && err.message || String(err),
+        bridge: getQishuiSignatureBridgeStatus().bridge,
+      }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qishui/signature/revoke') {
+    if (req.method !== 'POST') {
+      sendJSON(res, { provider: 'qishui', ok: false, reason: 'method_not_allowed' }, 405);
+      return;
+    }
+    try {
+      sendJSON(res, handleQishuiSignatureRevoke());
+    } catch (err) {
+      console.error('[QishuiSignatureRevoke]', err);
+      sendJSON(res, { provider: 'qishui', ok: false, error: err && err.message || String(err) }, 500);
     }
     return;
   }
@@ -6712,5 +6804,9 @@ server.listen(PORT, HOST, () => {
 });
 
 server.clearAllLoginCredentials = clearAllRuntimeLoginCredentials;
+
+server.setCustomSourceResolver = resolver => {
+  customSourceResolver = typeof resolver === 'function' ? resolver : null;
+};
 
 module.exports = server;

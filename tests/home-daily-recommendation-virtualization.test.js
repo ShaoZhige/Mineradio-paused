@@ -50,9 +50,11 @@ test('daily recommendation modal consumes the full frontend dataset without an e
   assert.ok(render, 'expected renderHomePlatformRecommendations()');
   assert.match(render, /var songs = Array\.isArray\(homeDiscoverState\.songs\) \? homeDiscoverState\.songs : \[\]/);
   assert.doesNotMatch(render, /homeDiscoverState\.songs\.slice\s*\(\s*0\s*,\s*8\s*\)/);
-  assert.match(render, /id="home-platform-daily-grid"/);
+  // 每日推荐网格与「已读取全部」提示已按取词键接入，源码不再内联 HTML/中文。
+  // The daily grid and the "loaded all" hint are now keyed; no inline HTML/Chinese remains.
+  assert.match(render, /dash_daily_grid_html/);
   assert.match(render, /renderHomePlatformDailyWindow\s*\(\s*true\s*\)/);
-  assert.match(render, /已读取全部/);
+  assert.match(render, /dash_loaded_all_prefix/);
   assert.doesNotMatch(render, /热门播客|网易云热门播客|netease-podcast/);
 });
 

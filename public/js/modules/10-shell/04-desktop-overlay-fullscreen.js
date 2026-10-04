@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function desktopOverlayFullscreenText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var desktopOverlayPushState = {
   lyricsAt: 0,
   wallpaperAt: 0,
@@ -367,18 +404,18 @@ function updateDesktopModeControl(status) {
     softwareLockButton.setAttribute('aria-checked', softwareLocked ? 'true' : 'false');
     softwareLockButton.setAttribute('aria-busy', desktopSoftwareLockPending ? 'true' : 'false');
     softwareLockButton.disabled = desktopSoftwareLockPending || !active || !softwareLockSupported;
-    softwareLockButton.title = softwareLocked ? '恢复 Mineradio 操作' : '暂时把操作交给 Windows 桌面';
+    softwareLockButton.title = softwareLocked ? desktopOverlayFullscreenText('overlay_restore_controls') : desktopOverlayFullscreenText('overlay_give_desktop');
   }
-  if (softwareLockState) softwareLockState.textContent = softwareLocked ? '软件操作已锁定，可在此解锁' : '软件可正常操作';
+  if (softwareLockState) softwareLockState.textContent = softwareLocked ? desktopOverlayFullscreenText('overlay_locked_unlock_here') : desktopOverlayFullscreenText('overlay_controls_normal');
   if (document.body) document.body.classList.toggle('desktop-software-locked', active && softwareLocked);
   if (iconsButton) {
     var iconsSupported = !!(api && typeof api.setDesktopIconsVisible === 'function');
     iconsButton.setAttribute('aria-checked', iconsVisible ? 'true' : 'false');
     iconsButton.setAttribute('aria-busy', desktopIconVisibilityPending ? 'true' : 'false');
     iconsButton.disabled = desktopIconVisibilityPending || !active || !iconsSupported;
-    iconsButton.title = iconsVisible ? '隐藏 Windows 桌面图标' : '显示 Windows 桌面图标';
+    iconsButton.title = iconsVisible ? desktopOverlayFullscreenText('overlay_hide_icons') : desktopOverlayFullscreenText('overlay_show_icons');
   }
-  if (iconsState) iconsState.textContent = iconsVisible ? '图标已显示' : '图标已隐藏';
+  if (iconsState) iconsState.textContent = iconsVisible ? desktopOverlayFullscreenText('overlay_icons_shown_short') : desktopOverlayFullscreenText('overlay_icons_hidden_short');
 }
 
 function updateDesktopIconLockControl(status) {
@@ -396,7 +433,7 @@ function setDesktopIconsVisibility(desired, event) {
   var api = getDesktopWindowApi();
   var mode = desktopIconShieldModeState();
   if (!api || typeof api.setDesktopIconsVisible !== 'function' || !mode.active) {
-    if (typeof showToast === 'function') showToast('当前桌面图标显示控制不可用');
+    if (typeof showToast === 'function') showToast(desktopOverlayFullscreenText('overlay_icons_unavailable'));
     return Promise.resolve({ ok: false, error: 'DESKTOP_ICON_VISIBILITY_INACTIVE' });
   }
   if (desktopIconVisibilityPending) return Promise.resolve({ ok: false, error: 'DESKTOP_ICON_VISIBILITY_BUSY' });
@@ -415,13 +452,13 @@ function setDesktopIconsVisibility(desired, event) {
     }
     if (typeof showToast === 'function') {
       showToast(result.ok === true
-        ? (desired ? '桌面图标已显示' : '桌面图标已隐藏')
-        : (desired ? '桌面图标显示失败' : '桌面图标隐藏失败'));
+        ? (desired ? desktopOverlayFullscreenText('overlay_icons_shown') : desktopOverlayFullscreenText('overlay_icons_hidden'))
+        : (desired ? desktopOverlayFullscreenText('overlay_icons_show_failed') : desktopOverlayFullscreenText('overlay_icons_hide_failed')));
     }
     return result;
   }).catch(function (error) {
     if (operation !== desktopIconVisibilityOperation) return { ok: false, error: String(error && error.message || error) };
-    if (typeof showToast === 'function') showToast(desired ? '桌面图标显示失败' : '桌面图标隐藏失败');
+    if (typeof showToast === 'function') showToast(desired ? desktopOverlayFullscreenText('overlay_icons_show_failed') : desktopOverlayFullscreenText('overlay_icons_hide_failed'));
     return { ok: false, error: String(error && error.message || error) };
   }).then(function (result) {
     if (operation === desktopIconVisibilityOperation) {
@@ -457,7 +494,7 @@ function setDesktopSoftwareInteractionLocked(desired, event) {
   var api = getDesktopWindowApi();
   var mode = desktopIconShieldModeState();
   if (!api || typeof api.setDesktopSoftwareLocked !== 'function' || !mode.active) {
-    if (typeof showToast === 'function') showToast('当前软件操作锁定不可用');
+    if (typeof showToast === 'function') showToast(desktopOverlayFullscreenText('overlay_lock_unavailable'));
     return Promise.resolve({ ok: false, error: 'DESKTOP_SOFTWARE_LOCK_INACTIVE' });
   }
   if (desktopSoftwareLockPending) return Promise.resolve({ ok: false, error: 'DESKTOP_SOFTWARE_LOCK_BUSY' });
@@ -476,8 +513,8 @@ function setDesktopSoftwareInteractionLocked(desired, event) {
     }
     if (typeof showToast === 'function') {
       showToast(result.ok === true
-        ? (desired ? '软件操作已锁定；移到右上角可随时解锁' : '软件操作已恢复')
-        : (desired ? '软件操作锁定失败' : '软件操作解锁失败'));
+        ? (desired ? desktopOverlayFullscreenText('overlay_controls_locked') : desktopOverlayFullscreenText('overlay_controls_restored'))
+        : (desired ? desktopOverlayFullscreenText('overlay_lock_failed') : desktopOverlayFullscreenText('overlay_unlock_failed')));
     }
     if (result.ok === true && restoreKeyboardFocus) {
       requestDesktopKeyboardFocus('software-unlocked');
@@ -485,7 +522,7 @@ function setDesktopSoftwareInteractionLocked(desired, event) {
     return result;
   }).catch(function (error) {
     if (operation !== desktopSoftwareLockOperation) return { ok: false, error: String(error && error.message || error) };
-    if (typeof showToast === 'function') showToast(desired ? '软件操作锁定失败' : '软件操作解锁失败');
+    if (typeof showToast === 'function') showToast(desired ? desktopOverlayFullscreenText('overlay_lock_failed') : desktopOverlayFullscreenText('overlay_unlock_failed'));
     return { ok: false, error: String(error && error.message || error) };
   }).then(function (result) {
     if (operation === desktopSoftwareLockOperation) {
@@ -1108,8 +1145,8 @@ function updateDesktopWallpaperRuntimeControls(status) {
     if (!supported) toggle.setAttribute('aria-disabled', 'true');
     else toggle.removeAttribute('aria-disabled');
     toggle.title = !supported
-      ? '当前系统不支持完整桌面模式'
-      : (attaching ? '正在切换完整桌面模式' : '把完整 Mineradio 放到 Windows 桌面；右上角控制器可显示或隐藏桌面图标，Esc 退出');
+      ? desktopOverlayFullscreenText('overlay_full_unsupported')
+      : (attaching ? desktopOverlayFullscreenText('overlay_switching') : desktopOverlayFullscreenText('overlay_enter_hint'));
   }
   var opacity = document.getElementById('fx-wallpaperopacity');
   if (opacity) opacity.disabled = !supported;
@@ -1333,18 +1370,18 @@ function applyDesktopWallpaperRuntimeStatus(payload) {
 }
 function desktopWallpaperErrorLabel(error) {
   var code = String(error || 'WALLPAPER_FAILED');
-  if (code.indexOf('WALLPAPER_PLATFORM_UNSUPPORTED') >= 0) return '当前系统不支持';
-  if (code.indexOf('WALLPAPER_WORKERW_NOT_FOUND') >= 0) return '未找到桌面 WorkerW';
-  if (code.indexOf('WALLPAPER_PROGMAN_NOT_FOUND') >= 0) return '未找到 Windows 桌面宿主';
-  if (code.indexOf('WALLPAPER_NATIVE_ATTACH_ABORTED') >= 0 || code.indexOf('WALLPAPER_START_SUPERSEDED') >= 0) return '启动已取消';
-  if (code.indexOf('FULL_DESKTOP_RECOVERY_TRAY_UNAVAILABLE') >= 0) return '无法创建桌面模式恢复入口';
+  if (code.indexOf('WALLPAPER_PLATFORM_UNSUPPORTED') >= 0) return desktopOverlayFullscreenText('overlay_unsupported');
+  if (code.indexOf('WALLPAPER_WORKERW_NOT_FOUND') >= 0) return desktopOverlayFullscreenText('overlay_no_workerw');
+  if (code.indexOf('WALLPAPER_PROGMAN_NOT_FOUND') >= 0) return desktopOverlayFullscreenText('overlay_no_host');
+  if (code.indexOf('WALLPAPER_NATIVE_ATTACH_ABORTED') >= 0 || code.indexOf('WALLPAPER_START_SUPERSEDED') >= 0) return desktopOverlayFullscreenText('overlay_start_cancelled');
+  if (code.indexOf('FULL_DESKTOP_RECOVERY_TRAY_UNAVAILABLE') >= 0) return desktopOverlayFullscreenText('overlay_no_recovery_entry');
   if (code.indexOf('FULL_DESKTOP_WALLPAPER_ENGINE_SUSPEND_FAILED') >= 0
     || code.indexOf('FULL_DESKTOP_WALLPAPER_ENGINE_HELPER_EXIT_TIMEOUT') >= 0
     || code.indexOf('WALLPAPER_ENGINE_DESKTOP_TRANSITION_BUSY') >= 0
     || code.indexOf('WALLPAPER_DESKTOP_PREVIEW') >= 0
-    || code.indexOf('WALLPAPER_ENGINE_SESSION_MISMATCH') >= 0) return 'Wallpaper Engine 项目未能安全切换到桌面预览';
-  if (code.indexOf('DESKTOP_MODE_DETACH') >= 0 || code.indexOf('FULL_DESKTOP_DETACH') >= 0) return '主窗口恢复失败';
-  return '无法进入完整桌面模式';
+    || code.indexOf('WALLPAPER_ENGINE_SESSION_MISMATCH') >= 0) return desktopOverlayFullscreenText('overlay_we_switch_failed');
+  if (code.indexOf('DESKTOP_MODE_DETACH') >= 0 || code.indexOf('FULL_DESKTOP_DETACH') >= 0) return desktopOverlayFullscreenText('overlay_main_restore_failed');
+  return desktopOverlayFullscreenText('overlay_cannot_enter');
 }
 function initDesktopWallpaperRuntimeBridge(api) {
   if (!api) return;
@@ -1520,7 +1557,7 @@ function toggleFullscreen() {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen().catch(function () {
       if (api && api.isDesktop && typeof api.toggleFullscreen === 'function') api.toggleFullscreen();
-      else showToast('全屏被浏览器拒绝');
+      else showToast(desktopOverlayFullscreenText('fullscreen_rejected', '全屏被浏览器拒绝'));
     });
   } else {
     document.exitFullscreen();
@@ -1572,7 +1609,7 @@ function toggleFullscreen() {
     }
     syncCursorAutoHideMode();
     if (maxBtn) {
-      maxBtn.title = isFullScreen ? '退出全屏' : '全屏';
+      maxBtn.title = isFullScreen ? desktopOverlayFullscreenText('btn_exit_fullscreen', '退出全屏') : desktopOverlayFullscreenText('btn_fullscreen', '全屏');
       maxBtn.setAttribute('aria-label', maxBtn.title);
     }
     if (maxIcon) maxIcon.style.display = isFullScreen ? 'none' : '';
@@ -1601,7 +1638,7 @@ function toggleFullscreen() {
       updateFxInputs();
       saveLyricLayout({ user: true, reason: 'desktopLyricsClickThrough' });
       pushDesktopLyricsState(true);
-      showToast(locked ? '桌面歌词已锁定' : '桌面歌词可移动');
+      showToast(locked ? desktopOverlayFullscreenText('desktop_lyrics_locked', '桌面歌词已锁定') : desktopOverlayFullscreenText('desktop_lyrics_unlocked', '桌面歌词可移动'));
     });
   }
   if (typeof api.onDesktopLyricsEnabledState === 'function') {
@@ -1611,7 +1648,7 @@ function toggleFullscreen() {
       fx.desktopLyrics = enabled;
       updateFxInputs();
       saveLyricLayout({ user: true, reason: 'desktopLyrics' });
-      showToast(enabled ? '桌面歌词已开启' : '桌面歌词已关闭');
+      showToast(enabled ? desktopOverlayFullscreenText('desktop_lyrics_on', '桌面歌词已开启') : desktopOverlayFullscreenText('desktop_lyrics_off', '桌面歌词已关闭'));
     });
   }
 

@@ -335,7 +335,7 @@ test('renderer and Electron wiring restore persistent tracks instead of blob-onl
   assert.match(upload, /importPersistentLocalAudioFiles/);
   assert.match(upload, /copy\.localMissing = false/);
   assert.match(upload, /persistentLocalLibraryTracks = tracks\.map\(cloneSong\)/);
-  assert.match(upload, /仅本次可用，重启后不会保留/);
+  assert.match(upload, /upload_lib_save_failed/);
   assert.match(coreState, /var persistentLocalLibraryTracks = \[\]/);
   assert.match(homeLocal, /loadPersistedLocalLibraryIntoQueue/);
   assert.doesNotMatch(playerControls, /forgetPersistentLocalTracks/);

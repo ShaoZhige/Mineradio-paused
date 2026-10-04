@@ -1,4 +1,41 @@
 // ============================================================
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function loginModalUtilsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function openGsapModal(mask) {
   if (!mask) return;
   var panel = mask.querySelector('.modal');
@@ -218,11 +255,11 @@ function syncAccountProviderOrderUi() {
   }
 }
 function platformMeta(provider) {
-  if (provider === 'qq') return { key: 'qq', short: 'QQ', label: 'QQ 音乐', app: 'QQ 音乐 App', dot: 'qq' };
-  if (provider === 'kugou') return { key: 'kugou', short: 'KG', label: '酷狗音乐', app: '酷狗音乐 App', dot: 'kugou' };
-  if (provider === 'qishui') return { key: 'qishui', short: 'QS', label: '汽水音乐', app: '汽水音乐 App', dot: 'qishui' };
+  if (provider === 'qq') return { key: 'qq', short: 'QQ', label: 'QQ 音乐', app: loginModalUtilsText('lmu_qq_app'), dot: 'qq' };
+  if (provider === 'kugou') return { key: 'kugou', short: 'KG', label: loginModalUtilsText('provider_kugou'), app: loginModalUtilsText('lmu_kugou_app'), dot: 'kugou' };
+  if (provider === 'qishui') return { key: 'qishui', short: 'QS', label: loginModalUtilsText('provider_qishui'), app: loginModalUtilsText('lmu_qishui_app'), dot: 'qishui' };
   if (provider === 'spotify') return { key: 'spotify', short: 'SP', label: 'Spotify', app: 'Spotify', dot: 'spotify' };
-  return { key: 'netease', short: 'NE', label: '网易云音乐', app: '网易云音乐 App', dot: 'netease' };
+  return { key: 'netease', short: 'NE', label: loginModalUtilsText('track_netease_music'), app: loginModalUtilsText('lmu_netease_app'), dot: 'netease' };
 }
 function platformStatus(provider) {
   if (provider === 'spotify') return spotifyLoginStatus;
@@ -264,7 +301,7 @@ function providerVipLevel(provider, status) {
       /svip|supervip|super_vip|超级会员|超级vip/.test(raw + ' ' + text) ||
       (provider !== 'netease' && /豪华绿钻/.test(raw + ' ' + text))) return 'svip';
   if (raw === 'none' || raw === 'free' || raw === 'open' || raw === 'unknown' ||
-      raw === 'no vip' || raw === 'no_vip' || raw === 'no-vip' || raw === 'normal' || raw === '无vip') return 'none';
+      raw === 'no vip' || raw === 'no_vip' || raw === 'no-vip' || raw === 'normal' || raw === loginModalUtilsText('lmu_no_vip')) return 'none';
   var vip = providerVipType(provider, status);
   if (providerFlagEnabled(status, ['isVip', 'is_vip', 'vip', 'vipFlag', 'vipflag']) || vip > 0 || /vip|premium|会员|黑胶|绿钻/.test(raw + ' ' + text)) return 'vip';
   return 'none';
@@ -318,7 +355,7 @@ function providerVipBadge(provider, status, idAttr, includeNormal) {
   var id = idAttr ? ' id="' + idAttr + '"' : '';
   var badgeLevel = pendingSync ? 'pending' : (level === 'none' ? 'normal' : level);
   var cls = 'top-account-vip ' + escHtml(provider || 'netease') + ' ' + badgeLevel;
-  var label = pendingSync ? '待同步' : (level === 'svip' ? 'SVIP' : (level === 'vip' ? 'VIP' : '普通'));
+  var label = pendingSync ? loginModalUtilsText('lmu_sync_pending') : (level === 'svip' ? 'SVIP' : (level === 'vip' ? 'VIP' : loginModalUtilsText('login_normal')));
   return '<span' + id + ' class="' + cls + '">' + label + '</span>';
 }
 function providerAccountIdentity(provider, status) {
@@ -352,7 +389,7 @@ function providerAccountIdentity(provider, status) {
     profile.public_name,
     profile.name
   ];
-  var syntheticPrefixes = [meta.label, meta.short, provider, 'QQ 音乐', 'QQ', '酷狗音乐', '酷狗', '汽水音乐', '网易云音乐', '网易云', 'Spotify']
+  var syntheticPrefixes = [meta.label, meta.short, provider, loginModalUtilsText('login_qq', 'QQ 音乐'), 'QQ', loginModalUtilsText('provider_kugou'), loginModalUtilsText('search_kugou'), loginModalUtilsText('provider_qishui'), loginModalUtilsText('track_netease_music'), loginModalUtilsText('login_netease', '网易云'), 'Spotify']
     .map(function (value) { return String(value || '').replace(/[\s·:_-]+/g, '').toLowerCase(); })
     .filter(Boolean);
   for (var i = 0; i < candidates.length; i += 1) {
@@ -366,7 +403,7 @@ function providerAccountIdentity(provider, status) {
     if (synthetic) continue;
     return nickname;
   }
-  return String(meta.label || provider || '账号');
+  return String(meta.label || provider || loginModalUtilsText('lmu_account'));
 }
 function renderTopAccountPill(provider, opts) {
   opts = opts || {};
@@ -375,7 +412,7 @@ function renderTopAccountPill(provider, opts) {
   if (!loggedIn && !opts.force) return '';
   var meta = platformMeta(provider);
   st = st || {};
-  var displayName = loggedIn ? ((provider === 'qq' && st.preview) ? '待接入' : providerAccountIdentity(provider, st)) : meta.label;
+  var displayName = loggedIn ? ((provider === 'qq' && st.preview) ? loginModalUtilsText('lmu_pending') : providerAccountIdentity(provider, st)) : meta.label;
   var vipTag = providerVipBadge(provider, st, '', true);
   return '<span class="top-account-pill ' + (loggedIn ? 'online' : 'offline') + '" data-account-provider="' + escHtml(provider) + '">' +
     '<img src="' + providerAvatarSrc(provider, st) + '" alt="">' +

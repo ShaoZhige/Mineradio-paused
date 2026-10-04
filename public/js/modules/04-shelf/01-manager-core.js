@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function managerCoreText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function makeShelfManager() {
   var group = null;
   var cards = [];          // [{canvas, ctx, texture, mesh, item, index, slot}]
@@ -72,13 +109,13 @@ function makeShelfManager() {
         var sourceLabel = provider === 'mineradio' ? 'MR' : (provider === 'qq' ? 'QQ' : (provider === 'kugou' ? 'KG' : (provider === 'qishui' ? 'QS' : (provider === 'spotify' ? 'SP' : 'NE'))));
         if (provider === 'spotify' && String(pl.id || '').indexOf('spotify:') !== 0) pl = Object.assign({}, pl, { id: 'spotify:' + pl.id });
         return {
-          type: 'playlist', title: pl.name, sub: sourceLabel + ' · ' + (pl.trackCount || 0) + ' 首 · 播放 ' + compactCount(pl.playCount || 0),
-          cover: pl.cover || '', tag: provider === 'mineradio' ? '内置歌单' : ((pl.shelfPane || pl.shelf_pane) === 'fav' || (!(pl.shelfPane || pl.shelf_pane) && pl.subscribed) ? '收藏歌单' : (provider === 'qishui' ? '汽水歌单' : '我的歌单')), playlistId: (provider === 'mineradio' ? 'mineradio:' : (provider === 'qq' ? 'qq:' : (provider === 'kugou' ? 'kugou:' : (provider === 'qishui' ? 'qishui:' : '')))) + pl.id, provider: provider
+          type: 'playlist', title: pl.name, sub: sourceLabel + ' · ' + (pl.trackCount || 0) + managerCoreText('shelf_tracks_play') + compactCount(pl.playCount || 0),
+          cover: pl.cover || '', tag: provider === 'mineradio' ? managerCoreText('shelf_builtin_playlist') : ((pl.shelfPane || pl.shelf_pane) === 'fav' || (!(pl.shelfPane || pl.shelf_pane) && pl.subscribed) ? managerCoreText('shelf_collect_playlist') : (provider === 'qishui' ? managerCoreText('shelf_qishui_playlist') : managerCoreText('tab_playlists', '我的歌单'))), playlistId: (provider === 'mineradio' ? 'mineradio:' : (provider === 'qq' ? 'qq:' : (provider === 'kugou' ? 'kugou:' : (provider === 'qishui' ? 'qishui:' : '')))) + pl.id, provider: provider
         };
       });
       if (shelfShowsPodcasts() && (shelfPane === 'mine' || shelfMergesCollections()) && myPodcastCollections.length) {
         myPodcastCollections.forEach(function (pc) {
-          items.push({ type: 'podcastCollection', title: pc.title, sub: (pc.count || 0) + ' items', cover: pc.cover || '', tag: '我的播客', podcastKey: pc.key, itemType: pc.itemType });
+          items.push({ type: 'podcastCollection', title: pc.title, sub: (pc.count || 0) + ' items', cover: pc.cover || '', tag: managerCoreText('tab_podcasts', '我的播客'), podcastKey: pc.key, itemType: pc.itemType });
         });
       }
       if (items.length) return items;
@@ -86,8 +123,8 @@ function makeShelfManager() {
     if (playQueue.length) {
       return playQueue.map(function (song, idx) {
         return {
-          type: 'queue', title: song.name, sub: song.artist || '未知歌手',
-          cover: songCoverSrc(song, 360), tag: idx === currentIdx ? '正在播放' : ('#' + (idx + 1)), queueIndex: idx
+          type: 'queue', title: song.name, sub: song.artist || managerCoreText('track_unknown_artist'),
+          cover: songCoverSrc(song, 360), tag: idx === currentIdx ? managerCoreText('now_playing', '正在播放') : ('#' + (idx + 1)), queueIndex: idx
         };
       });
     }
@@ -134,7 +171,7 @@ function makeShelfManager() {
     var W = cv.width, H = cv.height;
     ctx.clearRect(0, 0, W, H);
     var pad = 18;
-    var isNow = item.type === 'queue' && item.tag === '正在播放';
+    var isNow = item.type === 'queue' && item.tag === managerCoreText('now_playing', '正在播放');
     var shelfLook = shelfSettings();
 
     // 卡片底
@@ -215,7 +252,7 @@ function makeShelfManager() {
         ctx.lineWidth = 1.1; ctx.stroke();
         ctx.font = '800 14px Inter, "Microsoft YaHei", Arial';
         ctx.fillStyle = readableInkForHex(shelfAccentHex());
-        ctx.fillText('▶ 播放歌单', tx + 25, actionY + 24);
+        ctx.fillText(managerCoreText('shelf_play_playlist'), tx + 25, actionY + 24);
 
         makeRoundRect(ctx, tx + 150, actionY, 104, 38, 18);
         ctx.fillStyle = 'rgba(255,255,255,0.055)'; ctx.fill();
@@ -223,11 +260,11 @@ function makeShelfManager() {
         ctx.lineWidth = 1.1; ctx.stroke();
         ctx.font = '700 14px Inter, "Microsoft YaHei", Arial';
         ctx.fillStyle = 'rgba(255,255,255,0.78)';
-        ctx.fillText('详情', tx + 184, actionY + 24);
+        ctx.fillText(managerCoreText('shelf_details'), tx + 184, actionY + 24);
       } else if (item.type === 'queue') {
         ctx.font = '600 14px Inter, "Microsoft YaHei", Arial';
         ctx.fillStyle = shelfAccentRgba(0.84);
-        ctx.fillText('点击播放', tx, actionY + 25);
+        ctx.fillText(managerCoreText('dash_click_play'), tx, actionY + 25);
       }
     }
 
@@ -650,7 +687,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     selectedIdx = Math.round(centerTarget);
     playShelfSelectTick(paneSwitchDir, 'card');
     rebuild();
-    showToast(nextPane === 'fav' ? '收藏歌单' : '我的歌单');
+    showToast(nextPane === 'fav' ? managerCoreText('shelf_collect_playlist') : managerCoreText('tab_playlists', '我的歌单'));
     return true;
   }
 

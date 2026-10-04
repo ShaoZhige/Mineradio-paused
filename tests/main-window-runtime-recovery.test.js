@@ -65,9 +65,18 @@ function testRendererGoneDelayedRecovery() {
   assert.match(recoveryBlock, /await loadMainWindowWithRetry\(win\)/, 'recovery must reload the main page');
   assert.match(recoveryBlock, /mainWindowRendererRecoveryPromise/, 'only one renderer recovery task may run at once');
   assert.match(recoveryBlock, /reserveMainWindowRendererRecoveryAttempt\(\)/, 'renderer recovery must be rate limited');
-  assert.match(
-    recoveryBlock,
-    /if \(cleanupPromise\) await Promise\.resolve\(cleanupPromise\)[\s\S]{0,260}await loadMainWindowWithRetry\(win\)/,
+  // 这条断言真正保证的是「顺序」：重载必须排在 WE / 桌面清理之后。
+  // 原先写成 260 字符的窗口，等于把中间恰好经过的语句和注释长度也钉死了，
+  // 于是任何无害增项（多一步初始化、多一行解释）都会误报，而误报的守卫迟早被无视。
+  // The property here is ordering: the reload must come after the cleanup. The original
+  // 260-character window also pinned the length of whatever happened to sit in between,
+  // so any harmless addition (one more initialisation step, one more comment line)
+  // raised a false alarm — and a guard that cries wolf gets ignored.
+  const cleanupIndex = recoveryBlock.indexOf('if (cleanupPromise) await Promise.resolve(cleanupPromise)');
+  const reloadIndex = recoveryBlock.indexOf('await loadMainWindowWithRetry(win)');
+  assert.ok(cleanupIndex > 0, 'recovery must await the WE and desktop cleanup');
+  assert.ok(
+    reloadIndex > cleanupIndex,
     'renderer reload must wait for WE and desktop cleanup'
   );
   assert.match(recoveryBlock, /const keepIntentionallyHidden = win\.__mineradioIntentionalHide === true/, 'recovery must snapshot tray hide state');

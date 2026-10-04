@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function tempoWorkerCachePrefetchText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 // ============================================================
 function medianGap(times, minGap, maxGap) {
   if (!times || times.length < 2) return 0;
@@ -128,7 +155,7 @@ function getMusicTempoWorkerUrl() {
 async function analyzeMusicTempoInWorker(buffer, token) {
   if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') return null;
   try {
-    showBeatChip('后台锁定电影主拍…');
+    showBeatChip(tempoWorkerCachePrefetchText('tempo_lock_main'));
     await yieldToIdle(isHiddenForBackgroundOptimization() ? 20 : 180);
     if (token !== beatMapToken) return null;
     var channels = buffer.numberOfChannels;
@@ -229,7 +256,7 @@ function scheduleBeatAnalysis(songId, audioUrl, token, song) {
       }
       var diskMap = await readBeatDiskCache(songId);
       if (diskMap) {
-        applyBeatMapCacheForCurrent(songId, diskMap, token, 'D盘节拍缓存命中:');
+        applyBeatMapCacheForCurrent(songId, diskMap, token, tempoWorkerCachePrefetchText('tempo_d_hit'));
         return;
       }
       if (token !== beatMapToken || !audio || audio.paused || beatMapCache[songId]) return;
@@ -289,7 +316,7 @@ function updateBeatDiskCacheStatus(data) {
   beatDiskCacheStatus.reason = data.reason || '';
   if (!beatDiskCacheStatus.enabled && !beatDiskCacheNoticeLogged) {
     beatDiskCacheNoticeLogged = true;
-    console.log('节拍磁盘缓存不可用，已降级为本次运行内存缓存:', beatDiskCacheStatus.reason || 'unknown');
+    console.log(tempoWorkerCachePrefetchText('tempo_disk_unavailable'), beatDiskCacheStatus.reason || 'unknown');
   }
 }
 
@@ -434,7 +461,7 @@ async function runQueueBeatPrefetch(fromIdx, token, seq, state) {
     if (token !== beatMapToken || seq !== beatPrefetchToken) return;
     var diskMap = await readBeatDiskCache(key);
     if (diskMap) {
-      console.log('队列节奏D盘缓存命中:', song.name || key, diskMap.visualBeatCount || 0);
+      console.log(tempoWorkerCachePrefetchText('tempo_queue_d_hit'), song.name || key, diskMap.visualBeatCount || 0);
       return;
     }
     var audioUrl = await fetchBeatPrefetchAudioUrl(song);
@@ -455,7 +482,7 @@ async function runQueueBeatPrefetch(fromIdx, token, seq, state) {
     if (token !== beatMapToken || seq !== beatPrefetchToken || !map) return;
     beatMapCache[key] = map;
     writeBeatDiskCache(key, map, song, 'mr');
-    console.log('队列节奏预热完成:', song.name || key, map.visualBeatCount || 0);
+    console.log(tempoWorkerCachePrefetchText('tempo_queue_warm_done'), song.name || key, map.visualBeatCount || 0);
   } catch (err) {
     console.warn('queue beat prefetch failed:', err && err.message ? err.message : err);
   } finally {

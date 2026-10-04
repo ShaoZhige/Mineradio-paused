@@ -1,5 +1,34 @@
 'use strict';
 
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function windowsGameModeUiText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
+
+
 // 「Windows 游戏模式」开关的界面逻辑。
 //
 // 这一项是整活：它把本程序登记进 Windows 的 GameConfigStore，让系统游戏模式认出它（更好的电源
@@ -48,17 +77,17 @@ function applyWindowsGameModeState() {
   if (unsupported) {
     toggle.classList.remove('on');
     toggle.setAttribute('aria-disabled', 'true');
-    toggle.title = '仅 Windows 可用：这项功能依赖 Windows 的游戏模式注册';
+    toggle.title = windowsGameModeUiText('wgm_windows_only_detail');
     return true;
   }
   toggle.removeAttribute('aria-disabled');
   if (s.busy) {
-    toggle.title = '正在写入注册表…';
+    toggle.title = windowsGameModeUiText('wgm_writing');
     return true;
   }
   toggle.title = s.registered
-    ? '已登记为 Windows 游戏，系统游戏模式会给出更好的电源计划与调度优先级（整活功能；关闭会按备份原样还原注册表）'
-    : '把 Mineradio 登记为 Windows 游戏，系统游戏模式会给出更好的电源计划与调度优先级（整活功能，只写 HKCU 不需要管理员；关闭时按备份原样还原）';
+    ? windowsGameModeUiText('wgm_registered')
+    : windowsGameModeUiText('wgm_register_desc');
   return true;
 }
 
@@ -84,14 +113,16 @@ async function refreshWindowsGameModeState() {
   return windowsGameModeState;
 }
 
-var WINDOWS_GAME_MODE_FAILURE_TEXT = {
-  BACKUP_FAILED: '注册表备份失败，为安全起见没有改动',
-  BACKUP_WRITE_FAILED: '注册表备份无法落盘，为安全起见没有改动',
-  REGISTRY_WRITE_FAILED: '写入注册表失败',
-  NO_EXE_PATH: '找不到本程序的可执行文件路径',
-  UNSUPPORTED_PLATFORM: '仅 Windows 可用',
-  UNEXPECTED: '操作失败',
-};
+function windowsGameModeFailureText() {
+  return {
+  BACKUP_FAILED: windowsGameModeUiText('wgm_backup_failed'),
+  BACKUP_WRITE_FAILED: windowsGameModeUiText('wgm_backup_failed_safe'),
+  REGISTRY_WRITE_FAILED: windowsGameModeUiText('wgm_write_failed'),
+  NO_EXE_PATH: windowsGameModeUiText('wgm_no_exe'),
+  UNSUPPORTED_PLATFORM: windowsGameModeUiText('wgm_windows_only'),
+  UNEXPECTED: windowsGameModeUiText('wgm_failed'),
+  }
+}
 
 async function toggleWindowsGameMode() {
   if (windowsGameModeState.busy) return false;
@@ -120,13 +151,13 @@ async function toggleWindowsGameMode() {
     await refreshWindowsGameModeState();
     if (typeof showToast === 'function') {
       var reason = (result && result.reason) || 'UNEXPECTED';
-      showToast(WINDOWS_GAME_MODE_FAILURE_TEXT[reason] || '操作失败，注册表未改动');
+      showToast(windowsGameModeFailureText()[reason] || windowsGameModeUiText('wgm_failed_unchanged'));
     }
     return false;
   }
   await refreshWindowsGameModeState();
   if (typeof showToast === 'function') {
-    showToast(turningOn ? '已登记为 Windows 游戏（重启后系统游戏模式才会生效）' : '已还原注册表');
+    showToast(turningOn ? windowsGameModeUiText('wgm_registered_reboot') : windowsGameModeUiText('wgm_restored'));
   }
   return true;
 }

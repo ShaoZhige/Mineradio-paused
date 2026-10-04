@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 const { extractKugouAuth } = require('../kugou-api');
+const { mainI18nBlock } = require('./helpers/module-source');
 
 const root = path.resolve(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'desktop/main.js'), 'utf8');
@@ -14,6 +15,9 @@ const openSource = main.slice(
   main.indexOf('async function openKugouMusicLoginWindow('),
   main.indexOf('async function clearKugouMusicLoginSession('),
 );
+// 切片里的窗口标题走 desktopText()，而它定义在文件更早处、不在切片内 —— 必须一起带进去。
+// The sliced login window titles call desktopText(), which lives outside the slice.
+const mainI18n = mainI18nBlock(main, { localesDir: path.join(root, 'public', 'locales') });
 
 function loginHarness(initialCookie) {
   const state = { cookie: initialCookie, clearCount: 0, windows: [], intervals: new Set() };
@@ -61,7 +65,7 @@ function loginHarness(initialCookie) {
     clearInterval: (callback) => state.intervals.delete(callback),
     setTimeout,
   });
-  vm.runInContext(openSource, context);
+  vm.runInContext(mainI18n + "\n" + openSource, context);
   return { state, open: context.openKugouMusicLoginWindow };
 }
 

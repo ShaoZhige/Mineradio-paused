@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function preferencesUiModesText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function readSavedVolume() {
   try {
     var v = parseFloat(localStorage.getItem('apex-player-volume'));
@@ -81,7 +118,7 @@ function setCloseBehaviorPreference(value, opts) {
   if (window.desktopWindow && typeof window.desktopWindow.setCloseBehavior === 'function') {
     window.desktopWindow.setCloseBehavior(closeBehaviorPreference).catch(function (e) { console.warn('[CloseBehavior]', e); });
   }
-  if (opts.toast) showToast(closeBehaviorPreference === 'tray' ? '关闭按钮将放到后台托盘' : '关闭按钮将直接退出');
+  if (opts.toast) showToast(closeBehaviorPreference === 'tray' ? preferencesUiModesText('close_behavior_tray') : preferencesUiModesText('close_behavior_exit'));
 }
 function bindCloseBehaviorControls() {
   var seg = document.getElementById('close-behavior-seg');
@@ -127,7 +164,7 @@ function setStartupResumeModePreference(value, opts) {
   saveStartupResumeModePreference(startupResumeModePreference);
   syncStartupResumeModeUi();
   applyStartupResumeModeToRestoredSnapshot();
-  if (opts.toast) showToast(startupResumeModePreference === 'restart' ? '恢复播放将重播整首' : '恢复播放将按上次进度继续');
+  if (opts.toast) showToast(startupResumeModePreference === 'restart' ? preferencesUiModesText('resume_restart_track') : preferencesUiModesText('resume_from_position'));
 }
 function bindStartupResumeModeControls() {
   var seg = document.getElementById('startup-resume-mode-seg');
@@ -151,7 +188,7 @@ function toggleStartupAutoplay() {
   startupAutoplayPreference = !startupAutoplayPreference;
   saveBooleanPreference(STARTUP_AUTOPLAY_STORE_KEY, startupAutoplayPreference);
   applyStartupAutoplayUi();
-  showToast(startupAutoplayPreference ? '启动自动播放已开启' : '启动自动播放已关闭');
+  showToast(startupAutoplayPreference ? preferencesUiModesText('startup_autoplay_on') : preferencesUiModesText('startup_autoplay_off'));
   if (startupAutoplayPreference) {
     startupAutoplayAttempted = false;
     queueStartupAutoplayAfterHomeReveal('setting-toggle');
@@ -165,7 +202,7 @@ function toggleStartupFastSkip() {
   startupFastSkipPreference = !startupFastSkipPreference;
   saveBooleanPreference(STARTUP_FAST_SKIP_STORE_KEY, startupFastSkipPreference);
   applyStartupAutoplayUi();
-  showToast(startupFastSkipPreference ? '秒启动已开启' : '秒启动已关闭');
+  showToast(startupFastSkipPreference ? preferencesUiModesText('fast_skip_on') : preferencesUiModesText('fast_skip_off'));
 }
 window.toggleStartupAutoplay = toggleStartupAutoplay;
 window.toggleStartupFastSkip = toggleStartupFastSkip;
@@ -175,7 +212,7 @@ function applyUserCapsuleAutoHideState() {
   if (btn) {
     btn.classList.toggle('on', !!userCapsuleAutoHide);
     btn.textContent = userCapsuleAutoHide ? '›' : '‹';
-    btn.title = userCapsuleAutoHide ? '取消自动隐藏账号胶囊' : '自动隐藏账号胶囊';
+    btn.title = userCapsuleAutoHide ? preferencesUiModesText('capsule_disable_autohide') : preferencesUiModesText('auto_hide_capsule', '自动隐藏账号胶囊');
   }
 }
 function toggleUserCapsuleAutoHide(e) {
@@ -183,7 +220,7 @@ function toggleUserCapsuleAutoHide(e) {
   userCapsuleAutoHide = !userCapsuleAutoHide;
   saveBooleanPreference(USER_CAPSULE_AUTO_HIDE_STORE_KEY, userCapsuleAutoHide);
   applyUserCapsuleAutoHideState();
-  showToast(userCapsuleAutoHide ? '账号胶囊已自动隐藏' : '账号胶囊已固定显示');
+  showToast(userCapsuleAutoHide ? preferencesUiModesText('capsule_auto_hidden') : preferencesUiModesText('capsule_pinned'));
 }
 function updateUserCapsuleAutoHideFromPointer(x, y) {
   if (!userCapsuleAutoHide || immersiveMode) {
@@ -207,7 +244,7 @@ function applyFxFabAutoHideState(opts) {
   if (btn) {
     btn.classList.toggle('on', !!fxFabAutoHide);
     btn.textContent = fxFabAutoHide ? '›' : '‹';
-    btn.title = fxFabAutoHide ? '取消自动隐藏视觉控制台' : '自动隐藏视觉控制台';
+    btn.title = fxFabAutoHide ? preferencesUiModesText('console_fab_disable_autohide') : preferencesUiModesText('auto_hide_visual', '自动隐藏视觉控制台');
   }
 }
 function toggleFxFabAutoHide(e) {
@@ -215,7 +252,7 @@ function toggleFxFabAutoHide(e) {
   fxFabAutoHide = !fxFabAutoHide;
   saveBooleanPreference(FX_FAB_AUTO_HIDE_STORE_KEY, fxFabAutoHide);
   applyFxFabAutoHideState({ forceHidden: fxFabAutoHide });
-  showToast(fxFabAutoHide ? '视觉控制台按钮已自动隐藏' : '视觉控制台按钮已固定显示');
+  showToast(fxFabAutoHide ? preferencesUiModesText('console_fab_auto_hidden') : preferencesUiModesText('console_fab_pinned'));
 }
 function updateFxFabAutoHideFromPointer(x, y) {
   if (!fxFabAutoHide || !diyPlayerMode || immersiveMode) {
@@ -333,7 +370,7 @@ function syncDiyModeButton() {
     if (!btn) return;
     btn.classList.toggle('on', diyPlayerMode);
     btn.setAttribute('aria-pressed', diyPlayerMode ? 'true' : 'false');
-    btn.title = diyPlayerMode ? '关闭 DIY 玩家模式' : '开启 DIY 玩家模式';
+    btn.title = diyPlayerMode ? preferencesUiModesText('mode_diy_disable') : preferencesUiModesText('btn_diy_mode', '开启 DIY 玩家模式');
     btn.setAttribute('aria-label', btn.title);
   });
 }
@@ -355,7 +392,7 @@ function applyDiyMode(on, opts) {
     if (quality) quality.classList.remove('open');
     if (volume) volume.classList.remove('open');
   }
-  if (opts.toast) showToast(diyPlayerMode ? 'DIY 玩家模式已开启' : '已切回简约模式');
+  if (opts.toast) showToast(diyPlayerMode ? preferencesUiModesText('mode_diy_enabled') : preferencesUiModesText('mode_switched_back_minimal'));
   if (opts.animate && window.gsap) {
     ['diy-mode-btn', 'fullscreen-diy-btn'].forEach(function (id) {
       var btn = document.getElementById(id);

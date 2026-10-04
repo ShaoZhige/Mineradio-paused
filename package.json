@@ -1,7 +1,7 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Windows 沉浸式音乐播放器，融合桌面模式、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "Mineradio",
   "license": "GPL-3.0-only",
@@ -12,6 +12,7 @@
     "test": "node scripts/run-ci-tests.js",
     "test:ci": "node scripts/run-ci-tests.js",
     "test:electron": "node scripts/run-electron-tests.js",
+    "test:custom-source-host": "electron tests/custom-source-electron-smoke.js",
     "check:quick": "node scripts/quick-check.js",
     "check:package": "node scripts/verify-package.js",
     "build:win": "electron-builder --win nsis",

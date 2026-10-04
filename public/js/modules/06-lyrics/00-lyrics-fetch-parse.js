@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function lyricsFetchParseText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function hasUsableLyricLines(lines) {
   return (Array.isArray(lines) ? lines : []).some(function (line) {
     return line && !line.fallback && !isNoLyricText(line.text);
@@ -478,10 +505,10 @@ function currentLyricFallbackText() {
 function isNoLyricText(text) {
   var compact = String(text || '').replace(/\s+/g, '').replace(/[，,。.!！?？、~～]/g, '');
   return !compact ||
-    compact === '纯音乐请欣赏' ||
-    compact === '暂无歌词' ||
-    compact === '暂无歌词敬请期待' ||
-    compact === '此歌曲为没有填词的纯音乐请您欣赏';
+    compact === lyricsFetchParseText('lyr_instrumental') ||
+    compact === lyricsFetchParseText('lyr_none') ||
+    compact === lyricsFetchParseText('lyr_coming_soon') ||
+    compact === lyricsFetchParseText('lyr_instrumental_full');
 }
 function withLyricFallback(lines) {
   return withLyricFallbackForSong(currentLyricSong(), lines);
@@ -781,10 +808,10 @@ function toggleLyricsPanel(force) {
     if (typeof requestStageLyricWarmup === 'function') requestStageLyricWarmup('toggleLyricsPanel', 150);
     if (typeof scheduleStageLyricPrewarm === 'function') scheduleStageLyricPrewarm('toggleLyricsPanel', 48);
     if (typeof scheduleStageLyricFullTrackWarmup === 'function') scheduleStageLyricFullTrackWarmup('track-ready', 220);
-    showToast('歌词已开启');
+    showToast(lyricsFetchParseText('lyr_on'));
   } else {
     clearStageLyrics();
-    showToast('歌词已关闭');
+    showToast(lyricsFetchParseText('lyr_off'));
   }
   lyricsVisible = fx.particleLyrics;
 }

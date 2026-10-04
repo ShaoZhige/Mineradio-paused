@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function lyricTimingOffsetText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 var LYRIC_TIMING_OFFSET_STORE_KEY = 'mineradio-lyric-timing-offsets-v1';
 var LYRIC_TIMING_OFFSET_LIMIT = 500;
 var lyricTimingOffsetMap = readLyricTimingOffsetMap();
@@ -95,8 +122,8 @@ function formatLyricTimingOffset(offset) {
 
 function lyricTimingToastText(offset) {
   offset = normalizeLyricTimingOffsetSeconds(offset);
-  if (!offset) return '歌词校准已重置';
-  return offset > 0 ? ('歌词提前 ' + Math.abs(offset).toFixed(1) + 's') : ('歌词延后 ' + Math.abs(offset).toFixed(1) + 's');
+  if (!offset) return lyricTimingOffsetText('offset_reset');
+  return offset > 0 ? (lyricTimingOffsetText('offset_advance') + Math.abs(offset).toFixed(1) + 's') : (lyricTimingOffsetText('offset_delay') + Math.abs(offset).toFixed(1) + 's');
 }
 
 function releaseLyricTimingPopoverFocus(root) {
@@ -157,7 +184,7 @@ function updateLyricTimingOffsetUi(songOverride) {
   var songEl = document.getElementById('lyric-timing-song');
   if (root) root.classList.toggle('has-offset', !!offset);
   if (value) value.textContent = formatLyricTimingOffset(offset);
-  if (songEl) songEl.textContent = song ? (song.name || song.title || '当前歌曲') : '未选择歌曲';
+  if (songEl) songEl.textContent = song ? (song.name || song.title || lyricTimingOffsetText('track_current_song')) : lyricTimingOffsetText('offset_no_song');
   document.querySelectorAll('[data-lyric-offset-step],[data-lyric-offset-reset]').forEach(function (btn) {
     btn.disabled = !key;
   });
@@ -177,7 +204,7 @@ function setCurrentLyricTimingOffset(offset, opts) {
   var key = lyricTimingSongKey(song);
   if (!key || !song) {
     updateLyricTimingOffsetUi(song);
-    if (!opts.silent) showToast('请先播放歌曲');
+    if (!opts.silent) showToast(lyricTimingOffsetText('offset_play_first'));
     return 0;
   }
   offset = normalizeLyricTimingOffsetSeconds(offset);

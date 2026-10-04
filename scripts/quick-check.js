@@ -1674,6 +1674,197 @@ function checkLyricVerticalFloatToggleGuard() {
   console.log('[OK] Lyric vertical float toggle is wired through UI, persistence, archive, and render layers.');
 }
 
+function checkCustomSourceGuard() {
+  logStep('LX custom source guard');
+  const hostDir = path.join(appRoot, 'desktop', 'custom-source');
+  const hostFiles = ['protocol.js', 'store.js', 'runtime.js', 'runtime-preload.js', 'manager.js', 'music-info.js', 'redact.js', 'runtime.html'];
+  for (const file of hostFiles) {
+    if (!fs.existsSync(path.join(hostDir, file))) fail(`自定义音源宿主缺少 ${file}`);
+  }
+  const protocolText = fs.readFileSync(path.join(hostDir, 'protocol.js'), 'utf8');
+  const storeText = fs.readFileSync(path.join(hostDir, 'store.js'), 'utf8');
+  const runtimeText = fs.readFileSync(path.join(hostDir, 'runtime.js'), 'utf8');
+  const preloadText = fs.readFileSync(path.join(hostDir, 'runtime-preload.js'), 'utf8');
+  const managerText = fs.readFileSync(path.join(hostDir, 'manager.js'), 'utf8');
+  const musicInfoText = fs.readFileSync(path.join(hostDir, 'music-info.js'), 'utf8');
+  const runtimeHtmlText = fs.readFileSync(path.join(hostDir, 'runtime.html'), 'utf8');
+  const desktopMainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const desktopPreloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const customModuleText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '20-custom-source.js'), 'utf8');
+  const startAudioText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
+  const fallbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '11-provider-fallback.js'), 'utf8');
+  const indexLoaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
+  const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
+  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const gitignoreText = fs.readFileSync(path.join(appRoot, '.gitignore'), 'utf8');
+
+  // 脚本必须跑在锁定过的沙箱文档里：没有网络、没有图片、没有样式、只有 eval 一层。
+  // The script must run inside a locked-down document: no network, no images, no styles.
+  if (!/default-src 'none'/.test(runtimeHtmlText) || !/connect-src 'none'/.test(runtimeHtmlText) || !/img-src 'none'/.test(runtimeHtmlText)) {
+    fail('自定义音源运行文档必须自带严格 CSP');
+  }
+  for (const flag of ['nodeIntegration: false', 'nodeIntegrationInWorker: false', 'contextIsolation: true', 'sandbox: true', 'webviewTag: false']) {
+    if (!runtimeText.includes(flag)) fail(`自定义音源运行环境缺少隔离项 ${flag}`);
+  }
+  if (!/partition: `mineradio-lx-\$\{this\.runtimeId\}`/.test(runtimeText)) {
+    fail('每次脚本运行必须使用独立的内存 partition，不能共用主窗口会话');
+  }
+  if (!/setPermissionRequestHandler\(\(_webContents, _permission, callback\) => callback\(false\)\)/.test(runtimeText)) {
+    fail('自定义音源运行环境必须拒绝全部权限申请');
+  }
+  if (!/setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/.test(runtimeText)) {
+    fail('自定义音源运行环境必须拒绝打开新窗口');
+  }
+  if (!/for \(const eventName of \['will-navigate', 'will-redirect', 'will-attach-webview'\]\)/.test(runtimeText)) {
+    fail('自定义音源运行环境必须拦住导航与 webview 挂载');
+  }
+  if (!/session\.on\('will-download'/.test(runtimeText)) fail('自定义音源运行环境必须拒绝下载');
+  if (!/event\.sender\?\.id === runtime\.window\.webContents\.id/.test(runtimeText)) {
+    fail('每条音源 IPC 都必须校验发送方 webContents');
+  }
+
+  // preload 只能暴露 globalThis.lx 这一个面，绝不能把 ipcRenderer 本体递出去。
+  // The preload may only expose globalThis.lx; it must never hand out raw ipcRenderer.
+  if (!/contextBridge\.exposeInMainWorld\('lx', \{/.test(preloadText)) fail('音源 preload 必须只暴露 globalThis.lx');
+  if (/exposeInMainWorld\((?!'lx')/.test(preloadText)) fail('音源 preload 暴露了 lx 之外的全局对象');
+  if (!/webFrame\.executeJavaScript/.test(preloadText)) fail('音源脚本必须在页面主世界执行');
+
+  // 脚本请求不得携带 Mineradio 自己的凭据：宿主不读 cookie 文件、不引入任何平台 API 模块。
+  // Script requests must not carry Mineradio credentials: the host reads no cookie file and
+  // imports no platform API module.
+  // 注释里提到 Cookie 是在解释隔离边界，所以先剥注释再查真实用法。
+  // Comments mention cookies to explain the isolation boundary, so strip comments first
+  // and only then look for real usage.
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  for (const [name, text] of [['runtime.js', runtimeText], ['runtime-preload.js', preloadText], ['manager.js', managerText]]) {
+    const code = stripComments(text);
+    if (/cookie/i.test(code)) fail(`${name} 不应接触任何 Cookie`);
+    if (/require\(['"][^'"]*-api(\.js)?['"]\)/.test(code)) fail(`${name} 不应引入平台 API 模块`);
+    if (/DEFAULT_QQ_COOKIE_FILE|DEFAULT_COOKIE_FILE|qishui-auth|kugou-api/.test(code)) fail(`${name} 引用了平台登录态资源`);
+  }
+  if (!/redactSecrets/.test(runtimeText)) fail('自定义音源日志必须先脱敏');
+  if (!/redactSecrets\(data\)/.test(runtimeText) || !/redactSecrets\(\{\s*\n?\s*message/.test(runtimeText)) {
+    fail('updateAlert 与错误日志都必须经过脱敏');
+  }
+
+  // 脚本落盘位置必须在 Electron userData 下，不能落在项目目录里。
+  // Scripts live under Electron userData and never inside the project tree.
+  if (!/new CustomSourceStore\(path\.join\(dataPath, 'custom-sources'\)\)/.test(managerText)) {
+    fail('脚本仓库必须落在 userData 的独立目录里');
+  }
+  if (!/userDataPath: app\.getPath\('userData'\)/.test(desktopMainText)) {
+    fail('主进程必须把 userData 路径交给音源总控');
+  }
+  if (!/isSafeScriptId/.test(storeText) || !/!value\.includes\('\\\\'\)/.test(storeText)) {
+    fail('脚本 id 必须挡住路径分隔符，避免越出脚本目录');
+  }
+  if (!/custom-sources\//.test(gitignoreText)) {
+    fail('.gitignore 必须挡住可能被误放进仓库的 custom-sources 数据目录');
+  }
+
+  // 播放策略：脚本对该平台没有主张时必须交回内置接口。
+  // Playback policy: an undeclared platform must hand back to the built-in path.
+  if (!/result\.handled !== true\) return 'builtin'/.test(protocolText)) {
+    fail('customSourcePolicy 必须尊重 handled，否则未声明的平台会直接不可播');
+  }
+  if (!/handled: false, reason: 'source_unsupported'/.test(managerText)) {
+    fail('总控必须把未支持平台标记为 handled:false');
+  }
+  if (!/provider: 'lx-custom-source'/.test(managerText) || !/source: 'lx-custom-source'/.test(managerText)) {
+    fail('解析结果必须标清地址来自自定义音源');
+  }
+  if (!/throw new Error\('SOURCE_UNSUPPORTED: Unknown Mineradio provider'\)/.test(musicInfoText)) {
+    fail('歌曲映射必须对不支持的平台显式报错');
+  }
+
+  // 前端接线：内置分发整体退到 if (!data) 之内，自定义源不与内置接口竞速。
+  // Frontend wiring: the built-in dispatch sits inside `if (!data)`, so nothing races.
+  if (!/if \(!data\) \{\s*\n\s*if \(isQQPlayback\)/.test(startAudioText)) {
+    fail('内置平台分发必须退到 if (!data) 之内，否则自定义源会与内置接口同时发请求');
+  }
+  if (!/data = await resolveCustomSourcePlaybackData\(song, requestedQuality\)/.test(startAudioText)) {
+    fail('播放链路没有接入自定义源解析');
+  }
+  if (!/qualityDowngraded && !customSourcePlayback\) markPlaybackQualityRuntimeCap\(/.test(startAudioText)) {
+    fail('脚本的音质上限不能写成平台的运行时音质上限');
+  }
+  if (!/customSourceState\.loaded && !customSourceState\.items\.length/.test(customModuleText)) {
+    fail('确认没有启用脚本时必须跳过本地请求');
+  }
+  const activeBranch = fallbackText.indexOf('if (data.active === true) {');
+  const vipBranch = fallbackText.indexOf("if (category === 'vip_required' || category === 'paid_required'");
+  if (activeBranch < 0 || vipBranch < 0 || activeBranch > vipBranch) {
+    fail('自定义源失败必须排在会员/登录分支之前，否则脚本超时会被说成需要会员');
+  }
+
+  if (!indexLoaderText.includes("'js/modules/05-playback/20-custom-source.js'")) {
+    fail('index-loader 未注册自定义音源模块');
+  }
+  if (!indexText.includes('id="custom-source-btn"') || !indexText.includes('id="custom-source-modal"')) {
+    fail('index.html 缺少自定义音源入口或设置面板');
+  }
+  if (!indexText.includes('data-i18n="custom_source_warning"')) {
+    fail('第三方脚本风险提示必须可见且走 i18n');
+  }
+  if (!cssText.includes('.custom-source-dialog')) fail('缺少自定义音源面板样式');
+
+  for (const channel of [
+    'mineradio-custom-source-list',
+    'mineradio-custom-source-import',
+    'mineradio-custom-source-replace',
+    'mineradio-custom-source-activate',
+    'mineradio-custom-source-deactivate',
+    'mineradio-custom-source-remove',
+    'mineradio-custom-source-set-update-alert',
+  ]) {
+    if (!desktopMainText.includes(`'${channel}'`)) fail(`主进程未注册 ${channel}`);
+    if (!desktopPreloadText.includes(`'${channel}'`)) fail(`preload 未转发 ${channel}`);
+  }
+  // 「真代码里有 X」这类断言一律先剥注释再匹配：注释掉的痕迹不该算数，
+  // 否则守卫就是永真的（把代码注释掉它照样绿）。
+  // Presence checks match against comment-stripped source; a commented-out trace must not
+  // count, otherwise the guard is unfalsifiable — commenting the code out still passes.
+  const mainCode = stripComments(desktopMainText);
+  if (!mainCode.includes('CUSTOM_SOURCE_UNAUTHORIZED')) fail('主进程必须校验音源 IPC 的发送方');
+  if (!mainCode.includes('await initializeCustomSourceManager();')) fail('启动时没有恢复已启用的音源');
+  // ensureLocalServerStarted() 会重新 require server.js，新模块实例上的 resolver
+  // 必须重新注入，否则崩溃恢复后自定义音源静默失效。
+  // ensureLocalServerStarted() re-requires server.js, so the resolver on the fresh module
+  // instance must be re-injected or custom sources silently die after a recovery.
+  {
+    const callSite = /await ensureLocalServerStarted\(\);\n([\s\S]{0,600}?)await loadMainWindowWithRetry\(win\);/g;
+    const gaps = [];
+    let match;
+    while ((match = callSite.exec(mainCode)) !== null) gaps.push(match[1]);
+    if (gaps.length < 2) fail('未覆盖「首次启动」与「崩溃恢复」两条服务器启动路径');
+    for (const gap of gaps) {
+      if (!gap.includes('await initializeCustomSourceManager();')) fail('服务器启动之后没有重新注入自定义音源解析器');
+    }
+  }
+  if (!/server\.setCustomSourceResolver = resolver =>/.test(serverText)) fail('server.js 缺少自定义源解析器注入点');
+  if (!/pn === '\/api\/custom-source\/resolve'/.test(serverText)) fail('server.js 缺少自定义源解析路由');
+  if (!/controller\.abort\(new Error\('REQUEST_ABORTED'\)\)/.test(serverText)) fail('解析路由必须把取消信号传下去');
+
+  // 词典语言列表从 i18n 模块推导，而不是写死：写死的列表会让新接入的语言绕过
+  // 这条守卫，而绕过的后果恰好是它本该拦住的静默回退。
+  // The dictionary language list is derived from the i18n module instead of being
+  // hardcoded: a hardcoded list lets a newly wired language slip past this guard, and
+  // slipping past is exactly the silent fallback it exists to catch.
+  const i18nText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '13-i18n.js'), 'utf8');
+  const langMatch = /var SUPPORTED_LANGS = \[([^\]]*)\]/.exec(i18nText);
+  if (!langMatch) fail('无法从 i18n 模块解析出 SUPPORTED_LANGS');
+  const localeLangs = langMatch[1].split(',').map(entry => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  if (localeLangs.length < 2) fail('SUPPORTED_LANGS 至少应包含默认语言与一种外语');
+  for (const lang of localeLangs) {
+    const dict = JSON.parse(fs.readFileSync(path.join(appRoot, 'public', 'locales', `${lang}.json`), 'utf8'));
+    for (const key of ['btn_custom_source', 'custom_source_title', 'custom_source_warning', 'custom_source_unavailable_title']) {
+      if (!Object.prototype.hasOwnProperty.call(dict, key)) fail(`${lang}.json 缺少 ${key}`);
+    }
+  }
+  console.log(`[OK] LX custom source host is sandboxed, opt-in, and never races the built-in providers.`);
+}
+
 function checkQishuiProviderGuard() {
   logStep('Qishui provider guard');
   const qishuiText = fs.readFileSync(path.join(appRoot, 'qishui-api.js'), 'utf8');
@@ -1739,6 +1930,49 @@ function checkQishuiProviderGuard() {
   }
   if (!/\/luna\/pc\/track_v2/.test(qishuiText) || !/function fetchQishuiPcTrackV2/.test(qishuiText) || !/function resolveQishuiDownloadInfo/.test(qishuiText) || !/play_info_list/.test(qishuiText) || !/url_player_info/.test(qishuiText) || !/video_model/.test(qishuiText)) {
     fail('Qishui playback must resolve PC track_v2 audio from play_info_list, url_player_info, or video_model');
+  }
+  // track_v2 的签名校验升级后未签名请求只会拿到空响应，免签名的 SEO 回退是免费曲的唯一通路。
+  if (!/QISHUI_SEO_TRACK_URL/.test(qishuiText) || !/function fetchQishuiSeoTrack/.test(qishuiText) ||
+      !/function resolveQishuiSeoPlayback/.test(qishuiText) || !/function qishuiSeoPlaybackResult/.test(qishuiText) ||
+      !/qishui-beta-seo-track/.test(qishuiText) || !/vipClientHint/.test(qishuiText)) {
+    fail('Qishui playback must keep the unsigned SEO fallback so free tracks stay playable and VIP limits are reported');
+  }
+  // SEO payload 的 quality_map.<音质>.need_vip 描述音质档位，免费曲同样会出现，不能当成整曲付费判据。
+  if (!/function qishuiSeoVipOnlySignal/.test(qishuiText) || !/limitedFreeActive/.test(qishuiText) ||
+      /qishuiSeoVipOnlySignal[\s\S]{0,600}qishuiTrackPlaybackRestriction/.test(qishuiText)) {
+    fail('Qishui SEO payloads must be classified by their own narrow VIP markers, never by recursive need_vip keys');
+  }
+  const qishuiBridgePath = path.join(appRoot, 'qishui-client-bridge.js');
+  if (!fs.existsSync(qishuiBridgePath)) {
+    fail('Qishui must keep a local signature bridge module instead of hardcoding signatures');
+  } else {
+    const qishuiBridgeText = fs.readFileSync(qishuiBridgePath, 'utf8');
+    const qishuiBridgeCode = qishuiBridgeText.replace(/\/\*[\s\S]*?\*\//g, '');
+    if (!/function authorizeQishuiClientBridge/.test(qishuiBridgeText) || !/function revokeQishuiClientAuthorization/.test(qishuiBridgeText) ||
+        !/client_not_authorized/.test(qishuiBridgeText) || !/generateHttpSignatureHeaders/.test(qishuiBridgeText) ||
+        !/currentAuthorization\(\)/.test(qishuiBridgeText)) {
+      fail('Qishui signature bridge must sign only after an explicit local authorization');
+    }
+    if (/X-Helios|X-Medusa/.test(qishuiBridgeCode)) {
+      fail('Qishui signature headers must come from the official SDK, never be hardcoded');
+    }
+    if (!/\.mineradio['"]?\s*,\s*['"]qishui-native|qishui-native/.test(qishuiBridgeText) || !/QISHUI_NATIVE_CACHE_DIR/.test(qishuiBridgeText)) {
+      fail('Qishui proprietary binaries must be staged into a per-user cache directory, never into the repository');
+    }
+  }
+  const qishuiNativeArtifacts = ['bdms.node', 'metasecml.dll', 'metasecml.dylib', 'libmetasecml.so']
+    .filter(name => fs.existsSync(path.join(appRoot, name)));
+  const qishuiGitignoreText = fs.readFileSync(path.join(appRoot, '.gitignore'), 'utf8');
+  if (qishuiNativeArtifacts.length || !/qishui-native\//.test(qishuiGitignoreText) || !/bdms\.node/.test(qishuiGitignoreText)) {
+    fail('Qishui official client binaries must never be committed: found ' + qishuiNativeArtifacts.join(', '));
+  }
+  if (!/function buildQishuiTrackV2Request/.test(qishuiText) || !/bridge\.signing/.test(qishuiText) ||
+      !/getQishuiClientBridgeStatus/.test(qishuiText)) {
+    fail('Qishui track_v2 may only switch to the signed request shape when the bridge is authorized');
+  }
+  if (!/api\/qishui\/signature\/authorize/.test(serverText) || !/api\/qishui\/signature\/revoke/.test(serverText) ||
+      !/handleQishuiSignatureAuthorize/.test(serverText) || !/req\.method !== 'POST'/.test(serverText)) {
+    fail('server.js must expose the explicit POST-only Qishui signature authorization routes');
   }
   const qishuiSongRouteStart = serverText.indexOf("if (pn === '/api/qishui/song/url')");
   const qishuiSongRouteEnd = serverText.indexOf("if (pn === '/api/qishui/lyric')", qishuiSongRouteStart);
@@ -5677,76 +5911,106 @@ function checkFxConsoleWorkspaceGuard() {
   // Both parameters must be registered as children right after the switch (indent + lead-in line),
   // never as peers. Order matters: a child lands under whichever fx-toggle came last, so following
   // t-wallpaperMode is what attaches them to it — fxConsoleAppendItem resets the nest on a new toggle.
-  if (!/fxConsoleItem\('t-wallpaperMode'[\s\S]{0,900}fxConsoleItem\('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡', true, true\)/.test(workspace)
-    || !/fxConsoleItem\('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡', true, true\)[\s\S]{0,200}fxConsoleItem\('wallpaper-fps-seg', '壁纸帧数', '24 30 60 FPS 帧率', true, true\)/.test(workspace)) {
-    fail('full desktop mode opacity and frame rate must be registered as children directly after its switch');
+  // 判据落在「登记顺序 + child 层级」上，不落在字符距离上。字符距离当「紧随其后」的代理
+  // 会被与结构无关的变化带偏：给这两项接上取词函数，光文案变长就足以把 0,900 的窗口顶出去，
+  // 而真实结构一根手指都没动。顺序与层级才是这里要守的东西。
+  // Judge by registration order and nesting, not by character distance. Distance is a proxy
+  // that unrelated copy length shifts — wiring an accessor into the item label is enough to bust
+  // a 0,900 window while the structure never moved. Order and nesting are the real contract.
+  const fxRegistration = (id) => {
+    const at = workspace.indexOf(`fxConsoleItem('${id}'`);
+    return at < 0 ? '' : workspace.slice(at, at + 320);
+  };
+  const desktopChildren = [['t-wallpaperMode', 'fx-wallpaperopacity'], ['fx-wallpaperopacity', 'wallpaper-fps-seg']];
+  const desktopChildBroken = desktopChildren.some(([owner, child]) => {
+    const ownerAt = workspace.indexOf(`fxConsoleItem('${owner}'`);
+    const childAt = workspace.indexOf(`fxConsoleItem('${child}'`);
+    if (ownerAt < 0 || childAt < 0 || childAt < ownerAt) return true;
+    // 两者之间除 owner 自己以外不能再有登记：多一个就是被排成了同级项，而不是 child。
+    // Nothing but the owner itself may be registered in between: another entry means the item was
+    // made a peer instead of a child.
+    return (workspace.slice(ownerAt, childAt).match(/fxConsoleItem\(/g) || []).length !== 1;
+  });
+  // child 标记（缩进 + 导线）必须仍在，否则它会掉回同级、脱离那把共享的锁。
+  const desktopChildFlagsMissing = ['fx-wallpaperopacity', 'wallpaper-fps-seg']
+    .filter((id) => !/, true, true\)/.test(fxRegistration(id)));
+  if (desktopChildBroken || desktopChildFlagsMissing.length) {
+    fail('full desktop mode opacity and frame rate must be registered as children directly after its switch'
+      + (desktopChildFlagsMissing.length ? '：缺少 child 标记 ' + desktopChildFlagsMissing.join(', ') : ''));
   }
   const experimentalConsoleGroup2 = (workspace.split("key: 'experimental'")[1] || '').split('] }')[0] || '';
-  if (/fxConsoleItem\('fx-wallpaperopacity', '壁纸透明度', '壁纸 透明 淡'\)/.test(experimentalConsoleGroup2)) {
-  // 「Windows 游戏模式」是一整条跨进程链路：主进程模块 → preload 桥 → 界面模块 → 开关元素 →
-  // 分组登记 → 默认值与持久化 → 打包快照。任一环断掉都会让开关点了没反应或状态显示错，而这类
-  // 失效全部是静默的，所以逐环钉住。**还原是这项功能的核心承诺**（关闭时按备份写回注册表），
-  // 必须与写入路径同时存在，否则可能出现"关不掉"。
-  // The Windows game mode switch is a cross-process chain: main module → preload bridge → UI module
-  // → toggle element → group registration → defaults/persistence → packaged snapshot. A break in any
-  // link makes the switch silently inert or its state wrong. Pin each link. The restore path is this
-  // feature's core promise (write the registry back from the backup) and must ship together with the
-  // write path, or the switch could become impossible to turn off.
-  const wgmModule = fs.readFileSync(path.join(appRoot, 'desktop', 'windows-game-mode.js'), 'utf8');
-  const wgmUi = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '10-windows-game-mode-ui.js'), 'utf8');
-  const wgmPreload = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
-  const wgmMain = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
-  const wgmLoader = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
-  if (!/HKCU/.test(wgmModule) || !/GameConfigStore/.test(wgmModule)) {
-    fail('the Windows game mode module must target HKCU System GameConfigStore');
+  // 实验功能组里不该再登记「壁纸透明度」：它归桌面歌词组，且必须以 child 形式挂在
+  // t-wallpaperMode 下面（上面两条判据已经按顺序 + 层级钉住）。判据只看「有没有出现」，
+  // 不写死实参文案 —— 实参已接 i18n 键，字面量会随文案变，写死就会误报。
+  // The experimental group must not register the wallpaper opacity as a peer: it belongs to
+  // the desktop-lyrics group as a child of t-wallpaperMode, already pinned above by order
+  // and nesting. Judge by presence only — pinning argument text would break on copy edits.
+  const experimentalOpacityAt = experimentalConsoleGroup2.indexOf("fxConsoleItem('fx-wallpaperopacity'");
+  if (experimentalOpacityAt >= 0 && !/, true, true\)/.test(experimentalConsoleGroup2.slice(experimentalOpacityAt, experimentalOpacityAt + 320))) {
+    fail('wallpaper opacity must stay a child of the full desktop mode switch, not a peer in the experimental group');
   }
-  if (!/function readSubtree/.test(wgmModule) || !/BACKUP_FAILED/.test(wgmModule)) {
-    fail('enabling the Windows game mode must back up the registry subtree first and refuse to write without a snapshot');
-  }
-  if (!/Remove-Item -LiteralPath/.test(wgmModule) || !/parentKeyName/.test(wgmModule)) {
-    fail('disabling the Windows game mode must remove the keys it wrote, including the computed parents entry');
-  }
-  // 状态判定的两个输出必须互不包含：/REGISTERED/ 会命中 NOT_REGISTERED，把「从未注册」读成「已注册」，
-  // 那样关闭后就无法确认是否真的还原了。
-  // The two status tokens must not contain one another: /REGISTERED/ also matches NOT_REGISTERED,
-  // reading "never registered" as "registered" and hiding a failed restore.
-  if (!/MR_GAME_REGISTERED/.test(wgmModule) || !/MR_GAME_ABSENT/.test(wgmModule)) {
-    fail('the Windows game mode status tokens must be mutually exclusive so a failed restore stays visible');
-  }
-  if (!/function regKeyPath/.test(wgmModule)) {
-    fail('registry paths must be built by regKeyPath; hand-written escaping emits double backslashes and targets the wrong key');
-  }
-  if (!/minerado-windows-game-mode-status/.test(wgmMain) || !/minerado-windows-game-mode-enable/.test(wgmMain) || !/minerado-windows-game-mode-disable/.test(wgmMain)) {
-    fail('the main process must expose status/enable/disable IPC for the Windows game mode switch');
-  }
-  if (!/require\('\.\/windows-game-mode'\)/.test(wgmMain)) {
-    fail('the main process must require the Windows game mode module');
-  }
-  if (!/getWindowsGameModeStatus/.test(wgmPreload) || !/enableWindowsGameMode/.test(wgmPreload) || !/disableWindowsGameMode/.test(wgmPreload)) {
-    fail('the preload bridge must expose the Windows game mode APIs to the renderer');
-  }
-  if (!/07-fx\/10-windows-game-mode-ui\.js/.test(wgmLoader)) {
-    fail('the Windows game mode UI module must be loaded by the index loader');
-  }
-  if (!/id="t-windowsGameMode"/.test(html)) {
-    fail('the Windows game mode toggle must exist in the DIY panel');
-  }
-  if (!/function toggleWindowsGameMode/.test(wgmUi) || !/function refreshWindowsGameModeState/.test(wgmUi)) {
-    fail('the Windows game mode UI module must provide the toggle action and the state refresh');
-  }
-  // 不支持的平台必须置灰，而不是让用户点了才发现用不了。
-  // Unsupported platforms must grey the switch out rather than let the user discover it on click.
-  if (!/supported === false/.test(wgmUi) || !/dev-locked/.test(wgmUi)) {
-    fail('the Windows game mode switch must grey out where the platform is unsupported');
-  }
-  if (!/typeof refreshWindowsGameModeState === 'function'/.test(panel)) {
-    fail('input sync must refresh the Windows game mode state so the panel matches the real registry');
-  }
-  if (!/fxConsoleItem\('t-windowsGameMode'/.test(workspace)) {
-    fail('the Windows game mode switch must be registered in a console group so it is reachable from the panel');
-  }
-    fail('the desktop-wallpaper parameters must carry the child flag so they nest, not sit beside the switch');
-  }
+// 「Windows 游戏模式」是一整条跨进程链路：主进程模块 → preload 桥 → 界面模块 → 开关元素 →
+// 分组登记 → 默认值与持久化 → 打包快照。任一环断掉都会让开关点了没反应或状态显示错，而这类
+// 失效全部是静默的，所以逐环钉住。**还原是这项功能的核心承诺**（关闭时按备份写回注册表），
+// 必须与写入路径同时存在，否则可能出现"关不掉"。
+// The Windows game mode switch is a cross-process chain: main module → preload bridge → UI module
+// → toggle element → group registration → defaults/persistence → packaged snapshot. A break in any
+// link makes the switch silently inert or its state wrong. Pin each link. The restore path is this
+// feature's core promise (write the registry back from the backup) and must ship together with the
+// write path, or the switch could become impossible to turn off.
+const wgmModule = fs.readFileSync(path.join(appRoot, 'desktop', 'windows-game-mode.js'), 'utf8');
+const wgmUi = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '10-windows-game-mode-ui.js'), 'utf8');
+const wgmPreload = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
+const wgmMain = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+const wgmLoader = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
+if (!/HKCU/.test(wgmModule) || !/GameConfigStore/.test(wgmModule)) {
+  fail('the Windows game mode module must target HKCU System GameConfigStore');
+}
+if (!/function readSubtree/.test(wgmModule) || !/BACKUP_FAILED/.test(wgmModule)) {
+  fail('enabling the Windows game mode must back up the registry subtree first and refuse to write without a snapshot');
+}
+if (!/Remove-Item -LiteralPath/.test(wgmModule) || !/parentKeyName/.test(wgmModule)) {
+  fail('disabling the Windows game mode must remove the keys it wrote, including the computed parents entry');
+}
+// 状态判定的两个输出必须互不包含：/REGISTERED/ 会命中 NOT_REGISTERED，把「从未注册」读成「已注册」，
+// 那样关闭后就无法确认是否真的还原了。
+// The two status tokens must not contain one another: /REGISTERED/ also matches NOT_REGISTERED,
+// reading "never registered" as "registered" and hiding a failed restore.
+if (!/MR_GAME_REGISTERED/.test(wgmModule) || !/MR_GAME_ABSENT/.test(wgmModule)) {
+  fail('the Windows game mode status tokens must be mutually exclusive so a failed restore stays visible');
+}
+if (!/function regKeyPath/.test(wgmModule)) {
+  fail('registry paths must be built by regKeyPath; hand-written escaping emits double backslashes and targets the wrong key');
+}
+if (!/minerado-windows-game-mode-status/.test(wgmMain) || !/minerado-windows-game-mode-enable/.test(wgmMain) || !/minerado-windows-game-mode-disable/.test(wgmMain)) {
+  fail('the main process must expose status/enable/disable IPC for the Windows game mode switch');
+}
+if (!/require\('\.\/windows-game-mode'\)/.test(wgmMain)) {
+  fail('the main process must require the Windows game mode module');
+}
+if (!/getWindowsGameModeStatus/.test(wgmPreload) || !/enableWindowsGameMode/.test(wgmPreload) || !/disableWindowsGameMode/.test(wgmPreload)) {
+  fail('the preload bridge must expose the Windows game mode APIs to the renderer');
+}
+if (!/07-fx\/10-windows-game-mode-ui\.js/.test(wgmLoader)) {
+  fail('the Windows game mode UI module must be loaded by the index loader');
+}
+if (!/id="t-windowsGameMode"/.test(html)) {
+  fail('the Windows game mode toggle must exist in the DIY panel');
+}
+if (!/function toggleWindowsGameMode/.test(wgmUi) || !/function refreshWindowsGameModeState/.test(wgmUi)) {
+  fail('the Windows game mode UI module must provide the toggle action and the state refresh');
+}
+// 不支持的平台必须置灰，而不是让用户点了才发现用不了。
+// Unsupported platforms must grey the switch out rather than let the user discover it on click.
+if (!/supported === false/.test(wgmUi) || !/dev-locked/.test(wgmUi)) {
+  fail('the Windows game mode switch must grey out where the platform is unsupported');
+}
+if (!/typeof refreshWindowsGameModeState === 'function'/.test(panel)) {
+  fail('input sync must refresh the Windows game mode state so the panel matches the real registry');
+}
+if (!/fxConsoleItem\('t-windowsGameMode'/.test(workspace)) {
+  fail('the Windows game mode switch must be registered in a console group so it is reachable from the panel');
+}
   if (!/className = 'fx-console-child-nest'/.test(workspace) || !/item\.child/.test(workspace)) {
     fail('the console child-subordinate mechanism must exist so switch parameters can nest under their toggle');
   }
@@ -5896,6 +6160,7 @@ async function main() {
   checkLyricTranslationCompletenessGuard();
   checkLyricVerticalFloatToggleGuard();
   checkQishuiProviderGuard();
+  checkCustomSourceGuard();
   checkSpotifyRemovalGuard();
   checkPlaybackControlBadgesGuard();
   await checkProviderFallbackTerminalStateGuard();

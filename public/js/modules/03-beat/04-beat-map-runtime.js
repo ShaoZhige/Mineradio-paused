@@ -1,6 +1,33 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function beatMapRuntimeText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function smoothBeatMapHandoff(songId, map, token, song) {
   if (!map) return;
-  showBeatChip('节奏缓冲中…');
+  showBeatChip(beatMapRuntimeText('beatmap_buffering'));
   var wait = Math.max(260, Math.min(720, 340 + (beatPulse + beatCam.punch) * 260));
   var apply = function () {
     if (token !== beatMapToken) return;
@@ -11,7 +38,7 @@ function smoothBeatMapHandoff(songId, map, token, song) {
     syncBeatMapPlaybackCursor(t, true);
     hideBeatChip();
     notifyDesktopLyricsBeatMapReady();
-    showToast('节奏分析完成: ' + (map.visualBeatCount || (map.cameraBeats && map.cameraBeats.length) || 0) + ' 个视觉主拍');
+    showToast(beatMapRuntimeText('beatmap_done_prefix') + (map.visualBeatCount || (map.cameraBeats && map.cameraBeats.length) || 0) + beatMapRuntimeText('beatmap_visual_beats'));
     writeBeatDiskCache(songId, map, song, 'mr');
     scheduleQueueBeatPrefetch(currentIdx, 1000);
   };

@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
+const { accessorBlock, i18nWindow } = require('./helpers/module-source');
 const {
   LoginEasterEggGate,
   LOGIN_EASTER_EGG_GATE_VERSION,
@@ -135,6 +136,12 @@ async function run() {
     const identityStart = accountUtils.indexOf('function providerAccountIdentity(provider, status)');
     const identityEnd = accountUtils.indexOf('\nfunction renderTopAccountPill', identityStart);
     const identitySandbox = {
+      // 取词函数读 window.MineradioI18n；注入 zh-CN 词典桩让合成昵称前缀（酷狗/QQ 音乐等）还原为中文，
+      // 否则 "酷狗 99887766" 这类合成昵称会被误当成真实昵称返回。
+      // The accessors read window.MineradioI18n; inject the zh-CN stub so the synthetic nickname
+      // prefixes ("酷狗", "QQ 音乐", …) resolve back to Chinese, otherwise "酷狗 99887766" is
+      // mistaken for a real nickname.
+      window: i18nWindow('zh_cn'),
       platformStatus: () => ({}),
       platformMeta: (provider) => ({
         netease: { label: '网易云音乐', short: 'NE' },
@@ -143,7 +150,11 @@ async function run() {
         qishui: { label: '汽水音乐', short: 'QS' },
       }[provider] || { label: provider, short: provider }),
     };
-    vm.runInNewContext(accountUtils.slice(identityStart, identityEnd) + '\nthis.providerAccountIdentity = providerAccountIdentity;', identitySandbox);
+    // 片段沙箱只装了被切片的那段函数，而取词函数定义在文件头部，必须一起带进去，
+    // 否则片段里任何一次取词调用都会以 ReferenceError 中断。
+    // The fragment sandbox only holds the sliced function; the accessors it calls live at
+    // the top of the file and have to be carried in, or the first call throws.
+    vm.runInNewContext(accessorBlock(accountUtils) + '\n' + accountUtils.slice(identityStart, identityEnd) + '\nthis.providerAccountIdentity = providerAccountIdentity;', identitySandbox);
     assert.strictEqual(identitySandbox.providerAccountIdentity('netease', { nickname: '平台昵称', userId: '280213969' }), '平台昵称');
     assert.strictEqual(identitySandbox.providerAccountIdentity('qq', { nickname: 'QQ 123456789', userId: '123456789' }), 'QQ 音乐');
     assert.strictEqual(identitySandbox.providerAccountIdentity('kugou', { nickname: '酷狗 99887766', userId: '99887766' }), '酷狗音乐');
@@ -203,7 +214,7 @@ async function run() {
     assert(logoutRenderer.includes('resetAllProviderRendererLoginState()'));
     assert(logoutRenderer.includes('resetLoginEasterEggUiForReplay()'));
     assert(logoutRenderer.includes('armLogoutAllAccountsResetConfirmation()'));
-    assert(logoutRenderer.includes("button.textContent = '再次点击确认'"));
+    assert(logoutRenderer.includes("button.textContent = accountPanelText('logout_click_again_confirm')"));
     assert(!logoutRenderer.includes('window.confirm('));
 
     const splashRenderer = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'modules', '10-shell', '03-splash.js'), 'utf8');

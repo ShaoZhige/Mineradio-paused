@@ -1,7 +1,44 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function localBeatCacheModalText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function showBeatChip(text) {
-  document.getElementById('beat-text').textContent = text || '分析节奏…';
+  document.getElementById('beat-text').textContent = text || localBeatCacheModalText('beat_analyzing', '分析节奏…');
   document.getElementById('beat-chip').classList.add('show');
-  if (localBeatAnalysis && localBeatAnalysis.active) setLocalBeatStatus(text || '分析中...', 'warn');
+  if (localBeatAnalysis && localBeatAnalysis.active) setLocalBeatStatus(text || localBeatCacheModalText('beatcache_analyzing'), 'warn');
 }
 function hideBeatChip() {
   document.getElementById('beat-chip').classList.remove('show');
@@ -202,7 +239,7 @@ function applyLocalBeatMap(song, mode, map, fromCache) {
   }
   hideBeatChip();
   notifyDesktopLyricsBeatMapReady();
-  if (fromCache) showToast((mode === 'dj' ? 'DJ' : 'MR') + ' 本地节奏缓存已载入');
+  if (fromCache) showToast((mode === 'dj' ? 'DJ' : 'MR') + localBeatCacheModalText('beatcache_loaded'));
   return true;
 }
 function prepareLocalBeatAnalysis(song, audioUrl) {
@@ -258,12 +295,12 @@ function updateLocalBeatModal() {
   if (modal) modal.classList.toggle('analyzing', !!localBeatAnalysis.active);
   var title = document.getElementById('local-beat-title');
   var sub = document.getElementById('local-beat-sub');
-  if (title) title.textContent = song.name || '本地歌曲';
+  if (title) title.textContent = song.name || localBeatCacheModalText('ba_local_song');
   if (sub) {
     var cachedBits = [];
-    if (song.localKey && getLocalBeatEntry(song.localKey, 'mr')) cachedBits.push('MR 已缓存');
-    if (song.localKey && getLocalBeatEntry(song.localKey, 'dj')) cachedBits.push('DJ 已缓存');
-    sub.textContent = cachedBits.length ? cachedBits.join(' / ') : '选择一种电影视角分析方式';
+    if (song.localKey && getLocalBeatEntry(song.localKey, 'mr')) cachedBits.push(localBeatCacheModalText('beatcache_mr_cached'));
+    if (song.localKey && getLocalBeatEntry(song.localKey, 'dj')) cachedBits.push(localBeatCacheModalText('beatcache_dj_cached'));
+    sub.textContent = cachedBits.length ? cachedBits.join(' / ') : localBeatCacheModalText('beatcache_choose_mode');
   }
   var mr = document.getElementById('local-beat-tab-mr');
   var dj = document.getElementById('local-beat-tab-dj');
@@ -271,14 +308,14 @@ function updateLocalBeatModal() {
   if (dj) dj.classList.toggle('active', mode === 'dj');
   var desc = document.getElementById('local-beat-desc');
   if (desc) desc.textContent = mode === 'dj'
-    ? '适合 DJ、长混音或鼓点密集的本地音频，会使用更稳定的低频锁拍并进入 DJ 视觉驱动。'
-    : '适合普通歌曲和日常播放，会沿用 Mineradio 电影视角的综合节奏分析。';
+    ? localBeatCacheModalText('beatcache_dj_desc')
+    : localBeatCacheModalText('beatcache_mr_desc');
   var start = document.getElementById('local-beat-start-btn');
   var cancel = document.getElementById('local-beat-cancel-btn');
   var later = document.getElementById('local-beat-later-btn');
   if (start) {
     start.disabled = !!localBeatAnalysis.active;
-    start.textContent = getLocalBeatEntry(song.localKey, mode) ? '使用缓存' : '开始分析';
+    start.textContent = getLocalBeatEntry(song.localKey, mode) ? localBeatCacheModalText('beatcache_use_cache') : localBeatCacheModalText('ba_start');
   }
   if (cancel) cancel.style.display = localBeatAnalysis.active ? '' : 'none';
   if (later) later.style.display = localBeatAnalysis.active ? 'none' : '';
@@ -298,7 +335,7 @@ function cancelLocalBeatAnalysis() {
   cancelDjBeatAnalysisTimer();
   hideBeatChip();
   if (localBeatAnalysis.mode === 'dj') setDjModeActive(false, localBeatAnalysis.song || currentLocalSong);
-  setLocalBeatStatus('已取消分析', 'fail');
+  setLocalBeatStatus(localBeatCacheModalText('beatcache_cancelled'), 'fail');
   updateLocalBeatModal();
 }
 async function startLocalBeatAnalysis(mode) {
@@ -318,7 +355,7 @@ async function startLocalBeatAnalysis(mode) {
   localBeatAnalysis.token++;
   var localToken = localBeatAnalysis.token;
   updateLocalBeatModal();
-  setLocalBeatStatus((mode === 'dj' ? 'DJ' : 'MR') + ' 分析准备中...', 'warn');
+  setLocalBeatStatus((mode === 'dj' ? 'DJ' : 'MR') + localBeatCacheModalText('beatcache_preparing'), 'warn');
   try {
     var map = null;
     if (mode === 'dj') {
@@ -345,9 +382,9 @@ async function startLocalBeatAnalysis(mode) {
     storeLocalBeatEntry(song.localKey, mode, map, song);
     applyLocalBeatMap(song, mode, map, false);
     localBeatAnalysis.active = false;
-    setLocalBeatStatus((mode === 'dj' ? 'DJ' : 'MR') + ' 分析完成: ' + localBeatVisualCount(map) + ' 个主拍');
+    setLocalBeatStatus((mode === 'dj' ? 'DJ' : 'MR') + localBeatCacheModalText('beatcache_done_prefix') + localBeatVisualCount(map) + localBeatCacheModalText('beatcache_main_beats'));
     updateLocalBeatModal();
-    showToast((mode === 'dj' ? 'DJ' : 'MR') + ' 本地节奏分析完成');
+    showToast((mode === 'dj' ? 'DJ' : 'MR') + localBeatCacheModalText('beatcache_done'));
     setTimeout(function () {
       if (!localBeatAnalysis.active) closeGsapModal(document.getElementById('local-beat-modal'));
     }, 900);
@@ -356,9 +393,9 @@ async function startLocalBeatAnalysis(mode) {
     localBeatAnalysis.active = false;
     hideBeatChip();
     if (mode === 'dj') setDjModeActive(false, song);
-    setLocalBeatStatus('分析失败，请换另一种模式重试', 'fail');
+    setLocalBeatStatus(localBeatCacheModalText('beatcache_failed_retry'), 'fail');
     updateLocalBeatModal();
-    showToast('本地节奏分析失败');
+    showToast(localBeatCacheModalText('beatcache_failed'));
   }
 }
 

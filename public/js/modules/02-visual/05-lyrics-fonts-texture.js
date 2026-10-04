@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function lyricsFontsTextureText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function builtinLyricFontKeyPattern() {
   return /^(sans|hei|song|bold-song|stone-song|kai-song|serif-en|gothic|editorial|humanist|round|mono|display)$/;
 }
@@ -19,7 +46,7 @@ function customLyricFontRecordForKey(key) {
 }
 function normalizeCustomLyricFontName(name) {
   name = String(name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return (name || '自定义字体').slice(0, 18);
+  return (name || lyricsFontsTextureText('lyfonts_custom')).slice(0, 18);
 }
 function normalizeCustomLyricFontRecord(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -169,7 +196,7 @@ function warmLyricTextMeasureCache() {
   var ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.font = lyricFontCss(128);
-  measureTextWithLetterSpacing(ctx, '歌词 Lyrics 0123456789', lyricLetterSpacingPx(128));
+  measureTextWithLetterSpacing(ctx, lyricsFontsTextureText('lyfonts_sample'), lyricLetterSpacingPx(128));
 }
 function scheduleLyricTextMeasureWarmup(delay) {
   if (lyricTextMeasureWarmupTimer) clearTimeout(lyricTextMeasureWarmupTimer);

@@ -1,4 +1,41 @@
 // ============================================================
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function viewportResizeShortcutsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function refreshMainRendererViewport(reason) {
   if (typeof camera !== 'undefined' && camera) {
     camera.aspect = Math.max(1, innerWidth) / Math.max(1, innerHeight);
@@ -77,7 +114,7 @@ document.addEventListener('keydown', function (e) {
   else if (e.code === 'KeyL') { if (!immersiveMode) toggleLyricsPanel(); }
   else if (e.code === 'KeyP') {
     if (!immersiveMode && diyPlayerMode) toggleFxPanel();
-    else if (!immersiveMode) showToast('开启 DIY 玩家模式后可打开视觉控制台');
+    else if (!immersiveMode) showToast(viewportResizeShortcutsText('toast_diy_tip', '开启 DIY 玩家模式后可打开视觉控制台'));
   }
   else if (e.code === 'KeyI') toggleImmersiveMode();
   else if (e.code === 'KeyF') toggleFullscreen();

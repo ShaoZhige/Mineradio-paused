@@ -1820,7 +1820,9 @@ body.startup-fast-skip-revealing #bottom-bar {
 }
 
 #search-stack {
-  width: min(520px, 58vw)
+  width: min(520px, 58vw);
+  /* 语言菜单相对搜索栈定位 / the language menu positions against the search stack */
+  position: relative
 }
 
 #search-box {
@@ -1843,6 +1845,81 @@ body.startup-fast-skip-revealing #bottom-bar {
   background: var(--glass-bg-focus);
   box-shadow: var(--glass-shadow-focus);
   transform: translateY(-1px)
+}
+
+#lang-toggle-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .55);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .2s, color .2s, border-color .2s;
+  margin-right: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center
+}
+
+#lang-toggle-btn:hover {
+  background: rgba(255, 255, 255, .10);
+  color: #fff;
+  border-color: rgba(255, 255, 255, .20)
+}
+
+#lang-menu {
+  position: absolute;
+  top: 64px;
+  left: 0;
+  min-width: 136px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(28px) saturate(1.30);
+  -webkit-backdrop-filter: blur(28px) saturate(1.30);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 540
+}
+
+/* display:flex 会盖过 hidden 属性自带的 display:none，必须显式写回，
+   否则菜单永远收不起来。
+   display:flex outranks the hidden attribute's built-in display:none,
+   so it must be restored explicitly or the menu can never close. */
+#lang-menu[hidden] {
+  display: none
+}
+
+#lang-menu button {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(255, 255, 255, .62);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background .18s, color .18s
+}
+
+#lang-menu button:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #fff
+}
+
+#lang-menu button.active {
+  background: rgba(var(--fc-accent-rgb), .22);
+  color: #fff
 }
 
 #search-icon {
@@ -11313,52 +11390,6 @@ body.login-guide-active #login-guide-canvas {
   opacity: 1
 }
 
-.visual-guide-ring {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 80px;
-  height: 48px;
-  border-radius: 16px;
-  border: 1.5px solid rgba(255, 255, 255, .74);
-  box-shadow: 0 0 0 7px rgba(255, 83, 103, .13), 0 0 42px rgba(255, 83, 103, .24), inset 0 0 20px rgba(255, 255, 255, .08);
-  opacity: 0;
-  transform: translate3d(0, 0, 0) scale(.98);
-  transition: left .38s cubic-bezier(.16, 1, .3, 1), top .38s cubic-bezier(.16, 1, .3, 1), width .38s cubic-bezier(.16, 1, .3, 1), height .38s cubic-bezier(.16, 1, .3, 1), border-radius .38s cubic-bezier(.16, 1, .3, 1), opacity .24s, transform .38s cubic-bezier(.16, 1, .3, 1);
-  pointer-events: none;
-  overflow: hidden
-}
-
-.visual-guide-ring::before {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border: 1px solid rgba(244, 210, 138, .34);
-  border-radius: inherit;
-  opacity: .62
-}
-
-.visual-guide-ring::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .86), transparent);
-  animation: visual-guide-scan 1.8s cubic-bezier(.16, 1, .3, 1) infinite
-}
-
-#visual-guide.show .visual-guide-ring {
-  opacity: 1;
-  transform: translate3d(0, 0, 0) scale(1)
-}
-
-.visual-guide-ring.shelf-target {
-  border-color: rgba(255, 255, 255, .16);
-  box-shadow: inset -34px 0 56px rgba(255, 255, 255, .045), 0 0 54px rgba(255, 255, 255, .06);
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .035));
-}
 
 .visual-guide-card {
   position: absolute;
@@ -11474,23 +11505,6 @@ body.login-guide-active #login-guide-canvas {
   background: rgba(255, 83, 103, .20)
 }
 
-@keyframes visual-guide-scan {
-
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: .26
-  }
-
-  42% {
-    opacity: .72
-  }
-
-  70% {
-    transform: translateY(82px);
-    opacity: .18
-  }
-}
 
 /* ============================================================ */
 /*  控制台 — 简化版                                              */
@@ -11787,36 +11801,12 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   }
 }
 
-.fx-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-  padding-bottom: 13px;
-  border-bottom: 1px solid rgba(255, 255, 255, .065)
-}
-
-.fx-head-main {
-  min-width: 0
-}
-
-.fx-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-left: 12px;
-  flex: 0 0 auto
-}
-
-.fx-head-actions .fx-mini-btn {
-  width: auto;
-  min-width: 58px;
-  height: 28px;
-  padding: 0 10px;
-  flex: 0 0 auto;
-  border-radius: 9px
-}
-
+/* .fx-head / .fx-head-main / .fx-head-actions 已整体删除：
+   标题行连同 .fx-head 挂载点一起移除了（热键设置按钮现在静态声明在标题栏），
+   这三条规则已无任何元素可匹配。
+   The .fx-head / .fx-head-main / .fx-head-actions rules are gone along with the element:
+   the title row and its mount point were removed and the hotkey settings button is now
+   declared statically in the title bar, leaving nothing for these selectors to match. */
 .fx-title {
   font-size: 14px;
   font-weight: 500;
@@ -18822,4 +18812,325 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
 
 .mineradio-text-dialog .btn-row {
   justify-content: flex-end
+}
+
+/* ============================================================
+   语言切换 / Language switcher
+   搜索框内的紧凑入口，展开为四语言菜单。
+   A compact entry inside the search box that opens a four-language menu.
+   ============================================================ */
+#search-box {
+  position: relative
+}
+
+#lang-toggle-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  margin-left: 8px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .58);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .2s, color .2s, border-color .2s
+}
+
+#lang-toggle-btn:hover {
+  background: rgba(255, 255, 255, .10);
+  border-color: rgba(255, 255, 255, .20);
+  color: #fff
+}
+
+#lang-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 136px;
+  padding: 6px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 12px;
+  background: rgba(10, 14, 18, .92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2)
+}
+
+/* hidden 属性必须压过 display:flex，否则菜单永远可见。
+   hidden must win over display:flex, or the menu never closes. */
+#lang-menu[hidden] {
+  display: none
+}
+
+#lang-menu button {
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(224, 250, 255, .78);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .16s, color .16s
+}
+
+#lang-menu button:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #fff
+}
+
+#lang-menu button.active {
+  background: rgba(0, 245, 212, .14);
+  color: #fff
+}
+
+/* 汽水音乐「需 VIP 且本机无签名能力」时试听横幅的文案会变长，允许换行并容纳授权入口。
+   The Qishui VIP trial banner carries a longer explanation plus an authorization button. */
+#trial-banner {
+  max-width: min(560px, 74vw);
+  flex-wrap: wrap;
+  row-gap: 6px
+}
+
+#trial-banner #trial-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.5;
+  white-space: normal
+}
+
+#trial-banner .trial-client-btn {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--champagne, #f4d28a);
+  color: #1a1208;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter .16s, opacity .16s
+}
+
+#trial-banner .trial-client-btn:hover {
+  filter: brightness(1.08)
+}
+
+#trial-banner .trial-client-btn.busy {
+  opacity: .6;
+  cursor: default
+}
+
+/* ============================================================
+   洛雪自定义音源 / LX custom sources
+   与 hotkey-modal 保持同一套深色玻璃语言：遮罩压暗 + 模糊，卡片走渐变底 + 强调色描边。
+   Shares the hotkey-modal dark glass language: dimmed blurred mask, gradient card with
+   an accent-tinted border.
+   ============================================================ */
+#custom-source-modal {
+  z-index: 1460;
+  background: rgba(0, 0, 0, .52);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  padding: 22px
+}
+
+.custom-source-dialog {
+  width: min(760px, calc(100vw - 36px));
+  max-height: min(720px, calc(100vh - 44px));
+  overflow: auto;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: linear-gradient(180deg, rgba(14, 15, 20, .98), rgba(5, 6, 8, .98));
+  box-shadow: 0 32px 110px rgba(0, 0, 0, .66), inset 0 1px 0 rgba(255, 255, 255, .08);
+  padding: 18px;
+  color: #fff
+}
+
+.custom-source-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08)
+}
+
+.custom-source-title {
+  font-size: 17px;
+  font-weight: 820;
+  letter-spacing: .03em
+}
+
+.custom-source-sub {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, .48)
+}
+
+.custom-source-close {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .04);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer
+}
+
+.custom-source-close:hover {
+  background: rgba(255, 255, 255, .09)
+}
+
+/* 第三方脚本的风险提示必须一直在，不能折叠进「高级」里。 */
+/* The third-party script warning stays visible; it is never tucked behind "advanced". */
+.custom-source-warning {
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 195, 94, .22);
+  border-radius: 12px;
+  background: rgba(255, 174, 46, .075);
+  color: rgba(255, 231, 188, .82);
+  font-size: 12px;
+  line-height: 1.55
+}
+
+.custom-source-list {
+  display: grid;
+  gap: 9px;
+  min-height: 80px
+}
+
+.custom-source-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 110px;
+  color: rgba(255, 255, 255, .4);
+  font-size: 12px
+}
+
+.custom-source-item {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .03)
+}
+
+.custom-source-item.active {
+  border-color: rgba(var(--fc-accent-rgb), .34);
+  background: rgba(var(--fc-accent-rgb), .07)
+}
+
+.custom-source-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px
+}
+
+.custom-source-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, .92)
+}
+
+.custom-source-meta,
+.custom-source-capabilities {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .46);
+  word-break: break-word
+}
+
+.custom-source-status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  font-size: 10px;
+  color: rgba(255, 255, 255, .58)
+}
+
+.custom-source-item.active .custom-source-status {
+  background: rgba(var(--fc-accent-rgb), .13);
+  color: rgba(255, 255, 255, .88)
+}
+
+.custom-source-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px
+}
+
+.custom-source-actions button,
+.custom-source-footer button {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .72);
+  font: 700 11px/1 var(--font-sans);
+  cursor: pointer
+}
+
+.custom-source-actions button:hover,
+.custom-source-footer button:hover {
+  background: rgba(255, 255, 255, .09);
+  color: #fff
+}
+
+.custom-source-actions button.primary,
+.custom-source-footer button.primary {
+  border-color: rgba(var(--fc-accent-rgb), .28);
+  background: rgba(var(--fc-accent-rgb), .11);
+  color: #fff
+}
+
+.custom-source-actions button.danger {
+  color: rgba(255, 150, 150, .82)
+}
+
+.custom-source-alert-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .48)
+}
+
+.custom-source-alert-toggle input {
+  accent-color: rgb(var(--fc-accent-rgb))
+}
+
+.custom-source-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .08)
 }

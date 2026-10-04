@@ -27,6 +27,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { accessorBlock, i18nWindow } = require('./helpers/module-source');
 
 const appRoot = path.resolve(__dirname, '..');
 const readSource = (relativePath) => fs
@@ -38,6 +39,12 @@ const mainText = readSource('desktop/main.js');
 const libraryText = readSource('public/js/modules/07-fx/03-wallpaper-engine-library.js');
 const quickCheckText = readSource('scripts/quick-check.js');
 const runtimeCheckText = readSource('scripts/check-wallpaper-engine-runtime.js');
+
+// 片段沙箱里取词函数定义在文件头部、不在切片内，必须一起带进去；i18n 桩只查 zh-CN 词典，
+// 让中文断言继续成立（真实运行时由 window.MineradioI18n 负责替换）。
+// The accessor lives at the top of the file, outside the extracted slice, so it travels along;
+// the i18n stub answers from the zh-CN dictionary so the Chinese assertions keep holding.
+const wallpaperEngineAccessor = accessorBlock(libraryText);
 
 function extractFunction(source, signature) {
   // 签名必须以函数体的左花括号结尾：参数里可能有对象默认值，body 不在第一个 '{' 处。
@@ -235,12 +242,13 @@ assert(
 
 function buildLayerFailedSandbox(options = {}) {
   const bridge = { __timers: [], __cleared: [], __toasts: [], __applied: [], __ui: [] };
-  const context = vm.createContext(Object.assign({ console }, bridge));
+  const context = vm.createContext(Object.assign({ console, window: i18nWindow('zh_cn') }, bridge));
   const selection = Object.assign(
     { active: true, kind: 'engine', id: 'abc', mediaType: 'video', title: 'Demo' },
     options.selection || {}
   );
   const prelude = [
+    wallpaperEngineAccessor,
     `var wallpaperEngineLayerToken = ${JSON.stringify(options.token === undefined ? 7 : options.token)};`,
     `var wallpaperEngineNativeSessionId = ${JSON.stringify(options.sessionId || '')};`,
     `var wallpaperEngineHostRecoveryInFlight = ${options.hostRecoveryInFlight === true ? 'true' : 'false'};`,
@@ -421,7 +429,11 @@ assert(
 
 const entryUiBody = stripComments(entryUiSource);
 const previewBranchIndex = entryUiBody.indexOf("wallpaperEngineSelection.kind === 'preview'");
-const runtimeErrorBranchIndex = entryUiBody.indexOf("' · 已显示原背景'");
+// 取词之后「已显示原背景」不再是内联中文，而是 we_showing_original_suffix 键；用它定位
+// 运行时错误分支，仍然断言的是分支顺序（预览分支必须排在它之前）。
+// After the key-driven wiring, "original background" is the we_showing_original_suffix key,
+// not inline Chinese; locating the runtime-error branch by it still pins branch order.
+const runtimeErrorBranchIndex = entryUiBody.indexOf("we_showing_original_suffix");
 assert(previewBranchIndex >= 0, 'the entry row must know how to label a preview fallback');
 assert(
   runtimeErrorBranchIndex > previewBranchIndex,
@@ -434,9 +446,10 @@ function runEntryUi(selection, runtimeError, message, flags) {
     __restore: { disabled: false },
     __retry: { disabled: false },
   };
-  const context = vm.createContext(Object.assign({ console }, bridge));
+  const context = vm.createContext(Object.assign({ console, window: i18nWindow('zh_cn') }, bridge));
   const passive = flags || {};
   const prelude = [
+    wallpaperEngineAccessor,
     `var wallpaperEngineSelection = ${JSON.stringify(selection)};`,
     `var wallpaperEngineRuntimeError = ${JSON.stringify(runtimeError || '')};`,
     `var wallpaperEngineDesktopPreviewActive = ${passive.desktopPreviewActive === true};`,
@@ -545,8 +558,8 @@ assert.strictEqual(idleUi.text, '未启用 · 原背景保留', 'an inactive sel
 // The message itself must follow the stage: a window the controller cannot recognise is not
 // something the user can retry away by waiting.
 function runErrorText(error) {
-  const context = vm.createContext({ console });
-  vm.runInContext(errorTextSource, context, { filename: 'wallpaper-engine-window-close-recovery.js' });
+  const context = vm.createContext({ console, window: i18nWindow('zh_cn') });
+  vm.runInContext(wallpaperEngineAccessor + '\n' + errorTextSource, context, { filename: 'wallpaper-engine-window-close-recovery.js' });
   return vm.runInContext(`wallpaperEngineRuntimeErrorText(${JSON.stringify(error)})`, context);
 }
 const transientText = runErrorText({ code: 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED', closeStage: 'timeout' });

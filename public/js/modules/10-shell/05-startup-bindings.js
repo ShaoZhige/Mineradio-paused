@@ -1,4 +1,5 @@
 applyDiyMode(diyPlayerMode, { save: false });
+bindCustomSourceManager();
 bindFxPanel();
 applySavedLyricPaletteState();
 bindQualityControl();

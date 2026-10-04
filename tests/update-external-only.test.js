@@ -91,7 +91,7 @@ test('renderer opens the external page without local installer or patch calls', 
   assert.match(updateUiText, /Array\.isArray\(data\.downloadPages\)/);
   assert.match(updateUiText, /explicitPages === null/);
   assert.match(updateUiText, /update-download-source/);
-  assert.match(updateUiText, /软件不会在本地下载或应用补丁/);
+  assert.match(updateUiText, /upd_github_hint/);
   assert.doesNotMatch(updateUiText, /\/api\/update\/download/);
   assert.doesNotMatch(updateUiText, /\/api\/update\/patch/);
   assert.doesNotMatch(updateUiText, /openUpdateInstaller/);

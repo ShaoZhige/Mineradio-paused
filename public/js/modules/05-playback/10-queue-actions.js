@@ -1,3 +1,30 @@
+// 本模块界面文案统一走 i18n；词典是唯一文案来源，缺键时退回内置中文模板。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：xxxText('key') 缺键返回键名；xxxText('key', '兜底') 显式指定缺键时显示什么；
+// xxxText('key', '含 {p} 的模板', {p: v}) 带插值，params 同时喂给 t() 与兜底模板。
+// Two call shapes: key-only shows the bare key on a miss; an explicit fallback says what to
+// show instead; params interpolate into both the dictionary hit and the fallback template.
+function queueActionsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
 function queueSong(song, opts) {
   opts = opts || {};
   if (!song) return -1;
@@ -33,19 +60,19 @@ function queueSongNext(song) {
 function queueSearchResult(i) {
   var song = playlist[i]; if (!song) return;
   queueSongNext(song);
-  showToast('已设为下一首: ' + song.name);
+  showToast(queueActionsText('search_set_next_prefix') + song.name);
 }
 function queueDetailSongNext(song) {
   if (!song || song.type === 'podcast-radio') return;
   queueSongNext(song);
-  showToast('已设为下一首: ' + (song.name || ''));
+  showToast(queueActionsText('search_set_next_prefix') + (song.name || ''));
 }
 function queueIndexNext(i) {
   i = Number(i);
   if (!isFinite(i) || i < 0 || i >= playQueue.length) return;
   var song = playQueue[i];
   queueSongNext(song);
-  showToast('已设为下一首: ' + (song && song.name ? song.name : ''));
+  showToast(queueActionsText('search_set_next_prefix') + (song && song.name ? song.name : ''));
 }
 function openQueueArtist(i) {
   var song = playQueue && playQueue[i];

@@ -124,7 +124,7 @@ test('renderer replaces three old sources with two latest sources and opens only
   assert.equal(nodes['update-hero-main'].textContent, notice);
   assert.match(nodes['update-list'].innerHTML, /本次更新已更换分发地址/);
   assert.doesNotMatch(nodes['update-list'].innerHTML, /旧公告/);
-  assert.match(nodes['update-footnote'].textContent, /旧收藏链接可能不是最新版/);
+  assert.match(nodes['update-footnote'].textContent, /upd_drive_hint/);
   await context.openUpdateDownloadSource(1);
   assert.deepEqual(opened, [pages[1].url]);
 });

@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function customBackgroundColorlabText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function normalizeCustomBackgroundImage(value) {
   var src = String(value || '').trim();
   if (!src) return '';
@@ -37,18 +74,18 @@ function normalizeCustomBackgroundMedia(value) {
 }
 function customBackgroundMediaLabel(media) {
   media = normalizeCustomBackgroundMedia(media);
-  if (!media) return '未设置';
-  return media.type === 'video' ? '视频已设置' : '图片已设置';
+  if (!media) return customBackgroundColorlabText('bg_media_unset', '未设置');
+  return media.type === 'video' ? customBackgroundColorlabText('bg_video_set') : customBackgroundColorlabText('bg_image_set');
 }
 function customBackgroundUsesAlbumCover() {
   return typeof fx !== 'undefined' && !!(fx && fx.backgroundAlbumCover === true);
 }
 function customBackgroundMediaLabel(media) {
-  if (customBackgroundUsesAlbumCover()) return '\u5c01\u9762\u539f\u56fe';
+  if (customBackgroundUsesAlbumCover()) return customBackgroundColorlabText('bg_cover_original');
   media = normalizeCustomBackgroundMedia(media);
   if (!media) return '\u672a\u8bbe\u7f6e';
-  if (media.type === 'album') return '\u5c01\u9762\u539f\u56fe';
-  return media.type === 'video' ? '\u89c6\u9891\u5df2\u8bbe\u7f6e' : '\u56fe\u7247\u5df2\u8bbe\u7f6e';
+  if (media.type === 'album') return customBackgroundColorlabText('bg_cover_original');
+  return media.type === 'video' ? customBackgroundColorlabText('bg_video_set') : customBackgroundColorlabText('bg_image_set');
 }
 var CUSTOM_BG_DB_NAME = 'mineradio-custom-background-v1';
 var CUSTOM_BG_STORE = 'media';
@@ -86,16 +123,18 @@ async function getCustomBackgroundBlob(id) {
   });
 }
 var colorLabState = { picker: null, id: '', h: 0, s: 1, v: 1, dragging: false };
-var COLOR_LAB_PRESETS = [
-  { name: '极黑', color: '#000000' },
-  { name: '极白', color: '#ffffff' },
-  { name: '克莱因蓝', color: '#002fa7' },
-  { name: '法拉利红', color: '#f00000' },
-  { name: '香槟金', color: '#c8a96a' },
-  { name: '孔雀绿', color: '#006b5b' },
-  { name: '午夜紫', color: '#2b164f' },
-  { name: '银雾', color: '#d9dde2' }
-];
+function colorLabPresets() {
+  return [
+  { name: customBackgroundColorlabText('bg_pure_black'), color: '#000000' },
+  { name: customBackgroundColorlabText('bg_pure_white'), color: '#ffffff' },
+  { name: customBackgroundColorlabText('bg_klein_blue'), color: '#002fa7' },
+  { name: customBackgroundColorlabText('bg_ferrari_red'), color: '#f00000' },
+  { name: customBackgroundColorlabText('bg_champagne_gold'), color: '#c8a96a' },
+  { name: customBackgroundColorlabText('bg_peacock_green'), color: '#006b5b' },
+  { name: customBackgroundColorlabText('bg_midnight_purple'), color: '#2b164f' },
+  { name: customBackgroundColorlabText('bg_silver_mist'), color: '#d9dde2' }
+  ]
+}
 function rgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   var max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -139,7 +178,7 @@ function applyColorLabValue(hex, silent) {
   else if (id === 'lyric-color-picker') setLyricColorCustom(hex, true);
   else if (id === 'lyric-highlight-picker') setLyricHighlightCustom(hex, true);
   else if (id === 'lyric-glow-picker') setLyricGlowCustom(hex, true);
-  if (!silent) showToast('颜色: ' + hex.toUpperCase());
+  if (!silent) showToast(customBackgroundColorlabText('bg_color_prefix') + hex.toUpperCase());
 }
 function commitColorLabValue(silent) {
   if (!colorLabState || !colorLabState.id) return;
@@ -220,7 +259,7 @@ function openColorLabForPicker(picker) {
   syncColorLabUi(picker.value || '#000000');
   var presets = document.getElementById('color-lab-presets');
   if (presets) {
-    presets.innerHTML = COLOR_LAB_PRESETS.map(function (p) {
+    presets.innerHTML = colorLabPresets().map(function (p) {
       return '<button type="button" title="' + escHtml(p.name) + '" style="--c:' + p.color + '" data-color="' + p.color + '"></button>';
     }).join('');
   }

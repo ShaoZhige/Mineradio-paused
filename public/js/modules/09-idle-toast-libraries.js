@@ -492,84 +492,138 @@ function showToast(msg) {
   toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2600);
 }
 
-var visualGuideSteps = [
+// 引导叠层文案统一走 i18n；缺键时退回内置中文，引导不会出现空串或裸 key。
+// Visual guide copy goes through i18n and falls back to the built-in Chinese text, so the
+// guide never shows an empty string or a raw key.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function guideText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
+
+// ⚠️ 必须是**函数**，不能在模块顶层求值成常量。
+// 这里的 guideText() 在解析期就会跑，而词典要等 DOMContentLoaded 才异步加载完，
+// 于是取到的是键名本身并永久固化 —— 点开引导会直接显示 idle_visual_player 而不是
+// 「Mineradio 是用来听歌的视觉播放器」。改成函数后，每次读取步骤都重新取词。
+// It must be a FUNCTION, not a module-level constant: the guideText() calls below run during
+// parse, before the dictionary finishes loading, and the key names get baked in permanently —
+// opening the guide showed "idle_visual_player" instead of the real copy.
+function fxGuideSteps() {
+  return [
   {
     target: 'stage',
     kicker: '01 / Welcome',
-    title: 'Mineradio 是用来听歌的视觉播放器',
-    body: '它不是单纯歌单页：搜索或导入一首歌后，封面、歌词、粒子和镜头会跟着音乐一起动。'
+    title: guideText('idle_visual_player'),
+    body: guideText('idle_not_just_list')
   },
   {
     selector: '#search-box',
     kicker: '02 / Play',
-    title: '从搜索或导入开始',
-    body: '输入歌名、歌手或关键词即可播放；如果有本地音乐，也可以用导入入口直接放进舞台。'
+    title: guideText('idle_start_search'),
+    body: guideText('idle_search_start')
   },
   {
     selector: '#bottom-bar',
     kicker: '03 / Control',
-    title: '播放以后看底部控制台',
-    body: '播放、切歌、进度、队列和歌词都集中在底部，先把它当作一个正常播放器使用就可以。'
+    title: guideText('idle_see_console'),
+    body: guideText('idle_bottom_console')
   },
   {
     selector: '#user-btn',
     kicker: '04 / Account',
+    key: 'guide_step4',
     title: '登录只是为了同步你的音乐库',
     body: '登录后会同步歌单、红心和播客；不登录也可以搜索和播放，不会强制卡住你。'
   },
   {
     target: 'shelf',
     kicker: '05 / Visual',
-    title: '进阶视觉都放在舞台周围',
-    body: '右侧 3D 歌单架和 DIY 玩家模式是进阶入口；先播放一首歌，再慢慢调视觉效果。'
+    title: guideText('idle_stage_visuals'),
+    body: guideText('idle_shelf_diy')
   },
   {
     selector: '#diy-mode-btn',
     kicker: '06 / DIY',
-    title: '高级功能在 DIY 玩家模式',
-    body: '视觉控制台、上传/封面、自定义歌词、音质和更多面板都会在这里展开。'
+    title: guideText('idle_advanced_diy'),
+    body: guideText('idle_visual_console')
   }
 ];
-var visualGuideStepsDiy = [
+}
+// 同 fxGuideSteps()：DIY 版步骤也必须是函数，理由完全一致。
+// Same as fxGuideSteps(): the DIY variant must be a function for the identical reason.
+function fxGuideStepsDiy() {
+  return [
   {
     selector: '#diy-mode-btn',
     kicker: '01 / DIY',
-    title: 'DIY 玩家模式已展开',
-    body: '这里可以随时切回默认模式。DIY 模式会显示完整控制台、上传、视觉面板和高级调参。'
+    title: guideText('idle_diy_expanded'),
+    body: guideText('idle_default_switch')
   },
   {
     selector: '#search-box',
     kicker: '02 / Search',
+    key: 'guide_step_search',
     title: '搜索源和导入入口会展开',
     body: '顶部搜索支持更多来源切换，上传歌曲、封面等入口也会在 DIY 模式中显示。'
   },
   {
     selector: '#playlist-panel',
     kicker: '03 / Library',
+    key: 'guide_step_library',
     title: '左侧是完整歌单和队列',
     body: '靠近左侧边缘可以打开歌单/队列面板，在这里管理队列、个人歌单和播客。'
   },
   {
     selector: '#fx-panel',
     kicker: '04 / Visual Lab',
+    key: 'guide_step_visual',
     title: '右侧是视觉控制台',
     body: '靠近右下角或点击视觉按钮，可以调节粒子、歌词、镜头、3D 歌单架和更多视觉参数。'
   },
   {
     selector: '#quality-control',
     kicker: '05 / Controls',
+    key: 'guide_step_controls',
     title: '高级播放控制会补全',
     body: '音质、播放顺序、收藏、歌词源和更多按钮会在 DIY 模式中完整显示。'
   },
   {
     target: 'shelf',
     kicker: '06 / Shelf',
+    key: 'guide_step_shelf',
     title: '3D 歌单架支持直接打开',
     body: '右侧的 3D 歌单架会在靠近时半透明浮现，点击卡片可打开歌单，点卡片里的播放按钮可直接播放整张歌单。'
   }
 ];
+}
 function activeVisualGuideSteps() {
-  return diyPlayerMode ? visualGuideStepsDiy : visualGuideSteps;
+  return diyPlayerMode ? fxGuideStepsDiy() : fxGuideSteps();
 }
 function visualGuideWasSeen() {
   try { return localStorage.getItem(VISUAL_GUIDE_SEEN_STORE_KEY) === '1'; } catch (e) { return true; }
@@ -649,12 +703,17 @@ function showVisualGuideStep(index) {
   var hint = document.getElementById('visual-guide-hint');
   var progress = document.getElementById('visual-guide-progress');
   var next = document.getElementById('visual-guide-next');
-  if (title) title.textContent = step.title;
-  if (body) body.textContent = step.body;
+  if (title) title.textContent = guideText(step.key ? step.key + '_title' : '', step.title);
+  if (body) body.textContent = guideText(step.key ? step.key + '_body' : '', step.body);
   if (kicker) kicker.textContent = step.kicker;
-  if (hint) hint.textContent = visualGuideStep === steps.length - 1 ? '点击空白处完成引导' : '点击空白处也可以继续';
+  var lastStep = visualGuideStep === steps.length - 1;
+  if (hint) hint.textContent = lastStep
+    ? guideText('guide_hint_finish', '点击空白处完成引导')
+    : guideText('guide_hint_continue', '点击空白处也可以继续');
   if (progress) progress.textContent = (visualGuideStep + 1) + ' / ' + steps.length;
-  if (next) next.textContent = visualGuideStep === steps.length - 1 ? '完成' : '下一步';
+  if (next) next.textContent = lastStep
+    ? guideText('btn_finish', '完成')
+    : guideText('btn_next', '下一步');
   scheduleVisualGuidePositioning();
 }
 function guideTargetRect(step) {
@@ -714,22 +773,15 @@ function guideTargetRect(step) {
 function positionVisualGuideStep() {
   if (!visualGuideActive) return;
   var guide = document.getElementById('visual-guide');
-  var ring = document.getElementById('visual-guide-ring');
   var card = document.getElementById('visual-guide-card');
-  if (!guide || !ring || !card) return;
+  // 守卫只判真正要用的元素。高亮环已移除，早退条件里若还留着 ring，
+  // 整个函数会直接 return —— 卡片位置与遮罩焦点都不会再被设置。
+  // The guard checks only what is actually used. The highlight ring is gone; leaving it in
+  // this early-return would skip the whole function, so neither the card position nor the
+  // scrim focus would ever be set again.
+  if (!guide || !card) return;
   var step = activeVisualGuideSteps()[visualGuideStep];
   var rect = guideTargetRect(step);
-  ring.classList.toggle('shelf-target', !!(step && step.target === 'shelf'));
-  var pad = step && step.target === 'shelf' ? 14 : (step && step.selector === '#bottom-bar' ? 10 : 8);
-  var left = Math.max(12, rect.left - pad);
-  var top = Math.max(12, rect.top - pad);
-  var width = Math.min(innerWidth - left - 12, rect.width + pad * 2);
-  var height = Math.min(innerHeight - top - 12, rect.height + pad * 2);
-  ring.style.left = left + 'px';
-  ring.style.top = top + 'px';
-  ring.style.width = Math.max(44, width) + 'px';
-  ring.style.height = Math.max(38, height) + 'px';
-  ring.style.borderRadius = step && step.target === 'shelf' ? '28px' : ((step && step.selector === '#bottom-bar') ? '20px' : '16px');
   var scrim = guide.querySelector('.visual-guide-scrim');
   if (scrim) {
     scrim.style.setProperty('--gx', ((rect.left + rect.width / 2) / Math.max(1, innerWidth) * 100).toFixed(2) + '%');
@@ -782,6 +834,21 @@ function handleVisualGuideSurfaceClick(e) {
 (function bindVisualGuideSurfaceClick() {
   var guide = document.getElementById('visual-guide');
   if (guide) guide.addEventListener('click', handleVisualGuideSurfaceClick);
+})();
+// 引导是持久叠层：切语言时必须重建当前这一步，否则会一直停在旧语言。
+// The guide is a persistent overlay, so switching language has to rebuild the current step
+// or it would stay in the previous language.
+(function bindVisualGuideLanguage() {
+  // 模块会被测试沙箱单独求值，那时没有 window，这类加载期 IIFE 必须先拦掉，
+  // 否则会在求值阶段抛 ReferenceError，把整个测试文件带崩。
+  // This module is evaluated standalone in a bare test sandbox with no window;
+  // a load-time IIFE has to bail out first or evaluation throws.
+  if (typeof window === 'undefined' || !window.MineradioI18n) return;
+  var i18n = window.MineradioI18n;
+  if (!i18n || typeof i18n.onLanguageChange !== 'function') return;
+  i18n.onLanguageChange(function () {
+    if (visualGuideActive) showVisualGuideStep(visualGuideStep);
+  });
 })();
 
 // ============================================================

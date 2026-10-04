@@ -2,6 +2,43 @@
 // Update preview: external download page only.
 // Mineradio no longer downloads installers or applies resource patches.
 // ============================================================
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function updatePreviewText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function isSafeUpdatePageUrl(value) {
   var raw = String(value || '').trim();
   if (!raw || raw.length > 2048) return false;
@@ -20,10 +57,10 @@ function normalizeUpdateDownloadPages(values) {
     var item = value && typeof value === 'object' ? value : { url: value };
     var url = String(item.url || item.href || item.downloadPageUrl || item.externalUrl || '').trim();
     if (!isSafeUpdatePageUrl(url) || seen[url]) return;
-    var label = String(item.label || item.name || ('下载线路 ' + (index + 1)))
+    var label = String(item.label || item.name || (updatePreviewText('upd_line') + (index + 1)))
       .replace(/[<>|]/g, '')
       .trim()
-      .slice(0, 24) || ('下载线路 ' + (index + 1));
+      .slice(0, 24) || (updatePreviewText('upd_line') + (index + 1));
     seen[url] = true;
     pages.push({ label: label, url: url });
   });
@@ -84,7 +121,7 @@ async function checkLatestUpdate() {
   } catch (e) {
     updatePreviewState.preview = false;
     updatePreviewState.updateAvailable = false;
-    updatePreviewState.hero = '暂时无法检查更新。';
+    updatePreviewState.hero = updatePreviewText('upd_check_unavailable');
     updatePreviewState.message = (e && e.message) || 'UPDATE_CHECK_FAILED';
     renderUpdatePreviewPanel();
     setUpdatePreviewVisible(false);
@@ -110,7 +147,7 @@ function applyLatestUpdateInfo(data) {
     && isSafeUpdatePageUrl(legacyExternalUrl)
   ) {
     updatePreviewState.downloadPages.unshift({
-      label: '网盘下载',
+      label: updatePreviewText('upd_drive_download'),
       url: legacyExternalUrl
     });
   }
@@ -126,7 +163,7 @@ function applyLatestUpdateInfo(data) {
   updatePreviewState.status = 'idle';
   updatePreviewState.errorReason = '';
   updatePreviewState.hero = release.summary
-    || (updatePreviewState.updateAvailable ? '发现新版本，建议更新。' : '当前版本已是最新。');
+    || (updatePreviewState.updateAvailable ? updatePreviewText('server_update_available', '发现新版本，建议更新。') : updatePreviewText('already_latest', '当前版本已是最新。'));
   updatePreviewState.notes = Array.isArray(release.notes) ? release.notes.slice(0, 4) : [];
   renderUpdatePreviewPanel();
   setUpdatePreviewVisible(updatePreviewState.updateAvailable || updatePreviewState.preview);
@@ -164,11 +201,11 @@ function renderUpdatePreviewPanel() {
   var hero = document.getElementById('update-hero-main');
   var list = document.getElementById('update-list');
   if (version) version.textContent = 'v' + updatePreviewState.version;
-  if (hero) hero.textContent = updatePreviewState.hero || '当前版本已是最新。';
+  if (hero) hero.textContent = updatePreviewState.hero || updatePreviewText('already_latest', '当前版本已是最新。');
   if (list) {
     var notes = Array.isArray(updatePreviewState.notes) && updatePreviewState.notes.length
       ? updatePreviewState.notes
-      : ['更新检测已就绪'];
+      : [updatePreviewText('upd_ready')];
     list.innerHTML = notes.map(function (text, i) {
       return '<div class="update-item"><span class="update-item-dot" data-index="'
         + String(i + 1).padStart(2, '0')
@@ -195,7 +232,7 @@ function renderUpdateDownloadSources() {
     button.className = 'update-download-source';
     button.dataset.index = String(index);
     button.textContent = page.label;
-    button.title = '使用' + page.label + '下载';
+    button.title = updatePreviewText('upd_use') + page.label + updatePreviewText('upd_download');
     button.onclick = function () {
       openUpdateDownloadSource(index);
     };
@@ -222,13 +259,13 @@ function syncUpdatePreviewStateClass() {
   }
   var label = document.getElementById('update-btn-label');
   if (label) {
-    if (isOpening) label.textContent = '正在打开下载页';
-    else if (isOpened) label.textContent = '下载页已打开';
-    else if (isError) label.textContent = '重试打开';
-    else if (!updatePreviewState.updateAvailable) label.textContent = '当前已是最新';
-    else if (selectedPage) label.textContent = '前往' + selectedPage.label;
-    else if (updatePreviewState.externalUrl) label.textContent = '前往网盘下载';
-    else label.textContent = '查看更新页面';
+    if (isOpening) label.textContent = updatePreviewText('upd_opening');
+    else if (isOpened) label.textContent = updatePreviewText('upd_page_opened');
+    else if (isError) label.textContent = updatePreviewText('upd_retry_open');
+    else if (!updatePreviewState.updateAvailable) label.textContent = updatePreviewText('upd_current_latest');
+    else if (selectedPage) label.textContent = updatePreviewText('upd_go') + selectedPage.label;
+    else if (updatePreviewState.externalUrl) label.textContent = updatePreviewText('upd_go_drive');
+    else label.textContent = updatePreviewText('sd_view_update');
   }
   var btn = document.getElementById('update-primary-btn');
   if (btn) {
@@ -242,11 +279,11 @@ function syncUpdatePreviewStateClass() {
   });
   var foot = document.getElementById('update-footnote');
   if (foot) {
-    if (isOpening) foot.textContent = '正在调用系统浏览器。';
-    else if (isError) foot.textContent = '无法打开下载页：' + (updatePreviewState.errorReason || '请稍后重试');
-    else if (!updatePreviewState.updateAvailable) foot.textContent = '当前版本已是最新。';
-    else if (downloadPages.length || updatePreviewState.externalUrl) foot.textContent = '请使用本次公告中的最新网盘链接，旧收藏链接可能不是最新版。软件不会在本地下载或应用补丁。';
-    else foot.textContent = '将在浏览器打开 GitHub 更新页面；软件不会在本地下载或应用补丁。';
+    if (isOpening) foot.textContent = updatePreviewText('upd_calling_browser');
+    else if (isError) foot.textContent = updatePreviewText('upd_open_failed_prefix') + (updatePreviewState.errorReason || updatePreviewText('upd_retry_later'));
+    else if (!updatePreviewState.updateAvailable) foot.textContent = updatePreviewText('already_latest', '当前版本已是最新。');
+    else if (downloadPages.length || updatePreviewState.externalUrl) foot.textContent = updatePreviewText('upd_drive_hint');
+    else foot.textContent = updatePreviewText('upd_github_hint');
   }
 }
 
@@ -322,7 +359,7 @@ function openUpdateDownloadSource(index) {
 async function startUpdatePreviewDownload(preferredIndex) {
   if (updatePreviewState.status === 'opening') return;
   if (!updatePreviewState.updateAvailable) {
-    showToast('当前版本已是最新');
+    showToast(updatePreviewText('upd_latest'));
     return;
   }
   if (Number.isInteger(preferredIndex)) {
@@ -330,7 +367,7 @@ async function startUpdatePreviewDownload(preferredIndex) {
   }
   var target = currentUpdatePageUrl(preferredIndex);
   if (!target) {
-    showToast('这个版本还没有可用下载页面');
+    showToast(updatePreviewText('upd_no_page'));
     return;
   }
   updatePreviewState.status = 'opening';
@@ -347,7 +384,7 @@ async function startUpdatePreviewDownload(preferredIndex) {
     updatePreviewState.status = 'opened';
     syncUpdatePreviewStateClass();
     pulseUpdateReady();
-    showToast(updatePreviewState.externalUrl ? '已在浏览器打开网盘下载页' : '已在浏览器打开更新页面');
+    showToast(updatePreviewState.externalUrl ? updatePreviewText('upd_opened_drive') : updatePreviewText('upd_opened'));
     setTimeout(function () {
       if (updatePreviewState.status === 'opened') {
         updatePreviewState.status = 'idle';
@@ -358,7 +395,7 @@ async function startUpdatePreviewDownload(preferredIndex) {
     updatePreviewState.status = 'error';
     updatePreviewState.errorReason = (e && e.message) || 'OPEN_UPDATE_PAGE_FAILED';
     syncUpdatePreviewStateClass();
-    showToast('无法打开更新页面');
+    showToast(updatePreviewText('upd_open_failed'));
   }
 }
 

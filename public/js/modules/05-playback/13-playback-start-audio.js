@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function playbackStartAudioText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 function albumGaplessSongKey(song) {
   if (!song) return '';
   if (song.__albumGaplessKey) return String(song.__albumGaplessKey);
@@ -610,6 +647,15 @@ async function resolveAlbumGaplessPlaybackData(song) {
   if (playbackProvider === 'netease' && requestedQuality === 'jymaster' && !hasProviderSvip('netease', loginStatus)) requestedQuality = 'hires';
   var runtimeQualityCap = playbackQualityCapValue(song, playbackProvider);
   if (playbackQualityAboveCap(requestedQuality, playbackProvider, runtimeQualityCap)) requestedQuality = runtimeQualityCap;
+  // 自定义音源是活动播放地址提供者。这里也是预加载和自动换源候选解析的唯一入口，
+  // 所以只要在这里接管，无缝衔接、切歌预取和跨平台换源会自动走同一条策略。
+  // The custom source is the active URL provider. This helper is also the only entry point
+  // for preloading and for auto-fallback candidate resolution, so taking over here makes
+  // album gapless handoff, prefetch and cross-provider fallback all follow the same policy.
+  if (typeof resolveCustomSourcePlaybackData === 'function') {
+    var customData = await resolveCustomSourcePlaybackData(song, requestedQuality);
+    if (customData) return customData;
+  }
   var qualityParam = '&quality=' + encodeURIComponent(requestedQuality);
   if (playbackProvider === 'qq') {
     return apiJson('/api/qq/song/url?mid=' + encodeURIComponent(song.mid || song.songmid || song.id || '') + '&mediaMid=' + encodeURIComponent(song.mediaMid || song.media_mid || '') + qqPlaybackEvidenceQuery(song) + qualityParam, { timeoutMs: 15000 });
@@ -897,7 +943,7 @@ function applyLocalTrackLyricOnDemand(song, token) {
 async function playLocalQueueSong(song, idx, token, firstVisualPlay, opts, resumeAt) {
   opts = opts || {};
   if (!song || !song.localUrl) {
-    showToast('本地文件已失效，请重新导入后继续');
+    showToast(playbackStartAudioText('psa_local_invalid'));
     forcePlaybackControlsInteractive();
     return false;
   }
@@ -964,8 +1010,8 @@ async function playLocalQueueSong(song, idx, token, firstVisualPlay, opts, resum
       return false;
     }
     if (!opts.suppressPlayFailureNotice) {
-      if (opts.manual) showToast('播放启动失败，请重新选择本地音乐');
-      else showSourceFallbackNotice('本地音乐已载入', '点击播放器中间的播放按钮继续播放。');
+      if (opts.manual) showToast(playbackStartAudioText('psa_local_start_failed'));
+      else showSourceFallbackNotice(playbackStartAudioText('psa_local_loaded'), playbackStartAudioText('psa_click_play'));
     }
     return false;
   }
@@ -1167,34 +1213,45 @@ async function playQueueAt(idx, opts) {
         requestedQuality = runtimeQualityCap;
       }
       var qualityParam = '&quality=' + encodeURIComponent(requestedQuality);
-      var data;
+      var data = null;
       if (albumGaplessHandoff) {
         data = opts.preloadedData;
       } else if (opts.preResolvedPlaybackData && opts.preResolvedPlaybackData.url) {
         data = opts.preResolvedPlaybackData;
-      } else if (isQQPlayback) {
-        data = await apiJson('/api/qq/song/url?mid=' + encodeURIComponent(song.mid || song.songmid || song.id || '') + '&mediaMid=' + encodeURIComponent(song.mediaMid || song.media_mid || '') + qqPlaybackEvidenceQuery(song) + qualityParam, { timeoutMs: 15000 });
-      } else if (isKugouPlayback) {
-        data = await apiJson('/api/kugou/song/url?hash=' + encodeURIComponent(song.hash || song.fileHash || song.audioHash || song.id || '') +
-          '&albumId=' + encodeURIComponent(song.albumId || song.album_id || '') +
-          '&albumAudioId=' + encodeURIComponent(song.albumAudioId || song.album_audio_id || song.mixSongId || '') +
-          '&mixSongId=' + encodeURIComponent(song.mixSongId || '') +
-          '&hqHash=' + encodeURIComponent(song.hqHash || song.hq_hash || '') +
-          '&sqHash=' + encodeURIComponent(song.sqHash || song.sq_hash || '') +
-          '&resHash=' + encodeURIComponent(song.resHash || song.res_hash || '') +
-          '&vipRequired=' + encodeURIComponent(song.vipRequired || song.needVip || song.onlyVipPlayable || song.only_vip_playable ? '1' : '') +
-          '&privilege=' + encodeURIComponent(song.privilege || song.Privilege || song.mediaPrivilege || song.media_privilege || '') +
-          '&fee=' + encodeURIComponent(song.fee || song.Fee || '') +
-          qualityParam, { timeoutMs: 20000 });
-      } else if (isQishuiPlayback) {
-        data = await apiJson('/api/qishui/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || '') + qqPlaybackEvidenceQuery(song) + qualityParam, { timeoutMs: 15000 });
-      } else if (isSpotifyPlayback) {
-        data = await apiJson('/api/spotify/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || song.spotifyId || '') +
-          '&spotifyId=' + encodeURIComponent(song.spotifyId || '') +
-          '&uri=' + encodeURIComponent(song.spotifyUri || song.uri || '') +
-          qualityParam, { timeoutMs: 9000 });
-      } else {
-        data = await apiJson('/api/song/url?id=' + encodeURIComponent(song.id || '') + neteasePlaybackMatchQuery(song) + qualityParam, { timeoutMs: 14000 });
+      }
+      if (!data && typeof resolveCustomSourcePlaybackData === 'function') {
+        // 自定义音源启用时它是唯一的地址提供方，不与内置接口竞速；
+        // 脚本对这个平台没有主张时返回 null，下面继续走内置解析。
+        // An active custom source is the only URL provider here, never racing the built-ins.
+        // A null result means the script has no opinion about this platform, so the
+        // built-in chain below still runs unchanged.
+        data = await resolveCustomSourcePlaybackData(song, requestedQuality);
+      }
+      if (!data) {
+        if (isQQPlayback) {
+          data = await apiJson('/api/qq/song/url?mid=' + encodeURIComponent(song.mid || song.songmid || song.id || '') + '&mediaMid=' + encodeURIComponent(song.mediaMid || song.media_mid || '') + qqPlaybackEvidenceQuery(song) + qualityParam, { timeoutMs: 15000 });
+        } else if (isKugouPlayback) {
+          data = await apiJson('/api/kugou/song/url?hash=' + encodeURIComponent(song.hash || song.fileHash || song.audioHash || song.id || '') +
+            '&albumId=' + encodeURIComponent(song.albumId || song.album_id || '') +
+            '&albumAudioId=' + encodeURIComponent(song.albumAudioId || song.album_audio_id || song.mixSongId || '') +
+            '&mixSongId=' + encodeURIComponent(song.mixSongId || '') +
+            '&hqHash=' + encodeURIComponent(song.hqHash || song.hq_hash || '') +
+            '&sqHash=' + encodeURIComponent(song.sqHash || song.sq_hash || '') +
+            '&resHash=' + encodeURIComponent(song.resHash || song.res_hash || '') +
+            '&vipRequired=' + encodeURIComponent(song.vipRequired || song.needVip || song.onlyVipPlayable || song.only_vip_playable ? '1' : '') +
+            '&privilege=' + encodeURIComponent(song.privilege || song.Privilege || song.mediaPrivilege || song.media_privilege || '') +
+            '&fee=' + encodeURIComponent(song.fee || song.Fee || '') +
+            qualityParam, { timeoutMs: 20000 });
+        } else if (isQishuiPlayback) {
+          data = await apiJson('/api/qishui/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || '') + qqPlaybackEvidenceQuery(song) + qualityParam, { timeoutMs: 15000 });
+        } else if (isSpotifyPlayback) {
+          data = await apiJson('/api/spotify/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || song.spotifyId || '') +
+            '&spotifyId=' + encodeURIComponent(song.spotifyId || '') +
+            '&uri=' + encodeURIComponent(song.spotifyUri || song.uri || '') +
+            qualityParam, { timeoutMs: 9000 });
+        } else {
+          data = await apiJson('/api/song/url?id=' + encodeURIComponent(song.id || '') + neteasePlaybackMatchQuery(song) + qualityParam, { timeoutMs: 14000 });
+        }
       }
       if (token !== trackSwitchToken) return;
       if (
@@ -1237,27 +1294,41 @@ async function playQueueAt(idx, opts) {
         handlePlaybackUnavailable(song, data);
         return false;
       }
+      // 自定义源解析出来的地址不带平台权益语义，音质提醒和运行时上限都要绕开它。
+      // A URL resolved by a custom source carries no platform entitlement semantics, so
+      // both the downgrade notice and the runtime quality cap must skip it.
+      var customSourcePlayback = !!(data && data.active === true);
       var resolvedQualityText = playbackResolvedQualityText(data, playbackProvider);
       var qualityDowngraded = !!(data && data.level && playbackQualityWasDowngraded(requestedQuality, data.level, playbackProvider));
-      if (qualityDowngraded) markPlaybackQualityRuntimeCap(song, playbackProvider, data.level, 'resolved-lower');
-      if (!opts.startupAutoplay && !isQQPlayback && qualityDowngraded) {
-        showSourceFallbackNotice((isKugouPlayback ? '酷狗' : (isQishuiPlayback ? '汽水' : '网易云')) + '音质自动降级', '请求 ' + playbackQualityLabel(requestedQuality, playbackProvider) + '，实际播放 ' + resolvedQualityText + '。');
+      if (qualityDowngraded && !customSourcePlayback) markPlaybackQualityRuntimeCap(song, playbackProvider, data.level, 'resolved-lower');
+      if (!opts.startupAutoplay && !isQQPlayback && qualityDowngraded && !customSourcePlayback) {
+        showSourceFallbackNotice((isKugouPlayback ? playbackStartAudioText('search_kugou') : (isQishuiPlayback ? playbackStartAudioText('dash_qishui') : playbackStartAudioText('login_netease', '网易云'))) + playbackStartAudioText('psa_quality_downgraded'), playbackStartAudioText('psa_requesting') + playbackQualityLabel(requestedQuality, playbackProvider) + playbackStartAudioText('psa_actual_play_suffix') + resolvedQualityText + '。');
       } else if (!opts.startupAutoplay && opts.qualitySwitch) {
-        showSourceFallbackNotice('音质已切换', '实际播放: ' + resolvedQualityText + '。');
+        showSourceFallbackNotice(playbackStartAudioText('psa_quality_switched'), playbackStartAudioText('psa_actual_play') + resolvedQualityText + '。');
       }
       if (data.trial) {
         var txt;
-        if (data.loggedIn && data.vipLevel === 'svip') txt = '此歌曲需要单曲、专辑购买或更高权限';
-        else if (data.loggedIn && data.vipLevel === 'vip') txt = '此歌曲需要 SVIP 或购买 · 当前仅播放试听片段';
-        else if (data.loggedIn) txt = '此歌曲需 VIP · 当前仅播放试听片段';
-        else txt = '当前未登录 · 仅播放试听片段';
+        if (data.loggedIn && data.vipLevel === 'svip') txt = playbackStartAudioText('psa_needs_purchase');
+        else if (data.loggedIn && data.vipLevel === 'vip') txt = playbackStartAudioText('psa_svip_preview');
+        else if (data.loggedIn) txt = playbackStartAudioText('pf_vip_preview_only');
+        else txt = playbackStartAudioText('not_loggedin_trial', '当前未登录 · 仅播放试听片段');
+        // 汽水音乐的试听由服务端裁剪：后端会给出更具体的原因，以及本机能否授权签名补全播放。
+        if (data.vipClientHint) {
+          txt = qishuiVipClientHintText(data.vipClientHint);
+        }
         document.getElementById('trial-text').textContent = txt;
+        if (typeof bindQishuiSignatureAuthorizeButton === 'function') {
+          bindQishuiSignatureAuthorizeButton(data.vipClientHint);
+        }
         var trialLoginBtn = document.getElementById('trial-login-btn');
         if (trialLoginBtn) {
           trialLoginBtn.style.display = data.loggedIn ? 'none' : '';
           trialLoginBtn.onclick = function () { openProviderLogin(playbackProvider); };
         }
         document.getElementById('trial-banner').classList.add('show');
+      } else if (typeof bindQishuiSignatureAuthorizeButton === 'function') {
+        // 非试听结果必须清掉上一首留下的授权按钮，避免点进一个已经无效的流程。
+        bindQishuiSignatureAuthorizeButton(null);
       }
       markPlayPhase('audio-element');
       var proxyAudioUrl = opts.preloadedProxyAudioUrl || '/api/audio?url=' + encodeURIComponent(data.url);
@@ -1360,9 +1431,9 @@ async function playQueueAt(idx, opts) {
             syncPodcastDjMapCursor(audio ? audio.currentTime : 0, true);
             hideBeatChip();
             notifyDesktopLyricsBeatMapReady();
-            console.log('podcast DJ beatmap 缓存命中:', currentDjBeatMap.cameraBeats.length, '个主拍');
+            console.log(playbackStartAudioText('psa_podcast_hit'), currentDjBeatMap.cameraBeats.length, playbackStartAudioText('psa_main_beats'));
           } else {
-            showBeatChip('DJ 离线锁拍准备中…');
+            showBeatChip(playbackStartAudioText('psa_dj_offline_prep'));
             var djDurationSec = Math.max(0, Number(song.duration) || 0);
             if (djDurationSec > 10000) djDurationSec /= 1000;
             schedulePodcastDjAnalysis(djKey, data.url, djTok, djDurationSec);
@@ -1374,7 +1445,7 @@ async function playQueueAt(idx, opts) {
           applyCinemaProfileFromBeatMap(currentBeatMap);
           syncBeatMapPlaybackCursor(audio ? audio.currentTime : 0, albumGaplessMixed);
           notifyDesktopLyricsBeatMapReady();
-          console.log('beatmap 缓存命中:', currentBeatMap.kicks.length, '个鼓点');
+          console.log(playbackStartAudioText('psa_beatmap_hit'), currentBeatMap.kicks.length, playbackStartAudioText('psa_drum_hits'));
           scheduleQueueBeatPrefetch(idx, 2600);
         } else {
           var diskBeatMap = bmKey ? await readBeatDiskCache(bmKey) : null;
@@ -1387,7 +1458,7 @@ async function playQueueAt(idx, opts) {
             applyCinemaProfileFromBeatMap(currentBeatMap);
             syncBeatMapPlaybackCursor(audio ? audio.currentTime : 0, albumGaplessMixed);
             notifyDesktopLyricsBeatMapReady();
-            console.log('beatmap D盘缓存命中:', currentBeatMap.kicks.length, '个鼓点');
+            console.log(playbackStartAudioText('psa_beatmap_d_hit'), currentBeatMap.kicks.length, playbackStartAudioText('psa_drum_hits'));
             scheduleQueueBeatPrefetch(idx, 2600);
           } else {
             // 后台延迟分析, 避免新歌刚开始播放时抢占解码和渲染资源
@@ -1402,7 +1473,7 @@ async function playQueueAt(idx, opts) {
       }
       markPlayPhase('audio-start');
       if (!playbackInvocationStillCurrent(playbackMedia)) return false;
-      var playbackStarted = await playAudio({ manual: !!opts.manual, silent: isQQPlayback || !!opts.startupAutoplay || !opts.manual, startupAutoplay: !!opts.startupAutoplay, trackSwitch: true, resumeRecovery: !!opts.resumeRecovery, fade: albumGaplessHandoff ? false : opts.fade, preserveGain: albumGaplessMixed, expectedMedia: playbackMedia, expectedToken: token });
+      var playbackStarted = await playAudio({ manual: !!opts.manual, silent: isQQPlayback || customSourcePlayback || !!opts.startupAutoplay || !opts.manual, startupAutoplay: !!opts.startupAutoplay, trackSwitch: true, resumeRecovery: !!opts.resumeRecovery, fade: albumGaplessHandoff ? false : opts.fade, preserveGain: albumGaplessMixed, expectedMedia: playbackMedia, expectedToken: token });
       if (!playbackInvocationStillCurrent(playbackMedia)) return false;
       if (
         typeof sourceFallbackRecoveryFromOptions === 'function'
@@ -1412,13 +1483,25 @@ async function playQueueAt(idx, opts) {
         return settleExpiredSourceFallbackPlayback(idx, token, opts);
       }
       if (!playbackStarted) {
+        // 脚本给出的地址加载失败时，换源要在报错之前先试一次：脚本返回的直链
+        // 可能已经过期，但同名同歌手的平台版本还能播。
+        // When a script-supplied URL fails to load, try the fallback before surfacing an
+        // error: the direct link may have expired while a platform version still plays.
+        if (customSourcePlayback) {
+          var customSourceFallback = await tryAutoPlaybackFallback(song, {
+            provider: 'lx-custom-source',
+            reason: 'custom_source_load_failed',
+            error: 'CUSTOM_SOURCE_LOAD_FAILED'
+          }, idx, token, retryPlaybackOpts);
+          if (customSourceFallback !== null) return customSourceFallback === true;
+        }
         if (playbackProvider === 'netease' && data && data.sourceMatch) {
           var sameSourceRetry = await retryNeteaseSourceMatchPlayback(song, data, idx, token, retryPlaybackOpts, requestedQuality);
           if (sameSourceRetry !== null) return sameSourceRetry === true;
           var matchedPlaybackFallback = await tryAutoPlaybackFallback(song, Object.assign({}, data, { url: null, reason: 'media_start_failed' }), idx, token, retryPlaybackOpts);
           if (matchedPlaybackFallback !== null) return matchedPlaybackFallback === true;
         }
-        if (isQQPlayback) {
+        if (isQQPlayback && !customSourcePlayback) {
           var qqRetryStarted = await retryQQPlaybackWithCompatibleQuality(song, idx, token, retryPlaybackOpts, data, requestedQuality);
           if (token !== trackSwitchToken) return qqRetryStarted === true;
           if (qqRetryStarted) return true;
@@ -1439,7 +1522,7 @@ async function playQueueAt(idx, opts) {
             return await skipFailedQueueItem(
               idx,
               token,
-              '当前歌曲无法启动播放，正在尝试队列里的下一首。',
+              playbackStartAudioText('psa_cannot_start'),
               sourceFallbackRecoveryFailureOptions(retryPlaybackOpts)
             );
           }
@@ -1450,9 +1533,9 @@ async function playQueueAt(idx, opts) {
         }
         if (!opts.suppressPlayFailureNotice) {
           if (opts.manual) {
-            showToast('播放启动失败，请重新选择歌曲');
+            showToast(playbackStartAudioText('psa_start_failed'));
           } else {
-            showSourceFallbackNotice('歌曲已载入', '点击播放器中间的播放按钮继续播放。');
+            showSourceFallbackNotice(playbackStartAudioText('psa_loaded'), playbackStartAudioText('psa_click_play'));
           }
         }
         return false;
@@ -1464,7 +1547,7 @@ async function playQueueAt(idx, opts) {
       }
       if (!opts.startupAutoplay && !opts.qualitySwitch && data && data.sourceMatch && !song.neteaseSourceMatchNotified && typeof showSourceFallbackNotice === 'function') {
         song.neteaseSourceMatchNotified = true;
-        showSourceFallbackNotice('网易云已匹配可播音源', '已在网易云内切换到同一首歌的可播版本；歌词、封面、专辑和队列仍保持原曲。');
+        showSourceFallbackNotice(playbackStartAudioText('psa_netease_matched'), playbackStartAudioText('psa_netease_switched'));
       }
       if (albumGaplessHandoff && albumGaplessMixed && typeof rampAudioOutputGain === 'function') {
         rampAudioOutputGain(targetVolume, ALBUM_GAPLESS_ADOPT_SLEW_MS);
@@ -1526,14 +1609,14 @@ async function playQueueAt(idx, opts) {
         return await skipFailedQueueItem(
           idx,
           token,
-          '当前歌曲加载失败，正在尝试队列里的下一首。',
+          playbackStartAudioText('psa_load_failed'),
           catchRecovery ? sourceFallbackRecoveryFailureOptions(opts) : { playbackOpts: opts }
         );
       }
       if (opts.suppressPlayFailureNotice) return false;
       var failText = playbackFailureToastText(err);
       showToast(failText);
-      if (typeof showSourceFallbackNotice === 'function') showSourceFallbackNotice('播放失败', failText);
+      if (typeof showSourceFallbackNotice === 'function') showSourceFallbackNotice(playbackStartAudioText('out_play_failed'), failText);
       return false;
     }
   } catch (setupErr) {
@@ -1551,14 +1634,14 @@ async function playQueueAt(idx, opts) {
         return await skipFailedQueueItem(
           idx,
           token,
-          '当前歌曲切换失败，正在尝试队列里的下一首。',
+          playbackStartAudioText('psa_switch_failed'),
           setupRecovery ? sourceFallbackRecoveryFailureOptions(opts) : { playbackOpts: opts }
         );
     }
     if (opts.suppressPlayFailureNotice) return false;
     var setupFailText = playbackFailureToastText(setupErr);
     showToast(setupFailText);
-    if (typeof showSourceFallbackNotice === 'function') showSourceFallbackNotice('播放失败', setupFailText);
+    if (typeof showSourceFallbackNotice === 'function') showSourceFallbackNotice(playbackStartAudioText('out_play_failed'), setupFailText);
     return false;
   }
 }

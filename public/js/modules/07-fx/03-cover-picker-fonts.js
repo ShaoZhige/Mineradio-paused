@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function coverPickerFontsText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var coverColorPickerState = { target: 'visualTint', canvas: null };
 function currentCoverPickerCanvas() {
   if (coverPickerCanvas && coverPickerCanvas.getContext) return coverPickerCanvas;
@@ -44,7 +81,7 @@ function openCoverColorPicker(target) {
   if (!cv) {
     setVisualTintAuto();
     closeCoverColorPicker();
-    showToast('暂无封面，已切换为自动封面取色');
+    showToast(coverPickerFontsText('font_auto_fallback'));
     return;
   }
   var imgSrc = '';
@@ -53,7 +90,7 @@ function openCoverColorPicker(target) {
   art.style.backgroundImage = imgSrc ? 'url("' + cssImageUrl(imgSrc) + '")' : '';
   setCoverPickerPreview(fx.visualTintColor || (stageLyrics.coverPalette && stageLyrics.coverPalette.primary) || '#9db8cf');
   renderCoverPickerSwatches();
-  if (hint) hint.textContent = '点击专辑封面任意位置取色，或使用下方推荐色。';
+  if (hint) hint.textContent = coverPickerFontsText('cover_pick_hint', '点击专辑封面任意位置取色，或使用下方推荐色。');
   pop.classList.add('show');
   placeFxFloatingPanel(pop, document.getElementById('visual-tint-auto-btn') || document.getElementById('visual-tint-picker') || art, { gap: 12, pad: 14 });
 }
@@ -67,7 +104,7 @@ function applyCoverPickerColor(hex) {
   setCoverPickerPreview(hex);
   if (coverColorPickerState.target === 'visualTint') {
     setVisualTintCustom(hex, true);
-    showToast('视觉主色: ' + hex.toUpperCase());
+    showToast(coverPickerFontsText('bind_visual_primary_prefix') + hex.toUpperCase());
   }
   closeCoverColorPicker();
 }
@@ -106,7 +143,7 @@ function pickCoverColorFromArt(e) {
     var data = cv.getContext('2d').getImageData(sx, sy, 1, 1).data;
     applyCoverPickerColor(rgbToHexColor(data[0], data[1], data[2]));
   } catch (err) {
-    showToast('封面取色不可用，已保留自动取色');
+    showToast(coverPickerFontsText('font_auto_kept'));
     setVisualTintAuto();
     closeCoverColorPicker();
   }
@@ -132,7 +169,7 @@ function setLyricFont(key) {
   refreshCurrentLyricStyle();
   saveLyricLayout({ user: true, reason: 'lyricFont' });
   pushDesktopLyricsState(true);
-  showToast('歌词字体已切换');
+  showToast(coverPickerFontsText('font_switched'));
 }
 function renderCustomLyricFontButtons() {
   var grid = document.getElementById('lyric-font-grid');
@@ -146,9 +183,9 @@ function renderCustomLyricFontButtons() {
     btn.type = 'button';
     btn.dataset.font = key;
     btn.dataset.customFont = '1';
-    btn.title = font.name + ' / 点右侧小叉删除';
+    btn.title = font.name + coverPickerFontsText('font_remove_hint');
     btn.style.fontFamily = lyricFontStackForKey(key);
-    btn.innerHTML = '<span>' + escHtml(font.name) + '</span><span class="font-remove" title="删除字体" onclick="removeCustomLyricFont(event,\'' + font.id + '\')">×</span>';
+    btn.innerHTML = '<span>' + escHtml(font.name) + coverPickerFontsText('font_remove_btn') + font.id + '\')">×</span>';
     btn.onclick = function () { setLyricFont(key); };
     if (uploadBtn) grid.insertBefore(btn, uploadBtn);
     else grid.appendChild(btn);
@@ -175,11 +212,11 @@ async function handleLyricFontFiles(files) {
   files = Array.from(files || []);
   var file = files.find(isSupportedLyricFontFile);
   if (!file) {
-    showToast('没有找到可用字体文件');
+    showToast(coverPickerFontsText('font_none_found'));
     return;
   }
   if (file.size > CUSTOM_LYRIC_FONT_MAX_BYTES) {
-    showToast('字体文件太大，建议小于 3.6MB');
+    showToast(coverPickerFontsText('font_too_large'));
     return;
   }
   try {
@@ -194,12 +231,12 @@ async function handleLyricFontFiles(files) {
       savedAt: Date.now()
     });
     if (!record) {
-      showToast('字体文件读取失败');
+      showToast(coverPickerFontsText('font_read_failed'));
       return;
     }
     var loaded = await registerCustomLyricFont(record);
     if (!loaded) {
-      showToast('字体加载失败，请换一个字体文件');
+      showToast(coverPickerFontsText('font_load_failed'));
       return;
     }
     customLyricFonts = [record].concat((customLyricFonts || []).filter(function (item) {
@@ -208,10 +245,10 @@ async function handleLyricFontFiles(files) {
     var saved = saveCustomLyricFonts();
     updateLyricFontControls();
     setLyricFont(customLyricFontKey(record.id));
-    showToast(saved ? '歌词字体已上传' : '字体已临时加载，文件过大无法保存');
+    showToast(saved ? coverPickerFontsText('font_uploaded') : coverPickerFontsText('font_temp_loaded'));
   } catch (e) {
     console.warn('[LyricFont] upload failed', e);
-    showToast('字体上传失败');
+    showToast(coverPickerFontsText('font_upload_failed'));
   }
 }
 function removeCustomLyricFont(event, id) {
@@ -229,7 +266,7 @@ function removeCustomLyricFont(event, id) {
   refreshCurrentLyricStyle();
   saveLyricLayout({ user: true, reason: 'lyricFontRemove' });
   pushDesktopLyricsState(true);
-  showToast('已删除上传字体');
+  showToast(coverPickerFontsText('font_deleted'));
 }
 function currentLyricPaletteSource() {
   return fx.lyricColorMode === 'custom'
@@ -271,7 +308,7 @@ function setLyricGlowCustom(color, silent) {
   updateLyricGlowControls();
   saveLyricLayout({ syncDisk: true, user: true, reason: 'lyricGlowColor' });
   pushDesktopLyricsState(true);
-  if (!silent) showToast('溢光颜色: ' + fx.lyricGlowColor.toUpperCase());
+  if (!silent) showToast(coverPickerFontsText('bind_bloom_color_prefix') + fx.lyricGlowColor.toUpperCase());
 }
 function setLyricColorAuto() {
   fx.lyricColorMode = 'auto';
@@ -281,7 +318,7 @@ function setLyricColorAuto() {
   updateLyricGlowControls();
   saveLyricLayout({ syncDisk: true, user: true, reason: 'lyricColorAuto' });
   pushDesktopLyricsState(true);
-  showToast('歌词颜色: 封面取色');
+  showToast(coverPickerFontsText('font_color_cover'));
 }
 function setLyricColorCustom(color, silent) {
   fx.lyricColorMode = 'custom';
@@ -292,7 +329,7 @@ function setLyricColorCustom(color, silent) {
   updateLyricGlowControls();
   saveLyricLayout({ syncDisk: true, user: true, reason: 'lyricColorCustom' });
   pushDesktopLyricsState(true);
-  if (!silent) showToast('歌词颜色: ' + fx.lyricColor.toUpperCase());
+  if (!silent) showToast(coverPickerFontsText('bind_lyrics_color_prefix') + fx.lyricColor.toUpperCase());
 }
 function setLyricColorPreset(i) {
   var p = lyricColorPresets[i];
@@ -306,7 +343,7 @@ function setLyricHighlightAuto() {
   updateLyricGlowControls();
   saveLyricLayout({ syncDisk: true, user: true, reason: 'lyricHighlightAuto' });
   pushDesktopLyricsState(true);
-  showToast('高亮颜色: 跟随歌词');
+  showToast(coverPickerFontsText('font_highlight_follow'));
 }
 function setLyricHighlightCustom(color, silent) {
   fx.lyricHighlightMode = 'custom';
@@ -316,5 +353,5 @@ function setLyricHighlightCustom(color, silent) {
   updateLyricGlowControls();
   saveLyricLayout({ syncDisk: true, user: true, reason: 'lyricHighlightCustom' });
   pushDesktopLyricsState(true);
-  if (!silent) showToast('高亮颜色: ' + fx.lyricHighlightColor.toUpperCase());
+  if (!silent) showToast(coverPickerFontsText('bind_highlight_color_prefix') + fx.lyricHighlightColor.toUpperCase());
 }

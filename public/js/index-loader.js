@@ -3,6 +3,9 @@
 (function loadMineradioIndexModules() {
   const moduleCacheBust = String(Date.now());
   const modulePaths = [
+    'js/modules/00-state/13-i18n.js',
+    'js/modules/00-state/14-i18n-switcher.js',
+    'js/modules/00-state/15-backend-text.js',
     'js/modules/00-state/00-core-stores.js',
     'js/modules/00-state/01-perf-render-state.js',
     'js/modules/00-state/02-preferences-ui-modes.js',
@@ -76,6 +79,7 @@
     'js/modules/05-playback/17b-cuefield-source-loop.js',
     'js/modules/05-playback/18-cuefield-automix-integration.js',
     'js/modules/05-playback/19-media-session.js',
+    'js/modules/05-playback/20-custom-source.js',
     'js/modules/06-lyrics/00-lyrics-fetch-parse.js',
     'js/modules/06-lyrics/00-built-in-playlists.js',
     'js/modules/06-lyrics/01-playlist-panel-shell.js',

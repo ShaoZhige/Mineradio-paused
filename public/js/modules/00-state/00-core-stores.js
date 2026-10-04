@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function coreStoresText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 'use strict';
 
 // ============================================================
@@ -21,10 +58,10 @@ var lastStrongDrop = 0;           // 用于 burst 预设的强 drop 时刻
 var lyricsLines = [], lyricsTranslationLines = [], lyricsVisible = false, lyricsHasNativeKaraoke = false, lyricsTimingSource = 'none', lyricsTranslationSource = 'none';
 var playlist = [], playQueue = [], currentIdx = -1, playing = false, playToggleBusy = false;
 var searchMode = 'song', podcastResults = [], podcastPrograms = [], podcastCurrentRadio = null;
-var loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
-var qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: 'QQ 音乐', userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false };
-var kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: '酷狗音乐', userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
-var qishuiLoginStatus = { provider: 'qishui', loggedIn: false, configured: false, preview: false, nickname: '汽水音乐', userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match' };
+var loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: coreStoresText('vip_none') };
+var qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: coreStoresText('login_qq', 'QQ 音乐'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false };
+var kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: coreStoresText('provider_kugou'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
+var qishuiLoginStatus = { provider: 'qishui', loggedIn: false, configured: false, preview: false, nickname: coreStoresText('provider_qishui'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match' };
 var qqLoginAutoRefreshTimer = null;
 var qqLoginStatusLastForcedAt = 0;
 var kugouLoginAutoRefreshTimer = null;
@@ -111,33 +148,35 @@ var PROVIDER_VIP_AUDIT_STORE_KEY = 'mineradio-provider-vip-audit-v1';
 var QQ_PLAYBACK_VIP_EVIDENCE_STORE_KEY = 'mineradio-qq-playback-vip-evidence-v1';
 var LOGIN_COOKIE_EXPORT_STORE_KEY = 'mineradio-login-cookie-export-v1';
 var PLAYBACK_QUALITY_DEFAULTS = { netease: 'hires', qq: 'lossless', kugou: 'lossless', qishui: 'standard', spotify: 'standard' };
-var PLAYBACK_QUALITY_OPTIONS = {
+function playbackQualityOptionTable() {
+  return {
   netease: [
-    { key: 'jymaster', title: '超清母带', sub: 'SVIP / 最高规格', svip: true },
-    { key: 'hires', title: '高清臻音', sub: '默认 / 细节优先' },
-    { key: 'lossless', title: '无损 SQ', sub: 'FLAC 优先' },
-    { key: 'exhigh', title: '极高 HQ', sub: '320kbps' },
-    { key: 'standard', title: '标准', sub: '128kbps' }
+    { key: 'jymaster', title: coreStoresText('quality_jymaster', '超清母带'), sub: coreStoresText('quality_sub_svip'), svip: true },
+    { key: 'hires', title: coreStoresText('quality_hires', '高清臻音'), sub: coreStoresText('quality_sub_default_detail') },
+    { key: 'lossless', title: coreStoresText('quality_lossless_sq'), sub: coreStoresText('quality_sub_flac_first') },
+    { key: 'exhigh', title: coreStoresText('quality_exhigh_hq'), sub: '320kbps' },
+    { key: 'standard', title: coreStoresText('quality_standard', '标准'), sub: '128kbps' }
   ],
   qq: [
-    { key: 'hires', title: 'Hi-Res FLAC', sub: 'QQ 高解析 / 优先尝试' },
-    { key: 'lossless', title: '无损 FLAC', sub: 'QQ SQ / 稳定优先' },
-    { key: 'exhigh', title: '320k MP3', sub: 'QQ 高品质' },
-    { key: 'standard', title: '128k MP3', sub: '兼容优先' }
+    { key: 'hires', title: 'Hi-Res FLAC', sub: coreStoresText('quality_qq_hires_sub') },
+    { key: 'lossless', title: coreStoresText('quality_lossless_flac', '无损 FLAC'), sub: coreStoresText('quality_qq_sq_sub') },
+    { key: 'exhigh', title: '320k MP3', sub: coreStoresText('quality_qq_high') },
+    { key: 'standard', title: '128k MP3', sub: coreStoresText('quality_sub_compat_first') }
   ],
   kugou: [
-    { key: 'hires', title: 'Hi-Res / 臻品', sub: '酷狗高解析 / 优先尝试' },
-    { key: 'lossless', title: '无损 FLAC', sub: '酷狗 SQ / 稳定优先' },
-    { key: 'exhigh', title: '320k MP3', sub: '酷狗高品质' },
-    { key: 'standard', title: '128k MP3', sub: '兼容优先' }
+    { key: 'hires', title: coreStoresText('quality_kugou_hires'), sub: coreStoresText('quality_kugou_hires_sub') },
+    { key: 'lossless', title: coreStoresText('quality_lossless_flac', '无损 FLAC'), sub: coreStoresText('quality_kugou_sq_sub') },
+    { key: 'exhigh', title: '320k MP3', sub: coreStoresText('quality_kugou_high') },
+    { key: 'standard', title: '128k MP3', sub: coreStoresText('quality_sub_compat_first') }
   ],
   qishui: [
-    { key: 'standard', title: '汽水匹配源', sub: 'QS 推荐 / 播放自动换源' }
+    { key: 'standard', title: coreStoresText('quality_qishui_match'), sub: coreStoresText('quality_qishui_sub') }
   ],
   spotify: [
-    { key: 'standard', title: 'Spotify 匹配源', sub: 'SP 搜索 / 播放自动换源' }
+    { key: 'standard', title: coreStoresText('quality_spotify_match'), sub: coreStoresText('quality_spotify_sub') }
   ]
-};
+  }
+}
 var UPLOAD_TIP_STORE_KEY = 'mineradio-upload-tip-seen';
 var DIY_MODE_STORE_KEY = 'mineradio-diy-player-mode-v1';
 var PLAYLIST_PANEL_PIN_STORE_KEY = 'mineradio-playlist-panel-pinned-v1';
@@ -156,16 +195,18 @@ var STARTUP_RESUME_MODE_STORE_KEY = 'mineradio-startup-resume-mode-v1';
 var LOCAL_BEATMAP_STORE_KEY = 'mineradio-local-beatmaps-v1';
 var LOCAL_BEAT_PREF_STORE_KEY = 'mineradio-local-beatmap-prefs-v1';
 var LOCAL_BEAT_COMBOS = ['', 'downbeat', 'push', 'drop', 'rebound', 'accent'];
-var HOTKEY_ACTIONS = [
-  { key: 'togglePlay', label: '播放 / 暂停', category: '播放', local: 'Space', global: 'Ctrl+Alt+Space' },
-  { key: 'prevTrack', label: '上一首', category: '播放', local: 'ArrowLeft', global: 'Ctrl+Alt+ArrowLeft' },
-  { key: 'nextTrack', label: '下一首', category: '播放', local: 'ArrowRight', global: 'Ctrl+Alt+ArrowRight' },
-  { key: 'volumeUp', label: '音量增加', category: '音量', local: 'ArrowUp', global: 'Ctrl+Alt+ArrowUp' },
-  { key: 'volumeDown', label: '音量降低', category: '音量', local: 'ArrowDown', global: 'Ctrl+Alt+ArrowDown' },
-  { key: 'toggleFullscreen', label: '全屏', category: '窗口', local: 'KeyF', global: 'Ctrl+Alt+KeyF' },
-  { key: 'toggleDesktopInteraction', label: '切换完整桌面模式', category: '窗口', local: '', global: 'Ctrl+Shift+KeyM' },
-  { key: 'toggleDesktopLyrics', label: '桌面歌词', category: '歌词', local: 'Alt+KeyL', global: 'Ctrl+Alt+KeyL' }
-];
+function hotkeyActionsList() {
+  return [
+  { key: 'togglePlay', label: coreStoresText('hotkey_play_pause'), category: coreStoresText('hotkey_cat_playback'), local: 'Space', global: 'Ctrl+Alt+Space' },
+  { key: 'prevTrack', label: coreStoresText('hotkey_prev_track'), category: coreStoresText('hotkey_cat_playback'), local: 'ArrowLeft', global: 'Ctrl+Alt+ArrowLeft' },
+  { key: 'nextTrack', label: coreStoresText('hotkey_next_track'), category: coreStoresText('hotkey_cat_playback'), local: 'ArrowRight', global: 'Ctrl+Alt+ArrowRight' },
+  { key: 'volumeUp', label: coreStoresText('hotkey_volume_up'), category: coreStoresText('fx_volume'), local: 'ArrowUp', global: 'Ctrl+Alt+ArrowUp' },
+  { key: 'volumeDown', label: coreStoresText('hotkey_volume_down'), category: coreStoresText('fx_volume'), local: 'ArrowDown', global: 'Ctrl+Alt+ArrowDown' },
+  { key: 'toggleFullscreen', label: coreStoresText('btn_fullscreen', '全屏'), category: coreStoresText('hotkey_cat_window'), local: 'KeyF', global: 'Ctrl+Alt+KeyF' },
+  { key: 'toggleDesktopInteraction', label: coreStoresText('hotkey_toggle_full_desktop'), category: coreStoresText('hotkey_cat_window'), local: '', global: 'Ctrl+Shift+KeyM' },
+  { key: 'toggleDesktopLyrics', label: coreStoresText('toggle_desktop_lyrics', '桌面歌词'), category: coreStoresText('hotkey_cat_lyrics'), local: 'Alt+KeyL', global: 'Ctrl+Alt+KeyL' }
+  ]
+}
 var hotkeyCaptureState = null;
 var hotkeyGlobalStatus = {};
 var diyPlayerMode = readDiyModePreference();

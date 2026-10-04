@@ -1,3 +1,40 @@
+// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
+// UI copy in this module goes through i18n and falls back to the built-in Chinese
+// template, so nothing ever renders an empty string or a raw key.
+// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve
+// when the dictionary entry is missing.
+// 本模块界面文案统一走 i18n，词典是唯一文案来源。
+// UI copy in this module goes through i18n; the dictionary is the single source of copy.
+// 两种形态：
+//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
+//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
+//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
+// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
+// Two call shapes. A missing key returns the key itself on purpose: an empty string would
+// make an untranslated string fail silently, while a bare key is self-identifying on screen.
+// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
+// params goes to both t() and the fallback template so placeholders still resolve.
+function homeDashboardText(key, fallback, params) {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
+  if (text && text !== key) {
+    if (params && typeof params === "object") {
+      Object.keys(params).forEach(function (field) {
+        text = text.split('{' + field + '}').join(String(params[field]));
+      });
+    }
+    return text;
+  }
+  if (fallback == null) return key;
+  var out = String(fallback);
+  if (params && typeof params === "object") {
+    Object.keys(params).forEach(function (field) {
+      out = out.split('{' + field + '}').join(String(params[field]));
+    });
+  }
+  return out;
+}
 var homeDashboardReviewOffset = 0;
 var homeDashboardHeroFingerprint = '';
 var homeDashboardQuickFingerprint = '';
@@ -33,14 +70,16 @@ var homePlatformRecommendationState = {
   },
 };
 
-var HOME_DASHBOARD_REVIEW_DEFAULTS = [
-  { text: '有些歌不是突然好听，而是终于听懂了。', source: '每日热评' },
-  { text: '慢一点没关系，重要的是一直在向喜欢的生活靠近。', source: '每日热评' },
-  { text: '错过落日余晖，还会有满天星辰。', source: '每日热评' },
-  { text: '保持热爱，奔赴下一场山海。', source: '每日热评' },
-  { text: '答案在路上，自由在风里。', source: '每日热评' },
-  { text: '让今天的声音，从你喜欢的地方开始。', source: 'Mineradio' },
-];
+function homeDashboardReviewDefaults() {
+  return [
+  { text: homeDashboardText('dash_quote_understood'), source: homeDashboardText('dash_daily_reviews') },
+  { text: homeDashboardText('dash_quote_slow'), source: homeDashboardText('dash_daily_reviews') },
+  { text: homeDashboardText('dash_quote_sunset'), source: homeDashboardText('dash_daily_reviews') },
+  { text: homeDashboardText('dash_quote_passion'), source: homeDashboardText('dash_daily_reviews') },
+  { text: homeDashboardText('dash_quote_road'), source: homeDashboardText('dash_daily_reviews') },
+  { text: homeDashboardText('dash_today_sound'), source: 'Mineradio' },
+  ]
+}
 
 function homeDashboardSvgText(text) {
   return String(text || '')
@@ -50,8 +89,8 @@ function homeDashboardSvgText(text) {
 }
 
 function homeDashboardCoverInitials(text) {
-  var raw = String(text || '音乐').replace(/\s+/g, '').trim();
-  var chars = Array.from(raw || '音乐');
+  var raw = String(text || homeDashboardText('dash_music')).replace(/\s+/g, '').trim();
+  var chars = Array.from(raw || homeDashboardText('dash_music'));
   return chars.slice(0, Math.min(2, chars.length)).join('');
 }
 
@@ -90,16 +129,16 @@ function homeDashboardReadReviews() {
     var saved = JSON.parse(localStorage.getItem('mineradio-daily-review-quotes-v1') || '[]');
     if (Array.isArray(saved) && saved.length) {
       var normalized = saved.map(function (item) {
-        if (typeof item === 'string') return { text: item.trim(), source: '我的热评' };
+        if (typeof item === 'string') return { text: item.trim(), source: homeDashboardText('dash_my_reviews') };
         return {
           text: String(item && item.text || '').trim(),
-          source: String(item && item.source || '我的热评').trim(),
+          source: String(item && item.source || homeDashboardText('dash_my_reviews')).trim(),
         };
       }).filter(function (item) { return item.text; });
       if (normalized.length) return normalized;
     }
   } catch (_error) { }
-  return HOME_DASHBOARD_REVIEW_DEFAULTS.slice();
+  return homeDashboardReviewDefaults().slice();
 }
 
 function homeDashboardDayNumber() {
@@ -109,7 +148,7 @@ function homeDashboardDayNumber() {
 
 function homeDashboardSelectedReview() {
   var reviews = homeDashboardReadReviews();
-  if (!reviews.length) return { text: '让今天的声音，从你喜欢的地方开始。', source: 'Mineradio' };
+  if (!reviews.length) return { text: homeDashboardText('dash_today_sound'), source: 'Mineradio' };
   var index = ((homeDashboardDayNumber() + homeDashboardReviewOffset) % reviews.length + reviews.length) % reviews.length;
   return reviews[index];
 }
@@ -285,7 +324,7 @@ async function homeDashboardAttachVideo() {
       if (token !== homeDashboardVideoLoadToken || !video.getAttribute('src')) return;
       homeDashboardVideoDecodeFailed = true;
       homeDashboardReleaseVideoSource(true);
-      homeDashboardNotify('这个 MP4 无法解码，请换成 H.264 编码的 MP4');
+      homeDashboardNotify(homeDashboardText('dash_mp4_decode_failed'));
     }, { once: true });
     homeDashboardVideoObjectUrl = objectUrl;
     card.insertBefore(video, card.firstChild);
@@ -293,7 +332,7 @@ async function homeDashboardAttachVideo() {
   } catch (error) {
     console.warn('[HomeDashboardVideo]', error);
     homeDashboardReleaseVideoSource(true);
-    homeDashboardNotify('主页 MP4 读取失败，请重新选择');
+    homeDashboardNotify(homeDashboardText('dash_mp4_load_failed'));
   } finally {
     homeDashboardVideoAttachBusy = false;
     if (shouldRetry && !homeDashboardVideoDecodeFailed) {
@@ -306,7 +345,7 @@ function homeDashboardRenderVideoActions() {
   var hasVideo = !!homeDashboardReadVideoMeta();
   var choose = document.getElementById('home-dashboard-video-choose');
   var clear = document.getElementById('home-dashboard-video-clear');
-  if (choose) choose.textContent = hasVideo ? '更换 MP4' : '选择 MP4';
+  if (choose) choose.textContent = hasVideo ? homeDashboardText('dash_replace_mp4') : homeDashboardText('dash_choose_mp4');
   if (clear) clear.hidden = !hasVideo;
 }
 
@@ -327,11 +366,11 @@ function openHomeDashboardVideoPicker() {
 
 async function handleHomeDashboardVideoFile(file) {
   if (!homeDashboardIsMp4File(file)) {
-    homeDashboardNotify('这里只能选择 .mp4 文件');
+    homeDashboardNotify(homeDashboardText('dash_mp4_only'));
     return;
   }
   if (Number(file.size) > HOME_DASHBOARD_VIDEO_MAX_BYTES) {
-    homeDashboardNotify('MP4 不能超过 300 MB');
+    homeDashboardNotify(homeDashboardText('dash_mp4_size_limit'));
     return;
   }
   var meta = {
@@ -348,10 +387,10 @@ async function handleHomeDashboardVideoFile(file) {
     homeDashboardReleaseVideoSource(true);
     homeDashboardRenderVideoActions();
     homeDashboardUpdateVideoPower();
-    homeDashboardNotify('主页 MP4 已保存');
+    homeDashboardNotify(homeDashboardText('dash_mp4_saved'));
   } catch (error) {
     console.warn('[HomeDashboardVideoSave]', error);
-    homeDashboardNotify('主页 MP4 保存失败');
+    homeDashboardNotify(homeDashboardText('dash_mp4_save_failed'));
   }
 }
 
@@ -365,7 +404,7 @@ async function clearHomeDashboardVideo() {
   } catch (error) {
     console.warn('[HomeDashboardVideoDelete]', error);
   }
-  homeDashboardNotify('已恢复主页默认动画');
+  homeDashboardNotify(homeDashboardText('dash_restored_default_anim'));
 }
 
 function bindHomeDashboardVideoControls() {
@@ -400,10 +439,10 @@ function renderHomeDashboardHero() {
       '<div class="daily-review-quote"></div>' +
       '<div class="daily-review-source"></div>' +
       '<div class="daily-review-actions">' +
-      '<button type="button" onclick="homeDashboardNextReview()">换一条</button>' +
-      '<button id="home-dashboard-video-choose" type="button" onclick="openHomeDashboardVideoPicker()">选择 MP4</button>' +
-      '<button id="home-dashboard-video-clear" type="button" onclick="clearHomeDashboardVideo()" hidden>移除视频</button>' +
-      '<button type="button" onclick="openHomePlayerConsole()">展开播放器控制台</button>' +
+      homeDashboardText('dash_next_review_btn_html') +
+      homeDashboardText('dash_video_choose_btn_html') +
+      homeDashboardText('dash_video_clear_btn_html') +
+      homeDashboardText('dash_expand_console_btn_html') +
       '</div></div>' +
       '<input id="home-dashboard-video-input" type="file" accept=".mp4,video/mp4" hidden aria-hidden="true">';
     homeDashboardVideoControlsBound = false;
@@ -414,7 +453,7 @@ function renderHomeDashboardHero() {
     var quote = hero.querySelector('.daily-review-quote');
     var source = hero.querySelector('.daily-review-source');
     if (quote) quote.textContent = '“' + review.text + '”';
-    if (source) source.textContent = '— ' + (review.source || '每日热评');
+    if (source) source.textContent = '— ' + (review.source || homeDashboardText('dash_daily_reviews'));
   }
   homeDashboardRenderVideoActions();
   homeDashboardUpdateVideoPower();
@@ -546,8 +585,8 @@ function renderHomeDashboardQuickCards() {
   var cards = [
     {
       label: 'CONTINUE',
-      title: continueItem && (continueItem.name || continueItem.title) || '开始听歌',
-      sub: continueItem ? (homeDashboardSubtitle(continueItem) || recent && (recent.artist || recent.source) || '继续当前队列') : '从音乐库或每日推荐开始',
+      title: continueItem && (continueItem.name || continueItem.title) || homeDashboardText('dash_start_listening'),
+      sub: continueItem ? (homeDashboardSubtitle(continueItem) || recent && (recent.artist || recent.source) || homeDashboardText('dash_continue_queue')) : homeDashboardText('dash_start_hint'),
       cover: homeDashboardSongCover(current, 360) || recent && recent.cover || '',
       action: 'resumeHomeDashboardPlayback()',
       tone: 'search',
@@ -555,8 +594,8 @@ function renderHomeDashboardQuickCards() {
     },
     {
       label: 'LIBRARY',
-      title: '音乐库',
-      sub: libraryCount ? (libraryCount + ' 项内容 · 本地音乐与歌单') : '歌单、本地音乐和已登录平台',
+      title: homeDashboardText('dash_library'),
+      sub: libraryCount ? (libraryCount + homeDashboardText('dash_item_count_suffix')) : homeDashboardText('dash_playlists_local_platforms'),
       cover: localSongs[0] ? homeDashboardSongCover(localSongs[0], 260) : '',
       action: 'openHomeDashboardLibrary()',
       tone: 'library',
@@ -564,8 +603,8 @@ function renderHomeDashboardQuickCards() {
     },
     {
       label: 'DAILY MIX',
-      title: '每日推荐',
-      sub: daily ? ((daily.name || daily.title || '今日歌曲') + (homeDashboardSubtitle(daily) ? ' · ' + homeDashboardSubtitle(daily) : '')) : '使用当前 Mineradio 推荐数据',
+      title: homeDashboardText('home_daily', '每日推荐'),
+      sub: daily ? ((daily.name || daily.title || homeDashboardText('dash_today_songs')) + (homeDashboardSubtitle(daily) ? ' · ' + homeDashboardSubtitle(daily) : '')) : homeDashboardText('dash_use_current_recommend'),
       cover: homeDashboardSongCover(daily, 260),
       action: 'playHomeDaily()',
       tone: 'mix',
@@ -573,8 +612,8 @@ function renderHomeDashboardQuickCards() {
     },
     {
       label: 'RECENT',
-      title: '最近播放',
-      sub: recent ? ((recent.name || '最近一首') + (recent.artist ? ' · ' + recent.artist : '')) : '播放过的歌曲会出现在这里',
+      title: homeDashboardText('dash_recent_plays'),
+      sub: recent ? ((recent.name || homeDashboardText('dash_recent_song')) + (recent.artist ? ' · ' + recent.artist : '')) : homeDashboardText('dash_recent_hint'),
       cover: recent && recent.cover || '',
       action: 'playHomeRecent()',
       tone: 'playlist',
@@ -674,10 +713,10 @@ function homeDashboardTodayListenMetrics() {
 
 function homeDashboardListenDurationText(milliseconds) {
   var minutes = Math.floor(Math.max(0, Number(milliseconds) || 0) / 60000);
-  if (minutes < 60) return minutes + ' 分钟';
+  if (minutes < 60) return minutes + homeDashboardText('dash_minute_suffix');
   var hours = Math.floor(minutes / 60);
   var rest = minutes % 60;
-  return hours + ' 小时' + (rest ? rest + ' 分' : '');
+  return hours + homeDashboardText('dash_hour_suffix') + (rest ? rest + homeDashboardText('dash_minute_short_suffix') : '');
 }
 
 function homeDashboardNextQueueInfo() {
@@ -751,7 +790,7 @@ function renderHomeDashboardDiscovery() {
   root.classList.toggle('is-empty', !homeDashboardDiscoveryCache.length);
   if (!homeDashboardDiscoveryCache.length) {
     root.innerHTML = '<button class="home-discovery-empty" type="button" onclick="openHomeDashboardLibrary()">' +
-      '<strong>等待你的音乐</strong><span>登录平台或导入本地音乐后生成推荐</span></button>';
+      homeDashboardText('dash_waiting_music_html');
     return;
   }
   root.innerHTML = homeDashboardDiscoveryCache.map(function (song, index) {
@@ -759,8 +798,8 @@ function renderHomeDashboardDiscovery() {
     var coverStyle = cover ? ' style="background-image:url(&quot;' + escHtml(cssImageUrl(cover)) + '&quot;)"' : '';
     return '<button class="home-discovery-song" type="button" onclick="playHomeDashboardDiscoverySong(' + index + ')">' +
       '<span class="home-discovery-cover"' + coverStyle + '></span>' +
-      '<span class="home-discovery-song-copy"><span class="home-discovery-song-name">' + escHtml(song.name || song.title || '未知歌曲') + '</span>' +
-      '<span class="home-discovery-song-artist">' + escHtml(homeDashboardSubtitle(song) || 'Mineradio 推荐') + '</span></span></button>';
+      '<span class="home-discovery-song-copy"><span class="home-discovery-song-name">' + escHtml(song.name || song.title || homeDashboardText('dash_unknown_song')) + '</span>' +
+      '<span class="home-discovery-song-artist">' + escHtml(homeDashboardSubtitle(song) || homeDashboardText('dash_mineradio_recommend')) + '</span></span></button>';
   }).join('');
 }
 
@@ -780,7 +819,7 @@ function playHomeDashboardDiscoverySong(index) {
   if (typeof forcePlaybackControlsInteractive === 'function') forcePlaybackControlsInteractive();
   Promise.resolve(playQueueAt(currentIdx, {
     manual: true,
-    context: { type: 'home-discovery', playlistName: '为你挑选' },
+    context: { type: 'home-discovery', playlistName: homeDashboardText('dash_picked_for_you') },
   })).catch(function (error) { console.warn('[HomeDashboardDiscovery]', error); });
 }
 
@@ -792,9 +831,9 @@ function renderHomeInsightDock() {
   var artist = document.getElementById('home-today-artist');
   var streak = document.getElementById('home-today-streak');
   if (time) time.textContent = homeDashboardListenDurationText(metrics.listenMs);
-  if (count) count.textContent = metrics.songCount + ' 首';
-  if (artist) artist.textContent = metrics.topArtist || '等待记录';
-  if (streak) streak.textContent = metrics.streak ? ('连续聆听 ' + metrics.streak + ' 天') : '开始播放后生成';
+  if (count) count.textContent = metrics.songCount + homeDashboardText('dash_track_count_suffix');
+  if (artist) artist.textContent = metrics.topArtist || homeDashboardText('dash_waiting_record');
+  if (streak) streak.textContent = metrics.streak ? (homeDashboardText('dash_streak_prefix') + metrics.streak + homeDashboardText('dash_day_suffix')) : homeDashboardText('dash_generated_on_play');
 
   var next = homeDashboardNextQueueInfo();
   var song = next.song;
@@ -802,11 +841,11 @@ function renderHomeInsightDock() {
   var sub = document.getElementById('home-next-sub');
   var cover = document.getElementById('home-next-cover');
   var card = document.getElementById('home-next-card');
-  if (title) title.textContent = song ? (song.name || song.title || '未知歌曲') : '队列里还没有歌曲';
-  if (sub) sub.textContent = song ? (homeDashboardSubtitle(song) || '点击播放') : '点击打开音乐库';
+  if (title) title.textContent = song ? (song.name || song.title || homeDashboardText('dash_unknown_song')) : homeDashboardText('dash_queue_empty');
+  if (sub) sub.textContent = song ? (homeDashboardSubtitle(song) || homeDashboardText('dash_click_play')) : homeDashboardText('dash_click_open_library');
   var coverUrl = homeDashboardSongCover(song, 220);
   if (cover) homeDashboardSetStableBackgroundImage(cover, coverUrl);
-  if (card) card.setAttribute('aria-label', song ? ('播放下一首：' + (song.name || song.title || '未知歌曲')) : '打开音乐库');
+  if (card) card.setAttribute('aria-label', song ? (homeDashboardText('dash_play_next_prefix') + (song.name || song.title || homeDashboardText('dash_unknown_song'))) : homeDashboardText('dash_open_library'));
   renderHomeDashboardDiscovery();
 }
 
@@ -819,7 +858,7 @@ function playHomeNextFromDock() {
     if (typeof forcePlaybackControlsInteractive === 'function') forcePlaybackControlsInteractive();
     Promise.resolve(playQueueAt(next.index, {
       manual: true,
-      context: { type: 'home-next', playlistName: '接下来播放' },
+      context: { type: 'home-next', playlistName: homeDashboardText('dash_up_next') },
     })).catch(function (error) { console.warn('[HomeDashboardNext]', error); });
     return;
   }
@@ -831,7 +870,7 @@ function playHomeNextFromDock() {
     if (typeof forcePlaybackControlsInteractive === 'function') forcePlaybackControlsInteractive();
     Promise.resolve(playQueueAt(0, {
       manual: true,
-      context: { type: 'home-next', playlistName: '首页推荐' },
+      context: { type: 'home-next', playlistName: homeDashboardText('dash_home_recommend') },
     })).catch(function (error) { console.warn('[HomeDashboardStart]', error); });
     return;
   }
@@ -858,44 +897,44 @@ function openHomeDashboardCharts() {
 
 function homePlatformRecommendationSourceLabel(source) {
   return {
-    netease: '网易云',
-    qishui: '汽水',
-    qq: 'QQ 音乐',
-    kugou: '酷狗音乐',
-  }[source] || '当前平台';
+    netease: homeDashboardText('login_netease', '网易云'),
+    qishui: homeDashboardText('dash_qishui'),
+    qq: homeDashboardText('login_qq', 'QQ 音乐'),
+    kugou: homeDashboardText('provider_kugou'),
+  }[source] || homeDashboardText('track_current_platform');
 }
 
 function homePlatformRecommendationFeedConfig(source) {
   return {
     qishui: {
       endpoint: '/api/qishui/feed?limit=12',
-      sectionTitle: '推荐 Feed',
-      cardLabel: '汽水推荐 Feed',
-      readyText: '来自汽水推荐 Feed',
-      playlistName: '汽水推荐 Feed',
+      sectionTitle: homeDashboardText('dash_recommend_feed'),
+      cardLabel: homeDashboardText('dash_qishui_feed'),
+      readyText: homeDashboardText('dash_qishui_feed_from'),
+      playlistName: homeDashboardText('dash_qishui_feed'),
     },
     kugou: {
       endpoint: '/api/kugou/recommendations?limit=12',
-      sectionTitle: '推荐 FM',
-      cardLabel: '酷狗推荐 FM',
-      readyText: '来自酷狗 FM 推荐',
-      playlistName: '酷狗推荐 FM',
+      sectionTitle: homeDashboardText('dash_recommend_fm'),
+      cardLabel: homeDashboardText('dash_kugou_fm'),
+      readyText: homeDashboardText('dash_kugou_fm_from'),
+      playlistName: homeDashboardText('dash_kugou_fm'),
     },
     spotify: {
       endpoint: '/api/spotify/recommendations?limit=12',
-      sectionTitle: '推荐 Feed',
-      cardLabel: 'Spotify 推荐',
-      readyText: '来自 Spotify Web API 的推荐',
-      playlistName: 'Spotify 推荐',
+      sectionTitle: homeDashboardText('dash_recommend_feed'),
+      cardLabel: homeDashboardText('dash_spotify_recommend'),
+      readyText: homeDashboardText('dash_spotify_recommend_from'),
+      playlistName: homeDashboardText('dash_spotify_recommend'),
     },
   }[source] || null;
 }
 
 function homePlatformRecommendationCard(kind, index, item, label) {
   item = item || {};
-  var title = item.name || item.title || '未命名内容';
+  var title = item.name || item.title || homeDashboardText('dash_unnamed');
   var sub = '';
-  if (kind === 'netease-playlist') sub = (item.trackCount ? item.trackCount + ' 首' : '推荐歌单') + (item.playCount ? ' · ' + compactHomeCount(item.playCount) + ' 播放' : '');
+  if (kind === 'netease-playlist') sub = (item.trackCount ? item.trackCount + homeDashboardText('dash_track_count_suffix') : homeDashboardText('dash_recommend_playlist')) + (item.playCount ? ' · ' + compactHomeCount(item.playCount) + homeDashboardText('dash_play_count_suffix') : '');
   else sub = homeDashboardSubtitle(item) || label;
   var cover = item.cover || item.picUrl || homeDashboardSongCover(item, 180) || '';
   var coverStyle = cover ? ' style="background-image:url(&quot;' + escHtml(cssImageUrl(cover)) + '&quot;)"' : '';
@@ -962,12 +1001,12 @@ function renderHomePlatformDailyWindow(force) {
   if (!force && grid.getAttribute('data-render-window') === signature) return;
   var html = [homePlatformRecommendationSpacer(range.topRows, 'top')];
   for (var index = range.start; index < range.end; index += 1) {
-    html.push(homePlatformRecommendationCard('netease-song', index, songs[index], '网易云每日推荐'));
+    html.push(homePlatformRecommendationCard('netease-song', index, songs[index], homeDashboardText('dash_netease_daily')));
   }
   html.push(homePlatformRecommendationSpacer(range.bottomRows, 'bottom'));
   grid.innerHTML = html.join('');
   grid.setAttribute('data-render-window', signature);
-  grid.setAttribute('aria-label', '全部每日推荐，共 ' + songs.length + ' 首');
+  grid.setAttribute('aria-label', homeDashboardText('dash_all_daily_prefix') + songs.length + homeDashboardText('dash_track_count_suffix'));
   var count = document.getElementById('home-platform-daily-count');
   if (count) {
     count.textContent = songs.length
@@ -990,8 +1029,8 @@ function scheduleHomePlatformDailyWindowRender() {
 }
 
 function homePlatformRecommendationEmptyHtml(source, message) {
-  return '<div class="home-platform-recommend-empty"><strong>' + escHtml(homePlatformRecommendationSourceLabel(source)) + ' 暂无可用推荐</strong>' +
-    '<span>' + escHtml(message || '当前版本没有可验证的平台推荐接口，未使用关键词搜索替代。') + '</span></div>';
+  return '<div class="home-platform-recommend-empty"><strong>' + escHtml(homePlatformRecommendationSourceLabel(source)) + homeDashboardText('dash_no_recommend_strong_suffix') +
+    '<span>' + escHtml(message || homeDashboardText('dash_no_verifiable_api')) + '</span></div>';
 }
 
 function renderHomePlatformRecommendations() {
@@ -1010,34 +1049,34 @@ function renderHomePlatformRecommendations() {
 
   if (source === 'netease') {
     if (homeDiscoverState.loading || homePlatformRecommendationState.neteaseLoading) {
-      status.textContent = '正在读取网易云平台推荐…';
-      list.innerHTML = '<div class="home-platform-recommend-loading">正在同步推荐内容</div>';
+      status.textContent = homeDashboardText('dash_loading_netease');
+      list.innerHTML = homeDashboardText('dash_syncing_recommend_html');
       return;
     }
     var sections = [];
     var playlists = Array.isArray(homeDiscoverState.playlists) ? homeDiscoverState.playlists.slice(0, 6) : [];
     var songs = Array.isArray(homeDiscoverState.songs) ? homeDiscoverState.songs : [];
     if (playlists.length) {
-      sections.push('<section><h3>推荐歌单</h3><div class="home-platform-recommend-grid">' + playlists.map(function (item, index) {
-        return homePlatformRecommendationCard('netease-playlist', index, item, '网易云推荐歌单');
+      sections.push(homeDashboardText('dash_recommend_playlist_section_html') + playlists.map(function (item, index) {
+        return homePlatformRecommendationCard('netease-playlist', index, item, homeDashboardText('dash_netease_recommend_playlists'));
       }).join('') + '</div></section>');
     }
     if (songs.length) {
-      sections.push('<section><h3>每日推荐<span id="home-platform-daily-count"></span></h3>' +
-        '<div id="home-platform-daily-grid" class="home-platform-recommend-grid" role="list" aria-label="全部每日推荐"></div></section>');
+      sections.push(homeDashboardText('dash_daily_section_html') +
+        homeDashboardText('dash_daily_grid_html'));
     }
     if (sections.length) {
       status.textContent = songs.length
-        ? '已读取全部 ' + songs.length + ' 首每日推荐；滚动时仅渲染视窗附近歌曲'
-        : '来自网易云推荐歌单';
+        ? homeDashboardText('dash_loaded_all_prefix') + songs.length + homeDashboardText('dash_daily_count_suffix')
+        : homeDashboardText('dash_netease_recommend_playlist');
       list.innerHTML = sections.join('');
       if (songs.length) renderHomePlatformDailyWindow(true);
     } else {
-      status.textContent = homeDiscoverState.error ? '网易云推荐读取失败' : '网易云暂未返回推荐内容';
+      status.textContent = homeDiscoverState.error ? homeDashboardText('dash_netease_load_failed') : homeDashboardText('dash_netease_empty');
       status.classList.toggle('is-error', !!homeDiscoverState.error);
       list.innerHTML = homePlatformRecommendationEmptyHtml('netease', homeDiscoverState.loggedIn
-        ? '平台本次没有返回推荐内容，未使用搜索结果补位。'
-        : '登录网易云后可读取推荐歌单与每日推荐，未使用关键词搜索替代。');
+        ? homeDashboardText('dash_platform_empty_no_search')
+        : homeDashboardText('dash_netease_login_hint'));
     }
     return;
   }
@@ -1047,8 +1086,8 @@ function renderHomePlatformRecommendations() {
   if (feedConfig && feedState) {
     var sourceLabel = homePlatformRecommendationSourceLabel(source);
     if (feedState.loading) {
-      status.textContent = '正在读取' + sourceLabel + '平台推荐…';
-      list.innerHTML = '<div class="home-platform-recommend-loading">正在同步推荐内容</div>';
+      status.textContent = homeDashboardText('dash_loading') + sourceLabel + homeDashboardText('dash_platform_recommend_ellipsis');
+      list.innerHTML = homeDashboardText('dash_syncing_recommend_html');
       return;
     }
     if (feedState.songs.length) {
@@ -1056,17 +1095,17 @@ function renderHomePlatformRecommendations() {
       var cardLabel = feedConfig.cardLabel;
       var readyText = feedConfig.readyText;
       if (source === 'qishui' && feedState.fallback) {
-        sectionTitle = '你的音乐';
-        cardLabel = '汽水喜欢 / 最近播放';
-        readyText = '汽水推荐 Feed 暂不可用，当前显示你的喜欢与最近播放';
+        sectionTitle = homeDashboardText('dash_your_music');
+        cardLabel = homeDashboardText('dash_qishui_likes_recent');
+        readyText = homeDashboardText('dash_qishui_feed_unavailable');
       } else if (source === 'spotify' && feedState.mode === 'liked-affinity') {
-        sectionTitle = '你的喜欢';
-        cardLabel = 'Spotify 喜欢的歌曲';
-        readyText = '来自 Spotify Web API 的喜欢歌曲';
+        sectionTitle = homeDashboardText('dash_your_likes');
+        cardLabel = homeDashboardText('dash_spotify_liked_songs');
+        readyText = homeDashboardText('dash_spotify_liked');
       } else if (source === 'spotify' && feedState.mode === 'personal-top') {
-        sectionTitle = '你的常听';
-        cardLabel = 'Spotify 常听歌曲';
-        readyText = '来自 Spotify Web API 的个人常听';
+        sectionTitle = homeDashboardText('dash_your_frequent');
+        cardLabel = homeDashboardText('dash_spotify_frequent_songs');
+        readyText = homeDashboardText('dash_spotify_frequent');
       }
       status.textContent = readyText;
       list.innerHTML = '<section><h3>' + escHtml(sectionTitle) + '</h3><div class="home-platform-recommend-grid">' + feedState.songs.map(function (item, index) {
@@ -1075,16 +1114,16 @@ function renderHomePlatformRecommendations() {
     } else {
       var authRequired = /(?:AUTH|LOGIN)_REQUIRED|NOT_CONFIGURED/i.test(feedState.error);
       var feedFailed = !!feedState.error && !authRequired;
-      status.textContent = feedFailed ? sourceLabel + '推荐读取失败' : sourceLabel + '暂未返回推荐内容';
+      status.textContent = feedFailed ? sourceLabel + homeDashboardText('dash_recommend_load_failed') : sourceLabel + homeDashboardText('dash_no_recommend_yet');
       status.classList.toggle('is-error', feedFailed);
       list.innerHTML = homePlatformRecommendationEmptyHtml(source, feedState.message || (feedFailed
-        ? '推荐接口当前不可用，未使用关键词搜索补位。'
-        : '连接' + sourceLabel + '后可读取平台推荐，未使用关键词搜索替代。'));
+        ? homeDashboardText('dash_recommend_api_unavailable')
+        : homeDashboardText('dash_connect') + sourceLabel + homeDashboardText('dash_recommend_after_login_suffix')));
     }
     return;
   }
 
-  status.textContent = homePlatformRecommendationSourceLabel(source) + ' 暂无平台推荐接口';
+  status.textContent = homePlatformRecommendationSourceLabel(source) + homeDashboardText('dash_no_recommend_api_suffix');
   list.innerHTML = homePlatformRecommendationEmptyHtml(source);
 }
 
