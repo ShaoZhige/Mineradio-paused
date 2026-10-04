@@ -29,6 +29,33 @@ function fail(message) {
   throw new Error(message);
 }
 
+// 校验若干 i18n 键在每一种已接入语言的词典里都存在且非空。
+// Guards that a UI string is present must look it up through the dictionaries
+// rather than grepping hardcoded Chinese out of JS: once a string is wired to
+// i18n, the literal legitimately leaves the source file. Language list is
+// derived from SUPPORTED_LANGS so newly wired languages are covered too.
+function requireLocaleKeys(...keys) {
+  const m = /var SUPPORTED_LANGS = \[([^\]]*)\]/.exec(
+    fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '13-i18n.js'), 'utf8')
+  );
+  if (!m) return fail('无法从 i18n 模块解析出 SUPPORTED_LANGS');
+  const langs = m[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  if (langs.length < 2) return fail('SUPPORTED_LANGS 至少应包含默认语言与一种外语');
+  for (const lang of langs) {
+    let dict;
+    try {
+      dict = JSON.parse(fs.readFileSync(path.join(appRoot, 'public', 'locales', `${lang}.json`), 'utf8'));
+    } catch (e) {
+      return fail(`${lang}.json 无法解析：${e.message}`);
+    }
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(dict, key) || !String(dict[key]).trim()) {
+        return fail(`${lang}.json 缺少非空键 ${key}`);
+      }
+    }
+  }
+}
+
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -1592,6 +1619,7 @@ function checkExternalUpdatePageBridgeGuard() {
   const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
   const updateUiText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '00-update-preview.js'), 'utf8');
+  const updateIndexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   const bridgeText = mainText + '\n' + preloadText;
   if (
     !/ipcMain\.handle\('mineradio-open-update-page', async \(event, value\) =>/.test(mainText)
@@ -1614,10 +1642,21 @@ function checkExternalUpdatePageBridgeGuard() {
     || !/openUpdateDownloadSource/.test(updateUiText)
     || !/update-download-source/.test(updateUiText)
     || !/desktopWindow\.openUpdatePage\(target\)/.test(updateUiText)
-    || !/软件不会在本地下载或应用补丁/.test(updateUiText)
   ) {
     fail('updates must resolve to an external download page and keep legacy local routes disabled');
   }
+  // 「本应用不会在本地下载或应用补丁」这条常驻提示已随 i18n 迁移交给词典：
+  // index.html 用 data-i18n 绑定 sd_open_browser_note，词典给出各语言文案。
+  // 因此判据改为「HTML 声明 + 所有语言词典都含该键」，而不是在 JS 里搜硬编码
+  // 中文——i18n 接线完成后 JS 侧本就不该再留这份中文原文，搜它只会误报。
+  // This persistent notice moved into the i18n dictionaries: index.html binds it
+  // via data-i18n=sd_open_browser_note. The guard therefore checks the HTML binding
+  // plus the key's presence in every language dictionary, instead of grepping the
+  // old hardcoded Chinese string out of JS, which i18n wiring legitimately removes.
+  if (!/id="update-footnote"[^>]*data-i18n="sd_open_browser_note"/.test(updateIndexText)) {
+    fail('the local-download-free update notice must stay bound via data-i18n="sd_open_browser_note"');
+  }
+  requireLocaleKeys('sd_open_browser_note');
   if (
     /startUpdateDownloadJob|startUpdatePatchJob|updateDownloadJobs|UPDATE_DOWNLOAD_DIR|pickPatchAsset/.test(serverText)
     || /\/api\/update\/(?:download|patch)|openUpdateInstaller|快速补丁/.test(updateUiText)
@@ -1662,9 +1701,10 @@ function checkLyricVerticalFloatToggleGuard() {
   if (!/lyricVerticalFloat: raw\.lyricVerticalFloat !== false/.test(persistenceText) || !/lyricVerticalFloat: fx\.lyricVerticalFloat !== false/.test(persistenceText) || !/'lyricVerticalFloat'/.test(archiveText)) {
     fail('lyric vertical float toggle must persist through autosave and preset archive');
   }
-  if (!/t-lyricVerticalFloat/.test(panelText) || !/key === 'lyricVerticalFloat'/.test(bindingText) || !/歌词上下浮动已/.test(bindingText)) {
+  if (!/t-lyricVerticalFloat/.test(panelText) || !/key === 'lyricVerticalFloat'/.test(bindingText) || !/bind_lyrics_float_on/.test(bindingText) || !/bind_lyrics_float_off/.test(bindingText)) {
     fail('lyric vertical float toggle must sync panel state and show toggle feedback');
   }
+  requireLocaleKeys('bind_lyrics_float_on', 'bind_lyrics_float_off');
   if (!/function lyricVerticalFloatEnabled/.test(stageText) || !/var lyricFloatAmp = verticalFloatOn \?/.test(stageText) || !/style === 'float' && verticalFloatOn/.test(stageText)) {
     fail('stage lyric renderer must gate vertical float/breathing on the toggle');
   }
@@ -1910,15 +1950,17 @@ function checkQishuiProviderGuard() {
   if (!/persist:mineradio-qishui-auth-v6/.test(qishuiPassportText) || !/a_bogus/.test(qishuiPassportText) || !/check_qrconnect/.test(qishuiPassportText) || !/secondVerify/.test(qishuiPassportText) || !/createQishuiQrLoginBridge/.test(qishuiQrBridgeText)) {
     fail('Qishui Passport QR must retain the isolated signing runtime, a_bogus validation, polling, persistence, and MFA bridge');
   }
-  if (!/pollQishuiQr/.test(qishuiLoginText) || !/请使用抖音 App 扫码并确认登录/.test(qishuiLoginText) || /读取本机汽水|本机会话|Token 导入|submitQishuiTokenLogin|openQishuiMusicLogin/.test(qishuiLoginText)) {
+  if (!/pollQishuiQr/.test(qishuiLoginText) || !/login_scan_douyin_confirm/.test(qishuiLoginText) || /读取本机汽水|本机会话|Token 导入|submitQishuiTokenLogin|openQishuiMusicLogin/.test(qishuiLoginText)) {
     fail('Qishui login UI must use only the official in-panel QR flow');
   }
+  requireLocaleKeys('login_scan_douyin_confirm');
   if (/ipcMain\.handle\('qishui-music-open-login'/.test(desktopMainText) || /openQishuiMusicLogin/.test(desktopPreloadText) || !/await qishuiQrLogin\.clear\(\)/.test(desktopMainText)) {
     fail('Qishui desktop bridge must remove the old login-window IPC and await Passport partition cleanup');
   }
-  if (!/汽水音乐已扫码登录/.test(accountLogoutText) || !/按账号权益播放/.test(accountLogoutText) || /本机汽水会话|OpenAPI token/.test(accountLogoutText)) {
+  if (!/logout_qishui_logged/.test(accountLogoutText) || !/logout_qishui_sync/.test(accountLogoutText) || /本机汽水会话|OpenAPI token/.test(accountLogoutText)) {
     fail('Qishui account status must describe the official QR session without exposing legacy import modes');
   }
+  requireLocaleKeys('logout_qishui_logged', 'logout_qishui_sync', 'logout_qishui_not_logged', 'logout_scan_douyin');
   if (!/官方扫码 \/ 抖音确认/.test(indexText) || /本地会话 \/ PC 客户端/.test(indexText)) {
     fail('Qishui login node must identify the official QR flow');
   }
@@ -2013,18 +2055,20 @@ function checkQishuiProviderGuard() {
   if (!/qishuiPlaylists/.test(coreStoreText) || !/if \(provider === 'qishui'\) return '\/api\/qishui\/user\/playlists'/.test(playlistShellText) || !/builtInPlaylists\.concat\(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists\)/.test(playlistShellText)) {
     fail('playlist panel refresh must merge Qishui playlists with the other providers');
   }
-  if (!/normalizePlaylistProvider/.test(playlistDetailText) || !/\/api\/qishui\/playlist\/tracks/.test(playlistDetailText) || !/qishui:' \+ id/.test(playlistDetailText) || !/汽水音乐歌单/.test(playlistDetailText)) {
+  if (!/normalizePlaylistProvider/.test(playlistDetailText) || !/\/api\/qishui\/playlist\/tracks/.test(playlistDetailText) || !/qishui:' \+ id/.test(playlistDetailText) || !/pl_qishui_playlist/.test(playlistDetailText)) {
     fail('playlist panel detail must open and play Qishui playlists via the Qishui endpoint');
   }
+  requireLocaleKeys('pl_qishui_playlist');
   if (!/function playlistQueueSource/.test(playlistLoadText) || !/raw\.indexOf\('qishui:'\)/.test(playlistLoadText) || !/playlistTracksEndpoint\(source\.provider/.test(playlistLoadText)) {
     fail('whole-playlist queue loading must support qishui: playlist ids');
   }
   if (!/provider === 'qishui'/.test(shelfCoreText) || !/qishui:'/.test(shelfCoreText) || !/\/api\/qishui\/playlist\/tracks/.test(shelfContentText)) {
     fail('3D shelf must display and drill into Qishui playlists through the Qishui endpoint');
   }
-  if (!/网易云 \/ QQ \/ 酷狗 \/ 汽水/.test(homeText) || !/hasAnyPlatformLogin\(\)/.test(homeText) || /网易云 \/ QQ 音乐/.test(homeText)) {
+  if (!/discover_platforms/.test(homeText) || !/hasAnyPlatformLogin\(\)/.test(homeText) || /网易云 \/ QQ 音乐/.test(homeText)) {
     fail('Home discover must acknowledge Qishui/Kugou login playlists instead of only Netease/QQ');
   }
+  requireLocaleKeys('discover_platforms');
   if (!/lyric-glow-enable-btn/.test(indexText) || !/lyric-glow-beat-btn/.test(indexText)) {
     fail('Lyric glow back-layer controls must stay visible in the lyric appearance panel');
   }
@@ -2181,10 +2225,10 @@ async function checkSpotifyProviderGuard() {
   if (!/loginRefreshRequestSeq/.test(loginFlowText) || !/isLoginRefreshCurrent/.test(loginFlowText)) {
     fail('login modal provider switching must guard stale async status and QR writes');
   }
-  if (!/\/api\/spotify\/user\/playlists/.test(playlistShellText) || !/spotifyPlaylists/.test(playlistShellText) || !/\/api\/spotify\/playlist\/tracks/.test(playlistDetailText) || !/spotify:' \+ id/.test(playlistDetailText) || !/Spotify 歌单/.test(playlistDetailText)) {
+  if (!/\/api\/spotify\/user\/playlists/.test(playlistShellText) || !/spotifyPlaylists/.test(playlistShellText) || !/\/api\/spotify\/playlist\/tracks/.test(playlistDetailText) || !/spotify:' \+ id/.test(playlistDetailText) || !/pl_spotify_playlist/.test(playlistDetailText)) {
     fail('playlist panel must merge and open Spotify playlists');
   }
-  if (!/spotifyErrorDetails/.test(spotifyText) || !/playlistPanelNoticeHtml/.test(playlistDetailText) || !/playlistCardPriority/.test(playlistDetailText) || !/spotify-liked/.test(playlistDetailText) || !/prioritizePlaylistGroupItems/.test(playlistDetailText) || !/showToast\(r && \(r\.message \|\| r\.error\) \|\| '歌单为空'\)/.test(playlistLoadText)) {
+  if (!/spotifyErrorDetails/.test(spotifyText) || !/playlistPanelNoticeHtml/.test(playlistDetailText) || !/playlistCardPriority/.test(playlistDetailText) || !/spotify-liked/.test(playlistDetailText) || !/prioritizePlaylistGroupItems/.test(playlistDetailText) || !/showToast\(r && \(r\.message \|\| r\.error\) \|\| podcastPlaylistLoadersText\('pod_empty'\)\)/.test(playlistLoadText)) {
     fail('Spotify playlists must keep liked songs visible and surface API errors instead of pretending details are empty');
   }
   if (!/function playlistQueueSource/.test(playlistLoadText) || !/raw\.indexOf\('spotify:'\)/.test(playlistLoadText) || !/playlistTracksEndpoint\(source\.provider/.test(playlistLoadText)) {
@@ -2281,18 +2325,20 @@ function checkPlaybackControlBadgesGuard() {
   if (!/song\.resolvedPlaybackProvider/.test(playbackText) || !/song\.vipRequired/.test(playbackText) || !/updateControlTrackInfo\(song\)/.test(playbackText)) {
     fail('playback URL resolution must refresh bottom control badges with provider/VIP state');
   }
-  if (!/function playbackRestrictionNotice/.test(fallbackText) || !/function playbackRestrictionCategory/.test(fallbackText) || !/当前平台没有会员状态/.test(fallbackText) || !/showSourceFallbackNotice\(notice\.title, notice\.body\)/.test(fallbackText) || !/function playbackFailureNoticeFromError/.test(switchCoreText)) {
+  if (!/function playbackRestrictionNotice/.test(fallbackText) || !/function playbackRestrictionCategory/.test(fallbackText) || !/pf_platform_no_vip_status/.test(fallbackText) || !/showSourceFallbackNotice\(notice\.title, notice\.body\)/.test(fallbackText) || !/function playbackFailureNoticeFromError/.test(switchCoreText)) {
     fail('playback failure notices must distinguish membership, login authorization, provider-limited, copyright, and generic no-url causes');
   }
+  requireLocaleKeys('pf_platform_no_vip_status');
   if (!/playbackQualityRuntimeCaps/.test(coreStoreText) || !/function markPlaybackQualityRuntimeCap/.test(qualityText) || !/cap-locked/.test(qualityText + cssText) || !/playbackQualityCapValue\(song, playbackProvider\)/.test(playbackText) || !/markPlaybackQualityRuntimeCap\(song, playbackProvider, data\.level/.test(playbackText) || !/markPlaybackQualityRuntimeCap\(song, 'qq', nextQuality/.test(fallbackText) || /qqPlaybackQualityCeiling/.test(coreStoreText + playbackText + fallbackText + beatPrefetchText)) {
     fail('playback quality fallback must be tracked per current song and disable unsupported higher choices without a global QQ ceiling');
   }
   if (!/\.control-title-badges/.test(cssText) || !/\.control-title-text/.test(cssText)) {
     fail('bottom player source/VIP badges must have constrained responsive CSS');
   }
-  if (!/control-source-chip/.test(searchText) || !/function toggleControlSourceSwitcher/.test(searchText) || !/function switchCurrentSongSource/.test(searchText) || !/findControlSourceMatch/.test(searchText) || !/resumeAt: currentResumeSeconds\(0\)/.test(searchText) || !/\.control-source-switcher/.test(cssText) || !sourceSwitcherGlassOk || sourceSwitcherUsesSharedSvgMap) {
+  if (!/search_switcher_chip_html/.test(searchText) || !/function toggleControlSourceSwitcher/.test(searchText) || !/function switchCurrentSongSource/.test(searchText) || !/findControlSourceMatch/.test(searchText) || !/resumeAt: currentResumeSeconds\(0\)/.test(searchText) || !/\.control-source-switcher/.test(cssText) || !sourceSwitcherGlassOk || sourceSwitcherUsesSharedSvgMap) {
     fail('bottom player source badge must expand into a glass source switcher without reusing the shared SVG map that cuts the right edge');
   }
+  requireLocaleKeys('search_switcher_chip_html');
   if (!sourceSwitcherOriginalMatchOk) {
     fail('source switching and lyric fallback must reject blacklisted cover/derivative candidates and show no-official-source states');
   }
@@ -2347,9 +2393,10 @@ async function checkProviderFallbackTerminalStateGuard() {
   if (!/SOURCE_FALLBACK_SEARCH_TIMEOUT_MS\s*=\s*6500/.test(fallbackText) || !/apiJson\(url, \{ timeoutMs: SOURCE_FALLBACK_SEARCH_TIMEOUT_MS \}\)/.test(fallbackText) || !/SOURCE_FALLBACK_RECOVERY_TIMEOUT_MS\s*=\s*20000/.test(fallbackText) || !/function awaitSourceFallbackBudget/.test(fallbackText) || (playbackText.match(/timeoutMs:\s*9000/g) || []).length < 2 || (playbackText.match(/timeoutMs:\s*14000/g) || []).length < 2 || (playbackText.match(/timeoutMs:\s*15000/g) || []).length < 4 || (playbackText.match(/timeoutMs:\s*20000/g) || []).length < 2) {
     fail('fallback search, normal source resolution, and gapless source resolution must all be time-bounded');
   }
-  if (!/alternateData[\s\S]{0,220}!alternateData\.url[\s\S]{0,320}playQueue\[idx\] = committedCandidate/.test(fallbackText) || !/fallbackStarted === true[\s\S]{0,180}已自动切换音源/.test(fallbackText) || !/function restoreSourceFallbackQueueItem/.test(fallbackText)) {
+  if (!/alternateData[\s\S]{0,220}!alternateData\.url[\s\S]{0,320}playQueue\[idx\] = committedCandidate/.test(fallbackText) || !/fallbackStarted === true[\s\S]{0,180}pf_source_switched/.test(fallbackText) || !/function restoreSourceFallbackQueueItem/.test(fallbackText)) {
     fail('fallback candidates must be URL-probed before provisional commit and only announce success after audible playback');
   }
+  requireLocaleKeys('pf_source_switched');
   if (!/async function skipFailedQueueItem/.test(fallbackText) || !/skipShuffleOrder:\s*true/.test(fallbackText) || !/return nextStarted === true/.test(fallbackText) || !/function settleSourceFallbackTerminal/.test(fallbackText) || !/audio\.removeAttribute\('src'\)/.test(fallbackText) || !/audio\.__mineradioQueueItemKey = ''/.test(fallbackText)) {
     fail('failed fallback must await the next track or settle one terminal state with no stale audio owner');
   }
@@ -2861,9 +2908,10 @@ function checkProviderEntitlementBoundaryGuard() {
   if (!/\.kugou-vip-evidence\.json/.test(mainText) || !/unlink/.test(mainText)) {
     fail('Startup migration must delete deprecated persisted Kugou playback evidence for existing users');
   }
-  if (!/kgVipLevel === 'svip'/.test(userModalText) || !/酷狗 SVIP 会员/.test(userModalText)) {
+  if (!/kgVipLevel === 'svip'/.test(userModalText) || !/logout_kugou_svip/.test(userModalText) || !/logout_kugou_vip/.test(userModalText)) {
     fail('Kugou account modal must distinguish SVIP from normal VIP');
   }
+  requireLocaleKeys('logout_kugou_svip', 'logout_kugou_vip');
   console.log('[OK] Provider account membership and per-track playback entitlement remain separated.');
 }
 
@@ -2939,23 +2987,26 @@ function checkQQVipStatusSyncGuard() {
       (playbackText.match(/timeoutMs: 15000/g) || []).length < 2) {
     fail('QQ cookie selection and end-to-end playback timeout budgets must be deterministic and aligned');
   }
-  if (!/providerVipAuditSameUser/.test(loginStatusText) || !/已同步/.test(loginStatusText)) {
+  if (!/providerVipAuditSameUser/.test(loginStatusText) || !/lstatus_synced_suffix/.test(loginStatusText)) {
     fail('provider VIP audit must detect normal-to-VIP sync as well as VIP loss');
   }
-  if (!/qqLoginStatusText/.test(loginFlowText) || !/qqNeedsMembershipSync/.test(loginFlowText) || !/同步会员/.test(loginFlowText) || !/重新打开官方窗口同步会员/.test(loginFlowText) ||
+  requireLocaleKeys('lstatus_synced_suffix');
+  if (!/qqLoginStatusText/.test(loginFlowText) || !/qqNeedsMembershipSync/.test(loginFlowText) || !/login_sync_vip/.test(loginFlowText) || !/login_reopen_sync_vip/.test(loginFlowText) ||
       !/qqNeedsAuthRefresh \? openQQWebLogin : \(qqLoginStatus\.loggedIn \? refreshQr : openQQWebLogin\)/.test(loginFlowText) ||
       /qqNeedsAuthRefresh \|\| qqNeedsMembershipSync/.test(loginFlowText)) {
     fail('QQ login panel must reauthorize only missing playback credentials and use the forceVip status probe for membership sync');
   }
-  if (!/pendingSync = providerMembershipNeedsSync\(provider, status\)/.test(accountUtilsText) || !/qqMembershipNeedsSync\(status\)/.test(accountUtilsText) || !/待同步/.test(accountUtilsText) || !/\.top-account-vip\.pending/.test(cssText)) {
+  requireLocaleKeys('login_sync_vip', 'login_reopen_sync_vip');
+  if (!/pendingSync = providerMembershipNeedsSync\(provider, status\)/.test(accountUtilsText) || !/qqMembershipNeedsSync\(status\)/.test(accountUtilsText) || !/lmu_sync_pending/.test(accountUtilsText) || !/\.top-account-vip\.pending/.test(cssText)) {
     fail('QQ top account badge must show pending sync instead of ordinary account when membership auth is stale');
   }
   if (!/refreshQQLoginStatus\(\{ forceVip: true, reason: 'startup' \}\)/.test(startupText)) {
     fail('startup must force a QQ VIP status recheck so renewed memberships sync immediately');
   }
-  if (!/QQ SVIP 会员/.test(userModalText) || !/QQ 会员待同步/.test(userModalText) || !/refreshQQVipStatusNow\('account-modal'\)/.test(userModalText)) {
+  if (!/logout_qq_svip/.test(userModalText) || !/logout_qq_pending/.test(userModalText) || !/refreshQQVipStatusNow\('account-modal'\)/.test(userModalText)) {
     fail('account modal must distinguish QQ SVIP and refresh QQ membership when opened');
   }
+  requireLocaleKeys('logout_qq_svip', 'logout_qq_pending');
   console.log('[OK] QQ membership status can be force-refreshed after renewals.');
 }
 
@@ -3041,9 +3092,10 @@ async function checkProviderAuthCookiePathGuard() {
   if (/resolve\(neteaseCookieHasLogin\(cookie\)[\s\S]{0,140}!qqCookieHasPlaybackLogin/.test(mainText)) {
     fail('Netease login must not reuse QQ playback authorization checks');
   }
-  if (!/if \(!qqPlaybackReady\)/.test(qqLoginText) || !/播放授权未完成/.test(qqLoginText)) {
+  if (!/if \(!qqPlaybackReady\)/.test(qqLoginText) || !/login_qq_synced_auth_incomplete/.test(qqLoginText)) {
     fail('QQ frontend login flow must not close as a full success when playback authorization is incomplete');
   }
+  requireLocaleKeys('login_qq_synced_auth_incomplete', 'login_qq_synced_auth_incomplete_detail');
   if (!/Buffer\.from\(raw,\s*'hex'\)\.toString\('utf8'\)/.test(serverText) || !/QQ_LIKED_PLAYLIST_ID/.test(serverText) || !/fetchQQLikedPlaylistPage/.test(serverText) || !/music\.srfDissInfo\.DissInfo/.test(serverText) || !/method: 'CgiGetDiss'/.test(serverText) || !/song_begin: offset/.test(serverText) || !/song_num: limit/.test(serverText) || !/rawTracks\.map\(mapQQPlaylistTrack\)/.test(serverText) || !/songlist_size/.test(serverText) || !/const upstreamTotal/.test(serverText) || !/firstTrack && firstTrack\.cover/.test(serverText) || !/getCachedQQLikedPlaylistCover/.test(serverText) || !/handleQQLikedPlaylistTracks/.test(serverText) || !/QQ_LIKED_AUTH_MESSAGE/.test(serverText)) {
     fail('QQ profile hex nicknames and the CgiGetDiss liked-playlist paging/first-cover flow must stay supported');
   }
@@ -3156,7 +3208,7 @@ async function checkProviderAuthCookiePathGuard() {
     /function handleLoginProviderExternalSwitchEvent\(e,\s*provider\)/.test(qqLoginText) &&
     /externalSwitch\.setAttribute\('role',\s*'switch'\)/.test(qqLoginText) &&
     /externalSwitch\.setAttribute\('aria-checked'/.test(qqLoginText) &&
-    /login-provider-external-label">展示/.test(qqLoginText) &&
+    /login_provider_external_label_html/.test(qqLoginText) &&
     /externalSwitch\.addEventListener\('click'[\s\S]{0,180}handleLoginProviderExternalSwitchEvent/.test(qqLoginText) &&
     !/function selectLoginProviderNode\(provider\)\s*\{[\s\S]{0,260}toggleAccountProviderExternal\(provider\)/.test(qqLoginText) &&
     /\.login-provider-external-switch\s*\{[\s\S]{0,220}width:\s*56px[\s\S]{0,360}pointer-events:\s*auto/.test(cssText) &&
@@ -3165,6 +3217,7 @@ async function checkProviderAuthCookiePathGuard() {
   if (!loginProviderExternalSwitchOk) {
     fail('login provider capsules must show a real on/off switch for external top-pill visibility');
   }
+  requireLocaleKeys('login_provider_external_label_html');
   if (/Math\.abs\(dy\)\s*>\s*Math\.abs\(dx\)[\s\S]{0,80}\?\s*'sort'\s*:\s*'wire'/.test(qqLoginText) || /mode\s*===\s*'wire'/.test(qqLoginText)) {
     fail('login workflow must not guess sort vs wire from drag direction');
   }
@@ -3223,9 +3276,14 @@ function checkAudioOutputWorkflowPanelGuard() {
   if (!/id="audio-output-workflow-modal"/.test(indexText) || !/id="audio-output-workflow-body"/.test(indexText) || !/openAudioOutputWorkflowPanel\(\)/.test(indexText)) {
     fail('audio output workflow must have a dedicated derivative modal entry instead of only the compact settings panel');
   }
-  if (!/function openAudioOutputWorkflowPanel/.test(qualityText) || !/function closeAudioOutputWorkflowPanel/.test(qualityText) || !/renderAudioRouteWorkflowEdgesForRoot/.test(qualityText) || !/document\.querySelectorAll\('\.audio-route-graph'\)/.test(qualityText) || !/audio-output-summary-card/.test(qualityText) || !/audio-route-board-head/.test(qualityText) || !/route-board-title/.test(qualityText) || !/route-lane-state/.test(qualityText) || !/audio-source-meter/.test(qualityText) || !/sortedRouteItems/.test(qualityText) || !/audioOutputMirrorRuntime/.test(qualityText) || !/audioOutputMirrorStatusText/.test(qualityText) || !/实验镜像监听/.test(qualityText) || !/不是系统级多输出/.test(qualityText)) {
+  if (!/function openAudioOutputWorkflowPanel/.test(qualityText) || !/function closeAudioOutputWorkflowPanel/.test(qualityText) || !/renderAudioRouteWorkflowEdgesForRoot/.test(qualityText) || !/document\.querySelectorAll\('\.audio-route-graph'\)/.test(qualityText) || !/audio-output-summary-card/.test(qualityText) || !/audio-route-board-head/.test(qualityText) || !/out_route_board_title_html/.test(qualityText) || !/route-lane-state/.test(qualityText) || !/out_source_meter_html/.test(qualityText) || !/sortedRouteItems/.test(qualityText) || !/audioOutputMirrorRuntime/.test(qualityText) || !/audioOutputMirrorStatusText/.test(qualityText) || !/out_trying_mirror/.test(qualityText) || !/out_route_note_html/.test(qualityText)) {
     fail('audio output workflow must render compact settings summary and full modal route graph');
   }
+  // route-board-title / audio-source-meter 这两个 class 名随 HTML 片段搬进了词典，
+  // 因此判据校验承载它们的片段 key，而不是在 JS 里搜 class 字面量。
+  // These two class names moved into dictionary HTML fragments, so the guard pins the
+  // fragment keys that carry them instead of grepping the class literals out of JS.
+  requireLocaleKeys('out_trying_mirror', 'out_route_note_html', 'out_route_board_title_html', 'out_source_meter_html');
   if (!/audio-output-workflow-modal/.test(cssText) || !/audio-output-workflow-modal \.audio-route-graph[\s\S]{0,320}grid-template-areas: "source board" "status board"/.test(cssText) || !/audio-route-board/.test(cssText) || !/route-board-badges/.test(cssText) || !/route-lane-state/.test(cssText) || !/audio-source-meter/.test(cssText) || !/audio-route-node\.pending/.test(cssText) || !/audio-route-node\.warning/.test(cssText) || !/audio-output-workflow-modal \.workflow-link-layer[\s\S]{0,120}display: none/.test(cssText) || !/audio-output-summary-card/.test(cssText)) {
     fail('audio output workflow modal must expose a Loopback-style patch bay board instead of a three-column device table');
   }
@@ -3698,7 +3756,7 @@ function checkSonicTopographyPresetGuard() {
   if (!/mineradioCustomTheme/.test(sonicWorkshopBridgeText) || !/mineradioCustomTheme/.test(sonicWorkshopText) || !/function workshopCustomThemeForColor/.test(sonicWorkshopText) || !/function workshopPaletteHexesFromCover/.test(sonicWorkshopText) || !/function workshopCustomThemeForPalette/.test(sonicWorkshopText) || !/function workshopCustomThemeForRegions/.test(sonicWorkshopText) || !/function workshopRegionsFromFx/.test(sonicWorkshopText) || !/function applyWorkshopThemeTransition/.test(sonicWorkshopText) || !/WORKSHOP_THEME_TRANSITION_MS\s*=\s*1280/.test(sonicWorkshopText) || !/function applyThemeTransition/.test(sonicWorkshopBridgeText) || !/THEME_TRANSITION_STEP_MS\s*=\s*33/.test(sonicWorkshopBridgeText) || /scheduleWorkshopThemeTransition\(\);/.test(sonicWorkshopText) || !/__mineradioPaletteHexes/.test(sonicWorkshopText) || !/rawWarm/.test(paletteText + sonicWorkshopText) || !/rawCool/.test(paletteText + sonicWorkshopText) || !/rawAreaPrimary/.test(paletteText + sonicWorkshopText + accentControlText) || !/sonicWorkshopColors/.test(paletteText + sonicWorkshopText) || !/coverSourceKey/.test(paletteText + accentControlText) || !/function ensureSonicWorkshopCoverPaletteForUi/.test(accentControlText) || !/function sonicWorkshopCurrentCoverDomSource/.test(accentControlText) || !/function buildSonicWorkshopUiPaletteFromCanvas/.test(accentControlText) || !/function sonicWorkshopUiPaletteForKey/.test(accentControlText) || !/sonicWorkshopCoverUiSample\.palette/.test(accentControlText) || !/coverPickerCanvas/.test(accentControlText) || !/coverProxySrc/.test(accentControlText) || !/coverColors/.test(paletteText + sonicWorkshopText) || !/sonic-workshop-cool-picker/.test(indexText + fxBindText) || !/sonic-workshop-peak-picker/.test(indexText + fxBindText) || !/setSonicWorkshopRegionColorFromPicker/.test(fxBindText + sonicWorkshopText + accentControlText) || !/function sonicRawPaletteHex/.test(accentControlText) || /function sonicWorkshopCoverHex[\s\S]{0,700}sonicPaletteHex/.test(accentControlText) || !/uCoolCore:\s*cool/.test(sonicWorkshopText) || !/uRippleColor:\s*ripple/.test(sonicWorkshopText) || !/MRt\(We\.mineradioCustomTheme\.value\)/.test(sonicWorkshopVendorText) || !/Be\(function\(Mr\)\{return Mr===0\?1e-6:0\}\)/.test(sonicWorkshopVendorText)) {
     fail('Sonic Workshop cover/custom colors must feed the real vendor terrain theme instead of only recoloring the UI controls');
   }
-  if (!/colorLabState\.picker\)\s*colorLabState\.picker\.value\s*=\s*hex/.test(colorLabText) || !/id === 'sonic-workshop-cover-picker'[\s\S]{0,180}\^sonic-workshop-/.test(colorLabText) || !/pointerdown[\s\S]{0,180}updateColorLabFromSv\(e\)/.test(fxBindText) || !/function sonicWorkshopRegionControl\(id\)\s*\{[\s\S]{0,120}typeof id === 'object' && id\.id/.test(accentControlText) || !/function pushSonicWorkshopColorChange/.test(accentControlText) || !/function setSonicWorkshopThemeFromPicker[\s\S]{0,520}SONIC_WORKSHOP_COLOR_CONTROLS\.forEach/.test(accentControlText) || !/pushSonicWorkshopColorChange\(item\.colorKey\)/.test(accentControlText)) {
+  if (!/colorLabState\.picker\)\s*colorLabState\.picker\.value\s*=\s*hex/.test(colorLabText) || !/id === 'sonic-workshop-cover-picker'[\s\S]{0,180}\^sonic-workshop-/.test(colorLabText) || !/pointerdown[\s\S]{0,180}updateColorLabFromSv\(e\)/.test(fxBindText) || !/function sonicWorkshopRegionControl\(id\)\s*\{[\s\S]{0,120}typeof id === 'object' && id\.id/.test(accentControlText) || !/function pushSonicWorkshopColorChange/.test(accentControlText) || !/function setSonicWorkshopThemeFromPicker[\s\S]{0,520}sonicWorkshopColorControls\(\)\.forEach/.test(accentControlText) || !/pushSonicWorkshopColorChange\(item\.colorKey\)/.test(accentControlText)) {
     fail('Sonic Workshop color lab changes must commit into fx state, UI swatches, saved settings, and the live iframe theme');
   }
   if (!/function isPlaybackSpaceKey/.test(keyboardCameraText) || !/if \(isPlaybackSpaceKey\(e\)\) return;/.test(keyboardCameraText)) {
@@ -5635,6 +5693,22 @@ function runMainStartupRecoveryCheck() {
   }
 }
 
+// 沙箱里用的 playlistDetailText 桩：抽出的渲染片段会调用它，而它的定义在被切走
+// 之外。桩保持与真实实现一致的回退语义（有 fallback 用 fallback，否则回退到 key），
+// 避免沙箱与真实行为漂移。
+// Stub for playlistDetailText inside the vm sandboxes: the sliced render fragments
+// call it while its definition sits outside the slice. It mirrors the real
+// fallback semantics (use fallback when given, otherwise the key) so the sandbox
+// cannot drift from the real function.
+const playlistDetailTextStub = (key, fallback, params) => {
+  if (fallback == null) return key;
+  let out = String(fallback);
+  if (params && typeof params === 'object') {
+    for (const field of Object.keys(params)) out = out.split('{' + field + '}').join(String(params[field]));
+  }
+  return out;
+};
+
 async function checkLargePlaylistVirtualizationGuard() {
   logStep('Large playlist virtualization and progressive queue guard');
   const detailText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '02-playlist-detail.js'), 'utf8');
@@ -5709,6 +5783,7 @@ async function checkLargePlaylistVirtualizationGuard() {
     PLAYLIST_DETAIL_INITIAL_RENDER: 96,
     window: { innerHeight: 900 },
     songCoverSrc: () => '',
+    playlistDetailText: playlistDetailTextStub,
     normalizePlaylistProvider: provider => provider === 'mineradio' ? 'mineradio' : (['qq', 'kugou', 'qishui', 'spotify'].includes(provider) ? provider : 'netease'),
     escHtml: value => String(value == null ? '' : value),
     Math,
@@ -5733,6 +5808,7 @@ async function checkLargePlaylistVirtualizationGuard() {
     normalizePlaylistProvider: provider => ['qq', 'kugou', 'qishui', 'spotify'].includes(provider) ? provider : 'netease',
     playlistCardPriority: () => 1,
     playlistPanelKey: (provider, id) => provider + ':' + id,
+    playlistDetailText: playlistDetailTextStub,
     window: { innerHeight: 900 },
     Math,
     Number
@@ -5858,8 +5934,17 @@ function checkFxConsoleWorkspaceGuard() {
   const stageLyrics = fs.readFileSync(stageLyricsPath, 'utf8');
   const starRiver = fs.readFileSync(starRiverPath, 'utf8');
   const maskTexture = fs.readFileSync(maskTexturePath, 'utf8');
-  const labels = ['常用', '界面', '歌词', '动效', '歌单架', '系统'];
-  if (!labels.every(label => workspace.includes(`label: '${label}'`))) fail('task-first visual console tabs are incomplete');
+  // 六个任务型分组标签已 i18n 化：JS 里用 consoleWorkspaceText(key) 取词，
+  // 因此守卫校验「六个 key 都被登记」且「每个 key 在各语言词典里存在」，
+  // 而不是在 JS 里搜硬编码中文分组名。
+  // The six task-first tab labels moved into the dictionaries, so the guard checks
+  // that every category key is registered and translated instead of grepping the
+  // old hardcoded Chinese group names.
+  const categoryKeys = ['fx_cat_common', 'fx_cat_ui', 'hotkey_cat_lyrics', 'fx_cat_motion', 'fx_cat_shelf', 'fx_cat_system'];
+  if (!categoryKeys.every(key => new RegExp(`label: consoleWorkspaceText\\('${key}'\\)`).test(workspace))) {
+    fail('task-first visual console tabs are incomplete');
+  }
+  requireLocaleKeys(...categoryKeys);
   if (!loader.includes("js/modules/07-fx/09-console-workspace.js")) fail('visual console workspace module is not loaded');
   // Wallpaper Engine 自成一组，那 4 个构图滑块必须一并登记 —— 它们此前没有登记，会被 fallback
   // 收进「其他设置」。这里钉住分组归属与选择器白名单，防止将来又漂回去。
