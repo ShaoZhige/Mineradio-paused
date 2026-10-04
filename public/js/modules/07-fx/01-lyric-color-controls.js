@@ -38,7 +38,8 @@ function lyricColorControlsText(key, fallback, params) {
 function buildLyricColorControls() {
   var grid = document.getElementById('lyric-color-grid');
   if (!grid) return;
-  var html = lyricColorControlsText('lyriccolor_auto_btn');
+  var html = lyricColorControlsText('lyriccolor_auto_btn',
+    '<button class="lyric-swatch auto" type="button" data-auto="1" onclick="setLyricColorAuto()" title="封面取色">AUTO</button>');
   html += lyricColorPresets.map(function (p, i) {
     return '<button class="lyric-swatch" type="button" data-color="' + p.color + '" onclick="setLyricColorPreset(' + i + ')" title="' + escHtml(p.name) + '" style="--swatch:' + p.color + '"></button>';
   }).join('');
@@ -128,10 +129,19 @@ function updateLyricGlowControls() {
   });
   if (glowEnableBtn) {
     glowEnableBtn.classList.toggle('active', !!fx.lyricGlow);
-    glowEnableBtn.title = fx.lyricGlow ? lyricColorControlsText('lyriccolor_bloom_off') : lyricColorControlsText('lyriccolor_bloom_on');
+    glowEnableBtn.title = fx.lyricGlow ? lyricColorControlsText('lyriccolor_bloom_off', '关闭歌词背后的溢光层') : lyricColorControlsText('lyriccolor_bloom_on', '开启歌词背后的溢光层');
   }
   if (glowBeatBtn) {
     glowBeatBtn.classList.toggle('active', !!fx.lyricGlowBeat);
-    glowBeatBtn.title = fx.lyricGlowBeat ? lyricColorControlsText('lyriccolor_bloom_following') : lyricColorControlsText('lyriccolor_bloom_follow');
+    glowBeatBtn.title = fx.lyricGlowBeat ? lyricColorControlsText('lyriccolor_bloom_following', '后层溢光正在跟随鼓点') : lyricColorControlsText('lyriccolor_bloom_follow', '让后层溢光跟随鼓点');
   }
+}
+
+// 词典异步加载完成时（首屏 init 会广播）及切换语言后重建色板，
+// 保证 AUTO 等按钮的文案始终本地化，不会残留早加载阶段的裸 key。
+// Rebuild the swatches once the dictionary is ready (the initial init() broadcasts)
+// and after every language switch, so the AUTO button stays localized and never
+// shows a raw key left over from the pre-load render.
+if (typeof window !== 'undefined' && window.MineradioI18n && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(function () { buildLyricColorControls(); });
 }

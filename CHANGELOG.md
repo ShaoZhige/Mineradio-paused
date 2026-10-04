@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.3
+
+### 修复控制台「颜色与光效」里 AUTO 取色按钮暴露裸 i18n 键
+
+- 歌词颜色面板里的 AUTO 取色按钮由 `buildLyricColorControls()` 在面板绑定阶段（`bindFxPanel`）构建，而此时 i18n 词典往往还没通过异步 XHR 加载完。`lyriccolor_auto_btn` 此前调用 `lyricColorControlsText('lyriccolor_auto_btn')` 时**没有兜底文案**，词典未就绪时 `t()` 会原样返回键名，于是按钮位置渲染出裸 key `lyriccolor_auto_btn`。其余取色文案都带中文兜底、且控制台条目是懒加载（打开控制台时词典早已就绪），所以只有这一处暴露。
+- 给 `lyriccolor_auto_btn` 补上与原词典一致的 HTML 兜底（AUTO 按钮），词典未就绪也只会显示正常按钮而不会裸奔键名；同时把溢光开关/鼓点跟随两条 tooltip 的 `lyriccolor_bloom_*` 也补上中文兜底，统一满足本模块「缺键不渲染空串或裸 key」的约定。
+- 新增 `MineradioI18n.onLanguageChange` 订阅：首屏词典就绪（`init()` 会广播）与每次切换语言后都会重建色板，保证按钮文案真正本地化、并自愈早加载阶段可能残留的裸 key。
+
 ## v2.4.2
 
 ### 修复安装包漏文件导致的启动崩溃
