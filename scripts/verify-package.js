@@ -97,6 +97,24 @@ for (const dir of ['desktop', 'public']) {
 }
 ok('Source tree checked for secrets');
 
+// 打包清单守卫：根目录每个 .js 文件都必须被 build.files 的某个 pattern 覆盖。
+// 防止再出现 qishui-client-bridge.js 这种"代码引用了、打包漏了"的启动崩溃。
+const rootDir = path.join(__dirname, '..');
+const buildFilePatterns = PKG.build?.files || [];
+function patternMatchesRootFile(pattern, file) {
+  if (pattern.startsWith('!')) return false;
+  if (pattern.includes('/')) return false; // 只关心能匹配根目录文件的 pattern
+  if (!pattern.includes('*')) return pattern === file;
+  const [prefix, suffix] = pattern.split('*');
+  return file.startsWith(prefix) && file.endsWith(suffix);
+}
+for (const entry of fs.readdirSync(rootDir)) {
+  if (!entry.endsWith('.js')) continue;
+  const covered = buildFilePatterns.some(p => patternMatchesRootFile(p, entry));
+  if (!covered) error(`Root JS file not covered by build.files: ${entry}`);
+}
+ok('All root JS files covered by build.files');
+
 if (errors.length > 0) {
   process.stdout.write(`\n${errors.length} error(s), exiting with code 1\n`);
   process.exit(1);

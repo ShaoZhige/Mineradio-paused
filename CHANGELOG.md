@@ -1,6 +1,16 @@
 # Changelog
 
+## v2.4.2
+
+### 修复安装包漏文件导致的启动崩溃
+
+- 把 `qishui-client-bridge.js` 补回 `package.json` 的 `build.files`。该文件是 `qishui-api.js` 的本地依赖（`require('./qishui-client-bridge')`），但此前不在打包清单里，安装后首次启动就报 `Cannot find module './qishui-client-bridge'`。
+- 在 `scripts/verify-package.js` 增加打包清单守卫：根目录每个 `.js` 文件都必须被 `build.files` 的某个 pattern 覆盖，防止再出现「代码引用了、安装包漏了」的同类问题。
+- 安装包体积与 2.4.1 的瘦身效果保持一致。
+
 ## v2.4.1
+
+⚠️ **该版本存在打包缺陷，请勿使用。** 安装包遗漏了 `qishui-client-bridge.js`，安装后启动即报 `Cannot find module './qishui-client-bridge'`。请直接升级 v2.4.2。
 
 ### 安装包瘦身
 
