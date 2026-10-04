@@ -2,9 +2,9 @@
   "name": "mineradio",
   "productName": "Mineradio",
   "version": "2.4.3",
-  "description": "Windows 沉浸式音乐播放器，融合桌面模式、歌词舞台、粒子视觉和 3D 歌单架。",
+  "description": "Windows 沉浸式音乐播放器（上游 Mineradio 的维护延续版，整合社区 PR 与改进）：融合桌面模式、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "Mineradio",
-  "license": "GPL-3.0-only",
+  "license": "GPL-3.0-or-later",
   "main": "desktop/main.js",
   "private": true,
   "scripts": {
