@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.4.1
+
+### 安装包瘦身
+
+- 排除 `NeteaseCloudMusicApi` 的 `public/`（约 6.8MB，仅其自带、且未被 Mineradio 启动的 `server.js` 使用）与 `data/`（约 1.3MB）死重，通过 `package.json` 的 `build.files` 排除规则移除。该库仅作为函数库使用（`desktop/main.js` 只加载其 `module/` 目录），排除后仍能正常导出全部 API 函数。
+- 安装包体积预计减小约 8MB（2.4.0 约 111.8MB → 2.4.1 约 104MB）。
+- 保留 `mpg123-decoder`（DJ 音频分析的真实依赖，`dj-analyzer.js` 通过动态 `import` 使用）与 `gsap` 等运行期必须的依赖，未做裁剪。
+- 保持 `asar: false`：NSIS 安装包会对整个 payload 整体压缩，`asar` 是否打包为虚拟文件系统对下载体积几乎无影响；且 `asar: true` 的只读特性会挡掉应用对自身目录的文件路径访问（`server.js` 默认读写 `__dirname/.cookie`、`data/*.jsonl`，启动错误日志回退到 `__dirname/..`），需完整构建加运行期验证才有把握，故维持现状。
+
 ## v2.4.0
 
 ### 洛雪自定义音源（移植自上游 PR #129）
