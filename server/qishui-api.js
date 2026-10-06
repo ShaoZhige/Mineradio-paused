@@ -8,11 +8,18 @@ const path = require('path');
 
 const qishuiClientBridge = require('./qishui-client-bridge');
 
+// 项目根：本文件住在 server/ 下，而凭据/令牌一直落在仓库根目录。代码搬进文件夹不该把运行时
+// 数据也搬走 —— 那会让已登录用户凭空掉登录态（新目录没有旧文件，旧文件又不再被读）。
+// Project root: this file lives under server/ while the credentials and tokens always sat at the
+// repository root. Moving code must not move runtime data — an existing login would silently vanish
+// (nothing in the new directory, and the old files no longer read).
+const PROJECT_ROOT = path.join(__dirname, '..');
+
 const QISHUI_API_BASE = (process.env.QISHUI_API_BASE || 'https://open.douyin.com').replace(/\/+$/, '');
 const QISHUI_RELATED_MEDIA_PATH = '/api/luna/v1/platform/feed/related-media/';
 const QISHUI_FEED_SONG_TAB_PATH = '/api/luna/v1/platform/feed/song-tab/';
 const QISHUI_SCOPE = 'luna.openapi.platform.play_core';
-const DEFAULT_QISHUI_TOKEN_FILE = path.join(__dirname, '.qishui-token');
+const DEFAULT_QISHUI_TOKEN_FILE = path.join(PROJECT_ROOT, '.qishui-token');
 const QISHUI_UA = 'Mineradio/2.1.0 (Qishui official OpenAPI bridge)';
 const QISHUI_OAUTH_AUTH_URL = (process.env.QISHUI_OAUTH_AUTH_URL || 'https://open.douyin.com/platform/oauth/connect').replace(/\/+$/, '');
 const QISHUI_OAUTH_TOKEN_URL = process.env.QISHUI_OAUTH_TOKEN_URL || 'https://open.douyin.com/oauth/access_token/';
@@ -75,8 +82,8 @@ function qishuiOAuthConfigFileCandidates() {
   };
   add(firstEnv(['QISHUI_OAUTH_CONFIG_FILE', 'DOUYIN_OAUTH_CONFIG_FILE']));
   try { add(path.join(path.dirname(qishuiTokenFile()), '.qishui-oauth.json')); } catch (_) {}
-  add(path.join(__dirname, '.qishui-oauth.json'));
-  add(path.join(__dirname, 'qishui-oauth.json'));
+  add(path.join(PROJECT_ROOT, '.qishui-oauth.json'));
+  add(path.join(PROJECT_ROOT, 'qishui-oauth.json'));
   return candidates;
 }
 
@@ -3261,7 +3268,7 @@ const QISHUI_PC_TRACK_V2_UA = 'LunaPC/3.7.0(30080000)';
 
 function qishuiPersistedDeviceId() {
   // 扫码登录用的设备身份：签名与登录态绑定，两处 device_id 一致才能通过服务端校验。
-  const file = process.env.QISHUI_QR_CONFIG_FILE || path.join(__dirname, '.qishui-qr-login.json');
+  const file = process.env.QISHUI_QR_CONFIG_FILE || path.join(PROJECT_ROOT, '.qishui-qr-login.json');
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     const value = normalizeText(parsed && parsed.deviceId);

@@ -19,7 +19,10 @@ function createLyricsParticles() {
 
 function ensureLyricStarRiver() {
   if (!stageLyrics.group || stageLyrics.starRiver) return stageLyrics.starRiver;
-  var count = 420;
+  // 基准星数；几何体按预算余量多分配，让"超高"档能画到基准之上。
+  // Base star count; the geometry allocates the budget headroom so the top tier can exceed it.
+  var baseCount = 420;
+  var count = Math.round(baseCount * particleBudgetHeadroom());
   var geo = new THREE.BufferGeometry();
   var seeds = new Float32Array(count);
   var lanes = new Float32Array(count);
@@ -32,6 +35,10 @@ function ensureLyricStarRiver() {
   geo.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
   geo.setAttribute('lane', new THREE.BufferAttribute(lanes, 1));
   geo.setAttribute('depthSeed', new THREE.BufferAttribute(depths, 1));
+  // 这个几何体没有 position 属性，预算模块只能靠 userData.count 读出容量。
+  // This geometry has no position attribute, so the budget can only read its capacity from
+  // userData.count.
+  geo.userData.count = count;
   var mat = new THREE.ShaderMaterial({
     uniforms: {
       uMap: { value: dotTexture },
@@ -93,7 +100,7 @@ function ensureLyricStarRiver() {
     depthTest: false,
     blending: THREE.AdditiveBlending
   });
-  var points = attachParticleDrawBudget(new THREE.Points(geo, mat));
+  var points = attachParticleDrawBudget(new THREE.Points(geo, mat), baseCount);
   points.renderOrder = 45;
   points.frustumCulled = false;
   points.position.set(0, 0.20, 1.53);

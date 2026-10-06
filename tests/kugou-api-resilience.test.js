@@ -5,7 +5,7 @@ const test = require('node:test');
 const crypto = require('node:crypto');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
-const kugou = require('../kugou-api');
+const kugou = require('../server/kugou-api');
 
 function withRequests(handler, task) {
   const original = https.request;

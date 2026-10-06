@@ -28,7 +28,7 @@ function requestJson(port, path, method, value) {
 test('POST /api/custom-source/resolve delegates to the injected resolver', async t => {
   process.env.PORT = '0';
   process.env.HOST = '127.0.0.1';
-  const server = require('../server');
+  const server = require('../server/server');
   t.after(async () => {
     if (typeof server.setCustomSourceResolver === 'function') server.setCustomSourceResolver(null);
     if (server.listening) await new Promise(resolve => server.close(resolve));
@@ -57,8 +57,8 @@ test('POST /api/custom-source/resolve delegates to the injected resolver', async
 test('custom source route reports inactive and resolver failures without falling through', async t => {
   process.env.PORT = '0';
   process.env.HOST = '127.0.0.1';
-  delete require.cache[require.resolve('../server')];
-  const server = require('../server');
+  delete require.cache[require.resolve('../server/server')];
+  const server = require('../server/server');
   t.after(async () => {
     if (typeof server.setCustomSourceResolver === 'function') server.setCustomSourceResolver(null);
     if (server.listening) await new Promise(resolve => server.close(resolve));

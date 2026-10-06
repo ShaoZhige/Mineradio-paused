@@ -19,10 +19,15 @@ function sourceBlock(text, startNeedle, endNeedle) {
 }
 
 function testLoginWishTitle() {
+  // 标题文案本身仍然是「心愿是」，只是已接入 i18n：其它语言靠 data-i18n 换词，
+  // 页面里这句中文同时是缺键时的兜底。断言放宽到允许 data-i18n 属性，文本与禁止项照旧。
+  // The title is still 心愿是, now wired through data-i18n so other languages swap the copy while
+  // the Chinese text in the page doubles as the missing-key fallback. The assertion allows the
+  // attribute and keeps the text plus the forbidden-title guard unchanged.
   assert.match(
     htmlText,
-    /<h1>\s*心愿是\s*<\/h1>/,
-    'login easter-egg panel title must stay as 心愿是'
+    /<h1[^>]*data-i18n="egg_wish_title"[^>]*>\s*心愿是\s*<\/h1>/,
+    'login easter-egg panel title must stay as 心愿是 (wired through i18n)'
   );
   assert.doesNotMatch(
     htmlText,

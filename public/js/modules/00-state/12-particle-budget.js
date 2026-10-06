@@ -26,10 +26,27 @@
 // with setDrawRange (instant, no rebuild); a lattice cannot be, because draw order is row-major and
 // drawing the first N would cut a band out of the picture, so its side length has to shrink.
 
-// 每档的规模系数。低于 1 才有意义；高档位保持 1，用户选了 ultra 就不该被悄悄削减。
-// Population factor per tier. Only below 1 does anything; the top tier stays at 1 so choosing
-// ultra is never silently downgraded.
-var PARTICLE_BUDGET_SCALE_BY_LEVEL = [0.28, 0.58, 0.85, 1];
+// 每档的规模系数（相对各系统自己的基准数量）。整张表就是**一个密度旋钮**：四档同乘一个倍数，
+// 画面上所有系统的粒子就按同一比例加浓，而档与档之间的间距保持不变 —— 想整体变密就改这里，
+// 不要去动各系统的基准常量（那等于把"基准"这个参照点也一起搬走）。
+// 顶档大于 1，所以要的是"比基准更多"，几何体必须按 PARTICLE_BUDGET_HEADROOM 预留余量，
+// 否则 setDrawRange 会超出已分配的顶点数。
+// Population factor per tier, relative to each system's own base count. The table is **one density
+// dial**: multiplying all four tiers by the same factor thickens every system on screen by that ratio
+// while keeping the spacing between tiers intact, so a global density change belongs here rather than
+// in each system's base constant (which would move the reference point itself). The top tier exceeds
+// 1 on purpose, so geometries must be allocated with PARTICLE_BUDGET_HEADROOM of slack; otherwise
+// setDrawRange runs past the end of the buffer.
+var PARTICLE_BUDGET_SCALE_BY_LEVEL = [0.8, 1.4, 1.9, 2.6];
+
+// 几何体预分配的余量倍数。必须 >= 系数表的最大值，否则顶档会被缓冲区大小悄悄截断 ——
+// 那是最难查的一类 bug：设置里写着"超高"，实际画的还是基准数。
+// 它跟着系数表走：能画多少的上限是缓冲区给的，表翻倍而这里不动，顶档就会悄悄少画一半。
+// Allocation slack for every geometry. Must be >= the largest tier factor, or the top tier gets
+// silently clipped by the buffer size — the nastiest kind of bug, because the UI still says "ultra"
+// while the base population is all that ever gets drawn. It moves with the table: the buffer is what
+// caps the drawn population, so doubling the table without this clips the top tier to half of it.
+var PARTICLE_BUDGET_HEADROOM = 2.7;
 
 // 深度后台模式（窗口不可见）下再压一档：这时没人看得见画面，但渲染仍在跑。
 // One more notch in deep background mode: nobody can see the window, yet rendering keeps running.
@@ -58,7 +75,12 @@ function runtimeParticleBudgetCap(baseCount, floor) {
   var base = Math.max(0, Math.floor(Number(baseCount) || 0));
   if (!base) return 0;
   var minimum = Math.max(0, Math.floor(Number(floor) || 0));
-  return Math.max(minimum, Math.min(base, Math.round(base * runtimeParticleBudgetScale())));
+  // 不再夹在 base 以内：顶档系数大于 1，本就要画到基准之上。
+  // 真正的上限是缓冲区大小，只有 applyParticleDrawBudget 拿得到几何体，所以夹在那里做。
+  // No longer clamped to the base: the top tier factor exceeds 1 precisely so it can draw past it.
+  // The real ceiling is the buffer size, and only applyParticleDrawBudget can see the geometry, so
+  // that is where the clamp happens.
+  return Math.max(minimum, Math.round(base * runtimeParticleBudgetScale()));
 }
 
 // 网格型粒子上限：按面积开方得到边长，再夹在用户值与最小边长之间。
@@ -67,16 +89,30 @@ function runtimeParticleBudgetCap(baseCount, floor) {
 function runtimeCoverParticleGridBudget(userGrid) {
   var requested = Math.max(8, Math.round(Number(userGrid) || 0));
   var scale = runtimeParticleBudgetScale();
-  if (scale >= 1) return requested;
-  // 先向下取整再对齐奇数：预算是**上限**，任何一步向上取整都会让实际面积反过来超出预算
-  // （183 格、0.28 系数时 √9376.9 ≈ 96.8，round 到 97 之后 97² 已经越界）。
-  // Floor first, then align to odd: the budget is a ceiling, and any upward rounding pushes the
-  // drawn area back over it (at 183 with a 0.28 factor, √9376.9 ≈ 96.8 and rounding to 97 already
-  // overshoots).
+  if (scale === 1) return requested;
+  // 预算是**面积**预算，所以边长取平方根：先向下取整再对齐奇数，任何一步向上取整都会让实际
+  // 面积反过来超出预算（183 格、0.4 系数时 √13403.6 ≈ 115.8，round 到 116 之后 116² 已经越界）。
+  // The budget is an **area** budget, so the side length is its square root: floor first, then align
+  // to odd, because any upward rounding pushes the drawn area back over it (at 183 with a 0.4
+  // factor, √13403.6 ≈ 115.8 and rounding to 116 already overshoots).
   var target = Math.floor(Math.sqrt(requested * requested * scale));
-  var capped = Math.max(PARTICLE_BUDGET_MIN_GRID, target);
-  if (capped % 2 === 0) capped -= 1;
-  return Math.min(requested, capped);
+  if (scale < 1) {
+    var capped = Math.max(PARTICLE_BUDGET_MIN_GRID, target);
+    if (capped % 2 === 0) capped -= 1;
+    return Math.min(requested, capped);
+  }
+  // 顶档放大：网格是按需重建的，所以放大不需要预留缓冲，直接把边长开方放大即可。
+  // 同样向下对齐奇数，中心格才不会被挤掉。
+  // Growing past the base: the lattice is rebuilt on demand, so growth needs no pre-allocated slack;
+  // the side length just scales by the square root. Floor to odd again so the centre cell survives.
+  var grown = Math.max(requested, target);
+  // 放大时向上对齐奇数：向下对齐会让实际面积掉到 1.3 倍以下（183 格时 208→207 只剩 1.279 倍）。
+  // 缩小才必须向下取整（那是预算上限），放大取整方向相反，因为这里 1.3 是**下限**。
+  // Align odd upward when growing: flooring drops the area below the promised 1.3x (at 183,
+  // 208 -> 207 leaves only 1.279x). Rounding down is only required when shrinking, where the
+  // budget is a ceiling; growth rounds the other way because 1.3 is a floor.
+  if (grown % 2 === 0) grown += 1;
+  return grown;
 }
 
 // 从几何体本身读出粒子数：优先用构建时记下的 userData.count，其次退回 position 属性的顶点数。
@@ -90,7 +126,22 @@ function particleGeometryCount(geometry) {
     return Math.floor(Number(geometry.userData.count));
   }
   var position = typeof geometry.getAttribute === 'function' ? geometry.getAttribute('position') : null;
-  return position && Number(position.count) > 0 ? Math.floor(Number(position.count)) : 0;
+  if (position && Number(position.count) > 0) return Math.floor(Number(position.count));
+  // 星河那类几何体只带自定义属性（seed / lane / depthSeed），既没有 position 也没有
+  // userData.count。不退回读一次属性长度的话它会被当成"0 个粒子"——setDrawRange(0, 0) 让整片
+  // 粒子直接消失，而且没有任何报错，是最难查的一种失败。
+  // Star-river style geometries carry only custom attributes (seed / lane / depthSeed) with neither
+  // a position attribute nor userData.count. Without this fallback they read as zero particles, and
+  // setDrawRange(0, 0) makes the whole field disappear silently — the hardest kind of failure to
+  // track down.
+  var attributes = geometry.attributes || null;
+  if (attributes) {
+    for (var key in attributes) {
+      var attribute = attributes[key];
+      if (attribute && Number(attribute.count) > 0) return Math.floor(Number(attribute.count));
+    }
+  }
+  return 0;
 }
 
 // 散点型粒子上限：直接改 drawRange，不碰几何和缓冲。
@@ -102,6 +153,12 @@ function applyParticleDrawBudget(points, baseCount, floor) {
     ? particleGeometryCount(target.geometry)
     : Number(baseCount) || 0;
   var cap = runtimeParticleBudgetCap(declared, floor);
+  // 顶档系数大于 1，但画不出缓冲区里没有的顶点：必须夹到几何体实际容量，
+  // 否则 setDrawRange 越界（WebGL 会静默少画或直接报错，取决于驱动）。
+  // The top tier exceeds 1, yet vertices that were never allocated cannot be drawn: clamp to the
+  // real geometry capacity, or setDrawRange overruns (drivers either draw short or error out).
+  var capacity = particleGeometryCount(target.geometry);
+  if (capacity > 0 && cap > capacity) cap = capacity;
   target.geometry.setDrawRange(0, cap);
   return cap;
 }
@@ -182,4 +239,12 @@ function tickParticleBudget() {
 
 function particleBudgetCurrentScale() {
   return particleBudgetAppliedScale >= 0 ? particleBudgetAppliedScale : runtimeParticleBudgetScale();
+}
+
+// 各粒子系统建几何体时用它放大分配量。基准数量（baseCount）保持原值不变，
+// 这样"系数 × 基准"的语义在每一档都读得懂，余量只存在于缓冲区里。
+// Geometries call this when allocating. The base count stays untouched, so "factor x base" keeps
+// reading the same at every tier and the slack lives only in the buffer.
+function particleBudgetHeadroom() {
+  return PARTICLE_BUDGET_HEADROOM;
 }

@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
-const { extractKugouAuth } = require('../kugou-api');
+const { extractKugouAuth } = require('../server/kugou-api');
 const { mainI18nBlock } = require('./helpers/module-source');
 
 const root = path.resolve(__dirname, '..');

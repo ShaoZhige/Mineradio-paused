@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const qqVip = require('../qq-vip-api');
+const qqVip = require('../server/qq-vip-api');
 const { accessorBlock } = require('./helpers/module-source');
 
 const ROOT = path.join(__dirname, '..');
@@ -397,7 +397,7 @@ function testDesktopReauthCookieSelectionAndBudgets() {
   const mainSource = fs.readFileSync(path.join(ROOT, 'desktop/main.js'), 'utf8');
   const preloadSource = fs.readFileSync(path.join(ROOT, 'desktop/preload.js'), 'utf8');
   const loginSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/08-account/03-login-modal-flows.js'), 'utf8');
-  const serverSource = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
   const playbackSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/05-playback/13-playback-start-audio.js'), 'utf8');
   const prefetchSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/03-beat/00-tempo-worker-cache-prefetch.js'), 'utf8');
   const accountSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/08-account/02-login-status.js'), 'utf8');
@@ -574,8 +574,11 @@ function testDesktopReauthCookieSelectionAndBudgets() {
 function testPackagingIncludesQQVipModule() {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const files = pkg && pkg.build && pkg.build.files || [];
-  assert(files.includes('*-api.js'), 'Electron package must include provider API modules');
-  assert(/-api\.js$/.test(path.basename(require.resolve('../qq-vip-api'))));
+  // 打包清单收敛为 server/**/*，模块本体也搬进了 server/：断言改为要求目录级覆盖。
+  // The manifest collapsed into server/**/* and the module itself moved under server/, so the
+  // assertion now demands directory-level coverage.
+  assert(files.includes('server/**/*'), 'Electron package must include backend modules');
+  assert(/-api\.js$/.test(path.basename(require.resolve('../server/qq-vip-api'))));
 }
 
 async function main() {

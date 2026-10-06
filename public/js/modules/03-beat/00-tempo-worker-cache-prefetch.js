@@ -227,6 +227,15 @@ function scheduleBeatAnalysis(songId, audioUrl, token, song) {
     hideBeatChip();
     return;
   }
+  // 自动节奏分析关闭时彻底不排队，并把上一首可能遗留的计时器一起清掉。
+  // With automatic analysis off nothing is queued, and any timer left over from the previous track
+  // is cleared so a task queued before the switch flipped cannot keep running.
+  if (!beatAnalysisEnabled()) {
+    cancelBeatAnalysisTimer();
+    beatAnalysisStartedAt = 0;
+    hideBeatChip();
+    return;
+  }
   cancelBeatAnalysisTimer();
   beatAnalysisStartedAt = 0;
   hideBeatChip();
@@ -428,6 +437,7 @@ async function fetchBeatPrefetchAudioUrl(song) {
 function scheduleQueueBeatPrefetch(fromIdx, delayMs, state) {
   cancelBeatPrefetchTimer();
   if (!QUEUE_BEAT_AUDIO_PREFETCH_ENABLED) return;
+  if (!beatAnalysisEnabled()) return;
   if (!playQueue.length || beatPrefetchBusy || localBeatAnalysis.active) return;
   var prefetchState = normalizeBeatPrefetchState(state);
   if (prefetchState.count >= BEAT_PREFETCH_LIMIT) return;
@@ -444,6 +454,11 @@ function scheduleQueueBeatPrefetch(fromIdx, delayMs, state) {
 
 async function runQueueBeatPrefetch(fromIdx, token, seq, state) {
   if (!QUEUE_BEAT_AUDIO_PREFETCH_ENABLED) return;
+  // 这里再判一次不是冗余：预热是多段 await 的，开关可能在等解码/等空闲的途中被关掉，
+  // 而 `scheduleQueueBeatPrefetch` 已经在第一步之外了。真正下钻去分析前必须重新确认。
+  // Re-checking here is not redundant: prefetch awaits several times, so the switch can be flipped
+  // while it waits for a decode or idle slot, long after scheduleQueueBeatPrefetch ran.
+  if (!beatAnalysisEnabled()) return;
   if (token !== beatMapToken || seq !== beatPrefetchToken || beatPrefetchBusy || !playQueue.length) return;
   if (audio && audio.paused) return;
   state = normalizeBeatPrefetchState(state);

@@ -243,37 +243,57 @@ function activateFocusZone(type) {
     orbit.focus.phi = shelfProfile.portrait ? -0.24 : -0.32;
     orbit.focus.radius = shelfProfile.portrait ? 4.8 : 3.8;
     orbit.focus.lookAt.set(0, shelfProfile.portrait ? -1.86 : -1.7, 0.8);
-  } else if (type === 'queue') {
-    // 队列在左侧 HTML 面板, 相机微微左移 + 抬升
-    orbit.focus.theta = 0.40;
-    orbit.focus.phi = 0.05;
-    orbit.focus.radius = 5.8;
-    orbit.focus.lookAt.set(-1.2, 0, 0);
   }
+  // 这里原本还有一档 `type === 'queue'`（theta 0.40 / phi 0.05 / radius 5.8 / lookAt(-1.2, 0, 0)），
+  // 让相机在左侧队列面板出现时左移抬升，好把镜头对准那个 HTML 面板。已按用户反馈砍掉：面板已经把
+  // 队列显示出来了，镜头再跟一次只是让画面在鼠标贴着左边缘来回时反复摇摆，歌词也跟着晃。
+  // setFocusZone() 现在会把 'queue' 拦掉，所以这一档的姿态数值也一并删掉 —— 留着一份永远不会被读到的
+  // 相机参数，只会让下一个接手的人以为它还能打开。
+  //
+  // There used to be a `type === 'queue'` profile here (theta 0.40 / phi 0.05 / radius 5.8 /
+  // lookAt(-1.2, 0, 0)) that swung the camera left and up when the left queue panel appeared, to aim it
+  // at that HTML panel. Removed on user feedback: the panel already shows the queue, and following it
+  // only made the view wobble while the pointer moved along the left edge, taking the lyrics with it.
+  // setFocusZone() now blocks 'queue', so its pose is deleted too — camera numbers that can never be
+  // read would only make the next reader think the zone can still be turned on.
 }
 function setFocusZone(type, immediate) {
+  // 左侧歌单/队列面板 (#playlist-panel) 不再参与镜头跟拍。它的显隐由左边缘的鼠标位置决定，于是
+  // 鼠标贴着边缘一晃，面板 peek 出来、镜头跟着左移抬升，整屏连歌词一起摆，移开又摆回去 —— 反复
+  // "跳来跳去"。面板本身已经把队列画出来了，不需要镜头再跟一次。
+  // 拦在这里而不是只改调用方：漏掉任何一个调用点，focus 都会带着**上一档**的 theta/phi/radius 被
+  // 激活，镜头会直接跳到一个谁也不属于的姿态。传进来的 'queue' 一律解释成"不激活任何跟拍"。
+  //
+  // The left playlist/queue panel (#playlist-panel) no longer drives the camera. Its visibility follows
+  // the pointer along the left edge, so brushing that edge makes the panel peek while the camera swings
+  // left and up, dragging the whole screen — lyrics included — and swinging back on exit. The panel
+  // already shows the queue; the camera does not need to follow as well. Blocked here rather than only
+  // at the call sites: a single missed caller would activate the focus with the PREVIOUS zone's
+  // theta/phi/radius and snap the camera to a pose that belongs to nothing. Any incoming 'queue' is
+  // read as "activate no follow camera at all".
+  //
+  // 调用方仍然会传 'queue'（左边缘的 peek 判定用它表示"队列拿到了指针焦点"），这个名字保留：它同时
+  // 承担"压过 3D 歌单架跟拍"的优先级判断——队列面板开着时不应该再让镜头跑去对准歌单架。只有"把
+  // 它交给相机"这一步被拦掉，所以调用方不需要改，也不会漏。
+  // Callers keep passing 'queue' (the left-edge peek logic uses it for "the queue holds pointer focus")
+  // and the name stays: it also carries the priority rule that the queue outranks the 3D shelf follow
+  // camera — with the queue panel open the camera must not go aim at the shelf instead. Only the handoff
+  // to the camera is blocked, so no caller needs changing and none can be missed.
+  if (type === 'queue') type = null;
   if (type && !shouldUseShelfDynamicCamera(type)) {
     if (/^shelf-/.test(String(orbit.focus.type || ''))) orbit.focus.active = false;
     type = null;
   }
-  if (focusHover.wantType === type) {
-    if (type === 'queue' && immediate) {
-      if (focusHover.exitTimer) { clearTimeout(focusHover.exitTimer); focusHover.exitTimer = null; }
-      if (focusHover.pendingTimer) { clearTimeout(focusHover.pendingTimer); focusHover.pendingTimer = null; }
-      if (!orbit.focus.active || orbit.focus.type !== type) activateFocusZone(type);
-    }
-    return;
-  }
+  if (focusHover.wantType === type) return;
   focusHover.wantType = type;
   if (focusHover.pendingTimer) { clearTimeout(focusHover.pendingTimer); focusHover.pendingTimer = null; }
   if (focusHover.exitTimer) { clearTimeout(focusHover.exitTimer); focusHover.exitTimer = null; }
   if (!type) {
     // 立刻退出 focus, 让相机回主姿态 (但插值是平滑的)
-    var exitDelay = orbit.focus.type === 'queue' ? PEEK_HIDE_DELAY : 120;
     focusHover.exitTimer = setTimeout(function () {
       focusHover.exitTimer = null;
       if (!focusHover.wantType) orbit.focus.active = false;
-    }, exitDelay);
+    }, 120);
     return;
   }
   if (immediate) {

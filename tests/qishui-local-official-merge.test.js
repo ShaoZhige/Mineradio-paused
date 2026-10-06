@@ -5,7 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 const { EventEmitter } = require('events');
-const qishui = require('../qishui-api');
+const qishui = require('../server/qishui-api');
 
 function withHttpsMock(handler, task) {
   const original = https.request;
@@ -342,7 +342,7 @@ async function testPcAccountWritesAndComments() {
 }
 
 async function run() {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'qishui-api.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'qishui-api.js'), 'utf8');
   assert(source.includes("'/api/luna/v1/platform/feed/related-media/'"));
   assert(source.includes("'/api/luna/v1/platform/feed/song-tab/'"));
   await testPcSearchAndPublicFallback();

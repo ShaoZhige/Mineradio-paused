@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { i18nWindow } = require('./helpers/module-source');
+const { i18nWindow, withProviderRegistry } = require('./helpers/module-source');
 
 const appRoot = path.resolve(__dirname, '..');
 const fallbackPath = path.join(appRoot, 'public', 'js', 'modules', '05-playback', '11-provider-fallback.js');
@@ -95,7 +95,7 @@ function createSandbox(queue, statusOverrides) {
     playQueueAt: async function () { return false; },
     notices,
   };
-  vm.runInNewContext(fallbackText, sandbox, { filename: fallbackPath });
+  vm.runInNewContext(withProviderRegistry(fallbackText), sandbox, { filename: fallbackPath });
   sandbox.showSourceFallbackNotice = function (title, body) { notices.push({ title, body }); };
   return sandbox;
 }

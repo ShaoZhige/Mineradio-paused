@@ -4,10 +4,10 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const net = require('net');
-const os = require('os');
 const path = require('path');
 const { PassThrough } = require('stream');
 const { desktopIconProbeScript } = require('./desktop-icon-shape-runtime');
+const portablePaths = require('./portable-paths');
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 2400;
 
@@ -1045,12 +1045,13 @@ function startNativeDesktopIconLayer(options = {}) {
   const spawnImpl = options.spawnImpl;
   if (spawnImpl != null && typeof spawnImpl !== 'function') throw new Error('DESKTOP_ICON_LAYER_SPAWN_UNAVAILABLE');
   const env = { ...process.env };
-  const nativeTempPath = String(options.nativeTempPath || '').trim();
-  if (nativeTempPath) {
-    env.TEMP = nativeTempPath;
-    env.TMP = nativeTempPath;
-  }
-  const scriptDirectory = nativeTempPath || os.tmpdir();
+  // 没显式传目录时兜底到软件目录内的 native 临时区，不落到 os.tmpdir()。
+  // When no directory is passed in, fall back to the app folder's native temp area rather than
+  // os.tmpdir().
+  const nativeTempPath = String(options.nativeTempPath || '').trim() || portablePaths.resolveNativeTempDir();
+  env.TEMP = nativeTempPath;
+  env.TMP = nativeTempPath;
+  const scriptDirectory = nativeTempPath;
   fs.mkdirSync(scriptDirectory, { recursive: true });
   const scriptPath = path.join(
     scriptDirectory,

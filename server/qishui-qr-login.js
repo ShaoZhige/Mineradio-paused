@@ -9,7 +9,12 @@ const os = require('os');
 const path = require('path');
 const qishuiAuthV6 = require('./qishui-auth-v6');
 
-const DEFAULT_CONFIG_FILE = path.join(__dirname, '.qishui-qr-login.json');
+// 项目根：本文件住在 server/ 下，扫码登录配置一直落在仓库根目录，位置不变。
+// Project root: this file lives under server/ while the QR-login config always sat at the
+// repository root; the location is deliberately preserved.
+const PROJECT_ROOT = path.join(__dirname, '..');
+
+const DEFAULT_CONFIG_FILE = path.join(PROJECT_ROOT, '.qishui-qr-login.json');
 
 function defaultConfig() {
   return {

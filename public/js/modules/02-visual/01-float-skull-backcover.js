@@ -1,5 +1,10 @@
 // ============================================================
+// 基准粒子数。几何体按 PARTICLE_BUDGET_HEADROOM 多分配一些，让"超高"档能画到基准之上；
+// 这里保持基准值不变，档位系数（12-particle-budget.js）才是决定画多少的那个数。
+// Base population. The geometry allocates PARTICLE_BUDGET_HEADROOM more so the top tier can draw
+// above the base; this stays the base and the tier factor is what decides how much is drawn.
 var FLOAT_COUNT = 1300;
+var FLOAT_CAPACITY = Math.round(FLOAT_COUNT * particleBudgetHeadroom());
 var floatGroup = null;
 var floatPositionsArr = null, floatBaseArr = null, floatPhaseArr = null, floatColorArr = null;
 
@@ -10,14 +15,14 @@ function createFloatLayer() {
   return;
   if (floatGroup) return;
   var fgeo = new THREE.BufferGeometry();
-  floatPositionsArr = new Float32Array(FLOAT_COUNT * 3);
-  floatBaseArr = new Float32Array(FLOAT_COUNT * 3);  // 基准位置
-  floatPhaseArr = new Float32Array(FLOAT_COUNT * 3);  // 每粒子相位 (0..2π)
-  floatColorArr = new Float32Array(FLOAT_COUNT * 3);
-  var floatRandArr = new Float32Array(FLOAT_COUNT);
-  var floatAmpArr = new Float32Array(FLOAT_COUNT);      // 漂移幅度 (0.15-0.45)
-  for (var i = 0; i < FLOAT_COUNT; i++) {
-    var halo = i < FLOAT_COUNT * 0.76;
+  floatPositionsArr = new Float32Array(FLOAT_CAPACITY * 3);
+  floatBaseArr = new Float32Array(FLOAT_CAPACITY * 3);  // 基准位置
+  floatPhaseArr = new Float32Array(FLOAT_CAPACITY * 3);  // 每粒子相位 (0..2π)
+  floatColorArr = new Float32Array(FLOAT_CAPACITY * 3);
+  var floatRandArr = new Float32Array(FLOAT_CAPACITY);
+  var floatAmpArr = new Float32Array(FLOAT_CAPACITY);      // 漂移幅度 (0.15-0.45)
+  for (var i = 0; i < FLOAT_CAPACITY; i++) {
+    var halo = i < FLOAT_CAPACITY * 0.76;
     var bx, by, bz;
     if (halo) {
       var a = Math.random() * Math.PI * 2;
@@ -689,17 +694,18 @@ function updateSkullParticleLayer(dt) {
 //   - 视角转到背面才能看到 — 不需要手动控制 visible
 // ============================================================
 var BACK_COVER_COUNT = 3000;
+var BACK_COVER_CAPACITY = Math.round(BACK_COVER_COUNT * particleBudgetHeadroom());
 var backCoverGroup = null;
 var backCoverColorArr = null;
 
 function createBackCoverLayer() {
   if (backCoverGroup) return;
   var bg = new THREE.BufferGeometry();
-  var bp = new Float32Array(BACK_COVER_COUNT * 3);
-  var bc = new Float32Array(BACK_COVER_COUNT * 3);
-  var br = new Float32Array(BACK_COVER_COUNT);
-  var bu = new Float32Array(BACK_COVER_COUNT * 2);  // 镜像 UV 用于采样封面
-  for (var i = 0; i < BACK_COVER_COUNT; i++) {
+  var bp = new Float32Array(BACK_COVER_CAPACITY * 3);
+  var bc = new Float32Array(BACK_COVER_CAPACITY * 3);
+  var br = new Float32Array(BACK_COVER_CAPACITY);
+  var bu = new Float32Array(BACK_COVER_CAPACITY * 2);  // 镜像 UV 用于采样封面
+  for (var i = 0; i < BACK_COVER_CAPACITY; i++) {
     var u = Math.random();
     var v = Math.random();
     // 在 PLANE_SIZE 范围内分布
@@ -782,7 +788,9 @@ function refreshBackCoverColorsFromCanvas(coverCanvas) {
   var w = coverCanvas.width, h = coverCanvas.height;
   var attr = backCoverGroup.geometry.attributes;
   var uvA = attr.aUv.array;
-  for (var i = 0; i < BACK_COVER_COUNT; i++) {
+  // 同样遍历整块容量，否则超高档多出来的粒子还是占位色。
+  // Walk the whole capacity here too, or the extra top-tier particles keep their placeholder colour.
+  for (var i = 0; i < BACK_COVER_CAPACITY; i++) {
     var u = uvA[i * 2], v = uvA[i * 2 + 1];
     var sx = Math.floor(u * w);
     var sy = Math.floor(v * h);
@@ -801,7 +809,7 @@ function refreshFloatColorsFromCover(coverCanvas) {
   var ctx = coverCanvas.getContext('2d');
   var img = ctx.getImageData(0, 0, coverCanvas.width, coverCanvas.height).data;
   var w = coverCanvas.width, h = coverCanvas.height;
-  for (var i = 0; i < FLOAT_COUNT; i++) {
+  for (var i = 0; i < FLOAT_CAPACITY; i++) {
     var sx = Math.floor(Math.random() * w);
     var sy = Math.floor(Math.random() * h);
     var di = (sy * w + sx) * 4;
@@ -813,7 +821,10 @@ function refreshFloatColorsFromCover(coverCanvas) {
 }
 function resetFloatColorsToIdle() {
   if (!floatGroup || !floatColorArr) return;
-  for (var i = 0; i < FLOAT_COUNT; i++) {
+  // 必须遍历整块容量：只填到基准数量的话，超高档多画出来的那些粒子颜色还是上一次的残值。
+  // Must walk the whole capacity: filling only up to the base leaves the extra top-tier particles
+  // carrying stale colours.
+  for (var i = 0; i < FLOAT_CAPACITY; i++) {
     var white = 0.88 + (i % 17) / 17 * 0.12;
     floatColorArr[i * 3] = white;
     floatColorArr[i * 3 + 1] = white;

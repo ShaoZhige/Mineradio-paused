@@ -751,13 +751,21 @@ function guideTargetRect(step) {
       return { left: left, top: top, width: right - left, height: bottom - top, right: right, bottom: bottom };
     }
   }
-  var isFullscreenDiyStep = !!(step && step.selector === '#diy-mode-btn' && (desktopRuntimeState.fullscreen || desktopFullscreenActive || document.fullscreenElement || document.body.classList.contains('desktop-fullscreen')));
-  var useFullscreenDiyTarget = isFullscreenDiyStep && !shouldSuppressFullscreenDiyPeek();
-  if (useFullscreenDiyTarget) {
-    layoutFullscreenDiyZone();
-    document.body.classList.add('fullscreen-diy-peek');
-  }
-  var target = step && step.selector ? document.querySelector(useFullscreenDiyTarget ? '#fullscreen-diy-btn' : step.selector) : null;
+  // DIY 那一步在全屏下要指着工具行里的 DIY 按钮。全屏时标题栏整条隐藏，按钮被搬到工具行里、
+  // 平时不浮现，所以这一步得自己把工具行亮出来（.fullscreen-tools-guided）。逐步骤计算，
+  // 非 DIY 的步骤自然把它清掉；CSS 里 body.visual-guide-active:not(.fullscreen-tools-guided)
+  // 负责其余步骤照旧藏起来。
+  // ⚠️ 这里绝不能顺手再判一次 shouldSuppressFullscreenToolsPeek()：它在引导进行中恒为真
+  //（判据里就有 visualGuideActive），加了之后这一支永远进不去 —— 上一版正是这样，于是引导
+  // 在全屏下指着一块自己猜的矩形，谁也看不出按钮在哪。
+  // The DIY step must point at the button inside the fullscreen tool row, which normally stays
+  // hidden, so this step forces the row up. Do NOT gate this on shouldSuppressFullscreenToolsPeek():
+  // that predicate is true whenever the guide runs, which is exactly how the previous version left
+  // this branch unreachable and made the guide point at a guessed rectangle instead.
+  var isFullscreenToolRowStep = !!(step && step.selector === '#diy-mode-btn' && isFullscreenNow());
+  document.body.classList.toggle('fullscreen-tools-guided', isFullscreenToolRowStep);
+  if (isFullscreenToolRowStep) layoutFullscreenToolsZone();
+  var target = step && step.selector ? document.querySelector(step.selector) : null;
   if (target) {
     var style = window.getComputedStyle(target);
     var rect = target.getBoundingClientRect();
@@ -814,7 +822,10 @@ function closeVisualGuide(markSeen) {
     guide.setAttribute('aria-hidden', 'true');
   }
   document.body.classList.remove('visual-guide-active');
-  document.body.classList.remove('fullscreen-diy-peek');
+  document.body.classList.remove('fullscreen-tools-peek');
+  // 引导期间可能把全屏工具行强制亮出来过（DIY 那一步），收尾必须一起清掉 —— 只剩
+  // fullscreen-tools-guided 的话，全屏下这排按钮会一直挂着，而引导已经结束了。
+  document.body.classList.remove('fullscreen-tools-guided');
   var search = document.getElementById('search-area');
   var bottom = document.getElementById('bottom-bar');
   var fxPanel = document.getElementById('fx-panel');

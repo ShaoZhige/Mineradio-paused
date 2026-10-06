@@ -4,6 +4,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+const portablePaths = require('./portable-paths');
 
 const isWin = process.platform === 'win32';
 
@@ -28,7 +29,13 @@ function getMemorySnapshot() {
 }
 
 function tempScriptPath() {
-  return path.join(os.tmpdir(), 'mineradio-app-trim-' + process.pid + '-' + Date.now() + '.ps1');
+  // 临时脚本优先落在软件目录内的 native 临时区，避免往 %TEMP% 散落 helper 脚本；
+  // 环境变量丢失时兜底同样走软件目录，不会退回 os.tmpdir()。
+  // Prefer the app's own native temp folder so helper scripts never scatter into %TEMP%, and
+  // keep the fallback inside the app folder too instead of dropping back to os.tmpdir().
+  const root = portablePaths.resolveNativeTempDir();
+  try { fs.mkdirSync(root, { recursive: true }); } catch (_) {}
+  return path.join(root, 'mineradio-app-trim-' + process.pid + '-' + Date.now() + '.ps1');
 }
 
 function safeUnlink(filePath) {

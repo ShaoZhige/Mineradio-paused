@@ -1092,6 +1092,35 @@ async function playQueueAt(idx, opts) {
     markPlayPhase('track-setup');
     var song = safePlaybackStep('hydrate-song', function () { return hydrateCustomCover(playQueue[idx]); }) || playQueue[idx];
     playQueue[idx] = song;
+    // 默认源：把用户指定的平台排到查找顺序最前，命中就用那个平台的同名曲，否则原样播放。
+    // 必须在 song 解析之后、任何下游使用（音质/地址/歌词/封面/Spotify 唤起）之前替换，否则
+    // 后面拿到的还是旧那首。await 期间用户可能已经切歌，所以回来先验 token。
+    // Preferred source: the user's platform goes first in the lookup order; a hit replaces the track,
+    // a miss plays it as-is. It must run after the song is resolved and before any downstream use
+    // (quality, URL, lyrics, cover, Spotify launch), or they would still see the old track. The token
+    // is re-checked because the user may have switched tracks during the await.
+    if (typeof resolvePreferredSourceSong === 'function') {
+      markPlayPhase('preferred-source');
+      try {
+        var preferredSong = await resolvePreferredSourceSong(song, opts);
+        if (token !== trackSwitchToken) return false;
+        if (preferredSong) {
+          song = safePlaybackStep('hydrate-preferred-song', function () { return hydrateCustomCover(preferredSong); }) || preferredSong;
+          playQueue[idx] = song;
+        }
+      } catch (e) {
+        // 选源只是优化：失败就照原样播，绝不能因此播不出声。
+        // Source selection is an optimisation: on failure play the original rather than nothing.
+        console.warn('[PreferredSource]', e && (e.message || e));
+      }
+    }
+    // Spotify 源点播时唤起本机客户端（换源兜底仍由既有逻辑处理）。
+    // 跳过音质切换/换源重试等内部转场，避免重复唤起。
+    // Launch the local Spotify client for a Spotify-sourced track; skip internal
+    // transitions (quality switch / fallback retry) so we don't re-launch repeatedly.
+    if (song && song.provider === 'spotify' && !opts.qualitySwitch && !opts.fallbackDepth && typeof window !== 'undefined' && window.SpotifyLaunchClient) {
+      window.SpotifyLaunchClient.maybeLaunch(song);
+    }
     var sameAlbumCoverSwitch = albumGaplessSameAlbumCover(previousSongForTransition, song);
     var earlyLyricFetchStarted = false;
     function startTrackLyricFetch() {

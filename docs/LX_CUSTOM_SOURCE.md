@@ -36,7 +36,7 @@ Mineradio 继续负责搜索、账号、歌单、播放队列、歌词舞台和�
 | `music-info.js` | `desktop/custom-source/music-info.js` | Mineradio 歌曲对象 → 洛雪 `MusicInfo` |
 | `protocol.js` | `desktop/custom-source/protocol.js` | 协议常量与纯函数（元数据解析、音质选择、响应校验、播放策略） |
 | `redact.js` | `desktop/custom-source/redact.js` | 落盘前的敏感字段遮盖 |
-| 解析路由 | `server.js` → `/api/custom-source/resolve` | 渲染进程到主进程宿主的唯一入口，负责取消传播 |
+| 解析路由 | `server/server.js` → `/api/custom-source/resolve` | 渲染进程到主进程宿主的唯一入口，负责取消传播 |
 | 前端模块 | `public/js/modules/05-playback/20-custom-source.js` | 脚本清单管理界面，以及播放链路的接入点 |
 
 脚本运行环境、HTTP 代理、脱敏与播放解析全部留在 Electron 主进程侧。渲染进程只负责
@@ -44,7 +44,7 @@ Mineradio 继续负责搜索、账号、歌单、播放队列、歌词舞台和�
 
 ### 解析器注入必须跟着本地服务一起重来
 
-`ensureLocalServerStarted()` 会清掉 `require.cache` 再重新 require `server.js`，拿到的是
+`ensureLocalServerStarted()` 会清掉 `require.cache` 再重新 require `server/server.js`，拿到的是
 **全新模块实例**，上面挂的 `customSourceResolver` 会一起消失。因此每一条「启动/重启本地
 服务 → 加载主页面」的路径都必须在两者之间重新调用 `initializeCustomSourceManager()`：
 

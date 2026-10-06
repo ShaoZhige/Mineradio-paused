@@ -3,8 +3,8 @@
 const assert = require('assert');
 const https = require('https');
 const { EventEmitter } = require('events');
-const kugou = require('../kugou-api');
-const qishui = require('../qishui-api');
+const kugou = require('../server/kugou-api');
+const qishui = require('../server/qishui-api');
 
 function requireTestFunction(runtime, name, provider) {
   const fn = runtime && runtime._test && runtime._test[name];

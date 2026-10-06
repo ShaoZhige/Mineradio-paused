@@ -54,7 +54,7 @@ function scheduleMainRendererViewportRefresh(reason) {
 }
 window.addEventListener('resize', function () {
   scheduleMainRendererViewportRefresh('resize');
-  if (desktopRuntimeState.fullscreen || desktopFullscreenActive || document.fullscreenElement || document.body.classList.contains('desktop-fullscreen')) layoutFullscreenDiyZone();
+  if (isFullscreenNow()) layoutFullscreenToolsZone();
 });
 document.addEventListener('keydown', function (e) {
   if (isTypingTarget(e.target)) return;

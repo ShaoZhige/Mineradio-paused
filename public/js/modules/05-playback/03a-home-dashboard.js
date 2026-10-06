@@ -153,18 +153,33 @@ function homeDashboardSelectedReview() {
   return reviews[index];
 }
 
+// 日期要按当前界面语言渲染，不能写死 zh-CN：否则 English 界面上照样蹦出「星期一」。
+// 语言码走 MineradioI18n.htmlLang()（xx_xx -> BCP47），拿不到时退回系统默认。
+// The date follows the current UI language. A hardcoded zh-CN printed Chinese weekdays inside
+// an English UI; MineradioI18n.htmlLang() maps xx_xx onto BCP47 and we fall back to the system
+// default when it is unavailable.
+function homeDashboardDateLocale() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  if (i18n && typeof i18n.htmlLang === 'function') {
+    try { return i18n.htmlLang() || undefined; } catch (_) { }
+  }
+  return undefined;
+}
+
 function homeDashboardUpdateClock() {
   var time = document.getElementById('daily-review-time');
   var date = document.getElementById('daily-review-date');
   if (!time || !date) return;
   var now = new Date();
   time.textContent = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-  date.textContent = now.toLocaleDateString('zh-CN', {
+  var options = {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     weekday: 'long',
-  });
+  };
+  var locale = homeDashboardDateLocale();
+  date.textContent = locale ? now.toLocaleDateString(locale, options) : now.toLocaleDateString(undefined, options);
 }
 
 function homeDashboardNotify(message) {
@@ -582,6 +597,14 @@ function renderHomeDashboardQuickCards() {
   var accountPlaylistCount = homeDiscoverState && Array.isArray(homeDiscoverState.playlists) ? homeDiscoverState.playlists.length : 0;
   var ownPlaylistCount = Array.isArray(userPlaylists) ? userPlaylists.length : 0;
   var libraryCount = localCount + accountPlaylistCount + ownPlaylistCount;
+  // 顺序即布局：快速卡片网格是两列，前两张占第一行（CONTINUE / RECENT），后两张落到第二行
+  // （LIBRARY / DAILY MIX）。多账号登录后右上角胶囊会压住第一行右侧，让 LIBRARY / DAILY MIX
+  // 单独起一行避让。改顺序必须同步改 public/index.html 里的静态卡片，否则按索引打补丁会错位。
+  // Order is layout: the quick grid is two columns, so the first two cards fill row one
+  // (CONTINUE / RECENT) and the last two drop to row two (LIBRARY / DAILY MIX). The top account
+  // capsule overlaps row one's right edge after a multi-account login, hence the dedicated row.
+  // Reordering must be mirrored in the static cards in public/index.html, otherwise the
+  // index-based patching below silently mismatches content and position.
   var cards = [
     {
       label: 'CONTINUE',
@@ -591,6 +614,15 @@ function renderHomeDashboardQuickCards() {
       action: 'resumeHomeDashboardPlayback()',
       tone: 'search',
       className: 'home-card-featured',
+    },
+    {
+      label: 'RECENT',
+      title: homeDashboardText('dash_recent_plays'),
+      sub: recent ? ((recent.name || homeDashboardText('dash_recent_song')) + (recent.artist ? ' · ' + recent.artist : '')) : homeDashboardText('dash_recent_hint'),
+      cover: recent && recent.cover || '',
+      action: 'playHomeRecent()',
+      tone: 'playlist',
+      className: 'home-card-quick',
     },
     {
       label: 'LIBRARY',
@@ -608,15 +640,6 @@ function renderHomeDashboardQuickCards() {
       cover: homeDashboardSongCover(daily, 260),
       action: 'playHomeDaily()',
       tone: 'mix',
-      className: 'home-card-quick',
-    },
-    {
-      label: 'RECENT',
-      title: homeDashboardText('dash_recent_plays'),
-      sub: recent ? ((recent.name || homeDashboardText('dash_recent_song')) + (recent.artist ? ' · ' + recent.artist : '')) : homeDashboardText('dash_recent_hint'),
-      cover: recent && recent.cover || '',
-      action: 'playHomeRecent()',
-      tone: 'playlist',
       className: 'home-card-quick',
     },
   ];
@@ -1332,6 +1355,21 @@ document.addEventListener('visibilitychange', function () {
   else scheduleHomeDashboardRefresh();
   homeDashboardUpdateVideoPower();
 });
+
+// 语言切换要立刻重绘，不能等 15 秒的刷新定时器：星期几和「每日热评」不是 data-i18n 节点，
+// i18n 的 DOM 扫描够不到，只有重绘才会换成新语言。
+// A language switch repaints immediately rather than waiting for the 15s refresh timer: the
+// weekday and the review source are not data-i18n nodes, so the i18n DOM scan cannot reach them
+// and only a re-render swaps the language.
+if (typeof window !== 'undefined' && window.MineradioI18n
+  && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(function () {
+    homeDashboardUpdateClock();
+    if (typeof emptyHomeActive !== 'undefined' && !document.hidden && emptyHomeActive) {
+      renderHomeDashboard();
+    }
+  });
+}
 
 bindHomeDashboardVideoControls();
 bindHomePlatformRecommendationControls();

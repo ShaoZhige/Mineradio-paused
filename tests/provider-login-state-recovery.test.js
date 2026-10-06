@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
-const { i18nWindow } = require('./helpers/module-source');
+const { i18nWindow, withProviderRegistry } = require('./helpers/module-source');
 const root = path.resolve(__dirname, '..');
 
 function renderer() {
@@ -30,7 +30,7 @@ function renderer() {
     playlistCatalogRevision: 0, homeDiscoverState: {}, activeAccountProvider: 'qishui',
   });
   for (const file of ['01-login-modal-utils.js', '02-login-status.js']) {
-    vm.runInContext(fs.readFileSync(path.join(root, 'public/js/modules/08-account', file), 'utf8'), context);
+    vm.runInContext(withProviderRegistry(fs.readFileSync(path.join(root, 'public/js/modules/08-account', file), 'utf8')), context);
   }
   context.notices = notices;
   return context;
@@ -118,7 +118,7 @@ test('the shared badge retains QQ pending and verified ordinary account states',
 });
 
 async function qrRoute(data, status = { loggedIn: true, webSession: true }) {
-  const source = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'server', 'server.js'), 'utf8');
   const start = source.indexOf("  if (pn === '/api/qishui/login/check')");
   const end = source.indexOf("  if (pn === '/api/qishui/status'", start);
   assert(start > 0 && end > start);
@@ -170,7 +170,7 @@ test('a rejected fresh session stops the QR poll and displays a rescan action', 
     document: { getElementById: () => element },
     apiJson: async () => ({ loggedIn: false, reauthRequired: true, status: 'reauth_required' }),
   });
-  vm.runInContext(source, context);
+  vm.runInContext(withProviderRegistry(source), context);
   context.stopQrPoll = () => { stopped = true; context.qishuiQrPollGeneration++; };
   context.scheduleQishuiQrPoll = generation => {
     assert.notEqual(generation, context.qishuiQrPollGeneration, 'the completed QR generation must not schedule another request');

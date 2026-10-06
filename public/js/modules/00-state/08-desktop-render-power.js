@@ -50,7 +50,21 @@ function detectRuntimeHardwareProfile() {
   var largeSurface = renderPixels >= 4200000;
   var veryLargeSurface = renderPixels >= 7200000;
   var lowSpec = lowCore || lowMemory || (cores > 0 && cores <= 6 && veryLargeSurface);
-  var balancedSpec = lowSpec || (cores > 0 && cores <= 8) || largeSurface;
+  // 只把"填充率真的吃紧"的机器判成 balanced。旧判据是
+  // `lowSpec || cores <= 8 || largeSurface`，其中 `cores <= 8` 和 `renderPixels >= 4.2M`
+  // 几乎人人命中：1080p@dpr1.5 就是 4.67M、1440p@dpr1.25 是 5.76M，8 核也是主流配置。
+  // 于是"高"档（rank 2）在绝大多数机器上被 `balancedSpec && rank <= 2` 压到 level 1，
+  // 粒子只剩 0.58。粒子系统的瓶颈是填充率，跟 CPU 核数无关，所以只保留分辨率这一项，
+  // 且阈值提到 7.2M（4K@dpr1 级别）。CPU 核数不再单独判定 —— lowSpec 已经覆盖了 <=4 核。
+  // Only machines that are genuinely fill-rate bound count as balanced. The old test was
+  // `lowSpec || cores <= 8 || largeSurface`, and both of the latter two hit almost everyone:
+  // 1080p@dpr1.5 is already 4.67M pixels and 1440p@dpr1.25 is 5.76M, while 8 cores is a mainstream
+  // CPU. As a result the "high" tier (rank 2) was pushed down to level 1 by
+  // `balancedSpec && rank <= 2` on nearly every machine, leaving particles at 0.58. Particle
+  // systems are fill-rate bound and do not care about core count, so only the resolution test
+  // survives and its threshold moves to 7.2M (4K@dpr1 class). Core count is no longer tested on
+  // its own — lowSpec already covers <=4 cores.
+  var balancedSpec = lowSpec || veryLargeSurface;
   return {
     cores: cores,
     deviceMemoryGB: memory,
@@ -73,7 +87,12 @@ function refreshRuntimeHardwareSurfaceProfile() {
   runtimeHardwareProfile.largeSurface = next.largeSurface;
   runtimeHardwareProfile.veryLargeSurface = next.veryLargeSurface;
   runtimeHardwareProfile.lowSpec = runtimeHardwareProfile.lowCore || runtimeHardwareProfile.lowMemory || (runtimeHardwareProfile.cores > 0 && runtimeHardwareProfile.cores <= 6 && next.veryLargeSurface);
-  runtimeHardwareProfile.balancedSpec = runtimeHardwareProfile.lowSpec || (runtimeHardwareProfile.cores > 0 && runtimeHardwareProfile.cores <= 8) || next.largeSurface;
+  // 必须和 detectRuntimeHardwareProfile() 里的判据逐字一致，否则改窗口大小/缩放后
+  // balancedSpec 会在两个公式之间跳变（初次检测和刷新走的是两条路径）。
+  // Must match the test in detectRuntimeHardwareProfile() verbatim, otherwise a resize or DPI
+  // change makes balancedSpec flip between two formulas (first detection and refresh are separate
+  // code paths).
+  runtimeHardwareProfile.balancedSpec = runtimeHardwareProfile.lowSpec || next.veryLargeSurface;
   return runtimeHardwareProfile;
 }
 function performanceQualityRank() {
@@ -89,9 +108,17 @@ function runtimePerfBudgetLevel() {
   var rank = performanceQualityRank();
   var profile = runtimeHardwareProfile || detectRuntimeHardwareProfile();
   if (rank <= 0) return 0;
+  // 用户显式选了「超高」就不再被硬件档位反向压低。原先这里是 `rank >= 3 && !profile.lowSpec`，
+  // 于是低端机上选了最高档也只能拿到 level 2（粒子系数 0.85）—— 用户看到的"开到最高档还是
+  // 比上游淡"有一部分就是这个。画质档位是显式意图，硬件检测只该在用户没表态时兜底。
+  // An explicit "ultra" choice is never downgraded by the hardware tier any more. This used to be
+  // `rank >= 3 && !profile.lowSpec`, so on a low-spec machine even the top tier only reached
+  // level 2 (a 0.85 particle factor) — part of why the highest setting still looked thinner than
+  // upstream. The quality tier is an explicit statement of intent; hardware detection should only
+  // fill in when the user has not picked a tier.
+  if (rank >= 3) return 3;
   if (profile.lowSpec && rank <= 2) return 0;
   if (rank <= 1 || (profile.balancedSpec && rank <= 2)) return 1;
-  if (rank >= 3 && !profile.lowSpec) return 3;
   return 2;
 }
 function runtimePerfScale() {

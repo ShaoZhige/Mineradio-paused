@@ -96,7 +96,11 @@ var DESKTOP_ICON_SHIELD_TARGETS = [
   { selector: '#playlist-panel', kind: 'playlist-panel' },
   { selector: '#empty-home', kind: 'home' },
   { selector: '#desktop-titlebar', kind: 'window-controls' },
-  { selector: '#fullscreen-diy-zone', kind: 'fullscreen-tools', ignoreAriaHidden: true },
+  // 全屏工具行里装的是标题栏搬过来的那排按钮，未浮现时用 visibility: hidden 隐藏，
+  // 所以这里的可见性判定本来就够用 —— 不需要 ignoreAriaHidden。
+  // The row hosts the title bar's tool buttons and hides itself with visibility: hidden when not
+  // revealed, so the default visibility test is enough — no aria-hidden override needed.
+  { selector: '#fullscreen-tools-zone', kind: 'fullscreen-tools' },
   { selector: '#upload-panel', kind: 'upload-panel' },
   { selector: '#upload-tip', kind: 'upload-tip' },
   { selector: '#bottom-handle', kind: 'player-handle' },
@@ -1599,11 +1603,16 @@ function toggleFullscreen() {
     updateDesktopModeControl(desktopWallpaperRuntimeState);
     scheduleDesktopPointerRouteReport(null, true);
     desktopRuntimeState.fullscreen = isFullScreen;
-    if (isFullScreen) layoutFullscreenDiyZone();
+    // 进/退全屏都要搬：全屏把标题栏那排工具按钮搬进 #fullscreen-tools-zone，退出搬回标题栏。
+    // 每次状态变化都调（不只是 true→false 那一跳）：主进程状态可能重复上报，搬移是幂等的。
+    // Move on both directions: into the fullscreen tool row on enter, back into the title bar on
+    // exit. Called on every state report, not only on the transition — the move is idempotent.
+    syncFullscreenToolsRow(isFullScreen);
     if (isFullScreen !== wasFullScreen) {
       scheduleMainRendererViewportRefresh('desktop-shell-state');
       if (!isFullScreen) {
-        document.body.classList.remove('fullscreen-diy-peek');
+        document.body.classList.remove('fullscreen-tools-peek');
+        document.body.classList.remove('fullscreen-tools-guided');
         setTimeout(function () { clearPlayerControlFocusState('desktop-fullscreen-exit'); }, 80);
       }
     }

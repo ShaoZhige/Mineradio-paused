@@ -1,7 +1,9 @@
 var loginRefreshRequestSeq = 0;
 var loginWorkflowDrag = null;
 var LOGIN_WORKFLOW_CONNECTION_STORE_KEY = 'mineradio-login-workflow-connections-v1';
-var LOGIN_WORKFLOW_PROVIDERS = ['netease', 'qq', 'kugou', 'qishui'];
+// 登录工作流里列出的平台同样来自注册表（login 能力）。
+// The platforms listed in the login workflow also come from the registry (login capability).
+var LOGIN_WORKFLOW_PROVIDERS = providerRegistryKeysWith('login');
 var loginWorkflowPendingProvider = '';
 var loginWorkflowVerifiedSession = {};
 var loginProviderPointer = null;
@@ -14,6 +16,8 @@ var spotifySetupCallbackReady = false;
 var spotifySetupDiagnostics = null;
 var spotifySetupBusy = false;
 var spotifySetupAutoCheckKey = '';
+// 登录成功后的换源提醒，单次加载内只弹一次 / one-shot per page load.
+var spotifyLoginReminderShown = false;
 
 // 登录相关文案统一走 i18n；缺键时退回内置中文，界面不会出现空串或裸 key。
 // Login copy goes through i18n and falls back to the built-in Chinese text, so the
@@ -55,6 +59,11 @@ function isLoginRefreshCurrent(provider, seq) {
 }
 
 function normalizeLoginProviderKey(provider) {
+  // spotify 必须显式返回，否则会落到默认分支被当成 netease，
+  // 登录节点图的 OAuth 分支（loginProvider === 'spotify'）将全部失效。
+  // spotify must be matched explicitly or it falls through to the netease default,
+  // which silently disables every OAuth branch keyed on loginProvider === 'spotify'.
+  if (provider === 'spotify') return 'spotify';
   return provider === 'qq' ? 'qq' : (provider === 'kugou' ? 'kugou' : (provider === 'qishui' ? 'qishui' : 'netease'));
 }
 function loginProviderSupportsCookieMode(provider) {
@@ -1346,6 +1355,13 @@ async function openSpotifyWebLogin() {
     updateLoginProviderUi();
     await runSpotifySetupDiagnostics(true);
     showToast(loginText('login_spotify_connected_prefix') + (info.nickname || info.userId || ''));
+    // 提醒：未开启本机 Spotify 客户端时，因无返回的可播放直链，将自动换源到同首歌的其他可用源。
+    // Reminder: without the local Spotify client open, playback auto-switches to another
+    // available source of the same track because no playable direct link is returned.
+    if (!spotifyLoginReminderShown) {
+      spotifyLoginReminderShown = true;
+      setTimeout(function () { showToast(loginText('spotify_login_reminder')); }, 2400);
+    }
   } catch (e) {
     failText = e && e.message ? e.message : loginText('login_spotify_auth_failed');
     setSpotifySetupOverall(failText, 'fail');

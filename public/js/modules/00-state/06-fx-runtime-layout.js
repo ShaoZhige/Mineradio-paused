@@ -23,6 +23,16 @@ var playbackVisualPreset = readSavedPlaybackVisualPreset();
 var startupVisualPreviewActive = false;
 var fx = Object.assign({}, fxDefaults, readSavedLyricLayout());
 normalizeDevelopmentLockedFxState();
+// 自动节奏分析的总开关（设置项见 fxDefaults.beatAnalysis）。判据只认显式 true：读旧存档或别人
+// 的分享码时这个键可能不存在，缺键必须落回「关闭」——写成 `!== false` 会让缺键变成开启，
+// 「默认关闭」就名存实亡。放在这里是因为它读的 fx 就在上面，且本模块早于 03-beat 加载。
+// The master predicate for automatic beat analysis. Only an explicit true counts: the key can be
+// absent when loading an older archive or someone else's share code, and a missing key must fall
+// back to off — `!== false` would silently turn the default off-switch into an on-switch. It lives
+// here because fx is declared above and this module loads before 03-beat.
+function beatAnalysisEnabled() {
+  return !!(typeof fx !== 'undefined' && fx && fx.beatAnalysis === true);
+}
 function clampPlaylistPanelFxSettings() {
   if (!fx) return;
   fx.playlistPanelGlassBlur = Math.round(clampRange(fx.playlistPanelGlassBlur == null ? fxDefaults.playlistPanelGlassBlur : Number(fx.playlistPanelGlassBlur), 14, 60));

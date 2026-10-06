@@ -20,6 +20,7 @@
 //      An unmapped code keeps the backend original and never yields an empty string.
 
 const test = require('node:test');
+const { withProviderRegistry } = require('./helpers/module-source');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -58,7 +59,7 @@ function loadBackendText(messages) {
     t: (key) => (Object.prototype.hasOwnProperty.call(messages, key) ? messages[key] : key),
   };
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(MODULE, 'utf8'), sandbox, { filename: MODULE });
+  vm.runInContext(withProviderRegistry(fs.readFileSync(MODULE, 'utf8')), sandbox, { filename: MODULE });
   return sandbox.MineradioBackendText;
 }
 
@@ -135,15 +136,18 @@ test('映射表里的 code 都能在源码里找到', () => {
   // simply because the map contains it.
   const sources = [];
   const walk = (current) => {
+    let count = 0;
     fs.readdirSync(current, { withFileTypes: true }).forEach((entry) => {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name === 'locales') return;
-        walk(full);
+        count += walk(full);
       } else if (path.extname(entry.name) === '.js') {
         sources.push(fs.readFileSync(full, 'utf8'));
+        count += 1;
       }
     });
+    return count;
   };
   // 根目录只读顶层 .js。对根目录做递归会一路扫进 public/ 与 tests/，
   // 而映射表自己就住在 public/js 下 —— 那样写错一个字母也会因为
@@ -156,12 +160,24 @@ test('映射表里的 code 都能在源码里找到', () => {
       sources.push(fs.readFileSync(path.join(ROOT, entry.name), 'utf8'));
     }
   });
+  // 后端源码现在住在 server/ 下（根目录不再有 .js）。产出 code 的一方就是它，
+  // 扫描面必须跟着被保护的对象一起搬 —— 否则语料里只剩桌面端的几个文件，
+  // 这条判据会从"检查 40 多个 code"退化成"检查 2 个"，而且不会报任何错。
+  // The backend now lives under server/ (the root holds no .js). It is the producer of these codes,
+  // so the scan surface has to follow what it guards: otherwise the corpus shrinks to a couple of
+  // desktop files and the check silently degrades from 40-odd codes to 2.
+  const backendDir = path.join(ROOT, 'server');
+  const backendFileCount = fs.existsSync(backendDir) ? walk(backendDir) : 0;
   ['desktop', path.join('desktop', 'custom-source')].forEach((dir) => {
     const abs = path.join(ROOT, dir);
     if (fs.existsSync(abs)) walk(abs);
   });
   const haystack = sources.join('\n');
   assert.ok(sources.length > 5, '语料太少，判据可能已经失效');
+  // 后端必须真的贡献了语料：漏扫时这条立刻红，而不是安静地少查一批 code。
+  // The backend must actually contribute: a missed directory fails here loudly instead of quietly
+  // checking fewer codes.
+  assert.ok(backendFileCount >= 9, `后端源码没有进入语料（只扫到 ${backendFileCount} 个文件），扫描面与它保护的对象脱节了`);
   // 语料里出现映射表自己的标识符，就说明扫描范围又扩到了 public/js，
   // 判据会开始自证 —— 这条守住扫描范围本身。
   // Seeing the map's own identifier in the corpus means the scan crept back into
@@ -176,10 +192,10 @@ test('映射表里的 code 都能在源码里找到', () => {
 });
 
 test('本地化只改 message，绝不改 error', () => {
-  const lib = loadBackendText({ backend_provider_removed: '平台接口已移除（词典）' });
-  const payload = lib.localize({ ok: false, error: 'PROVIDER_REMOVED', message: '该平台接口已从 Mineradio 移除。' });
-  assert.strictEqual(payload.error, 'PROVIDER_REMOVED', 'error 必须保持机器码，前端按它做分类');
-  assert.strictEqual(payload.message, '平台接口已移除（词典）', 'message 应当换成词典文案');
+  const lib = loadBackendText({ backend_update_external_only: '仅支持外部跳转（词典）' });
+  const payload = lib.localize({ ok: false, error: 'UPDATE_EXTERNAL_ONLY', message: '该更新仅支持在外部浏览器打开。' });
+  assert.strictEqual(payload.error, 'UPDATE_EXTERNAL_ONLY', 'error 必须保持机器码，前端按它做分类');
+  assert.strictEqual(payload.message, '仅支持外部跳转（词典）', 'message 应当换成词典文案');
 });
 
 test('未映射的 code 保留后端原文，不会变成空串', () => {
@@ -217,8 +233,8 @@ test('backendText 按 code 查词典 / 退回原文 / 退回调用方兜底', ()
 });
 
 test('backendCodeText 对未映射的 code 还回传入的 fallback', () => {
-  const lib = loadBackendText({ backend_provider_removed: '已移除（词典）' });
-  assert.strictEqual(lib.backendCodeText('PROVIDER_REMOVED', 'x'), '已移除（词典）');
+  const lib = loadBackendText({ backend_update_external_only: '仅外部跳转（词典）' });
+  assert.strictEqual(lib.backendCodeText('UPDATE_EXTERNAL_ONLY', 'x'), '仅外部跳转（词典）');
   // 用 null 作为 fallback 时，未命中必须还回 null，调用方据此判断"没查到"。
   assert.strictEqual(lib.backendCodeText('NOPE_NOT_MAPPED', null), null);
 });

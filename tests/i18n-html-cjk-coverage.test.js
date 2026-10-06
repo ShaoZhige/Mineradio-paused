@@ -24,28 +24,19 @@ const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'i
 const I18N_ATTRS = ['data-i18n', 'data-i18n-title', 'data-i18n-placeholder', 'data-i18n-attr'];
 
 // 故意不带 i18n 声明的显示点 / display points deliberately left without i18n
-//  - 登录彩蛋的「世界和平」拼字：四个字是独立可点击的字符，整句替换会毁掉玩法
-//    The login easter egg spells 世界和平 one clickable character at a time;
-//    replacing it as a sentence would break the interaction.
 //  - 语言菜单里的语言自称（中文 / 日本語）：翻译语言自称没有意义
 //    Language endonyms in the menu — translating a language's own name is pointless.
 //  - 语言按钮的首字「中」：由 14-i18n-switcher.js 按当前语言动态写入
 //    The switcher button's initial, written at runtime by 14-i18n-switcher.js.
+// 登录彩蛋曾在这里占掉十一条豁免（拼字用字格、打字框、成就文案…）。彩蛋改成选择框并接入
+// i18n 之后全部下架，剩下这三条都与彩蛋无关。
+// The login easter egg used to own eleven exemptions here (the spelling cells, the typing
+// field, the achievement copy). Turning it into a select box and wiring i18n retired all of
+// them; the three left have nothing to do with the egg.
 const EXEMPT = [
   ['text', '中'],
   ['text', '中文'],
   ['text', '日本語'],
-  ['aria-label', '轻触大小眼'],
-  ['text', '心愿是'],
-  ['aria-label', '输入四个字的愿望'],
-  ['aria-label', '世界和平，点击继续'],
-  ['text', '世'],
-  ['text', '界'],
-  ['text', '和'],
-  ['text', '平'],
-  ['aria-label', '已达成成就：世界和平！'],
-  ['text', '已达成成就'],
-  ['text', '世界和平！'],
 ];
 
 // 页面里有大量十进制/十六进制字符引用（&#35009; 裁、&#x5730; 地），不解码的话

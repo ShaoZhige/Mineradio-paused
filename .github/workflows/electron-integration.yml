@@ -5,20 +5,16 @@ on:
     branches: [main]
     paths:
       - 'desktop/**'
+      - 'server/**'
       - 'tests/**'
-      - 'qishui-auth-v6/**'
-      - 'qishui-qr-login.js'
-      - 'qishui-auth-v6.js'
       - 'package.json'
       - 'package-lock.json'
   push:
     branches: [main]
     paths:
       - 'desktop/**'
+      - 'server/**'
       - 'tests/**'
-      - 'qishui-auth-v6/**'
-      - 'qishui-qr-login.js'
-      - 'qishui-auth-v6.js'
       - 'package.json'
       - 'package-lock.json'
   workflow_dispatch:

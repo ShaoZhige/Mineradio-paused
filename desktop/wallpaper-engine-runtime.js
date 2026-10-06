@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const childProcess = require('child_process');
 const { discoverSteamLibraries: defaultDiscoverSteamLibraries } = require('./wallpaper-engine-library');
+const portablePaths = require('./portable-paths');
 
 const SIGNER_PATTERN = /\bSkutta Software\b/i;
 const MIN_WIDTH = 64;
@@ -1898,8 +1899,7 @@ class WallpaperEngineRuntime {
     this.powerShellExecutable = options.powerShellExecutable || 'powershell.exe';
     this.nativeTempPath = path.resolve(String(
       options.nativeTempPath
-      || process.env.MINERADIO_NATIVE_TEMP_DIR
-      || path.join(process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(), 'Mineradio', 'native-helper-temp')
+      || portablePaths.resolveNativeTempDir()
     ));
     fs.mkdirSync(this.nativeTempPath, { recursive: true });
     this.nativeExecFile = options.nativeExecFile || childProcess.execFile;
@@ -3320,18 +3320,13 @@ class WallpaperEngineRuntime {
     }
     if (!stagedPropertyCount && stagedScenePackage === scenePackage) return projectFile;
 
-    const nativeVolume = path.parse(path.resolve(this.nativeTempPath)).root.toLowerCase();
-    const packageVolume = path.parse(path.resolve(scenePackage)).root.toLowerCase();
-    const preferredStageRoot = nativeVolume === packageVolume
-      ? path.resolve(this.nativeTempPath, 'wallpaper-engine-scene-stage')
-      : path.resolve(path.parse(scenePackage).root, 'MineradioCache', 'wallpaper-engine-scene-stage');
-    let stageRoot = preferredStageRoot;
-    try {
-      await fs.promises.mkdir(stageRoot, { recursive: true });
-    } catch (_) {
-      stageRoot = path.resolve(path.dirname(scenePackage), '.mineradio-scene-stage');
-      await fs.promises.mkdir(stageRoot, { recursive: true });
-    }
+    // 场景暂存目录固定在软件目录内的 native 临时区。原先跨盘分支会把暂存目录建到场景包
+    // 所在盘符根目录的 MineradioCache 下，等于在用户磁盘根上乱建文件夹。
+    // Staged scene copies always stay inside the app's native temp folder. The old
+    // cross-volume branch created a MineradioCache folder at the scene package's drive root,
+    // i.e. it scattered directories onto the user's disk.
+    const stageRoot = path.resolve(this.nativeTempPath, 'wallpaper-engine-scene-stage');
+    await fs.promises.mkdir(stageRoot, { recursive: true });
     const stageDirectory = path.resolve(stageRoot, session.sessionId);
     const relative = path.relative(stageRoot, stageDirectory);
     if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {

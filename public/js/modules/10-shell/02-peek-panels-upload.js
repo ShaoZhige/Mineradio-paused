@@ -74,7 +74,7 @@ function setPeek(el, on, key) {
   if (on && !diyPlayerMode && key === 'fx') return;
   if (!on && key === 'search' && emptyHomeActive && !immersiveMode) return;
   if (!on && key === 'pl' && playlistPanelPinned) return;
-  if (on && key === 'fx') document.body.classList.remove('fullscreen-diy-peek');
+  if (on && key === 'fx') document.body.classList.remove('fullscreen-tools-peek');
   if (on) {
     if (key === 'pl') resetSecondaryPlaylistEdgeGuard();
     var wasPeek = el.classList.contains('peek');
@@ -378,7 +378,7 @@ window.addEventListener('mousemove', function (e) {
   var ex = e.clientX, ey = e.clientY, W = innerWidth, H = innerHeight;
   updateUserCapsuleAutoHideFromPointer(ex, ey);
   updateFxFabAutoHideFromPointer(ex, ey);
-  updateFullscreenDiyPeekFromPointer(ex, ey);
+  updateFullscreenToolsPeekFromPointer(ex, ey);
   if (document.body.classList.contains('splash-active')) {
     updateShelfHoverCueFromPointer(null);
     updateShelfCardHoverSelection(null);

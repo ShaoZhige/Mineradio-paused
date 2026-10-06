@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.resolve(__dirname, '..', 'server.js'), 'utf8');
+const source = fs.readFileSync(path.resolve(__dirname, '..', 'server', 'server.js'), 'utf8');
 
 function namedFunctionSource(text, name) {
   const declaration = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(text);

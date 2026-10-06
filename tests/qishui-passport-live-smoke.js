@@ -25,7 +25,7 @@ async function finish(code) {
 }
 
 app.whenReady().then(async () => {
-  bridge = require('../qishui-qr-login');
+  bridge = require('../server/qishui-qr-login');
   const qr = await bridge.createQrCode();
   const token = String(qr && qr.data && qr.data.token || '');
   const image = String(qr && qr.data && qr.data.qrcode || '');

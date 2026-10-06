@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   renameBuiltInPlaylist: (id, name) => ipcRenderer.invoke('mineradio-built-in-playlist-rename', String(id || ''), String(name || '')),
   deleteBuiltInPlaylist: (id) => ipcRenderer.invoke('mineradio-built-in-playlist-delete', String(id || '')),
   addBuiltInPlaylistTrack: (id, track) => ipcRenderer.invoke('mineradio-built-in-playlist-add-track', String(id || ''), track || {}),
+  addBuiltInPlaylistTracks: (id, tracks) => ipcRenderer.invoke('mineradio-built-in-playlist-add-tracks', String(id || ''), Array.isArray(tracks) ? tracks : []),
   removeBuiltInPlaylistTrack: (id, index) => ipcRenderer.invoke('mineradio-built-in-playlist-remove-track', String(id || ''), Number(index)),
   reorderBuiltInPlaylistTrack: (id, fromIndex, toIndex) => ipcRenderer.invoke('mineradio-built-in-playlist-reorder-track', String(id || ''), Number(fromIndex), Number(toIndex)),
   importLocalMusicFiles: async (files) => {

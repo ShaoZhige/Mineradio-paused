@@ -6,7 +6,7 @@ const https = require('https');
 const path = require('path');
 const vm = require('vm');
 const { EventEmitter } = require('events');
-const qishui = require('../qishui-api');
+const qishui = require('../server/qishui-api');
 
 function namedFunctionSource(source, name) {
   const declaration = new RegExp('(?:async\\s+)?function\\s+' + name + '\\s*\\(').exec(source);

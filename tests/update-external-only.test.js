@@ -12,7 +12,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(appRoot, relativePath), 'utf8');
 }
 
-const serverText = read('server.js');
+const serverText = read('server/server.js');
 const updateUiText = read('public/js/modules/08-account/00-update-preview.js');
 const htmlText = read('public/index.html');
 const packageData = JSON.parse(read('package.json'));

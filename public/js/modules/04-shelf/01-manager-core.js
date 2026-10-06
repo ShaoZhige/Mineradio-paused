@@ -609,11 +609,12 @@ function makeShelfManager() {
   function createStageExtras() {
     if (!group) return;
     var pcount = 80;
+    var pcapacity = Math.round(pcount * particleBudgetHeadroom());
     var pgeo = new THREE.BufferGeometry();
-    var ppos = new Float32Array(pcount * 3);
-    var pcol = new Float32Array(pcount * 3);
-    var prnd = new Float32Array(pcount);
-    for (var i = 0; i < pcount; i++) {
+    var ppos = new Float32Array(pcapacity * 3);
+    var pcol = new Float32Array(pcapacity * 3);
+    var prnd = new Float32Array(pcapacity);
+    for (var i = 0; i < pcapacity; i++) {
       ppos[i * 3] = (Math.random() - 0.5) * 6;
       ppos[i * 3 + 1] = (Math.random() - 0.5) * 1.2 + 0.3;
       ppos[i * 3 + 2] = 1.0 + Math.random() * 1.5;

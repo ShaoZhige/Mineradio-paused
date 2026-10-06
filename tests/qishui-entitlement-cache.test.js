@@ -3,7 +3,7 @@
 const assert = require('assert');
 const https = require('https');
 const { EventEmitter } = require('events');
-const qishui = require('../qishui-api');
+const qishui = require('../server/qishui-api');
 
 function withHttpsMock(handler, task) {
   const original = https.request;

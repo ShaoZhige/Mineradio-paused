@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = fs.readFileSync(path.join(root, 'server', 'server.js'), 'utf8');
 const listenStats = fs.readFileSync(
   path.join(root, 'public', 'js', 'modules', '05-playback', '02-listen-stats.js'),
   'utf8'

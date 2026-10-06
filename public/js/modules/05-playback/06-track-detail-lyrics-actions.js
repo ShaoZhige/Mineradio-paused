@@ -307,7 +307,12 @@ function commentTimeLabel(ms) {
   var t = Number(ms) || 0;
   if (!t) return '';
   try {
-    return new Date(t).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    // 评论日期跟随界面语言，不能写死 zh-CN；拿不到语言标签时交给系统默认。
+    // The comment date follows the UI language rather than a hardcoded zh-CN, and falls back to
+    // the system default when no tag is available.
+    var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+    var locale = i18n && typeof i18n.htmlLang === 'function' ? i18n.htmlLang() : undefined;
+    return new Date(t).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   } catch (e) {
     return '';
   }

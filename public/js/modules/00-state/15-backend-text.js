@@ -54,7 +54,6 @@
     SPOTIFY_PLAYLIST_NAME_REQUIRED: 'backend_spotify_playlist_name',
     SPOTIFY_ITEM_ID_REQUIRED: 'backend_spotify_item_id',
     // ── 内容源可用性 / Source availability ───────────────────
-    PROVIDER_REMOVED: 'backend_provider_removed',
     UPDATE_EXTERNAL_ONLY: 'backend_update_external_only',
     QISHUI_COOKIE_REQUIRED: 'backend_qishui_cookie_required',
     QISHUI_TOKEN_REQUIRED: 'backend_qishui_token_required',
@@ -127,7 +126,6 @@
     backend_spotify_playlist_or_track: '缺少歌单或歌曲标识。',
     backend_spotify_playlist_name: '请先填写歌单名称。',
     backend_spotify_item_id: '缺少 Spotify 条目标识。',
-    backend_provider_removed: '该平台接口已从 Mineradio 移除。',
     backend_update_external_only: 'Mineradio 已停用客户端本地下载与快速补丁，请使用外部下载页面。',
     backend_qishui_cookie_required: '请先登录汽水音乐账号。',
     backend_qishui_token_required: '汽水音乐登录凭证缺失，请重新扫码登录。',

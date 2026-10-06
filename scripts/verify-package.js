@@ -97,23 +97,46 @@ for (const dir of ['desktop', 'public']) {
 }
 ok('Source tree checked for secrets');
 
-// 打包清单守卫：根目录每个 .js 文件都必须被 build.files 的某个 pattern 覆盖。
-// 防止再出现 qishui-client-bridge.js 这种"代码引用了、打包漏了"的启动崩溃。
-const rootDir = path.join(__dirname, '..');
+// 打包清单守卫：后端每个 .js 文件都必须被 build.files 的某个 pattern 覆盖。
+// 防止再出现 server/qishui-client-bridge.js 这种"代码引用了、打包漏了"的启动崩溃。
+//
+// ⚠️ 判据的根目录是从哪里来的：这里原本扫描的是**仓库根目录**的 .js。后端模块搬进 server/ 之后，
+// 根目录一个 .js 都不剩，这条判据就会永远通过 —— 一个恒绿的守卫比没有守卫更危险，因为它看上去
+// 还在守着。所以扫描面跟着被保护的对象一起搬到 server/，并在末尾断言"确实扫到了文件"。
+// Packaging-manifest guard: every backend .js must be covered by some build.files pattern, so that
+// a dependency the code requires but the build forgot (the qishui-client-bridge.js startup crash)
+// cannot ship again.
+//
+// ⚠️ Where the scan root comes from: this used to scan the repository root, where the backend modules
+// lived. Once they moved into server/ that directory holds no .js at all and the check would pass
+// forever — a permanently green guard is worse than no guard, because it still looks like coverage.
+// The scan surface follows the thing it protects, and the assertion at the end proves it found files.
+const backendDir = path.join(__dirname, '..', 'server');
 const buildFilePatterns = PKG.build?.files || [];
-function patternMatchesRootFile(pattern, file) {
+function patternCoversBackendFile(pattern, relativeFile) {
   if (pattern.startsWith('!')) return false;
-  if (pattern.includes('/')) return false; // 只关心能匹配根目录文件的 pattern
-  if (!pattern.includes('*')) return pattern === file;
-  const [prefix, suffix] = pattern.split('*');
-  return file.startsWith(prefix) && file.endsWith(suffix);
+  if (!pattern.endsWith('**/*')) return false; // 只认目录级覆盖：server/ 下新增文件必须自动落入
+  const dir = pattern.slice(0, -'**/*'.length);
+  return relativeFile.startsWith(dir);
 }
-for (const entry of fs.readdirSync(rootDir)) {
-  if (!entry.endsWith('.js')) continue;
-  const covered = buildFilePatterns.some(p => patternMatchesRootFile(p, entry));
-  if (!covered) error(`Root JS file not covered by build.files: ${entry}`);
+const backendFiles = fs.existsSync(backendDir)
+  ? fs.readdirSync(backendDir).filter(entry => entry.endsWith('.js'))
+  : [];
+if (backendFiles.length === 0) {
+  error('No backend .js found under server/ — the scan root moved, so this guard would pass vacuously');
 }
-ok('All root JS files covered by build.files');
+const uncoveredBackend = backendFiles.filter((entry) => {
+  const relative = path.posix.join('server', entry);
+  return !buildFilePatterns.some(p => patternCoversBackendFile(p, relative));
+});
+// 只有真的一条不差才报 OK：无条件打印 OK 会让"9 个文件全未覆盖"看起来也像通过。
+// OK is printed only when nothing is uncovered; printing it unconditionally makes "all 9 files
+// uncovered" look like a pass.
+if (uncoveredBackend.length === 0 && backendFiles.length > 0) {
+  ok(`All ${backendFiles.length} backend JS files covered by build.files`);
+} else {
+  uncoveredBackend.forEach((entry) => error(`Backend JS file not covered by build.files: server/${entry}`));
+}
 
 if (errors.length > 0) {
   process.stdout.write(`\n${errors.length} error(s), exiting with code 1\n`);

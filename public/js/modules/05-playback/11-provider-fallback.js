@@ -431,7 +431,10 @@ function isSameTitleArtist(source, candidate) {
   return a.some(function (name) { return b.indexOf(name) >= 0; });
 }
 var SOURCE_FALLBACK_SEARCH_TIMEOUT_MS = 6500;
-var SOURCE_FALLBACK_DIRECT_PROVIDERS = ['netease', 'qq', 'kugou'];
+// 能直接换过去的平台来自注册表的 directFallback 能力（Spotify 不返回可播放直链、汽水要签名，
+// 两者都不在其中）。原先这里手抄一份，新增平台时不会有人记得同步。
+// Platforms eligible for direct switching come from the registry's directFallback capability.
+var SOURCE_FALLBACK_DIRECT_PROVIDERS = providerRegistryKeysWith('directFallback');
 var SOURCE_FALLBACK_RECOVERY_TIMEOUT_MS = 20000;
 var SOURCE_FALLBACK_MAX_QUEUE_ADVANCES = 2;
 var SOURCE_FALLBACK_MAX_PROVIDER_ATTEMPTS = 4;
@@ -586,13 +589,35 @@ function awaitSourceFallbackBudget(promise, recovery) {
 }
 
 function sourceFallbackProviderTitle(provider) {
-  if (provider === 'qq') return playbackI18nText('login_qq', 'QQ 音乐');
-  if (provider === 'kugou') return playbackI18nText('provider_kugou');
-  return playbackI18nText('login_netease', '网易云');
+  // 与音源切换器用同一套短名（注册表的 compact 标题），换源提示与切换器里显示的名字才一致。
+  // Shares the switcher's compact titles from the registry, so the fallback notice and the switcher
+  // name the platform identically.
+  return providerRegistryCompactTitle(provider);
 }
 function sourceFallbackProviderReady(provider) {
   provider = normalizePlaybackProvider(provider);
   if (SOURCE_FALLBACK_DIRECT_PROVIDERS.indexOf(provider) < 0) return false;
+  var status = typeof platformStatus === 'function' ? platformStatus(provider) : null;
+  if (!status || !status.loggedIn) return false;
+  if (provider === 'qq' || provider === 'kugou') return status.playbackKeyReady === true;
+  return true;
+}
+// 默认源路径专用的就绪判定。
+// ⚠️ 为什么不能复用 sourceFallbackProviderReady：那个函数以**自动换源候选清单**为门槛，而汽水
+//    不在其中（自动换源历史上只覆盖 netease/qq/kugou）。但汽水本身是可搜、可播的（手动音源切换器
+//    一直支持它），所以它具备「可被指定为默认源」的资格。两者混用会让「默认源」下拉里的汽水
+//    永远搜不到 —— 一个看得见却永远不生效的设置项。（这条是测试抓出来的：断言"顺序走全"时发现
+//    汽水根本没被问到。）
+// Readiness for the preferred-source path only.
+// ⚠️ It cannot reuse sourceFallbackProviderReady: that one gates on the automatic-FALLBACK candidate
+//    list, which excludes Qishui (the recovery path has only ever covered netease/qq/kugou). But
+//    Qishui is searchable and playable — the manual source switcher has always offered it — so it
+//    qualifies as a preferred source. Sharing the gate would make a Qishui preference unreachable:
+//    an option visible in the dropdown that can never take effect. (A test caught this: asserting the
+//    order is fully walked showed Qishui was never asked.)
+function preferredSourceProviderReady(provider) {
+  provider = normalizePlaybackProvider(provider);
+  if (!provider || !providerRegistryHasCapability(provider, 'preferred')) return false;
   var status = typeof platformStatus === 'function' ? platformStatus(provider) : null;
   if (!status || !status.loggedIn) return false;
   if (provider === 'qq' || provider === 'kugou') return status.playbackKeyReady === true;
@@ -616,18 +641,131 @@ function alternatePlaybackProviders(song) {
 function alternatePlaybackProvider(song) {
   return alternatePlaybackProviders(song)[0] || '';
 }
+
+// ── 默认源：播放时优先用用户指定的平台 ──────────────────────────────────────
+// 只有**一份查找顺序**：把默认源排到最前，其余平台保持原有优先级。
+// 顺序里包含歌曲自身的来源 —— 走到它就原样播放（它本来就只是清单里的一个成员，不需要另设
+// 一个「回退原源」的概念），走到别的平台才去搜同名同歌手。整条顺序走完都没命中，同样落在
+// 「原样播放」上，即与没有这个设置时一致。
+// There is exactly ONE lookup order: the preferred source goes first and the rest keep their existing
+// priority. That order contains the song's own provider, and reaching it means "play as-is" — the
+// original source is merely a member of the list, so no separate "fall back to the original" concept
+// is needed. Other entries are searched for the same title and artist. Exhausting the order lands on
+// the same "play as-is", i.e. identical to not having the setting at all.
+function preferredSourceLookupOrder(song) {
+  var preferred = typeof preferredSourceProvider === 'function' ? preferredSourceProvider() : '';
+  var ordered = typeof accountProviderOrder === 'function' ? accountProviderOrder().slice() : [];
+  // 账号卡顺序里可能缺平台（用户从没登录过某个平台），补上注册表的直接换源清单。
+  SOURCE_FALLBACK_DIRECT_PROVIDERS.forEach(function (provider) {
+    if (ordered.indexOf(provider) < 0) ordered.push(provider);
+  });
+  // 歌曲自身的来源必须出现在顺序里，否则就失去了「走到它就播原曲」的终点。
+  var current = normalizePlaybackProvider(songProviderKey(song));
+  if (current && ordered.indexOf(current) < 0) ordered.push(current);
+  var seen = {};
+  var out = [];
+  [preferred].concat(ordered).forEach(function (provider) {
+    provider = normalizePlaybackProvider(provider);
+    if (!provider || seen[provider]) return;
+    seen[provider] = true;
+    out.push(provider);
+  });
+  return out;
+}
+
+// 整段选源的总预算。单次搜索超时是 6.5s，而"找不到就继续试其它平台"会**串行**试多个平台，
+// 最坏情况能把「按下播放到出声」拖到十几秒 —— 那是不可接受的。所以给整段选源一个总时限，
+// 到点就停下按原样播。它是播放前的优化，永远不该让播放等太久。
+// Overall budget for source selection. A single search may take 6.5s and "keep trying the other
+// platforms" tries them SEQUENTIALLY, so the worst case could delay "press play to sound" by more
+// than ten seconds. The whole selection is therefore bounded; on expiry it plays the track as-is.
+// This runs before playback, so it must never make playback wait long.
+var PREFERRED_SOURCE_BUDGET_MS = 4000;
+
+// 把一次搜索限制在剩余预算内。超时或出错都解析成 null（= 没命中），并记一条日志。
+// Bounds one search by the remaining budget; timeout and error both resolve to null (a miss).
+function searchAlternatePlatformSongWithinBudget(song, provider, remaining) {
+  return new Promise(function (resolve) {
+    var settled = false;
+    var timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, Math.max(0, remaining));
+    var promise;
+    try {
+      promise = searchAlternatePlatformSong(song, provider, null);
+    } catch (e) {
+      clearTimeout(timer);
+      settled = true;
+      console.warn('[PreferredSource]', provider, e && (e.message || e));
+      resolve(null);
+      return;
+    }
+    Promise.resolve(promise).then(function (value) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value || null);
+    }, function (error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      console.warn('[PreferredSource]', provider, error && (error.message || error));
+      resolve(null);
+    });
+  });
+}
+async function resolvePreferredSourceSong(song, opts) {
+  opts = opts || {};
+  if (typeof preferredSourceProvider !== 'function') return null;
+  var preferred = preferredSourceProvider();
+  if (!preferred) return null;
+  // 本地/播客/无来源标识的歌没有"换到别的平台"的语义。
+  if (!song || song.type === 'local' || song.type === 'podcast' || song.source === 'podcast' || song.localUrl) return null;
+  // 换源重试与无缝接力已经在按自己的策略挑歌，这里再插一手会互相打架；
+  // 音质重切同一首歌也不该重新选源。
+  if (opts.fallbackDepth > 0 || opts.albumGaplessHandoff || opts.qualitySwitch) return null;
+  var current = normalizePlaybackProvider(songProviderKey(song));
+  if (!current) return null;
+  // 已经是默认源，或者用户选了「不指定」，都无事可做（后者是最常见的零开销路径）。
+  if (current === preferred) return null;
+  var order = preferredSourceLookupOrder(song);
+  var deadline = Date.now() + PREFERRED_SOURCE_BUDGET_MS;
+  for (var i = 0; i < order.length; i++) {
+    var provider = order[i];
+    // 走到歌曲自身的来源 —— 原样播放，不再往后搜（省一次往返，也避免把好好的原曲换掉）。
+    if (provider === current) return null;
+    var remaining = deadline - Date.now();
+    // 预算用尽：剩下的平台一律不试，按原样播。
+    if (remaining <= 0) return null;
+    if (!preferredSourceProviderReady(provider)) continue;
+    var match = await searchAlternatePlatformSongWithinBudget(song, provider, remaining);
+    if (match) {
+      match.preferredSourceFrom = current;
+      return match;
+    }
+  }
+  return null;
+}
 async function searchAlternatePlatformSong(song, requestedTarget, recovery) {
   var target = requestedTarget || alternatePlaybackProvider(song);
-  if (!target || !sourceFallbackProviderReady(target)) return null;
+  if (!target) return null;
+  // 两道就绪判据取「或」：既有的自动换源候选，或「可被指定为默认源」的平台（后者包含汽水）。
+  // 既有调用方传进来的 target 都已经过 sourceFallbackProviderReady 预筛（或由
+  // alternatePlaybackProviders 产出），所以第一项对它们恒真 —— 行为不变。默认源路径才需要第二项，
+  // 否则汽水会被这道内层门挡住（外层放行了、内层又拦回去，表现为"选了汽水永远搜不到"）。
+  // Readiness is an OR of two capabilities: the automatic-fallback candidates, or the platforms that
+  // may be preferred (which include Qishui). Existing callers pass targets already filtered by
+  // sourceFallbackProviderReady, so the first clause is always true for them and their behaviour is
+  // unchanged. Only the preferred-source path needs the second clause; without it Qishui passes the
+  // outer check and is rejected here, showing up as "a Qishui preference never finds anything".
+  if (!sourceFallbackProviderReady(target) && !preferredSourceProviderReady(target)) return null;
   if (recovery && !sourceFallbackRecoveryCanContinue(recovery)) return null;
   var artist = artistNameParts(song)[0] || '';
   var query = [song.name || song.title || '', song.artist || artist].filter(Boolean).join(' ').trim();
   if (!query) return null;
-  var url = target === 'qq'
-    ? '/api/qq/search?keywords=' + encodeURIComponent(query) + '&limit=8'
-    : (target === 'kugou'
-      ? '/api/kugou/search?keywords=' + encodeURIComponent(query) + '&limit=8'
-      : '/api/search?keywords=' + encodeURIComponent(query) + '&limit=12');
+  var url = providerRegistrySearchUrl(target, query, target === 'netease' ? 12 : 8);
   var data = await awaitSourceFallbackBudget(
     apiJson(url, { timeoutMs: SOURCE_FALLBACK_SEARCH_TIMEOUT_MS }),
     recovery

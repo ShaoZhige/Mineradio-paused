@@ -39,7 +39,12 @@ var searchLastResultQuery = '';
 var searchProviderNotice = '';
 var SEARCH_HISTORY_STORE_KEY = 'mineradio-search-history';
 var SEARCH_HISTORY_STORE_VERSION = 3;
-var SEARCH_HISTORY_MODES = ['song', 'netease', 'qq', 'kugou', 'qishui', 'podcast'];
+// 搜索历史里可存的 mode：'song' 与 'podcast' 是本模块自己的检索方式（不是平台），
+// 平台那部分从注册表派生 —— 新增平台自动进历史清单，不需要记得回来改这一行。
+// Modes the search history may store: 'song' and 'podcast' are this module's own query kinds rather
+// than platforms, so only the platform half derives from the registry — a new platform is covered
+// automatically instead of relying on someone remembering this line.
+var SEARCH_HISTORY_MODES = ['song'].concat(providerRegistryKeysWith('mainSearch'), ['podcast']);
 var MUSIC_SEARCH_INITIAL_VISIBLE = 18;
 var MUSIC_SEARCH_APPEND_BATCH = 14;
 var MUSIC_SEARCH_MAX_RESULTS = 180;
@@ -488,25 +493,26 @@ function songSourceTagHtml(song, opts) {
   return '<span class="tag-source ' + key + '">' + label + '</span>';
 }
 var controlSourceSwitcherState = { open: false, loading: false, requestId: 0, anchor: null };
+// 平台清单来自注册表：名称、徽标与搜索接口都从那里派生，这里不再自己维护一份。
+// The platform list comes from the registry: names, badges and search endpoints all derive from it,
+// so this file no longer keeps its own copy.
 function controlSourceProviders() {
-  return [
-    { key: 'netease', label: 'NE', title: '网易云' },
-    { key: 'qq', label: 'QQ', title: searchPanelText('search_qq_music') },
-    { key: 'kugou', label: 'KG', title: searchPanelText('search_kugou') },
-    { key: 'qishui', label: 'QS', title: searchPanelText('dash_qishui') },
-    { key: 'spotify', label: 'SP', title: 'Spotify' }
-  ];
+  return providerRegistryKeysWith('sourceSwitcher').map(function (key) {
+    return {
+      key: key,
+      label: providerRegistryBadge(key),
+      title: providerRegistryCompactTitle(key)
+    };
+  });
 }
 function controlSourceProviderTitle(provider) {
   var item = controlSourceProviders().filter(function (p) { return p.key === provider; })[0];
   return item ? item.title : provider;
 }
 function controlSourceSearchUrl(provider, query) {
-  if (provider === 'qq') return '/api/qq/search?keywords=' + encodeURIComponent(query) + '&limit=8';
-  if (provider === 'kugou') return '/api/kugou/search?keywords=' + encodeURIComponent(query) + '&limit=8';
-  if (provider === 'qishui') return '/api/qishui/search?keywords=' + encodeURIComponent(query) + '&limit=8';
-  if (provider === 'spotify') return '/api/spotify/search?keywords=' + encodeURIComponent(query) + '&limit=8';
-  return '/api/search?keywords=' + encodeURIComponent(query) + '&limit=10';
+  // 各平台的 limit 本来就不一样（网易云 10、其余 8），所以由调用方给出而不是统一。
+  // Limits genuinely differ per platform (netease 10, the rest 8), so the caller supplies it.
+  return providerRegistrySearchUrl(provider, query, provider === 'netease' ? 10 : 8);
 }
 function ensureControlSourceSwitcher() {
   var el = document.getElementById('control-source-switcher');
@@ -779,7 +785,9 @@ function searchIntentPrefersQQ(q) {
   q = String(q || '').toLowerCase();
   return /(^|\s)qq($|\s)|qq音乐|qq音樂/.test(q);
 }
-var MUSIC_SEARCH_PROVIDER_ORDER = ['netease', 'qq', 'kugou', 'qishui'];
+// 搜索面板能选到的平台来自注册表的 mainSearch 能力，不再单独维护清单。
+// The platforms the search panel offers come from the registry's mainSearch capability.
+var MUSIC_SEARCH_PROVIDER_ORDER = providerRegistryKeysWith('mainSearch');
 function searchProviderStatus(provider) {
   if (typeof platformStatus === 'function') return platformStatus(provider);
   if (provider === 'spotify') return spotifyLoginStatus;
@@ -797,12 +805,15 @@ function searchProviderCanSearch(provider) {
   var capabilities = st.capabilities || {};
   if (st.searchReady === true || st.publicCatalog === true || capabilities.search === true) return true;
   if (provider === 'spotify') return !!(st.loggedIn && !st.reauthRequired);
-  // These providers expose public catalogue metadata search. Login still controls
-  // private recommendations, collections and playback rights, not discovery.
-  return provider === 'netease' || provider === 'qq' || provider === 'kugou' || provider === 'qishui';
+  // 其余走公开目录检索的平台由注册表的 mainSearch 能力决定。登录态管的是私有推荐、收藏与
+  // 播放权限，不决定发现能力。
+  // Which remaining platforms expose public catalogue search is decided by the registry's mainSearch
+  // capability. Login governs private recommendations, collections and playback rights — not
+  // discovery.
+  return providerRegistryHasCapability(provider, 'mainSearch');
 }
 function searchModeProvider(mode) {
-  return mode === 'netease' || mode === 'qq' || mode === 'kugou' || mode === 'qishui' ? mode : '';
+  return providerRegistryHasCapability(mode, 'mainSearch') ? String(mode) : '';
 }
 function activeSearchProvidersForMode(mode) {
   var specific = searchModeProvider(mode);
@@ -819,11 +830,11 @@ function searchProviderLoginNotice(mode) {
 }
 function searchProviderUrl(provider, q, limit, offset) {
   var suffix = '&limit=' + limit + '&offset=' + Math.max(0, Number(offset) || 0);
-  if (provider === 'qq') return '/api/qq/search?keywords=' + encodeURIComponent(q) + suffix;
-  if (provider === 'kugou') return '/api/kugou/search?keywords=' + encodeURIComponent(q) + suffix;
-  if (provider === 'qishui') return '/api/qishui/search?keywords=' + encodeURIComponent(q) + suffix;
-  if (provider === 'spotify') return '/api/spotify/search?keywords=' + encodeURIComponent(q) + suffix;
-  return '/api/search?keywords=' + encodeURIComponent(q) + suffix;
+  // 注册表给的是不带 limit 的基址，这里补上分页后缀（各调用方的 limit 不同，不能统一）。
+  // The registry supplies the bare endpoint; the pagination suffix is appended here because callers
+  // genuinely pass different limits.
+  var base = providerRegistrySearchUrl(provider, q, 0);
+  return base ? base + suffix : '/api/search?keywords=' + encodeURIComponent(q) + suffix;
 }
 function simpleSearchNorm(text) {
   return String(text || '').toLowerCase()

@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { createQishuiQrLoginBridge, hasLoginCookie } = require('../qishui-qr-login');
+const { createQishuiQrLoginBridge, hasLoginCookie } = require('../server/qishui-qr-login');
 
 test('Qishui Passport QR bridge persists a confirmed official web session and clears it', async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mineradio-qishui-passport-'));
@@ -102,11 +102,11 @@ test('an old saved cookie or superseded QR poll cannot confirm a new login', asy
 
 test('Qishui login product surface uses only the signed Passport QR flow', () => {
   const root = path.resolve(__dirname, '..');
-  const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  const server = fs.readFileSync(path.join(root, 'server', 'server.js'), 'utf8');
   const main = fs.readFileSync(path.join(root, 'desktop/main.js'), 'utf8');
   const preload = fs.readFileSync(path.join(root, 'desktop/preload.js'), 'utf8');
   const ui = fs.readFileSync(path.join(root, 'public/js/modules/08-account/03-login-modal-flows.js'), 'utf8');
-  const auth = fs.readFileSync(path.join(root, 'qishui-auth-v6.js'), 'utf8');
+  const auth = fs.readFileSync(path.join(root, 'server', 'qishui-auth-v6.js'), 'utf8');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
   assert.match(server, /require\('\.\/qishui-qr-login'\)/);
@@ -140,7 +140,9 @@ test('Qishui login product surface uses only the signed Passport QR flow', () =>
     'logout must clear the persistent official auth partition even before the signing runtime is initialized'
   );
 
-  assert.ok(pkg.build.files.includes('qishui-auth-v6.js'));
-  assert.ok(pkg.build.files.includes('qishui-qr-login.js'));
-  assert.ok(pkg.build.files.includes('qishui-auth-v6/**/*'));
+  // 打包清单已收敛为一条 server/**/*：断言要求它覆盖住这三个原先单列的条目。
+  // The manifest collapsed into a single server/**/* pattern, so the assertion now checks coverage
+  // of what used to be three separate entries.
+  assert.ok(pkg.build.files.includes('server/**/*'));
+  assert.ok(!pkg.build.files.some((entry) => entry.endsWith('.js') && !entry.includes('/')));
 });

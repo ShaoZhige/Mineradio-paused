@@ -216,6 +216,20 @@ function fxConsoleLayout() {
         fxConsoleItem('fx-intensity', consoleWorkspaceText('rhythm_intensity', '律动强度'), '音乐响应 节奏'),
         fxConsoleItem('fx-depth', consoleWorkspaceText('fx_scene_depth'), '立体感 深度'),
         fxConsoleItem('fx-coverres', consoleWorkspaceText('cover_clarity', '封面清晰度'), '粒子数量 分辨率'),
+        // 背景星河是预设自带的背景层，不是通用粒子参数：它按预设决定透明度（星河/音域预设为 0，
+        // 因为那两套预设的云本身就叫星河；骷髅 0.38；9-12 号 0.10~0.18；其余 0.34），并在星河/
+        // 音域预设下顺带压掉主封面粒子云。放进"基础画面"，和画面构成级别的开关在一起。
+        // The background star river is a preset-owned background layer rather than a generic particle
+        // parameter: its opacity is preset-driven (0 on the star-river/sonic presets, whose own cloud is
+        // the river; 0.38 skull; 0.10-0.18 on presets 9-12; 0.34 otherwise) and it also mutes the main
+        // cover cloud on those two presets. It belongs with the scene-level switches, not the particles.
+        // 别名只放中文同义措辞：之前这里拼的是另一个词典键，而那个键的值与标题逐字相同，
+        // 对搜索没有任何增益（搜同一串字本来就命中标题）。真正有用的是「星空」「粒子背景」
+        // 这类标题里没有的说法。
+        // The alias carries Chinese synonyms only: it used to append a second dictionary key whose
+        // text was identical to the title, which adds nothing to search. The useful part is wording
+        // the title does not contain.
+        fxConsoleItem('t-backgroundStarRiver', consoleWorkspaceText('fx_bg_galaxy'), '星空 粒子背景'),
         fxConsoleItem('fx-cineshake', consoleWorkspaceText('toggle_cinema', '电影镜头'), '镜头晃动 强度'),
         fxConsoleItem('t-cinema', consoleWorkspaceText('fx_cinema_toggle'), consoleWorkspaceText('shelf_camera_dynamic', '动态镜头'))
       ] },
@@ -223,7 +237,6 @@ function fxConsoleLayout() {
         fxConsoleItem('t-float', consoleWorkspaceText('toggle_float_layer', '浮空粒子层'), '漂浮粒子'),
         fxConsoleItem('t-bloom', consoleWorkspaceText('toggle_bloom', '粒子溢光'), '粒子光晕'),
         fxConsoleItem('t-edge', consoleWorkspaceText('toggle_edge', '轮廓高亮'), '边缘光'),
-        fxConsoleItem('t-backgroundStarRiver', consoleWorkspaceText('fx_starfield'), '星空 粒子背景'),
         fxConsoleItem('fx-point', consoleWorkspaceText('particle_size', '粒子尺寸'), '点大小'),
         fxConsoleItem('fx-speed', consoleWorkspaceText('fx_particle_speed'), '粒子流速'),
         fxConsoleItem('fx-twist', consoleWorkspaceText('fx_particle_twist'), '旋转 扭曲'),
@@ -346,7 +359,28 @@ function fxConsoleLayout() {
         fxConsoleItem('close-behavior-seg', consoleWorkspaceText('fx_close_window'), '直接退出 后台托盘'),
         fxConsoleItem('t-startupAutoplay', consoleWorkspaceText('fx_autoplay'), '打开软件继续播放'),
         fxConsoleItem('t-startupFastSkip', consoleWorkspaceText('fx_fast_skip'), '快速启动'),
-        fxConsoleItem('startup-resume-mode-seg', consoleWorkspaceText('fx_resume_position'), '按上次进度 重播整首')
+        fxConsoleItem('startup-resume-mode-seg', consoleWorkspaceText('fx_resume_position'), '按上次进度 重播整首'),
+        // 与上面的启动项同组。⚠️ 必须登记：面板运行时会按这张表把 HTML 里的控件搬进分组页
+        //（appendChild），没登记的会被残留扫描收进「系统 → 其他设置」——界面上只是位置不对、不报错，
+        // 后果是它在正确分组里根本查不到（本轮就踩了：不登记时 #preferred-source-select 在运行时
+        // 的 DOM 里直接找不到）。
+        // Registered with the other startup items. ⚠️ This is mandatory: at runtime the panel moves each
+        // control into its group page according to this table, and an unregistered one is swept into
+        // "system → other settings" — positionally wrong with no error, and absent from the group it
+        // belongs to (this round: without registration, #preferred-source-select was not even findable
+        // in the runtime DOM).
+        // 登记的是**外层容器**（标签 + 下拉一个块），不是 <select> 本身：控制台只搬运登记过的节点，
+        // 标签若是单独的兄弟节点会被留在被丢弃的旧容器里，于是下拉没有标题、看不出是干什么的。
+        // Registered is the WRAPPER (label + select as one block), not the <select>: the console moves
+        // only the registered node, so a standalone label would be left in the discarded container and
+        // the dropdown would appear with no title at all.
+        fxConsoleItem('preferred-source-row', consoleWorkspaceText('settings_preferred_source'), '默认源 优先 网易云 QQ 酷狗 汽水 音源 preferred source'),
+        // ⚠️ 这个开关一直没登记（上一轮加的时候漏了），所以它一直被残留扫描收进「其他设置」——
+        //    界面上只是位置不对、不报错，属于"只有真去看分组才会发现"的那类缺陷。顺手补上。
+        // ⚠️ This toggle was never registered (missed when it was added), so the residual sweep kept
+        //    filing it under "other settings": positionally wrong, no error, and only visible if you
+        //    actually open the group. Registered here.
+        fxConsoleItem('t-spotifyLaunchClient', consoleWorkspaceText('settings_spotify_launch_title'), 'Spotify 唤起 客户端 换源 launch client')
       ] },
       { key: 'output', title: consoleWorkspaceText('fx_cat_output'), hint: consoleWorkspaceText('fx_output_hint'), items: [
         fxConsoleItem('audio-output-panel', consoleWorkspaceText('fx_output_device'), '声卡 耳机 扬声器 路由', false)
@@ -358,6 +392,11 @@ function fxConsoleLayout() {
         fxConsoleItem('t-lyricContextHighQuality', consoleWorkspaceText('fx_lyric_hd_texture'), '歌词 高清 预热 GPU 显存'),
         fxConsoleItem('t-lyricBackdropAdapt', consoleWorkspaceText('fx_global_avoid'), '歌词 亮底 可读性 动态'),
         fxConsoleItem('t-coverBackdropAdapt', consoleWorkspaceText('fx_cover_avoid'), '粒子 亮底 GPU 着色器'),
+        // 必须和其他同格开关一起登记：面板在运行时会把 HTML 里那排开关搬到分组里（appendChild），
+        // 没登记的会被残留扫描收进「系统 → 其他设置」，届时它在界面上只是位置不对，不会报错。
+        // Must be registered alongside its grid siblings: the panel re-parents those toggles at runtime,
+        // and anything unregistered is swept into System → Other settings with no visible error.
+        fxConsoleItem('t-beatAnalysis', consoleWorkspaceText('toggle_beat_analysis', '自动节奏分析'), '节奏 节拍 谱面 BPM 分析 性能 电影镜头'),
         fxConsoleItem('performance-background-seg', consoleWorkspaceText('fx_background_render'), '自动优化 保持运行 停止释放'),
         fxConsoleItem('t-liveBackgroundKeep', consoleWorkspaceText('toggle_live_bg_keep', '直播后台保持'), '最小化继续渲染')
       ] },
@@ -563,7 +602,13 @@ function fxConsoleAppendItem(body, tabMeta, groupMeta, item, state) {
 }
 
 function fxConsoleFindUnclassifiedControls(roots) {
-  var blockSelector = '.fx-slider,.lyric-color-row,.lyric-color-grid,.fx-seg,.preset-grid,.user-archive-grid,.fx-font-grid,.fx-toggle,.lyric-glitch-controls,.lyric-glow-effect-row,.sonic-audio-monitor,.audio-output-section,.cache-storage-panel,.memory-status-chip,.memory-status-sub,.memory-action-row,.fx-actions';
+  // blockSelector 决定"一个控件属于哪一块"：命中的元素会被整块搬走，没命中的则退化成裸控件。
+  // ⚠️ 这里必须包含 `.fx-select`（原生下拉）：否则一个 <select> 会被当成无可归属的裸控件扫走，
+  //    即便它已登记，外观与分组也取决于扫描顺序 —— 本轮新增「默认源」下拉时踩到的就是这个。
+  // The selector decides which "block" a control belongs to: a match is moved as a whole, a miss
+  // degrades to a bare control. ⚠️ It must include `.fx-select`: otherwise a <select> is swept as an
+  // unowned bare control, and where it lands depends on scan order rather than on its registration.
+  var blockSelector = '.fx-select-row,.fx-select,.fx-slider,.lyric-color-row,.lyric-color-grid,.fx-seg,.preset-grid,.user-archive-grid,.fx-font-grid,.fx-toggle,.lyric-glitch-controls,.lyric-glow-effect-row,.sonic-audio-monitor,.audio-output-section,.cache-storage-panel,.memory-status-chip,.memory-status-sub,.memory-action-row,.fx-actions';
   var blocks = [];
   roots.forEach(function (root) {
     if (!root || !root.isConnected) return;

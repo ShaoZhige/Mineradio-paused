@@ -213,16 +213,22 @@ function playlistPanelDetailRowsHtml(options) {
   var end = Math.min(tracks.length, start + maxRows);
   start = Math.max(0, Math.min(start, Math.max(0, tracks.length - maxRows)));
   end = Math.min(tracks.length, Math.max(end, start + maxRows));
+  // 多选态：行首插勾选框，并隐藏逐行移除按钮（此时点行只切换勾选，留着移除按钮是误导）。
+  // In multi-select a checkbox is prefixed and the per-row remove button is hidden: a click then
+  // only toggles the tick, so a visible remove button would be misleading.
+  var msDetailActive = typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('detail', st.key);
   var rows = '<div class="pl-detail-virtual-spacer" aria-hidden="true" style="height:' + (start * PLAYLIST_DETAIL_ROW_STEP) + 'px"></div>';
   rows += tracks.slice(start, end).map(function (song, localIndex) {
     var i = start + localIndex;
     var thumb = songCoverSrc(song, 60);
     var imgTag = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.06);flex:0 0 auto"></div>';
-    var removeButton = normalizePlaylistProvider((st.key || '').split(':')[0]) === 'mineradio'
+    var removeButton = !msDetailActive && normalizePlaylistProvider((st.key || '').split(':')[0]) === 'mineradio'
       ? '<button type="button" class="pl-detail-remove" data-pl-detail-remove="' + i + playlistDetailText('pl_remove_button_suffix')
       : '';
-    return '<div class="pl-detail-row" data-pl-detail-row="' + i + '">' +
-      imgTag +
+    var msCheck = msDetailActive && typeof playlistMultiCheckboxHtml === 'function' ? playlistMultiCheckboxHtml(i) : '';
+    var msClass = msDetailActive && typeof playlistMultiRowClass === 'function' ? playlistMultiRowClass(i) : '';
+    return '<div class="pl-detail-row' + msClass + '" data-pl-detail-row="' + i + '">' +
+      msCheck + imgTag +
       '<div style="flex:1;min-width:0"><div class="pl-detail-row-title">' + escHtml(song.name || '') + '</div>' +
       '<button type="button" class="pl-detail-row-artist" data-pl-detail-artist="' + i + '">' + escHtml(song.artist || playlistDetailText('track_unknown_artist')) + '</button></div>' + removeButton +
       '</div>';
@@ -334,10 +340,11 @@ function playlistPanelDetailHtml(pl, provider, detailWindow) {
     ? playlistDetailText('pl_rename_delete_buttons')
     : '';
   var topButton = provider === 'mineradio' ? '' : playlistDetailText('pl_top_button');
+  var multiButton = '<button type="button" class="pl-detail-multi' + (typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('detail', key) ? ' active' : '') + '" data-pl-detail-multi="' + escHtml(key) + '">' + escHtml(playlistDetailText('ms_select', '多选')) + '</button>';
   return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '" style="height:' + playlistPanelDetailShellHeight() + 'px">' +
     '<div class="pl-detail-sticky">' +
     '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || playlistDetailText('pl_detail')) + '</div><div class="pl-detail-sub">' + escHtml((expectedTotal || tracks.length || 0) + playlistDetailText('pl_tracks_prefix') + (pl.creator || playlistProviderName(provider))) + '</div></div><div class="pl-detail-count">' + (loading && !tracks.length ? playlistDetailText('pl_loading') : (tracks.length + (expectedTotal > tracks.length ? '/' + expectedTotal : ''))) + '</div></div>' +
-    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + topButton + '</div>' +
+    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + topButton + multiButton + '</div>' +
     '</div>' +
     '<div class="pl-detail-list" data-pl-detail-scroll="' + escHtml(key) + '">' + rows + '</div>' +
     '</div>';
@@ -466,6 +473,10 @@ async function loadMorePlaylistPanelDetailTracks(reason) {
 }
 async function openPlaylistPanelDetail(provider, pid, title) {
   if (!pid) return;
+  // 切到另一个歌单（或收起当前详情）时，之前那一批勾选已经不属于眼前的列表了。
+  // Opening another playlist (or collapsing this one) leaves the old selection attached to a list
+  // that is no longer on screen.
+  if (typeof playlistMultiExit === 'function') playlistMultiExit();
   provider = normalizePlaylistProvider(provider);
   var key = playlistPanelKey(provider, pid);
   var pl = userPlaylists.find(function (item) { return playlistPanelKey(normalizePlaylistProvider(item.provider), item.id) === key; }) || { id: pid, provider: provider, name: title || playlistDetailText('pl_detail') };

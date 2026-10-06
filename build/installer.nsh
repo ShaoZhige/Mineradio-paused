@@ -414,7 +414,7 @@ Function MineradioExistingInstallPathCanBeAdopted
   IfFileExists "$2\${PRODUCT_FILENAME}.exe" adopt 0
   IfFileExists "$2\resources\app.asar" adopt 0
   IfFileExists "$2\resources\app\package.json" adopt 0
-  IfFileExists "$2\resources\app\server.js" adopt 0
+  IfFileExists "$2\resources\app\server\server.js" adopt 0
   Goto done
 
   adopt:

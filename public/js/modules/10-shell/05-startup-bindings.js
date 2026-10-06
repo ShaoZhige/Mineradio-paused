@@ -19,6 +19,8 @@ applyUserCapsuleAutoHideState();
 applyFxFabAutoHideState();
 initializeDesktopCloseBehavior();
 applyStartupAutoplayUi();
+applySpotifyLaunchClientUi();
+applyPreferredSourceUi();
 applyControlsAutoHidePreference();
 applyDesktopLyricsState(false);
 applyWallpaperModeState(false);
@@ -50,7 +52,7 @@ var startupLoginStatusPromise = Promise.all([refreshLoginStatus(), refreshQQLogi
 startQQLoginStatusAutoRefresh();
 startKugouLoginStatusAutoRefresh();
 startQishuiLoginStatusAutoRefresh();
-if (typeof setupFullscreenDiyLayoutTracking === 'function') setupFullscreenDiyLayoutTracking();
+if (typeof setupFullscreenToolsLayoutTracking === 'function') setupFullscreenToolsLayoutTracking();
 if (startupLoginStatusPromise && startupLoginStatusPromise.then) {
   startupLoginStatusPromise.then(function () {
     if (hasAnyPlatformLogin()) {

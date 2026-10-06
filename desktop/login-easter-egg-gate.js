@@ -4,9 +4,25 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// 版本号只在「必须让所有人重做一遍解锁」时改。彩蛋从打字改成选择框不改变解锁语义，
+// 所以这里刻意不动：一改就会让已解锁的用户被清掉全部登录态。
+// The version only moves when everyone must redo the unlock. Turning the typing ritual into a
+// select box does not change the semantics, so this stays put on purpose — bumping it would
+// wipe the stored login state of users who already unlocked.
 const LOGIN_EASTER_EGG_GATE_VERSION = 'world-peace-v1';
 const LOGIN_EASTER_EGG_STATE_FILE = 'login-easter-egg.json';
-const LOGIN_EASTER_EGG_PASSWORD = '世界和平';
+// 答案就是各语言里的「世界和平」。界面显示哪个词就提交哪个词，所以每个写法都要能过校验；
+// 这几个值必须与四份词典的 egg_wish_world_peace 完全一致，改词条就要同步改这里，
+// tests/login-easter-egg-gate.test.js 会逐条比对，漏改会直接失败。
+// The answer is "World Peace" in each language. The UI submits exactly the label it shows, so
+// every spelling has to pass. These values must match egg_wish_world_peace in all four
+// dictionaries; the gate test compares them one by one and fails the moment they drift.
+const LOGIN_EASTER_EGG_ANSWERS = [
+  '世界和平',
+  'World Peace',
+  '世界平和',
+  'Мир во всём мире',
+];
 const LOGIN_EASTER_EGG_CREDENTIAL_FILES = [
   '.cookie',
   '.qq-cookie',
@@ -32,10 +48,19 @@ function writeJsonAtomic(file, value) {
   fs.renameSync(tempFile, file);
 }
 
+// 长度不同的候选直接跳过，不做提前返回：逐个比完再合并结果，避免用「第几个词命中」
+// 泄露信息（虽然答案本身是公开词条）。
+// Length-mismatched candidates are skipped without an early return: every answer is compared
+// and the results merged at the end, so a timing observer cannot tell which spelling matched.
 function securePasswordMatch(input) {
-  const expected = Buffer.from(LOGIN_EASTER_EGG_PASSWORD, 'utf8');
   const received = Buffer.from(String(input || ''), 'utf8');
-  return received.length === expected.length && crypto.timingSafeEqual(received, expected);
+  let matched = false;
+  for (const answer of LOGIN_EASTER_EGG_ANSWERS) {
+    const expected = Buffer.from(answer, 'utf8');
+    if (expected.length !== received.length) continue;
+    if (crypto.timingSafeEqual(received, expected)) matched = true;
+  }
+  return matched;
 }
 
 class LoginEasterEggGate {
@@ -219,6 +244,7 @@ module.exports = {
   LoginEasterEggGate,
   LOGIN_EASTER_EGG_GATE_VERSION,
   LOGIN_EASTER_EGG_STATE_FILE,
+  LOGIN_EASTER_EGG_ANSWERS,
   LOGIN_EASTER_EGG_CREDENTIAL_FILES,
   securePasswordMatch,
 };

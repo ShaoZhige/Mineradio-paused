@@ -13,7 +13,7 @@ var particlePointerLocalHit = new THREE.Vector3();
 var particlePointerQuat = new THREE.Quaternion();
 var particlePointerFrame = { dirty: false, ndcX: 0, ndcY: 0 };
 var CLICK_THRESHOLD = 6;  // 像素, 拖动 > 6px 视为 drag
-var UI_HIT_SELECTOR = '#search-area,#upload-panel,#top-right,#fullscreen-diy-zone,#fx-panel,#fx-fab,#fx-fab-hide-btn,#playlist-panel,#bottom-bar,#thumb-wrap,#empty-home,#visual-guide,#trial-banner,#source-fallback-notice,.modal-mask,#toast,#ai-depth-chip,#beat-chip,#drop-overlay';
+var UI_HIT_SELECTOR = '#search-area,#upload-panel,#top-right,#fullscreen-tools-zone,#fx-panel,#fx-fab,#fx-fab-hide-btn,#playlist-panel,#bottom-bar,#thumb-wrap,#empty-home,#visual-guide,#trial-banner,#source-fallback-notice,.modal-mask,#toast,#ai-depth-chip,#beat-chip,#drop-overlay';
 
 function isPointerOverUi(e) {
   if (!e) return false;
@@ -236,8 +236,36 @@ var coverResolutionReloadTimer = null;
 var currentCoverSource = null;
 var coverPickerCanvas = null;
 
+// 调用方传进来的边长**已经**是 effectiveCoverParticleGrid() 的结果，所以这里只做输入整形：
+// 非正整数兜底、对齐奇数（中心格才不会被挤掉）。预算是调用方的事。
+// 曾经这里又走了一次 effectiveCoverParticleGrid(grid / 118)，那是把预算算了第二遍：它内部先
+// 把边长换算成分辨率并 clamp 到 88..183，再按档位系数缩放一次。
+//   - 档位系数 < 1：缩小的比例被平方（系数 0.4、请求 183 格时，声明建 115 格，实际只建 71 格，
+//     面积只剩声明值的 38%）；
+//   - 边长 > 183：换算时被 clamp 拉回 183 再放大，于是"降分辨率 + 高档位"反而比 1.55 分辨率
+//     的基准还密（分辨率 0.75 配顶档会建到 231×231，而基准只有 183×183）。
+// 两种偏差都让分辨率滑块和档位的方向看起来是错的，也让显示"实际生效网格"的标签变成谎报。
+//
+// The caller already passes a grid produced by effectiveCoverParticleGrid(), so this only sanitises
+// the input: a positive integer aligned to odd so the centre cell survives. The budget belongs to the
+// caller. This used to run effectiveCoverParticleGrid(grid / 118) as well, which applied the budget a
+// second time — the helper first converts the side back to a resolution and clamps it to 88..183, then
+// scales by the tier factor again. Below 1 that squares the shrink (a factor of 0.4 on a requested 183
+// declares 115 and then builds 71, a third of the area it claims), and above 183 the clamp pulls the
+// side back to 183 before scaling it up again, so a low resolution at a high tier builds 231x231 while
+// the 1.55 base is only 183x183. Either way the resolution slider points the wrong direction, and the
+// label that reports the grid actually in effect ends up lying.
+function normalizeCoverParticleGrid(value) {
+  var grid = Math.round(Number(value) || 0);
+  // grid = 1 会让下面的 gx / (grid - 1) 变成 0/0，整片粒子拿到 NaN 坐标 —— 不报错，只是消失。
+  // grid = 1 would make the gx / (grid - 1) mapping 0/0 and give every particle a NaN position,
+  // which fails by silently emptying the field rather than throwing.
+  if (grid < 3) grid = 3;
+  return grid % 2 ? grid : grid + 1;
+}
+
 function buildCoverParticleGeometry(grid) {
-  grid = effectiveCoverParticleGrid(grid / 118);
+  grid = normalizeCoverParticleGrid(grid);
   var count = grid * grid;
   var nextGeo = new THREE.BufferGeometry();
   var nextPositions = new Float32Array(count * 3);
@@ -1061,7 +1089,7 @@ void main(){
     float brightAvoid = smoothstep(0.48, 0.84, outLum) * backdropAdapt;
     bloomKeep *= 1.0 - brightAvoid * 0.34;
   }
-  gl_FragColor = vec4(col, soft * uAlpha * uBloomStrength * uParticleDim * pulse * 0.55 * vAlpha * bloomKeep);
+  gl_FragColor = vec4(col, soft * uAlpha * uBloomStrength * uParticleDim * pulse * 0.62 * vAlpha * bloomKeep);
 }
 `;
 var bloomMaterial = new THREE.ShaderMaterial({
@@ -1078,6 +1106,7 @@ particles.renderOrder = 1;
 scene.add(particles);
 
 var BACKGROUND_STAR_RIVER_COUNT = 1400;
+var BACKGROUND_STAR_RIVER_CAPACITY = Math.round(BACKGROUND_STAR_RIVER_COUNT * particleBudgetHeadroom());
 
 function buildBackgroundStarRiverGeometry(count) {
   var bgGeo = new THREE.BufferGeometry();
@@ -1092,6 +1121,10 @@ function buildBackgroundStarRiverGeometry(count) {
   bgGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
   bgGeo.setAttribute('aLane', new THREE.BufferAttribute(lanes, 1));
   bgGeo.setAttribute('aDepthSeed', new THREE.BufferAttribute(depths, 1));
+  // 这个几何体没有 position 属性，预算模块只能靠 userData.count 读出容量。
+  // This geometry has no position attribute, so the budget can only read its capacity from
+  // userData.count.
+  bgGeo.userData.count = count;
   return bgGeo;
 }
 
@@ -1161,7 +1194,7 @@ varying float vAlpha, vTwinkle;
 void main(){
   vec4 tex = texture2D(uDotTex, gl_PointCoord);
   if (tex.a < 0.02) discard;
-  vec3 col = clamp(vColor * (0.66 + vTwinkle * 0.72), vec3(0.0), vec3(1.45));
+  vec3 col = clamp(vColor * (0.78 + vTwinkle * 0.80), vec3(0.0), vec3(1.45));
   gl_FragColor = vec4(col, tex.a * vAlpha);
 }
 `;
@@ -1176,7 +1209,7 @@ var backgroundStarRiverMaterial = new THREE.ShaderMaterial({
   blending: THREE.AdditiveBlending
 });
 var backgroundStarRiverParticles = attachParticleDrawBudget(
-  new THREE.Points(buildBackgroundStarRiverGeometry(BACKGROUND_STAR_RIVER_COUNT), backgroundStarRiverMaterial),
+  new THREE.Points(buildBackgroundStarRiverGeometry(BACKGROUND_STAR_RIVER_CAPACITY), backgroundStarRiverMaterial),
   BACKGROUND_STAR_RIVER_COUNT
 );
 backgroundStarRiverParticles.frustumCulled = false;

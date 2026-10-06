@@ -35,15 +35,20 @@ for (const [key, value] of Object.entries(DICTS[0])) {
   BY_VALUE.get(value).push(key);
 }
 
-// 记死的同文本多键清单。改动这一项前先想清楚：是键多了，还是这两个键该合并？
+// 记死的同文本多键清单（78 组）。改动这一项前先想清楚：是键多了，还是这两个键该合并？
 // 一个值对应多个键时，en 侧必须能区分它们 —— 四语完全相同的两个键无法独立翻译。
 // 本清单的每一组都已在非中文侧区分开：中文相同只是当前措辞一致，元素不同就应能分头调。
-// 记死的同文本多键清单（79 组）。改动这一项前先想清楚：是键多了，还是这两个键该合并？
+// 曾经有一组是例外：fx_bg_galaxy / fx_starfield 四语同义（中文都叫「背景星河」，英文一个
+// galaxy 一个 starfield），既无法独立翻译、又让同一个功能有两套外文名。它们已被合并成一个键
+// （fx_starfield 删除，别名改用中文同义措辞），所以不在本清单里 —— 再出现「同一个值两个键」
+// 时先问一句：这两个键真的需要分别翻译吗？
+// The former fx_bg_galaxy / fx_starfield pair was the exception: identical meaning in every
+// language, so it could never be translated independently and gave one feature two foreign names.
+// They are now a single key, which is why the pair is absent here.
 // 同系列孪生键（fx_range_start / fx_band_start 那种）已经合并掉了；留在这里的要么跨区域
 // 共用措辞，要么非中文侧还能区分。
 const KNOWN_SAME_TEXT = [
   ['背景透明度', ['bg_opacity', 'shelf_bg_opacity']],
-  ['背景星河', ['fx_bg_galaxy', 'fx_starfield']],
   ['背景颜色', ['bg_color', 'bg_color_label']],
   ['壁纸帧数', ['fx_wallpaper_fps', 'fx_wallpaper_frames']],
   ['冰蓝', ['accent_ice_blue', 'fx_theme_arctic']],

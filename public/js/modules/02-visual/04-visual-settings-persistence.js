@@ -74,11 +74,11 @@ function coverParticleGridForResolution(v) {
   grid = Math.max(88, Math.min(183, grid));
   return grid % 2 ? grid : grid + 1;
 }
-// 标签必须显示**实际生效**的网格，而不是用户请求的那个：预算是从上面压下来的，说 183x183
-  // 而实际只画 83x83 就是骗人，用户会以为自己已经调到位了。
-// The label must show the grid that is actually in effect, not the one that was asked for: the
-// budget pushes down from above, so claiming 183x183 while drawing 83x83 lies to the user and hides
-// that the setting already bottomed out.
+// 标签必须显示**实际生效**的网格，而不是用户请求的那个：预算是从上面压下来的（请求 183x183、
+// eco 档实际只画 163x163 就是这么来的），报一个没在画的数字会让用户以为自己已经调到位了。
+// The label must show the grid that is actually in effect, not the one that was asked for: the budget
+// pushes down from above (a requested 183x183 draws 163x163 on the eco tier), so reporting a number
+// that is not being drawn makes the user think the setting already bottomed out.
 function coverParticleCountLabel(v) {
   var requested = coverParticleGridForResolution(v);
   var grid = (typeof runtimeCoverParticleGridBudget === 'function')
@@ -296,8 +296,12 @@ function readSavedLyricLayout() {
       lyricPauseHold: raw.lyricPauseHold !== false,
       floatLayer: raw.floatLayer === true,
       cinema: raw.cinema !== false,
+      // 缺键按 04-fx-defaults.js 的当前默认处理：bloom 默认关（=== true），edge 默认开（!== false）。
+      // 写成同一个方向会让旧存档静默地拿到与默认相反的值。
+      // A missing key falls back to the default in 04-fx-defaults.js: bloom defaults off (=== true),
+      // edge defaults on (!== false). Forcing one direction silently inverts old saves.
       bloom: raw.bloom === true,
-      edge: raw.edge === true,
+      edge: raw.edge !== false,
       aiDepth: raw.aiDepth === true,
       particleLyrics: raw.particleLyrics !== false,
       backCover: raw.backCover === true,
@@ -347,6 +351,11 @@ function readSavedLyricLayout() {
       memorySystemMask: clampRange(Math.round(raw.memorySystemMask == null ? fxDefaults.memorySystemMask : Number(raw.memorySystemMask)), 1, 29),
       memorySafetyRevision: Number(raw.memorySafetyRevision) || 0,
       liveBackgroundKeep: normalizePerformanceBackgroundMode(raw.performanceBackground, raw.liveBackgroundKeep === true) === 'keep',
+      // 只认显式 true：旧存档缺这个键时必须落回「关闭」。别顺手改成 `!== false`——
+      // 那会让所有历史存档在升级后自动开启节奏分析。
+      // Explicit true only: an older archive without this key must fall back to off. Do not
+      // "fix" it to `!== false`; that would switch analysis on for every legacy archive.
+      beatAnalysis: raw.beatAnalysis === true,
       sonicGroundAmplitude: clampRange(raw.sonicGroundAmplitude == null ? fxDefaults.sonicGroundAmplitude : Number(raw.sonicGroundAmplitude), 0, 100),
       sonicGroundMotionSpeed: clampRange(raw.sonicGroundMotionSpeed == null ? fxDefaults.sonicGroundMotionSpeed : Number(raw.sonicGroundMotionSpeed), 0, 100),
       sonicGroundDensity: clampRange(raw.sonicGroundDensity == null ? fxDefaults.sonicGroundDensity : Number(raw.sonicGroundDensity), 0, 100),
@@ -844,6 +853,7 @@ function saveLyricLayout(opts) {
       memorySystemMask: clampRange(Math.round(fx.memorySystemMask == null ? fxDefaults.memorySystemMask : Number(fx.memorySystemMask)), 1, 29),
       memorySafetyRevision: fxDefaults.memorySafetyRevision,
       liveBackgroundKeep: normalizePerformanceBackgroundMode(fx.performanceBackground, fx.liveBackgroundKeep === true) === 'keep',
+      beatAnalysis: fx.beatAnalysis === true,
       sonicGroundAmplitude: clampRange(fx.sonicGroundAmplitude == null ? fxDefaults.sonicGroundAmplitude : Number(fx.sonicGroundAmplitude), 0, 100),
       sonicGroundMotionSpeed: clampRange(fx.sonicGroundMotionSpeed == null ? fxDefaults.sonicGroundMotionSpeed : Number(fx.sonicGroundMotionSpeed), 0, 100),
       sonicGroundDensity: clampRange(fx.sonicGroundDensity == null ? fxDefaults.sonicGroundDensity : Number(fx.sonicGroundDensity), 0, 100),

@@ -3,13 +3,22 @@
 // Home 右侧滚动板块在 14 寸等小屏上退化的回归测试（#462 第 5 点）
 //
 // 症状：非全屏时右侧板块的滚轮只有最下面一行有效（15.6 寸正常、14 寸异常）。
-// 根因：`#empty-home .home-grid.home-quick-grid .home-card { min-height: 158px }` 带 ID，特异性高于
+// 根因：`#empty-home .home-grid.home-quick-grid .home-card { min-height: … }` 带 ID，特异性高于
 // 后面 `@media (max-height:760px/700px)` 里的 `body.desktop-shell .home-card` 覆盖，于是可视高度变矮
-// 时四张快速卡片并不跟着缩，吃掉约三分之二高度，行 2 的 `.home-insight-rail` 只剩一行可滚。
+// 时快速卡片并不跟着缩，行 2 的 `.home-insight-rail` 被压到只剩一行可滚。
+//
+// 布局后来改成两列两行（第一行 CONTINUE/RECENT，第二行 LIBRARY/DAILY MIX，避开右上角多账号胶囊），
+// 卡片区高度翻倍，所以基础高度被整体压矮，短屏断点同步下调。这里钉死的是「短屏必须真的比基础矮」
+// 和「两行也仍给下方板块留够可滚动高度」，而不是某个固定的像素值。
 //
 // Symptom: on small screens only the bottom row of the right-hand board scrolls. The ID-scoped
-// quick-grid min-height outranks the later short-viewport overrides, so the four cards never shrink
-// and the insight rail is squeezed to a single scrollable row.
+// quick-grid min-height outranks the later short-viewport overrides, so the cards never shrink and
+// the insight rail is squeezed to a single scrollable row.
+// The grid later became two equal columns by two rows (CONTINUE/RECENT on row one, LIBRARY/DAILY MIX
+// on row two, clearing the top-right multi-account capsule), which doubles the block height; the base
+// heights were trimmed and the short-viewport breakpoints lowered to match. What this file pins down
+// is "short viewports must actually shrink below the base" and "two rows still leave the rail a
+// scrollable minimum", not one frozen pixel value.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -91,7 +100,58 @@ assert(quickCardRules.length >= 2, `expected a base rule and a short-viewport ov
 
 const baseRule = quickCardRules.find((rule) => !rule.media);
 assert(baseRule, 'the quick-grid card base rule is missing');
-assert.match(baseRule.declarations, /min-height:\s*158px/, 'the base min-height must stay 158px on tall screens');
+// 两行布局下每张卡不能太高，否则两行一起会把下方板块挤没。
+// With two stacked rows a tall card doubles the damage, so the base row height is capped.
+const baseMinHeight = Number((baseRule.declarations.match(/min-height:\s*(\d+)px/) || [])[1]);
+assert(
+  Number.isFinite(baseMinHeight) && baseMinHeight <= 132,
+  `the base min-height must stay <=132px now that two rows stack, got ${baseMinHeight}`
+);
+
+// 0. 钉住根因：账号胶囊是 fixed 浮层且层级高于首页，所以避让只能靠真留白，换行解决不了。
+//     Pill stack is a fixed overlay above the home layer, hence reserving real space is the only fix.
+const topRightRule = rulesFor('#top-right').find((rule) => !rule.media);
+assert(topRightRule, 'the #top-right rule is missing');
+assert.match(topRightRule.declarations, /position:\s*fixed/, 'the account pill stack must stay fixed');
+const emptyHomeRule = rulesFor('#empty-home').find((rule) => !rule.media);
+assert(emptyHomeRule, 'the #empty-home rule is missing');
+const pillZ = Number((topRightRule.declarations.match(/z-index:\s*(\d+)/) || [])[1]);
+const homeZ = Number((emptyHomeRule.declarations.match(/z-index:\s*(\d+)/) || [])[1]);
+assert(
+  pillZ > homeZ,
+  `the account pill stack (z ${pillZ}) is expected to paint above the home layer (z ${homeZ})`
+);
+
+// 0b. 四张卡一个长度：两列等宽，两行都用同一套列模板。
+const quickGridBase = rulesFor('#empty-home .home-grid.home-quick-grid').find((rule) => !rule.media);
+assert(quickGridBase, 'the quick-grid base rule is missing');
+assert.match(
+  quickGridBase.declarations,
+  /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  'the quick grid must be two equal columns so every card in both rows shares one length'
+);
+
+// 0c. 让出的宽度必须真的够到 #top-right 里的 home 小房子图标左边缘。
+//     从屏幕右边往左读：#top-right 的 right + pill 宽 + gap = 图标左边缘距屏距离；
+//     #empty-home 是居中的，右边缘距屏 = (100vw - width)/2，两者之差就是要让出的宽度。
+//     Reading from the screen's right edge: #top-right's `right` + pill width + gap is where the
+//     icon's left edge sits; #empty-home is centred, so its right edge is (100vw - width)/2 away.
+const topRightRight = Number((topRightRule.declarations.match(/right:\s*(\d+)px/) || [])[1]);
+const topRightGap = Number((topRightRule.declarations.match(/gap:\s*(\d+)px/) || [])[1]);
+const pillWidth = Number(
+  (css.match(/#user-btn\.multi-account\.external-account-pills \.top-account-pill \s*\{[^}]*?width:\s*(\d+)px/) || [])[1]
+);
+assert.strictEqual(topRightRight, 24, 'the pill stack is expected to stay 24px from the right edge');
+assert.strictEqual(pillWidth, 190, 'a multi-account pill is expected to stay 190px wide');
+const shellHome = rulesFor('body.desktop-shell #empty-home').find((rule) => !rule.media);
+assert(shellHome, 'the desktop-shell #empty-home rule is missing');
+const shellInset = Number((shellHome.declarations.match(/width:\s*calc\(100vw - (\d+)px\)/) || [])[1]) / 2;
+const requiredGutter = topRightRight + pillWidth + topRightGap - shellInset;
+const gutter = Number((quickGridBase.declarations.match(/padding-right:\s*(\d+)px/) || [])[1]);
+assert(
+  Number.isFinite(gutter) && gutter >= requiredGutter,
+  `the quick grid must reserve at least ${requiredGutter}px to clear the home icon, got ${gutter}`
+);
 
 // 1. 短屏覆盖必须与基础规则同等或更高特异性，否则永远赢不了。
 const shortOverrides = quickCardRules.filter((rule) => /max-height/.test(rule.media));
@@ -110,8 +170,8 @@ shortOverrides.forEach((rule) => {
 shortOverrides.forEach((rule) => {
   const declared = Number((rule.declarations.match(/min-height:\s*(\d+)px/) || [])[1]);
   assert(
-    Number.isFinite(declared) && declared < 158,
-    `${rule.media} override must actually shrink the card, got min-height ${declared}`
+    Number.isFinite(declared) && declared < baseMinHeight,
+    `${rule.media} override must actually shrink the card below ${baseMinHeight}px, got min-height ${declared}`
   );
 });
 
@@ -149,9 +209,13 @@ assert.match(railRule.declarations, /min-height:\s*0/, 'the rail must be allowed
 assert.match(railRule.declarations, /grid-row:\s*2/, 'the rail must stay in the lower right cell');
 
 // 4. 小屏上四张卡片释放出来的高度不能又被别的规则吃掉。
-assert.match(
-  css,
-  /@media \(max-height:\s*700px\)\s*\{[\s\S]{0,900}#empty-home \.home-grid\.home-quick-grid \.home-card-featured \{\s*min-height:\s*(1[01]\d)px/
+const shortFeatured = css.match(
+  /@media \(max-height:\s*700px\)\s*\{[\s\S]{0,900}#empty-home \.home-grid\.home-quick-grid \.home-card-featured \{\s*min-height:\s*(\d+)px/
+);
+assert(shortFeatured, 'the short-screen featured card override is missing');
+assert(
+  Number(shortFeatured[1]) < 100,
+  `the short-screen featured card must shrink below 100px, got ${shortFeatured[1]}`
 );
 assert.match(
   css,

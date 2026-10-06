@@ -33,7 +33,7 @@ var fxDefaults = {
   depth: 0.2,
   coverResolution: 1.55,
   point: 1.0, speed: 1.0, twist: 0.0, color: 1.10, scatter: 0.0, bgFade: 0.20,
-  bloomStrength: 0.62,
+  bloomStrength: 0.95,
   lyricGlowStrength: 0.28,
   lyricBackgroundAdapt: 0.72,
   lyricScale: 1.0,
@@ -126,7 +126,17 @@ var fxDefaults = {
   // unknown or the read path fell back, so lose the glass enhancement rather than show a border
   // nobody asked for. Win11 (build >= 22000) is turned back on by the read path.
   wallpaperEngineGlassSampler: false,
-  floatLayer: false, cinema: true, edge: false, aiDepth: false, bloom: false, lyricGlow: true,
+  // 视觉开关默认值：溢光（bloom）默认关，轮廓高亮（edge）默认开。
+  // bloom 参与两处渲染：预设网格的 uBloomStrength（关掉直接归零）和独立的 bloomParticles 层
+  // （整层隐藏），见 07-fx/04-preset-grid-uniforms.js；edge 只是网格着色器里的 uEdgeEnabled 一项。
+  // 注意：自动存档、预设存档、打包快照三处读取都把「缺键」解释成这里的值，所以改这两个默认值时
+  // 必须同时核对读取处的方向——`=== true` 只对默认关的键成立，默认开的键必须写成 `!== false`。
+  // Visual switch defaults: bloom off, edge on. bloom drives both uBloomStrength on the preset grid
+  // (zeroed when off) and the separate bloomParticles layer (hidden entirely); edge is only the
+  // uEdgeEnabled term in the grid shader. All three readers (autosave, preset archive, packaged
+  // snapshot) read a missing key as the value declared here, so `=== true` is only right for a
+  // default-off key; a default-on key has to read `!== false`.
+  floatLayer: false, cinema: true, edge: true, aiDepth: false, bloom: false, lyricGlow: true,
   lyricGlowBeat: true,
   lyricGlowParticles: false,
   lyricVerticalFloat: true,
@@ -222,7 +232,12 @@ var fxDefaults = {
   shelfCameraEnterSpeed: 0.24,
   shelfCameraExitSpeed: 0.24,
   performanceBackground: 'release',
-  performanceQuality: 'eco',
+  // 默认从 eco 提到 balanced：eco 档下粒子预算系数只有 0.28（见 12-particle-budget.js），
+  // 首启动就比上游少七成粒子，看起来像"粒子坏了"而不是"省电档"。balanced 是安全的中档。
+  // Raised from eco to balanced: at eco the particle budget factor is only 0.28 (see
+  // 12-particle-budget.js), so a fresh install draws roughly a quarter of the population and reads
+  // as broken rather than power-saving. balanced is the safe middle tier.
+  performanceQuality: 'balanced',
   foregroundFpsMode: 'vsync',
   memoryAutoTrimApp: true,
   memoryAutoTrimOnBackground: true,
@@ -233,6 +248,12 @@ var fxDefaults = {
   memorySystemMask: 29,
   memorySafetyRevision: 4,
   liveBackgroundKeep: false,
+  // 自动节奏分析：默认关闭。开启后播放时自动分析节拍生成谱面（供视觉与电影镜头同步）；
+  // 关闭则不自动分析，已有谱面缓存（含手动在「本地节奏分析」里分析过的）仍然照用。
+  // Automatic beat analysis defaults to off: when on, playback analyses beats into a chart for the
+  // visuals and cinema camera; when off nothing is analysed, while existing charts (including ones
+  // produced by the manual local-beat modal) are still consumed.
+  beatAnalysis: false,
   cam: 'off',
   gesturePlayerActions: true,
   gestureHandOverlay: true,

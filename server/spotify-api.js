@@ -4,11 +4,16 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
+// 项目根：本文件住在 server/ 下，而 Spotify 的凭据与令牌一直落在仓库根目录，位置不变。
+// Project root: this file lives under server/ while Spotify's credentials and token always sat at
+// the repository root; the location is deliberately preserved.
+const PROJECT_ROOT = path.join(__dirname, '..');
+
 const SPOTIFY_ACCOUNTS_BASE = (process.env.SPOTIFY_ACCOUNTS_BASE || 'https://accounts.spotify.com').replace(/\/+$/, '');
 const SPOTIFY_API_BASE = (process.env.SPOTIFY_API_BASE || 'https://api.spotify.com/v1').replace(/\/+$/, '');
 const DEFAULT_SPOTIFY_MARKET = String(process.env.MINERADIO_SPOTIFY_MARKET || process.env.SPOTIFY_MARKET || 'US').trim().toUpperCase();
-const DEFAULT_SPOTIFY_CONFIG_FILE = path.join(__dirname, '.spotify-credentials.json');
-const DEFAULT_SPOTIFY_TOKEN_FILE = path.join(__dirname, '.spotify-token.json');
+const DEFAULT_SPOTIFY_CONFIG_FILE = path.join(PROJECT_ROOT, '.spotify-credentials.json');
+const DEFAULT_SPOTIFY_TOKEN_FILE = path.join(PROJECT_ROOT, '.spotify-token.json');
 const DEFAULT_SPOTIFY_REDIRECT_URI = 'http://127.0.0.1:43879/callback';
 const DEFAULT_SPOTIFY_SCOPES = [
   'user-read-private',
@@ -99,7 +104,7 @@ function spotifyConfigFileCandidates() {
   }
   add(firstEnv(['SPOTIFY_CONFIG_FILE', 'MINERADIO_SPOTIFY_CONFIG_FILE']));
   add(DEFAULT_SPOTIFY_CONFIG_FILE);
-  add(path.join(__dirname, 'spotify-credentials.json'));
+  add(path.join(PROJECT_ROOT, 'spotify-credentials.json'));
   return candidates;
 }
 

@@ -67,12 +67,12 @@ second-verification UI when the service requests it. The upstream whole-project
 installer was not run, and no application files were wholesale replaced.
 
 The QR bridge feeds the authenticated cookie into Mineradio's existing
-`qishui-api.js` provider. Search, playlists, likes, comments, entitlement checks,
+`server/qishui-api.js` provider. Search, playlists, likes, comments, entitlement checks,
 and audio playback remain Mineradio implementations. Legacy token/manual-cookie
 login controls and local SodaMusic cookie discovery are not exposed by the
 current login UI.
 
-The web security runtime resources under `qishui-auth-v6/` are retained
+The web security runtime resources under `server/qishui-auth-v6/` are retained
 byte-for-byte for protocol compatibility and remain the property of their
 respective rights holders. They are loaded only inside the isolated authentication
 partition for the user's own official login session.

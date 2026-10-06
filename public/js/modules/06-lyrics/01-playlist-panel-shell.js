@@ -250,6 +250,9 @@ function preparePlaylistPanelTabOnOpen(panel) {
 }
 function switchPlaylistTab(tab, opts) {
   opts = opts || {};
+  // 换分栏时多选所依附的列表已经不在眼前，留着勾选只会让人误以为它还在生效。
+  // Switching tabs hides the list the selection belonged to; keeping it would look like it still applies.
+  if (typeof playlistMultiExit === 'function') playlistMultiExit();
   tab = normalizePlaylistPanelTab(tab);
   queueViewTab = tab;
   if (opts.save !== false) savePlaylistPanelTabPreference(tab);
@@ -365,6 +368,9 @@ function panelReorderBlockedTarget(target) {
 }
 function panelReorderHitFromTarget(target) {
   if (!target || !target.closest || panelReorderBlockedTarget(target)) return null;
+  // 多选态下长按拖动与「点行切换勾选」会互相打架，直接停用拖拽排序。
+  // Multi-select and long-press reorder fight over the same gesture, so reorder is off while selecting.
+  if (typeof playlistMultiState !== 'undefined' && playlistMultiState && playlistMultiState.active) return null;
   var queueItem = target.closest('.queue-item[data-queue-index],.mini-queue-item[data-queue-index]');
   if (queueItem) {
     var queueRoot = queueItem.closest('#queue-list,#mini-queue-list');
@@ -493,12 +499,18 @@ function renderQueuePanel(opts) {
   var panelScroller = document.getElementById('playlist-panel');
   var windowInfo = queuePanelVirtualWindow($ql, panelScroller, total, false, opts.scrollCurrent ? currentIdx : -1);
   var visibleQueue = playQueue.slice(windowInfo.start, windowInfo.end);
+  // 多选态下每行前面插一个勾选框；勾选态由下标决定，虚拟滚动的行重建后仍能对上。
+  // In multi-select a checkbox is prefixed to each row; its state comes from the row index, so a
+  // rebuilt (virtualised) row still shows the right tick.
+  var msQueueActive = typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('queue');
   $ql.innerHTML = queueVirtualSpacerHtml(windowInfo.top) + visibleQueue.map(function (song, localIndex) {
     var i = windowInfo.start + localIndex;
     var thumb = songCoverSrc(song, 60);
     var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:38px;height:38px;border-radius:6px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
-    return '<div class="queue-item' + (i === currentIdx ? ' now' : '') + '" data-queue-index="' + i + '" onclick="if(window.__mineradioSuppressReorderClick)return;playQueueAt(' + i + ')">' +
-      imgTag +
+    var msCheck = msQueueActive && typeof playlistMultiCheckboxHtml === 'function' ? playlistMultiCheckboxHtml(i) : '';
+    var msClass = msQueueActive && typeof playlistMultiRowClass === 'function' ? playlistMultiRowClass(i) : '';
+    return '<div class="queue-item' + (i === currentIdx ? ' now' : '') + msClass + '" data-queue-index="' + i + '" onclick="if(window.__mineradioSuppressReorderClick)return;playQueueAt(' + i + ')">' +
+      msCheck + imgTag +
       '<div class="qi-info"><div class="qi-name">' + escHtml(song.name) + '</div><div class="qi-sub"><button class="queue-artist-link" type="button" onclick="event.stopPropagation();openQueueArtist(' + i + ')">' + escHtml(song.artist || playlistPanelText('track_unknown_artist')) + '</button></div></div>' +
       '<div class="qi-act">' +
       '<button class="' + (isSongLiked(song) ? 'liked' : '') + '" onclick="event.stopPropagation();toggleLikeQueueIndex(' + i + ')" title="' + (isSongLiked(song) ? playlistPanelText('track_unheart') : playlistPanelText('track_heart_like')) + '">' + heartIconSvg() + '</button>' +
@@ -613,10 +625,25 @@ function playlistCatalogHasPendingPages() {
   var providers = playlistCatalogSyncState.providers || {};
   return Object.keys(providers).some(function (key) { return providers[key] && (providers[key].loading || providers[key].hasMore); });
 }
+// 歌单目录的**预取优先级**（不是完整清单）：只声明"谁该先预取"，集合永远以注册表为准。
+// 之所以保留这个顺序而不是直接用注册表顺序：网易云最常用、Spotify 次之，是有意的取舍。
+// The playlist-catalogue prefetch PRIORITY (not the full list): it only says who goes first; the set
+// always comes from the registry. The ordering is kept because preferring netease then Spotify is a
+// deliberate trade-off rather than a registry concern.
+var PLAYLIST_CATALOG_PREFETCH_PRIORITY = ['netease', 'spotify'];
+
 function requestNextPlaylistCatalogPage(reason) {
   var root = playlistCatalogSyncState;
   if (!root || !root.providers) return false;
-  var order = ['netease', 'spotify', 'qq', 'kugou', 'qishui'];
+  // 预取的**优先级**是有意排序的（网易云在前、Spotify 次之），所以这里保留顺序；
+  // 但**集合**以注册表为准：注册表里新增的登录平台会自动补到末尾，不会出现"加了源却永远不被预取"。
+  // The prefetch PRIORITY is a deliberate ordering (netease first, then Spotify), so the order stays
+  // here; the SET comes from the registry, which appends any newly registered login platform so a
+  // new source can never end up permanently un-prefetched.
+  var order = PLAYLIST_CATALOG_PREFETCH_PRIORITY.slice();
+  providerRegistryKeysWith('login').forEach(function (provider) {
+    if (order.indexOf(provider) < 0) order.push(provider);
+  });
   var provider = order.find(function (key) {
     var state = root.providers[key];
     return state && state.hasMore && !state.loading;
@@ -650,7 +677,7 @@ async function refreshUserPlaylists(force) {
     if (podcastListLoggedOut) podcastListLoggedOut.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">' + escHtml(playlistPanelText('login_show_podcasts', '登录后显示我的播客')) + '</div>';
     return;
   }
-  var catalogNeedsNewProvider = playlistCatalogSyncState.loading && ['netease', 'qq', 'kugou', 'qishui', 'spotify'].some(function (provider) {
+  var catalogNeedsNewProvider = playlistCatalogSyncState.loading && providerRegistryKeysWith('login').some(function (provider) {
     var state = playlistCatalogSyncState.providers && playlistCatalogSyncState.providers[provider];
     return playlistCatalogProviderLoggedIn(provider) && (!state || !state.enabled);
   });
@@ -674,7 +701,7 @@ async function refreshUserPlaylists(force) {
   if (playlistCatalogSyncState.timer) clearTimeout(playlistCatalogSyncState.timer);
   var token = playlistCatalogSyncState.token + 1;
   playlistCatalogSyncState = { token: token, loading: true, timer: 0, providers: {}, error: '', startedAt: Date.now() };
-  ['netease', 'qq', 'kugou', 'qishui', 'spotify'].forEach(function (provider) {
+  providerRegistryKeysWith('login').forEach(function (provider) {
     if (force && playlistCatalogProviderLoggedIn(provider)) setPlaylistCatalogProviderArray(provider, []);
     playlistCatalogSyncState.providers[provider] = {
       enabled: playlistCatalogProviderLoggedIn(provider),

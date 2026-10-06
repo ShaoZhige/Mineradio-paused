@@ -30,7 +30,7 @@ test('keeps album gapless priority and provides bounded advanced timeline fallba
 });
 
 test('passes only cache keys, lyric evidence and bounded transition hints to the local route', () => {
-  const server = read('server.js');
+  const server = read('server/server.js');
   const route = server.slice(server.indexOf("if (pn === '/api/cuefield/transition')"), server.indexOf("if (pn === '/api/cuefield/feedback')"));
   assert.match(route, /recentRecipes/);
   assert.match(route, /minimumListenUntil/);

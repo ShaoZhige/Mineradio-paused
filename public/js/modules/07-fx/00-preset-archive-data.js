@@ -276,7 +276,8 @@ var USER_FX_SHARE_KEYS = [
   'gestureHandOverlay',
   'gestureSensitivity',
   'wallpaperEngineSilentWindows',
-  'wallpaperEngineGlassSampler'
+  'wallpaperEngineGlassSampler',
+  'beatAnalysis'
 ];
 function defaultUserFxArchiveName(index) {
   return '存档 ' + (index + 1);
@@ -387,6 +388,13 @@ function normalizeFxArchiveSnapshot(raw) {
     wallpaperEngineSilentWindows: raw.wallpaperEngineSilentWindows !== false,
     wallpaperEngineGlassSampler: raw.wallpaperEngineGlassSampler == null
       ? wallpaperEngineBorderlessCaptureSupported() : raw.wallpaperEngineGlassSampler !== false,
+    // 这一项是本文件里唯一「默认关」的性能开关，所以必须写成 `=== true`。分享码是按下标编码的，
+    // 别人用旧版本生成的码里根本没有这个键 —— 写成 `!== false` 会让导入别人的存档顺手把
+    // 节奏分析打开，而对方的存档里其实压根没表达过这个意思。
+    // The only default-off performance switch in this normaliser, hence `=== true`. Share codes are
+    // index-encoded and a code produced by an older build has no such key at all: `!== false` would
+    // turn analysis on when importing someone's archive that never expressed an opinion about it.
+    beatAnalysis: raw.beatAnalysis === true,
     visualTintMode: raw.visualTintMode === 'custom' ? 'custom' : 'auto',
     visualTintColor: normalizeHexColor(raw.visualTintColor || fxDefaults.visualTintColor),
     uiAccentColor: normalizeHexColor(raw.uiAccentColor || fxDefaults.uiAccentColor, fxDefaults.uiAccentColor),
@@ -410,7 +418,11 @@ function normalizeFxArchiveSnapshot(raw) {
     backgroundColorCustom: raw.backgroundColorMode === 'custom' || !!raw.backgroundColorCustom,
     floatLayer: !!raw.floatLayer,
     cinema: raw.cinema !== false,
-    edge: !!raw.edge,
+    // 与 cinema 同一条约定：缺键=取 04-fx-defaults.js 的当前默认，而不是"关"。
+    // edge 默认开，所以只有显式 false 才关；bloom 默认关，!!raw.bloom 已经是对的。
+    // Same rule as cinema: a missing key means the current default in 04-fx-defaults.js, not "off".
+    // edge defaults on, so only an explicit false disables it; bloom defaults off, so !!raw.bloom holds.
+    edge: raw.edge !== false,
     aiDepth: !!raw.aiDepth,
     bloom: !!raw.bloom,
     lyricGlow: raw.lyricGlow !== false,

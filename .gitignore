@@ -68,14 +68,28 @@ tmp/
 verification/
 screenshots/
 
-# 本机专属的 Windows 启动器与诊断导出：含本机绝对路径 / 安装盘符，一律不提交
-# Machine-specific Windows launchers and diagnosis dumps stay out of the repository.
+# Windows 一键脚本一律不入库。分两类，但结论相同：
+#  (1) 含本机信息的：0-setup / 1-run / 2-test / 3-build / 4-release / build-installer 等，
+#      写死了盘符与本机缓存目录，属于本机产物；
+#  (2) 通用的 start-mineradio.bat / quick-check.bat：内容只用 %~dp0 定位，本身不含本机信息，
+#      但它们是 `npm start` 与 `npm run check:quick` 的包装，功能完全重复。放在仓库根目录会被
+#      误读成"官方启动方式"（正式版用户拿到的是安装后的 Mineradio.exe，从不经过 bat），
+#      因此改为仅本地保留。
+# Windows one-click scripts never go into the repository. Two categories, same conclusion:
+#  (1) machine-specific ones (0-setup / 1-run / 2-test / 3-build / 4-release / build-installer)
+#      hardcode the drive letter and local cache directories;
+#  (2) the generic start-mineradio.bat / quick-check.bat only resolve paths from %~dp0 and carry no
+#      machine information, but they merely wrap `npm start` and `npm run check:quick`. At the
+#      repository root they read as "the official way to launch", while a released build ships an
+#      installed Mineradio.exe and never touches a .bat. Kept locally only.
 0-setup.bat
 1-run.bat
 2-test.bat
 3-build.bat
 4-release.bat
+build-installer.bat
 start-mineradio.bat
+quick-check.bat
 5-diag-wallpaper.bat
 _dryrun-diag.bat
 wallpaper-diagnosis.txt
@@ -105,3 +119,14 @@ libmetasecml.so
 # test userData directory being pointed at the working tree.
 custom-sources/
 *.user.js
+
+# ⚠️ 便携数据根目录：登录凭证、cookie、分区存储、缓存全部落在 <仓库>/userdata/ 下，
+#    一律不得入库；这里兜底防止 git add -A 把用户凭据带上仓库。
+# The portable data root holds credentials, cookies, partitions and caches; never commit it.
+userdata/
+
+# ⚠️ 本地工作区数据：一次性探针脚本、验证日志、截图、临时归档都落在 .workbuddy/ 下，
+#    全部是本机专属产物（含绝对路径），不得入库。目录本身不要删 —— 里面还放着跨轮次的记录。
+# Local workspace data: throwaway probes, verification logs, screenshots and temp archives land in
+# .workbuddy/ — machine-specific, never committable. The directory itself must not be deleted.
+.workbuddy/

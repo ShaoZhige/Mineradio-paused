@@ -187,7 +187,13 @@ var CONTROLS_AUTO_HIDE_STORE_KEY = 'mineradio-controls-auto-hide-v1';
 var FREE_CAMERA_STORE_KEY = 'mineradio-free-camera-v1';
 var HOTKEY_SETTINGS_STORE_KEY = 'mineradio-hotkey-settings-v1';
 var VISUAL_GUIDE_SEEN_STORE_KEY = 'mineradio-visual-guide-seen-v2';
-var CLOSE_BEHAVIOR_STORE_KEY = 'mineradio-close-behavior-v1';
+// 关闭行为默认改为「托盘常驻」。v1 这个键被早期构建在首次启动时把默认值 'exit' 自动写回了
+// localStorage（见 02-preferences-ui-modes.js 的 initializeDesktopCloseBehavior），导致升级后
+// 原本隐含的托盘行为被锁死成退出。直接升到 v2 丢弃那个被错误持久化的 v1 值，让新默认值生效。
+// Close behavior now defaults to tray. The v1 key was auto-persisted with 'exit' by an earlier
+// build on first launch, locking the previously-implied tray behavior into a quit. Bumping to v2
+// discards that wrongly-persisted value so the new default takes effect.
+var CLOSE_BEHAVIOR_STORE_KEY = 'mineradio-close-behavior-v2';
 var LAST_PLAYBACK_STORE_KEY = 'mineradio-last-playback-v1';
 var STARTUP_AUTOPLAY_STORE_KEY = 'mineradio-startup-autoplay-v1';
 var STARTUP_FAST_SKIP_STORE_KEY = 'mineradio-startup-fast-skip-v1';

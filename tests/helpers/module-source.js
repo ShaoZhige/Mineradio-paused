@@ -71,6 +71,25 @@ function i18nWindow(locale) {
   };
 }
 
+// 平台注册表是所有 provider 清单的唯一来源，多个模块在**加载时**就调用它取清单
+//（例如 `var SOURCE_FALLBACK_DIRECT_PROVIDERS = providerRegistryKeysWith('directFallback')`）。
+// 所以任何把这些模块单独丢进裸沙箱的测试都会报 `providerRegistryKeysWith is not defined`。
+// 这里按生产环境的真实加载方式处理：index-loader 把模块拼成一个 script，注册表排在消费方之前。
+// 测试照做即可，同时在语义上更贴近真实加载顺序。
+// The provider registry is the single source for every provider list, and several modules call it at
+// LOAD time (`var SOURCE_FALLBACK_DIRECT_PROVIDERS = providerRegistryKeysWith('directFallback')`), so
+// any test that sandboxes one of those modules alone gets a ReferenceError. This mirrors production:
+// index-loader concatenates modules into one script with the registry ahead of its consumers.
+const PROVIDER_REGISTRY_PATH = path.join(__dirname, '..', '..', 'public', 'js', 'modules', '00-state', '16-provider-registry.js');
+
+function providerRegistrySource() {
+  return fs.readFileSync(PROVIDER_REGISTRY_PATH, 'utf8');
+}
+
+function withProviderRegistry(source) {
+  return providerRegistrySource() + '\n' + source;
+}
+
 module.exports = {
   extractFunction,
   accessorNames,
@@ -79,6 +98,8 @@ module.exports = {
   mainI18nBlock,
   loadDict,
   i18nWindow,
+  withProviderRegistry,
+  providerRegistrySource,
 };
 
 // 主进程 i18n 助手的提取器。片段沙箱跑 desktop/main.js 的切片时，切片里会调用

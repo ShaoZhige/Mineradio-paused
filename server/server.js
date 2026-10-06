@@ -118,8 +118,17 @@ const { clearSpotifyToken } = require('./spotify-api');
 const {
   appendCuefieldFeedback,
   readCuefieldFeedbackStats,
-} = require('./cuefield/feedback-log');
-const { planCuefieldTransitionFromCache } = require('./cuefield/mineradio-bridge');
+} = require('../cuefield/feedback-log');
+const { planCuefieldTransitionFromCache } = require('../cuefield/mineradio-bridge');
+
+// 项目根：本文件住在 server/ 下，而静态资源、图标、package.json 以及各平台的 cookie / 缓存
+// 都留在根目录原位。代码搬进文件夹不该顺手把运行时数据也搬走 —— 那会让已登录用户的凭据凭空
+// 失效（cookie 落在新目录、旧文件被当成不存在），也会让 public/ 整个 404。
+// Project root: this file lives under server/, while the static bundle, the icon, package.json and
+// every platform cookie / cache stay where they always were. Moving code into a folder must not drag
+// runtime data along: that would silently orphan an existing user's credentials (cookies written to
+// the new directory, the old files treated as absent) and 404 the whole public/ bundle.
+const PROJECT_ROOT = path.join(__dirname, '..');
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -136,13 +145,13 @@ const LOGIN_EASTER_EGG_PROTECTED_ROUTES = new Set([
   '/api/qishui/login/check',
 ]);
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-const DEFAULT_COOKIE_FILE = path.join(__dirname, '.cookie');
-const DEFAULT_QQ_COOKIE_FILE = path.join(__dirname, '.qq-cookie');
-const DEFAULT_KUGOU_COOKIE_FILE = path.join(__dirname, '.kugou-cookie');
-const DEFAULT_QISHUI_COOKIE_FILE = path.join(__dirname, '.qishui-cookie');
-const BEATMAP_CACHE_DIR = process.env.MINERADIO_BEAT_CACHE_DIR || 'D:\\MineradioCache\\beatmaps';
-const CUEFIELD_FEEDBACK_FILE = process.env.CUEFIELD_FEEDBACK_FILE || path.join(__dirname, 'data', 'cuefield-feedback.jsonl');
-const LISTEN_SYNC_JOURNAL_FILE = process.env.MINERADIO_LISTEN_SYNC_FILE || path.join(__dirname, 'data', 'listen-sync-journal.json');
+const DEFAULT_COOKIE_FILE = path.join(PROJECT_ROOT, '.cookie');
+const DEFAULT_QQ_COOKIE_FILE = path.join(PROJECT_ROOT, '.qq-cookie');
+const DEFAULT_KUGOU_COOKIE_FILE = path.join(PROJECT_ROOT, '.kugou-cookie');
+const DEFAULT_QISHUI_COOKIE_FILE = path.join(PROJECT_ROOT, '.qishui-cookie');
+const BEATMAP_CACHE_DIR = process.env.MINERADIO_BEAT_CACHE_DIR || path.join(PROJECT_ROOT, 'userdata', 'cache', 'beatmaps');
+const CUEFIELD_FEEDBACK_FILE = process.env.CUEFIELD_FEEDBACK_FILE || path.join(PROJECT_ROOT, 'data', 'cuefield-feedback.jsonl');
+const LISTEN_SYNC_JOURNAL_FILE = process.env.MINERADIO_LISTEN_SYNC_FILE || path.join(PROJECT_ROOT, 'data', 'listen-sync-journal.json');
 const LISTEN_SYNC_JOURNAL_LIMIT = 600;
 const APP_PACKAGE = readPackageInfo();
 const APP_VERSION = process.env.MINERADIO_VERSION || APP_PACKAGE.version || '2.2.0';
@@ -424,7 +433,7 @@ function sendJSON(res, data, status) {
 }
 function readPackageInfo() {
   try {
-    const raw = fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8');
+    const raw = fs.readFileSync(path.join(PROJECT_ROOT, 'package.json'), 'utf8');
     return JSON.parse(raw);
   } catch (e) {
     return {};
@@ -4687,11 +4696,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (pn === '/api/spotify' || pn.indexOf('/api/spotify/') === 0) {
-    sendJSON(res, { ok: false, error: 'PROVIDER_REMOVED', message: '该平台接口已从 Mineradio 移除。' }, 404);
-    return;
-  }
-
   if (LOGIN_EASTER_EGG_PROTECTED_ROUTES.has(pn) && !loginEasterEggGateUnlocked()) {
     sendJSON(res, {
       ok: false,
@@ -6787,12 +6791,12 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 静态资源 ----------
   if (pn === '/favicon.ico') {
-    serveStatic(res, path.join(__dirname, 'build', 'icon.ico'));
+    serveStatic(res, path.join(PROJECT_ROOT, 'build', 'icon.ico'));
     return;
   }
 
   let filePath = pn === '/' ? '/index.html' : pn;
-  filePath = path.join(__dirname, 'public', filePath);
+  filePath = path.join(PROJECT_ROOT, 'public', filePath);
   serveStatic(res, filePath);
 });
 

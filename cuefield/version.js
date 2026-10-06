@@ -30,7 +30,7 @@ function cuefieldSourceFiles(root) {
   };
 
   addTree(path.join(root, 'cuefield'));
-  const server = path.join(root, 'server.js');
+  const server = path.join(root, 'server', 'server.js');
   if (fs.existsSync(server)) files.push(server);
   const publicDir = path.join(root, 'public');
   const index = path.join(publicDir, 'index.html');

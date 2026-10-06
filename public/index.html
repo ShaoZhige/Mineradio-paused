@@ -26,6 +26,19 @@
       <div class="desktop-window-controls">
         <button id="visual-guide-btn" class="icon-btn" type="button" onclick="startVisualGuide({ manual: true })"
           title="查看使用引导" aria-label="查看使用引导" data-i18n="btn_guide" data-i18n-attr="aria-label" data-i18n-title="btn_guide">?</button>
+        <!-- 语言切换：从搜索框移出，与右上角控件同级，位于 ? 号右侧、热键左侧；
+             按钮复用 .icon-btn 的 44px 圆形，菜单相对 .lang-switch 绝对定位下拉。
+             Moved out of the search box to sit with the top-right controls, right of "?" and
+             left of the hotkey button; reuses .icon-btn's 44px circle, menu drops below it. -->
+        <div class="lang-switch">
+          <button id="lang-toggle-btn" class="icon-btn" type="button" aria-label="Language" aria-expanded="false">中</button>
+          <div id="lang-menu" role="menu" aria-label="Language" hidden>
+            <button type="button" role="menuitem" data-lang="zh_cn">中文</button>
+            <button type="button" role="menuitem" data-lang="en_us">English</button>
+            <button type="button" role="menuitem" data-lang="ja_jp">日本語</button>
+            <button type="button" role="menuitem" data-lang="ru_ru">Русский</button>
+          </div>
+        </div>
         <button id="update-entry" class="update-entry" type="button" onclick="openUpdatePanel()" title="发现新版本"
           aria-label="发现新版本" data-i18n="btn_update" data-i18n-attr="aria-label" data-i18n-title="btn_update">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -67,10 +80,19 @@
         </button>
       </div>
     </div>
-    <div id="fullscreen-diy-zone" aria-hidden="true">
-      <button id="fullscreen-diy-btn" class="desktop-mode-btn" type="button" onclick="toggleDiyMode()" title="DIY"
-        aria-label="DIY" aria-pressed="false">DIY</button>
-    </div>
+    <!-- 全屏工具行：全屏时 #desktop-titlebar 整条被隐藏，标题栏里那排工具按钮（? / 语言 / 更新 /
+         热键 / DIY）会跟着一起消失。进入全屏由脚本把**同一批节点**搬进这里，退出全屏再按原顺序
+         搬回标题栏 —— 搬移而不是复制：语言菜单、热键按钮文案、更新入口的进度状态都跟着节点走，
+         复制一份就得给每个控件再写一套同步逻辑。
+         鼠标靠近右上角（账号图标一带）浮现，见 02-preferences-ui-modes.js 的
+         updateFullscreenToolsPeekFromPointer()；行宽由内容决定，位置由脚本写入。
+         The fullscreen tool row. #desktop-titlebar is hidden entirely in fullscreen, which would
+         take the title bar's tool buttons ("?" / language / update / hotkey / DIY) with it. On
+         entering fullscreen the script MOVES those very nodes in here and moves them back into the
+         title bar, in order, on exit. Moving beats cloning: the language menu, the hotkey label and
+         the update entry's progress state all travel with their nodes, whereas clones would each
+         need their own syncing. Revealed by hovering near the top-right account icons. -->
+    <div id="fullscreen-tools-zone" role="toolbar"></div>
     <div id="custom-bg"><video id="custom-bg-video" muted loop playsinline preload="metadata"></video></div>
     <div id="wallpaper-engine-layer" aria-hidden="true">
       <img id="wallpaper-engine-image" alt="">
@@ -109,24 +131,12 @@
     <div id="search-area">
       <div id="search-stack">
         <div id="search-box">
-          <!-- 语言切换入口：按钮显示当前语言首字，菜单由 14-i18n-switcher.js 绑定点击。
-               文案为各语言自称（中文/English/日本語/Русский），不参与翻译。
-               Language switch entry: the button shows the first letter of the active
-               language; the menu is wired by 14-i18n-switcher.js. Labels are language
-               endonyms and are intentionally left untranslated. -->
-          <button id="lang-toggle-btn" type="button" aria-label="Language" aria-expanded="false">中</button>
           <svg id="search-icon" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
             viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.35-4.35" />
           </svg>
           <input id="search-input" type="text" placeholder="搜索歌曲、歌手..." autocomplete="off" spellcheck="false" data-i18n-placeholder="search_placeholder">
-        </div>
-        <div id="lang-menu" role="menu" aria-label="Language" hidden>
-          <button type="button" role="menuitem" data-lang="zh_cn">中文</button>
-          <button type="button" role="menuitem" data-lang="en_us">English</button>
-          <button type="button" role="menuitem" data-lang="ja_jp">日本語</button>
-          <button type="button" role="menuitem" data-lang="ru_ru">Русский</button>
         </div>
         <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="Search mode">
           <button id="search-mode-song" class="active" type="button" onclick="setSearchMode('song')"
@@ -211,6 +221,13 @@
             <div class="home-card-sub" data-i18n="home_continue_sub">从当前队列或最近播放继续</div>
             <div class="home-card-art"></div>
           </button>
+          <button class="home-card home-card-quick" data-home-tone="playlist" type="button"
+            onclick="playHomeRecent()">
+            <div class="home-card-label">RECENT</div>
+            <div class="home-card-title" data-i18n="home_recent">最近播放</div>
+            <div class="home-card-sub" data-i18n="home_recent_sub">播放过的歌曲会出现在这里</div>
+            <div class="home-card-art"></div>
+          </button>
           <button class="home-card home-card-quick" data-home-tone="library" type="button"
             onclick="openHomeDashboardLibrary()">
             <div class="home-card-label">LIBRARY</div>
@@ -223,13 +240,6 @@
             <div class="home-card-label">DAILY MIX</div>
             <div class="home-card-title" data-i18n="home_daily">每日推荐</div>
             <div class="home-card-sub" data-i18n="home_daily_sub">使用当前 Mineradio 推荐数据</div>
-            <div class="home-card-art"></div>
-          </button>
-          <button class="home-card home-card-quick" data-home-tone="playlist" type="button"
-            onclick="playHomeRecent()">
-            <div class="home-card-label">RECENT</div>
-            <div class="home-card-title" data-i18n="home_recent">最近播放</div>
-            <div class="home-card-sub" data-i18n="home_recent_sub">播放过的歌曲会出现在这里</div>
             <div class="home-card-art"></div>
           </button>
         </div>
@@ -810,14 +820,17 @@
                 class="dot"></span></div>
             <div class="fx-toggle" id="t-cinema" onclick="toggleFx('cinema')"><span data-i18n="toggle_cinema">电影镜头</span><span class="dot"></span>
             </div>
+            <!-- 背景星河是预设自带的背景层，不是歌词开关，所以留在画面级的这一段里，不跟着下面的歌词组走。 -->
+            <!-- The background star river is a preset-owned background layer, so it stays with the scene
+                 level switches above instead of moving with the lyric group below. -->
+            <div class="fx-toggle" id="t-backgroundStarRiver" onclick="toggleFx('backgroundStarRiver')">
+              <span data-i18n="fx_bg_galaxy">背景星河</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-lyricGlow" onclick="toggleFx('lyricGlow')"><span data-i18n="toggle_lyric_glow">歌词溢光</span><span
                 class="dot"></span></div>
             <div class="fx-toggle" id="t-lyricGlowBeat" onclick="toggleFx('lyricGlowBeat')"><span data-i18n="toggle_beat_glow">鼓点溢光</span><span
                 class="dot"></span></div>
             <div class="fx-toggle" id="t-lyricGlowParticles" onclick="toggleFx('lyricGlowParticles')">
               <span data-i18n="toggle_lyric_glow_particles">歌词光粒</span><span class="dot"></span></div>
-            <div class="fx-toggle" id="t-backgroundStarRiver" onclick="toggleFx('backgroundStarRiver')">
-              <span data-i18n="fx_bg_galaxy">背景星河</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-lyricVerticalFloat" onclick="toggleFx('lyricVerticalFloat')">
               <span data-i18n="fx_lyric_float">歌词上下浮动</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-lyricPauseHold" onclick="toggleFx('lyricPauseHold')">
@@ -1036,6 +1049,22 @@
             <button data-startup-resume-mode="resume" data-i18n="fx_by_progress">按上次进度</button>
             <button data-startup-resume-mode="restart" data-i18n="fx_replay_all">重播整首</button>
           </div>
+          <!-- 标签与下拉属于**同一个块**（一起被控制台搬进分组），所以包在一个容器里：
+               控制台只搬运登记过的那个节点，单独的 .fx-section-label 会被留在旧容器里丢掉。
+               选项由 provider 注册表在运行时填充（不写死平台清单），以后新增可指定平台会自动出现。
+               The label and the select form ONE block so they travel together: the console moves only the
+               registered node, and a standalone .fx-section-label would be left behind in the discarded
+               container. Options are filled at runtime from the provider registry. -->
+          <div class="fx-select-row" id="preferred-source-row">
+            <span class="fx-select-row-label" data-i18n="settings_preferred_source">默认源</span>
+            <select id="preferred-source-select" class="fx-select" onchange="setPreferredSourceProvider(this.value)"
+              title="播放时优先到指定平台找同名歌曲，找不到就继续按顺序试其它平台" data-i18n-title="settings_preferred_source_sub"></select>
+          </div>
+          <div class="fx-section-label">Spotify</div>
+          <div class="fx-toggle-grid">
+            <div class="fx-toggle" id="t-spotifyLaunchClient" onclick="toggleSpotifyLaunchClient()" title="播放 Spotify 源的歌曲时自动唤起本机 Spotify 客户端进行原生播放；未开启或客户端未安装时，会自动换源到同首歌的其他可用源" data-i18n-title="settings_spotify_launch_sub">
+              <span data-i18n="settings_spotify_launch_title">播放 Spotify 源唤起客户端</span><span class="dot"></span></div>
+          </div>
           <div class="fx-section-label" data-i18n="fx_output">输出接口</div>
           <div class="audio-output-section" id="audio-output-panel">
             <div class="quality-output-head"><span data-i18n="fx_output_device">播放输出设备</span><span class="quality-output-actions"><button class="quality-output-refresh" type="button"
@@ -1070,6 +1099,8 @@
               title="让所有可见歌词根据亮背景实时增强可读性；关闭后保留基础文字层" data-i18n-title="fx_global_avoid_title"><span data-i18n="fx_global_avoid">全局歌词避光</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-coverBackdropAdapt" onclick="toggleFx('coverBackdropAdapt')"
               title="在封面粒子着色器中启用亮底避光；关闭后跳过对应片元增强" data-i18n-title="fx_cover_avoid_title"><span data-i18n="fx_cover_avoid">封面粒子避光</span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-beatAnalysis" onclick="toggleFx('beatAnalysis')"
+              title="播放时自动分析节拍生成谱面，供视觉与电影镜头跟随；关闭后不再自动分析，已经存在的谱面（含手动分析过的）仍然会用" data-i18n-title="fx_beat_analysis_title"><span data-i18n="toggle_beat_analysis">自动节奏分析</span><span class="dot"></span></div>
           </div>
           <div class="fx-toggle-grid">
             <div class="fx-toggle" id="t-liveBackgroundKeep" onclick="toggleFx('liveBackgroundKeep')"
@@ -1181,6 +1212,8 @@
               style="height:26px;padding:0 10px;font-size:11px" data-i18n="btn_switch_mode">切换模式</button>
             <button class="fx-mini-btn ghost" onclick="clearQueue()"
               style="height:26px;padding:0 10px;font-size:11px" data-i18n="btn_clear_queue">清空</button>
+            <button id="queue-multiselect-btn" class="fx-mini-btn ghost" onclick="playlistMultiToggle('queue')"
+              style="height:26px;padding:0 10px;font-size:11px" data-i18n="ms_select">多选</button>
           </div>
         </div>
         <div id="queue-list" class="queue-list"></div>
@@ -1204,6 +1237,12 @@
             style="height:26px;padding:0 10px;font-size:11px" data-i18n="btn_refresh">刷新</button>
         </div>
         <div id="podcast-list"></div>
+      </div>
+      <div id="playlist-multiselect-bar" class="multiselect-bar">
+        <button id="ms-select-all" type="button" class="ms-btn" onclick="playlistMultiToggleAll()"></button>
+        <span id="ms-count" class="ms-count"></span>
+        <button id="ms-add" type="button" class="ms-btn primary" onclick="playlistMultiOpenPicker()"></button>
+        <button id="ms-done" type="button" class="ms-btn ghost" onclick="playlistMultiExit()"></button>
       </div>
     </div>
 
@@ -1527,26 +1566,23 @@
         </div>
         <section id="login-easter-egg-gate" class="login-easter-egg-gate" aria-hidden="true">
           <button id="login-easter-eye-trigger" class="login-easter-eye-trigger" type="button"
-            onclick="handleLoginEasterEggTap()" aria-label="轻触大小眼">
+            onclick="handleLoginEasterEggTap()" data-i18n="egg_eye_tap_label" data-i18n-attr="aria-label">
             <span class="login-easter-eyes" aria-hidden="true">
               <i class="login-easter-eye login-easter-eye-big"></i>
               <i class="login-easter-eye login-easter-eye-small"></i>
             </span>
           </button>
           <div id="login-easter-hint" class="login-easter-hint" aria-live="polite"></div>
-          <div id="login-easter-egg-wish" class="login-easter-egg-wish">
-            <h1>心愿是</h1>
-            <div class="login-easter-input-shell">
-              <div id="login-easter-egg-cells" class="login-easter-cells" aria-hidden="true">
-                <span class="login-easter-cell"></span>
-                <span class="login-easter-cell"></span>
-                <span class="login-easter-cell"></span>
-                <span class="login-easter-cell"></span>
-              </div>
-              <input id="login-easter-egg-input" class="login-easter-input" type="text"
-                inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-                aria-label="输入四个字的愿望">
-            </div>
+          <div id="login-easter-egg-wish" class="login-easter-egg-wish" inert>
+            <!-- 彩蛋只提供一个选项：整块就是一个按钮，点一下即许愿。刻意不做下拉箭头 ——
+                 那会让人以为点开还有别的选项可选，而这里点下去就是答案。
+                 One option only: the whole field is a button and one click makes the wish. No dropdown
+                 chevron on purpose — it promises a list to choose from, and there is nothing to choose. -->
+            <h1 data-i18n="egg_wish_title">心愿是</h1>
+            <button id="login-easter-egg-choice" class="login-easter-select" type="button"
+              onclick="submitLoginEasterEggWish()" data-i18n="egg_wish_world_peace" data-i18n-attr="aria-label">
+              <span class="login-easter-select-value" data-i18n="egg_wish_world_peace">世界和平</span>
+            </button>
             <div id="login-easter-status" class="login-easter-status" aria-live="polite"></div>
           </div>
         </section>
@@ -1561,6 +1597,8 @@
                 class="provider-logo">KG</span><b data-i18n="provider_kugou">酷狗音乐</b><small data-i18n="lg_official_cookie">官方窗口 / Cookie</small><span class="flow-port out" data-login-provider-output="kugou" title="拖到 MR 接入口" data-i18n-title="lg_drag_to_mr_title"></span></button>
             <button id="login-provider-qishui" class="qishui workflow-node" type="button" data-login-provider="qishui" onclick="selectLoginProviderNode('qishui')"><span
                 class="provider-logo">QS</span><b data-i18n="provider_qishui">汽水音乐</b><small data-i18n="lg_official_douyin">官方扫码 / 抖音确认</small><span class="flow-port out" data-login-provider-output="qishui" title="拖到 MR 接入口" data-i18n-title="lg_drag_to_mr_title"></span></button>
+            <button id="login-provider-spotify" class="spotify workflow-node" type="button" data-login-provider="spotify" onclick="selectLoginProviderNode('spotify')"><span
+                class="provider-logo">SP</span><b data-i18n="login_spotify">Spotify</b><small data-i18n="login_popup_spotify_window">OAuth</small><span class="flow-port out" data-login-provider-output="spotify" title="拖到 MR 接入口" data-i18n-title="lg_drag_to_mr_title"></span></button>
           </div>
           <div class="login-node-hub workflow-node" data-login-node="mr">
             <span class="flow-port in" data-login-mr-target="mr" title="MR 接入口" data-i18n-title="lg_mr_entry_title"></span>
@@ -1596,6 +1634,76 @@
               </div>
             </div>
           </div>
+          <div id="spotify-setup-wizard" class="spotify-setup-wizard" aria-hidden="true">
+            <div class="spotify-setup-head">
+              <div>
+                <span>SPOTIFY</span>
+                <b data-i18n="login_spotify_setup_title">接入 Spotify</b>
+              </div>
+              <small data-i18n="login_spotify_auto_detect_hint">按当前步骤继续，Mineradio 会自动检测。</small>
+            </div>
+            <div class="spotify-setup-progress">
+              <span data-spotify-progress="1"><i>1</i><b data-i18n="login_spotify_setup_step1">客户端 ID</b></span>
+              <span data-spotify-progress="2"><i>2</i><b data-i18n="login_spotify_setup_step2">回调检测</b></span>
+              <span data-spotify-progress="3"><i>3</i><b data-i18n="login_spotify_setup_step3">授权登录</b></span>
+              <span data-spotify-progress="4"><i>4</i><b data-i18n="login_spotify_setup_step4">接口自检</b></span>
+            </div>
+            <div class="spotify-setup-steps">
+              <div class="spotify-setup-card" id="spotify-setup-step-1">
+                <div class="spotify-setup-card-number">01</div>
+                <div class="spotify-setup-card-copy">
+                  <b data-i18n="login_spotify_setup_step1">客户端 ID</b>
+                  <p data-i18n="login_spotify_setup_step1_desc">在 Spotify 开发者后台创建应用后，把 Client ID 粘贴到下方并保存。</p>
+                  <label for="spotify-setup-client-id" data-i18n="login_spotify_setup_client_id_label">Client ID</label>
+                  <input id="spotify-setup-client-id" type="text" spellcheck="false" autocomplete="off">
+                  <div class="spotify-setup-card-actions">
+                    <button id="spotify-setup-save-client" class="primary" type="button" onclick="saveSpotifySetupClientId()"
+                      data-i18n="login_spotify_setup_save">保存 Client ID</button>
+                  </div>
+                </div>
+                <div class="spotify-setup-card-state" data-spotify-step-state="1"></div>
+              </div>
+              <div class="spotify-setup-card" id="spotify-setup-step-2">
+                <div class="spotify-setup-card-number">02</div>
+                <div class="spotify-setup-card-copy">
+                  <b data-i18n="login_spotify_setup_step2">回调检测</b>
+                  <p data-i18n="login_spotify_setup_step2_desc">把回调地址登记到应用白名单，然后检测本机回调端口是否可用。</p>
+                  <span id="spotify-setup-redirect-uri">http://127.0.0.1:43879/callback</span>
+                  <div class="spotify-setup-card-actions">
+                    <button id="spotify-setup-check-callback" type="button" onclick="verifySpotifySetupCallback(false)"
+                      data-i18n="login_spotify_setup_check_callback">检测回调</button>
+                  </div>
+                </div>
+                <div class="spotify-setup-card-state" data-spotify-step-state="2"></div>
+              </div>
+              <div class="spotify-setup-card" id="spotify-setup-step-3">
+                <div class="spotify-setup-card-number">03</div>
+                <div class="spotify-setup-card-copy">
+                  <b data-i18n="login_spotify_setup_step3">授权登录</b>
+                  <p data-i18n="login_spotify_setup_step3_desc">打开系统浏览器完成 Spotify 授权，授权后会自动回到这里。</p>
+                  <div class="spotify-setup-card-actions">
+                    <button id="spotify-setup-authorize" class="primary wide" type="button" onclick="openSpotifyWebLogin()"
+                      data-i18n="login_spotify_setup_authorize">打开浏览器授权</button>
+                  </div>
+                </div>
+                <div class="spotify-setup-card-state" data-spotify-step-state="3"></div>
+              </div>
+              <div class="spotify-setup-card" id="spotify-setup-step-4">
+                <div class="spotify-setup-card-number">04</div>
+                <div class="spotify-setup-card-copy">
+                  <b data-i18n="login_spotify_setup_step4">接口自检</b>
+                  <p data-i18n="login_spotify_setup_step4_desc">登录完成后自检账号、权限、歌单等接口是否可用。</p>
+                  <div id="spotify-setup-check-list" class="spotify-setup-check-list"></div>
+                  <div class="spotify-setup-card-actions">
+                    <button id="spotify-setup-diagnose" type="button" onclick="runSpotifySetupDiagnostics(true)"
+                      data-i18n="login_spotify_setup_diagnose">重新自检</button>
+                  </div>
+                </div>
+                <div class="spotify-setup-card-state" data-spotify-step-state="4"></div>
+              </div>
+            </div>
+            <div id="spotify-setup-overall" class="spotify-setup-overall" data-i18n="login_spotify_auto_detect_hint">按当前步骤继续，Mineradio 会自动检测。</div>
+          </div>
           <div class="btn-row login-auth-actions">
             <button class="modal-btn" onclick="skipLoginAndFocusSearch()" data-i18n="login_skip_search">先搜索一首歌</button>
             <button id="qq-cookie-toggle-btn" class="modal-btn" type="button"
@@ -1607,17 +1715,14 @@
     </div>
 
     <div id="login-easter-unlock-cinematic" class="login-easter-unlock-cinematic" role="button" tabindex="-1"
-      aria-hidden="true" aria-label="世界和平，点击继续" onclick="dismissLoginEasterEggCinematic()">
-      <div id="login-easter-unlock-phrase" class="login-easter-unlock-phrase" aria-hidden="true">
-        <span style="--float-duration:3.8s;--float-delay:-.7s;--float-distance:9px">世</span>
-        <span style="--float-duration:4.4s;--float-delay:-2.1s;--float-distance:13px">界</span>
-        <span style="--float-duration:3.5s;--float-delay:-1.4s;--float-distance:8px">和</span>
-        <span style="--float-duration:4.1s;--float-delay:-2.8s;--float-distance:12px">平</span>
-      </div>
+      aria-hidden="true" data-i18n="egg_cinematic_continue" data-i18n-attr="aria-label"
+      onclick="dismissLoginEasterEggCinematic()">
+      <!-- 逐字浮动的字样由 00-login-easter-egg.js 按当前语言的许愿词现算。 / Built from the localized wish at runtime. -->
+      <div id="login-easter-unlock-phrase" class="login-easter-unlock-phrase" aria-hidden="true"></div>
     </div>
 
     <div id="login-easter-achievement" class="login-easter-achievement" role="status" aria-live="polite"
-      aria-label="已达成成就：世界和平！">
+      data-i18n="egg_achievement_aria" data-i18n-attr="aria-label">
       <span class="login-easter-achievement-icon" aria-hidden="true">
         <span class="login-easter-achievement-pixel-eyes">
           <i class="login-easter-achievement-pixel-eye pixel-eye-big"></i>
@@ -1625,8 +1730,8 @@
         </span>
       </span>
       <span class="login-easter-achievement-copy">
-        <small>已达成成就</small>
-        <b>世界和平！</b>
+        <small data-i18n="egg_achievement_eyebrow">已达成成就</small>
+        <b data-i18n="egg_achievement_title">世界和平！</b>
       </span>
     </div>
 
@@ -1795,6 +1900,22 @@
       </div>
     </div>
 
+    <!-- 批量加入内置歌单模态 -->
+    <div id="bulk-playlist-modal" class="modal-mask">
+      <div class="modal collect-modal">
+        <h2 data-i18n="ms_picker_title">加入内置歌单</h2>
+        <div id="bulk-playlist-current" class="collect-current"></div>
+        <div class="collect-create">
+          <input id="bulk-playlist-new-name" type="text" placeholder="新建 Mineradio 内置歌单" autocomplete="off" maxlength="40" data-i18n-placeholder="bpl_create_title">
+          <button class="modal-btn primary" onclick="playlistMultiCreateAndAdd()" data-i18n="collect_create_builtin">创建内置</button>
+        </div>
+        <div id="bulk-playlist-list" class="collect-list"></div>
+        <div class="btn-row">
+          <button class="modal-btn" onclick="playlistMultiClosePicker()" data-i18n="btn_close">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <div id="local-beat-modal" class="modal-mask">
       <div class="modal local-beat-modal">
         <h2 data-i18n="local_beat_title">本地节奏分析</h2>
@@ -1894,11 +2015,11 @@
     <div id="cookie-export-prompt" class="cookie-export-prompt" aria-live="polite">
       <div class="cookie-export-card">
         <div class="cookie-export-kicker">LOGIN COOKIE</div>
-        <div id="cookie-export-title" class="cookie-export-title" data-i18n="ck_export_q">是否导出登录 cookie 到桌面？</div>
-        <div id="cookie-export-desc" class="cookie-export-desc" data-i18n="ck_export_note">导出的文件会用于备份当前平台登录态。</div>
+        <div id="cookie-export-title" class="cookie-export-title" data-i18n="ck_export_q">是否导出登录 cookie？</div>
+        <div id="cookie-export-desc" class="cookie-export-desc" data-i18n="ck_export_note">导出的文件会保存在软件目录内，用于备份当前平台登录态。</div>
         <div class="cookie-export-actions">
           <button type="button" onclick="dismissCookieExportPrompt(false)" data-i18n="ck_skip">暂不导出</button>
-          <button class="primary" type="button" onclick="confirmCookieExportPrompt()" data-i18n="ck_export">导出到桌面</button>
+          <button class="primary" type="button" onclick="confirmCookieExportPrompt()" data-i18n="ck_export">导出</button>
         </div>
       </div>
     </div>

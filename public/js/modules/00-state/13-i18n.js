@@ -34,6 +34,15 @@
   var loading = {};        // lang -> Promise
   var listeners = [];
 
+  // 当前语言的 BCP47 标签，供 toLocaleDateString / Intl 这类需要真实语言标签的 API 使用。
+  // 日期格式化不能拿 xx_xx 直接喂给 Intl，那会退到系统语言，界面是英语而星期几还是中文。
+  // The BCP47 tag for the current language, for APIs that need a real tag such as
+  // toLocaleDateString / Intl. Those cannot take xx_xx — it silently falls back to the system
+  // locale, which is how an English UI ends up printing a Chinese weekday.
+  function htmlLang() {
+    return DOC_LANG[currentLang] || 'en';
+  }
+
   // 从指定语言表里取一个键；表还没加载或没有这个键时返回 undefined，
   // 由 t() 决定走回退链还是退回键名本身。t() 依赖这个 undefined 语义，
   // 所以这里不能返回空串——空串会让回退链失效，非中文界面直接空掉。
@@ -174,7 +183,7 @@
     if (!scope || !scope.querySelectorAll) return;
     var nodes = scope.querySelectorAll('[data-i18n],[data-i18n-title],[data-i18n-placeholder]');
     for (var i = 0; i < nodes.length; i++) applyToElement(nodes[i]);
-    if (document.documentElement) document.documentElement.lang = DOC_LANG[currentLang] || 'en';
+    if (document.documentElement) document.documentElement.lang = htmlLang();
   }
 
   function notify(next, previous) {
@@ -215,6 +224,7 @@
     scan: scan,
     setLanguage: setLanguage,
     getLanguage: function () { return currentLang; },
+    htmlLang: htmlLang,
     onLanguageChange: onLanguageChange,
     getSupportedLangs: function () { return SUPPORTED_LANGS.slice(); },
     langLabel: function (lang) { return LANG_LABELS[normalizeLang(lang)]; },

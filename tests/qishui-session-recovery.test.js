@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
-const qishui = require('../qishui-api');
+const qishui = require('../server/qishui-api');
 
 function mockRequests(t, handler) {
   const original = https.request;

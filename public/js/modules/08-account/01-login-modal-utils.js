@@ -114,14 +114,22 @@ function onUserBtnClick() {
   }
   showLoginModal({ provider: hasAnyPlatformLogin() ? firstLoggedProvider() : loginProvider, source: 'top-account' });
 }
-var ACCOUNT_PROVIDER_KEYS = ['netease', 'qq', 'kugou', 'qishui'];
+// 账号面板里的平台清单来自注册表的 login 能力，不再手抄一份。
+// The account panel's platform list comes from the registry's login capability.
+var ACCOUNT_PROVIDER_KEYS = providerRegistryKeysWith('login');
 var ACCOUNT_PROVIDER_ORDER_STORE_KEY = 'mineradio-account-provider-order-v1';
 var ACCOUNT_PROVIDER_VISIBLE_STORE_KEY = 'mineradio-account-provider-visible-v1';
 var topAccountPillDrag = null;
 var topAccountPillClickSuppressed = false;
 
 function normalizeAccountProviderKey(provider) {
-  return provider === 'qq' ? 'qq' : (provider === 'kugou' ? 'kugou' : (provider === 'qishui' ? 'qishui' : 'netease'));
+  var key = normalizeProviderRegistryKey(provider);
+  // 认不出来的一律折回 netease：账号胶囊的顺序与可见性是按平台名存在 localStorage 里的历史
+  // 数据，里面可能有已下线平台的名字 —— 折叠到默认平台比丢弃整条记录安全。
+  // Unrecognised input folds back to netease: the pill order and visibility are historical data keyed
+  // by platform name, and may mention a platform that no longer exists. Folding beats dropping the
+  // whole record.
+  return key || 'netease';
 }
 function normalizeAccountProviderList(list) {
   var seen = {};
@@ -255,11 +263,20 @@ function syncAccountProviderOrderUi() {
   }
 }
 function platformMeta(provider) {
-  if (provider === 'qq') return { key: 'qq', short: 'QQ', label: 'QQ 音乐', app: loginModalUtilsText('lmu_qq_app'), dot: 'qq' };
-  if (provider === 'kugou') return { key: 'kugou', short: 'KG', label: loginModalUtilsText('provider_kugou'), app: loginModalUtilsText('lmu_kugou_app'), dot: 'kugou' };
-  if (provider === 'qishui') return { key: 'qishui', short: 'QS', label: loginModalUtilsText('provider_qishui'), app: loginModalUtilsText('lmu_qishui_app'), dot: 'qishui' };
-  if (provider === 'spotify') return { key: 'spotify', short: 'SP', label: 'Spotify', app: 'Spotify', dot: 'spotify' };
-  return { key: 'netease', short: 'NE', label: loginModalUtilsText('track_netease_music'), app: loginModalUtilsText('lmu_netease_app'), dot: 'netease' };
+  // 改为查注册表：原先这里是一条 if-else 链，且 qq 的全名与 spotify 的名字是硬编码中文字面量
+  //（英文界面下会露出中文）。现在名称一律走词典键，qq 用的 search_qq_music 四语齐全。
+  // Now a registry lookup. This used to be an if-else chain whose qq and spotify labels were
+  // hardcoded literals — Chinese text leaking into the English UI. Names now come from dictionary
+  // keys, and qq's key is present in all four locales.
+  var key = normalizeAccountProviderKey(provider);
+  var entry = providerRegistryEntry(key);
+  return {
+    key: key,
+    short: providerRegistryBadge(key),
+    label: providerRegistryLabel(key),
+    app: entry && entry.appKey ? loginModalUtilsText(entry.appKey) : (entry ? entry.appFallback : key),
+    dot: key
+  };
 }
 function platformStatus(provider) {
   if (provider === 'spotify') return spotifyLoginStatus;
@@ -317,7 +334,10 @@ function hasPlatformLogin(provider) {
   return !!(st && st.loggedIn);
 }
 function hasAnyPlatformLogin() {
-  return hasPlatformLogin('netease') || hasPlatformLogin('qq') || hasPlatformLogin('kugou') || hasPlatformLogin('qishui');
+  // 从注册表派生，而不是手写五个 || —— 后者每加一个平台都得记得回来补一次。
+  // Derived from the registry instead of a hand-written five-way ||, which required remembering to
+  // come back here for every new platform.
+  return providerRegistryKeysWith('login').some(function (provider) { return hasPlatformLogin(provider); });
 }
 function firstLoggedProvider() {
   if (hasPlatformLogin(activeAccountProvider)) return activeAccountProvider;

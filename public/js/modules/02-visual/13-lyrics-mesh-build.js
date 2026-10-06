@@ -140,10 +140,11 @@ function buildLyricMesh(input, preparedRowLayerBundle, preparedMasks) {
   }
 
   var sparkCount = 132;
+  var sparkCapacity = Math.round(sparkCount * particleBudgetHeadroom());
   var pgeo = new THREE.BufferGeometry();
-  var ppos = new Float32Array(sparkCount * 3);
-  var pseed = new Float32Array(sparkCount);
-  for (var i = 0; i < sparkCount; i++) {
+  var ppos = new Float32Array(sparkCapacity * 3);
+  var pseed = new Float32Array(sparkCapacity);
+  for (var i = 0; i < sparkCapacity; i++) {
     var angle = Math.random() * Math.PI * 2;
     var ring = 0.78 + Math.pow(Math.random(), 1.45) * 0.58;
     var rx = textWorldW * (0.50 + Math.random() * 0.22) + 0.10;

@@ -21,6 +21,17 @@ function rel(file) {
   return path.relative(appRoot, file).replace(/\\/g, '/');
 }
 
+// 平台注册表的源码。任何把「按能力取平台清单」的模块单独丢进沙箱的判据都要把它前置 ——
+// 那些模块在**加载时**就调 providerRegistryKeysWith()，沙箱里没有它就是一个 ReferenceError，
+// 而报出来的名字与被测模块毫无关系，很容易被误读成"守卫坏了"。
+// Source of the provider registry. Any judgement that sandboxes a module which derives its platform
+// list from capabilities must prepend this: those modules call providerRegistryKeysWith() at LOAD
+// time, and a missing binding surfaces as a ReferenceError naming a function the module under test
+// never mentions — easy to misread as a broken guard.
+function providerRegistrySourceText() {
+  return fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '16-provider-registry.js'), 'utf8');
+}
+
 function logStep(name) {
   console.log(`\n== ${name} ==`);
 }
@@ -83,9 +94,13 @@ function jsCheckFiles() {
   walk(path.join(appRoot, 'desktop')).forEach(file => {
     if (file.endsWith('.js')) files.push(file);
   });
-  addIfExists(path.join(appRoot, 'server.js'));
-  addIfExists(path.join(appRoot, 'qq-vip-api.js'));
-  addIfExists(path.join(appRoot, 'dj-analyzer.js'));
+  // 整个 server/ 目录整棵走一遍，而不是逐个点名：后端模块有 9 个文件加两个资源子目录，点名
+  // 写法下新增一个文件不会有任何提示，它会静默逃过语法检查。
+  // Walk the whole server/ tree instead of naming files: with a per-file list a newly added backend
+  // module is silently skipped by the syntax check, and nothing says so.
+  walk(path.join(appRoot, 'server')).forEach(file => {
+    if (file.endsWith('.js')) files.push(file);
+  });
   walk(path.join(appRoot, 'cuefield')).forEach(file => {
     if (file.endsWith('.js')) files.push(file);
   });
@@ -167,6 +182,28 @@ function runLocalMusicLibraryRegressionCheck() {
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
     fail(`persistent local FLAC library regression failed: ${rel(testFile)}`);
+  }
+  process.stdout.write(result.stdout || '');
+}
+
+// 后端源码搬家（根目录 → server/）的回归。这条必须**真的把服务起起来发请求**：把 server.js 移动
+// 位置会改变 `__dirname` 的落点，而静态资源/图标/版本都按它定位，改错了不抛任何异常 —— 进程正常
+// 监听、每个请求都 404。读源码看不出来，只有真发一次请求才知道。
+// Regression for the backend relocation (root -> server/). This one has to boot the service and make
+// real requests: moving server.js changes what `__dirname` points at, and the static bundle, icon and
+// version resolve relative to it. A mistake raises nothing — the port listens and everything 404s.
+// Source text cannot show that; only an actual request can.
+function runServerModuleRelocationCheck() {
+  logStep('Backend module relocation regression');
+  const testFile = path.join(appRoot, 'tests', 'server-module-relocation.test.js');
+  const result = spawnSync(process.execPath, ['--test', testFile], {
+    cwd: appRoot,
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout || '');
+    process.stderr.write(result.stderr || '');
+    fail(`backend module relocation regression failed: ${rel(testFile)}`);
   }
   process.stdout.write(result.stdout || '');
 }
@@ -297,6 +334,24 @@ function runVisualClarityAndPortraitFullscreenRegressionCheck() {
   process.stdout.write(result.stdout || '');
 }
 
+// 粒子规模预算：档位系数、headroom 与缓冲区容量的关系、网格预算只能算一次。
+// Particle population budget: the tier factors, the headroom-versus-capacity relationship, and the
+// lattice budget being applied exactly once.
+function runParticlePopulationBudgetRegressionCheck() {
+  logStep('Particle population budget regression');
+  const testFile = path.join(appRoot, 'tests', 'particle-population-budget.test.js');
+  const result = spawnSync(process.execPath, ['--test', testFile], {
+    cwd: appRoot,
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout || '');
+    process.stderr.write(result.stderr || '');
+    fail(`particle population budget regression failed: ${rel(testFile)}`);
+  }
+  process.stdout.write(result.stdout || '');
+}
+
 function runQQVipEntitlementRegressionCheck() {
   logStep('QQ/Kugou provider entitlement regression');
   const testFiles = [
@@ -320,10 +375,10 @@ function runQQVipEntitlementRegressionCheck() {
 }
 
 function runLoginEasterEggGateRegressionCheck() {
-  logStep('Login easter egg one-time gate and IME focus regression');
+  logStep('Login easter egg one-time gate and wish selection regression');
   const testFiles = [
     path.join(appRoot, 'tests', 'login-easter-egg-gate.test.js'),
-    path.join(appRoot, 'tests', 'login-easter-egg-ime-focus.test.js'),
+    path.join(appRoot, 'tests', 'login-easter-egg-wish-selection.test.js'),
   ];
   const result = spawnSync(process.execPath, ['--test'].concat(testFiles), {
     cwd: appRoot,
@@ -332,7 +387,7 @@ function runLoginEasterEggGateRegressionCheck() {
   if (result.status !== 0) {
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
-    fail(`login easter egg gate/IME regression failed: ${testFiles.map(rel).join(', ')}`);
+    fail(`login easter egg gate/wish selection regression failed: ${testFiles.map(rel).join(', ')}`);
   }
   process.stdout.write(result.stdout || '');
 }
@@ -456,8 +511,7 @@ function scanForbiddenMarkers() {
   const scanTargets = [
     path.join(appRoot, 'public', 'js'),
     path.join(appRoot, 'desktop'),
-    path.join(appRoot, 'server.js'),
-    path.join(appRoot, 'dj-analyzer.js'),
+    path.join(appRoot, 'server'),
     path.join(appRoot, 'cuefield')
   ];
   const files = [];
@@ -1581,8 +1635,40 @@ function checkPersistentCacheStorageGuard() {
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const setNameAt = mainText.indexOf('app.setName(APP_NAME)');
   const firstUserDataLookupAt = mainText.indexOf("app.getPath('appData')");
-  if (!/const CACHE_SETTINGS_FILE/.test(mainText) || !/const LYRIC_CACHE_MAX_BYTES = 96 \* 1024 \* 1024/.test(mainText) || !/function defaultCacheRootPath\(\)/.test(mainText) || !/path\.join\(dDrive, 'MineradioCache'\)/.test(mainText) || setNameAt < 0 || firstUserDataLookupAt < 0 || setNameAt > firstUserDataLookupAt || !/const STABLE_USER_DATA_PATH = STARTUP_QA_USER_DATA_PATH \|\| path\.join\(app\.getPath\('appData'\), APP_NAME\)/.test(mainText) || !/app\.setPath\('userData', STABLE_USER_DATA_PATH\)/.test(mainText) || !/app\.setPath\('sessionData', chromiumSessionDataPath\(cacheSettings\)\)/.test(mainText) || !/const currentChromiumPath = app\.getPath\('sessionData'\)/.test(mainText) || !/MINERADIO_BEAT_CACHE_DIR = cacheSettings\.beatmapsPath/.test(mainText) || !/nativePath:\s*path\.join\(rootPath, 'native-helper-temp'\)/.test(mainText) || !/const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS\.nativePath/.test(mainText) || !/activeWallpaperEnginePath/.test(mainText) || !/wallpaperEngineBytes/.test(mainText)) {
+  if (!/const CACHE_SETTINGS_FILE/.test(mainText) || !/const LYRIC_CACHE_MAX_BYTES = 96 \* 1024 \* 1024/.test(mainText) || !/function defaultCacheRootPath\(\)/.test(mainText) || setNameAt < 0 || firstUserDataLookupAt < 0 || setNameAt > firstUserDataLookupAt || !/const STABLE_USER_DATA_PATH = resolveStableUserDataPath\(\)/.test(mainText) || !/app\.setPath\('userData', STABLE_USER_DATA_PATH\)/.test(mainText) || !/app\.setPath\('sessionData', chromiumSessionDataPath\(cacheSettings\)\)/.test(mainText) || !/const currentChromiumPath = app\.getPath\('sessionData'\)/.test(mainText) || !/MINERADIO_BEAT_CACHE_DIR = cacheSettings\.beatmapsPath/.test(mainText) || !/nativePath:\s*path\.join\(rootPath, 'native-helper-temp'\)/.test(mainText) || !/const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS\.nativePath/.test(mainText) || !/activeWallpaperEnginePath/.test(mainText) || !/wallpaperEngineBytes/.test(mainText)) {
     fail('desktop cache settings must keep app-owned userData stable and route Chromium sessionData plus beatmaps to the configurable cache root');
+  }
+  // 便携化守卫：数据根必须落在软件目录内，缓存根不得再指向盘符根目录。
+  // Portability guard: the data root must sit inside the app folder and the cache root must
+  // never point at a drive root again.
+  const cacheRootBody = (mainText.match(/function defaultCacheRootPath\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  if (!/const PORTABLE_USER_DATA_PATH = path\.join\(APP_ROOT_PATH, 'userdata'\)/.test(mainText)
+    || !/if \(STARTUP_QA_USER_DATA_PATH\) return STARTUP_QA_USER_DATA_PATH/.test(mainText)
+    || !/path\.join\(app\.getPath\('userData'\), 'cache'\)/.test(cacheRootBody)
+    || /[A-Za-z]:\\/.test(cacheRootBody)
+    || !/function migratePortableUserData\(\)/.test(mainText)
+    || !/PORTABLE_MIGRATION_MARKER/.test(mainText)) {
+    fail('every app-owned path must stay inside the app folder: portable userData, app-relative cache root, and the legacy copy migration');
+  }
+  // 数据根就在仓库里，必须被 git 挡住：否则一次 git add -A 就会把用户 cookie 和登录分区带上远端。
+  // The data root lives inside the working tree, so git must ignore it — otherwise a single
+  // `git add -A` would publish the user's cookies and login partitions.
+  const portableGitignoreText = fs.readFileSync(path.join(appRoot, '.gitignore'), 'utf8');
+  if (!/^userdata\/\s*$/m.test(portableGitignoreText)) {
+    fail('.gitignore must ignore the portable userdata directory that now holds credentials and caches');
+  }
+  // 原生 helper 脚本的兜底路径也必须落在软件目录内，不能退回 %LOCALAPPDATA% 或 os.tmpdir()。
+  // The native helper script fallback must stay inside the app folder as well; it may not drop
+  // back to %LOCALAPPDATA% or os.tmpdir().
+  const portablePathsText = fs.readFileSync(path.join(appRoot, 'desktop', 'portable-paths.js'), 'utf8');
+  const nativeTempCallers = ['app-memory.js', 'system-memory.js', 'wallpaper-engine-runtime.js', 'desktop-native-icon-layer-runtime.js']
+    .map((file) => fs.readFileSync(path.join(appRoot, 'desktop', file), 'utf8'));
+  if (!/APP_NATIVE_TEMP_PATH = path\.join\(APP_ROOT_PATH, 'userdata', 'cache', 'native-helper-temp'\)/.test(portablePathsText)
+    || !/function resolveNativeTempDir\(\)/.test(portablePathsText)
+    || !/\[PortableData\] app native temp folder is not writable/.test(portablePathsText)
+    || nativeTempCallers.some((text) => !/portablePaths\.resolveNativeTempDir\(\)/.test(text))
+    || nativeTempCallers.some((text) => /'Mineradio',\s*'native-helper-temp'/.test(text))) {
+    fail('native helper temp must resolve through the app-folder fallback, never the user profile or os.tmpdir()');
   }
   if (!/function migrateMisplacedAppOwnedFiles\(\)/.test(mainText) || !/APP_OWNED_MIGRATION_FILES/.test(mainText) || !/process\.env\.QISHUI_COOKIE_FILE = path\.join\(STABLE_USER_DATA_PATH, '\.qishui-cookie'\)/.test(mainText) || !/process\.env\.SPOTIFY_TOKEN_FILE = path\.join\(STABLE_USER_DATA_PATH, '\.spotify-token\.json'\)/.test(mainText)) {
     fail('provider credentials must migrate out of the old Chromium cache path and remain under stable userData');
@@ -1617,7 +1703,7 @@ function checkExternalUpdatePageBridgeGuard() {
   process.stdout.write(regression.stdout || '');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const updateUiText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '00-update-preview.js'), 'utf8');
   const updateIndexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   const bridgeText = mainText + '\n' + preloadText;
@@ -1668,7 +1754,7 @@ function checkExternalUpdatePageBridgeGuard() {
 
 function checkLyricTranslationCompletenessGuard() {
   logStep('Netease lyric translation guard');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const lyricText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '00-lyrics-fetch-parse.js'), 'utf8');
   if (!/lyricBodyHasTranslation/.test(serverText) || !/mergeLyricBodies/.test(serverText) || !/ytlrc/.test(serverText)) {
     fail('server /api/lyric must merge legacy lyric translations and return ytlrc');
@@ -1730,7 +1816,7 @@ function checkCustomSourceGuard() {
   const runtimeHtmlText = fs.readFileSync(path.join(hostDir, 'runtime.html'), 'utf8');
   const desktopMainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const desktopPreloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const customModuleText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '20-custom-source.js'), 'utf8');
   const startAudioText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
   const fallbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '11-provider-fallback.js'), 'utf8');
@@ -1868,9 +1954,9 @@ function checkCustomSourceGuard() {
   const mainCode = stripComments(desktopMainText);
   if (!mainCode.includes('CUSTOM_SOURCE_UNAUTHORIZED')) fail('主进程必须校验音源 IPC 的发送方');
   if (!mainCode.includes('await initializeCustomSourceManager();')) fail('启动时没有恢复已启用的音源');
-  // ensureLocalServerStarted() 会重新 require server.js，新模块实例上的 resolver
+  // ensureLocalServerStarted() 会重新 require server/server.js，新模块实例上的 resolver
   // 必须重新注入，否则崩溃恢复后自定义音源静默失效。
-  // ensureLocalServerStarted() re-requires server.js, so the resolver on the fresh module
+  // ensureLocalServerStarted() re-requires server/server.js, so the resolver on the fresh module
   // instance must be re-injected or custom sources silently die after a recovery.
   {
     const callSite = /await ensureLocalServerStarted\(\);\n([\s\S]{0,600}?)await loadMainWindowWithRetry\(win\);/g;
@@ -1907,8 +1993,8 @@ function checkCustomSourceGuard() {
 
 function checkQishuiProviderGuard() {
   logStep('Qishui provider guard');
-  const qishuiText = fs.readFileSync(path.join(appRoot, 'qishui-api.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const qishuiText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-api.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const coreStoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
   const playlistShellText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '01-playlist-panel-shell.js'), 'utf8');
@@ -1922,8 +2008,8 @@ function checkQishuiProviderGuard() {
   const accountLogoutText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '04-user-modal-logout.js'), 'utf8');
   const desktopMainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const desktopPreloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
-  const qishuiPassportText = fs.readFileSync(path.join(appRoot, 'qishui-auth-v6.js'), 'utf8');
-  const qishuiQrBridgeText = fs.readFileSync(path.join(appRoot, 'qishui-qr-login.js'), 'utf8');
+  const qishuiPassportText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-auth-v6.js'), 'utf8');
+  const qishuiQrBridgeText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-qr-login.js'), 'utf8');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   if (!/QISHUI_PUBLIC_SEARCH_URL/.test(qishuiText) || !/api-vehicle\.volcengine\.com\/v2\/search\/type/.test(qishuiText) || !/function handleQishuiPublicSearch/.test(qishuiText)) {
     fail('Qishui must keep a public search fallback so the provider is usable before OAuth credentials are bundled');
@@ -1984,7 +2070,7 @@ function checkQishuiProviderGuard() {
       /qishuiSeoVipOnlySignal[\s\S]{0,600}qishuiTrackPlaybackRestriction/.test(qishuiText)) {
     fail('Qishui SEO payloads must be classified by their own narrow VIP markers, never by recursive need_vip keys');
   }
-  const qishuiBridgePath = path.join(appRoot, 'qishui-client-bridge.js');
+  const qishuiBridgePath = path.join(appRoot, 'server', 'qishui-client-bridge.js');
   if (!fs.existsSync(qishuiBridgePath)) {
     fail('Qishui must keep a local signature bridge module instead of hardcoding signatures');
   } else {
@@ -2077,10 +2163,10 @@ function checkQishuiProviderGuard() {
 
 async function checkSpotifyProviderGuard() {
   logStep('Spotify provider guard');
-  const spotifyPath = path.join(appRoot, 'spotify-api.js');
+  const spotifyPath = path.join(appRoot, 'server', 'spotify-api.js');
   if (!fs.existsSync(spotifyPath)) fail('spotify-api.js must exist as a backend-only Spotify Web API bridge');
   const spotifyText = fs.readFileSync(spotifyPath, 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const coreStoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
@@ -2237,8 +2323,15 @@ async function checkSpotifyProviderGuard() {
   if (!/provider === 'spotify'/.test(shelfCoreText) || !/spotify:/.test(shelfCoreText) || !/\/api\/spotify\/playlist\/tracks/.test(shelfContentText)) {
     fail('3D shelf must display and drill into Spotify playlists through the Spotify endpoint');
   }
-  if (!/"\*-api\.js"/.test(packageText) || !/"\*-api\.js"/.test(internalBuilderText)) {
-    fail('official and internal-beta package file lists must include root provider API modules');
+  // 打包清单已收敛为一条 `server/**/*`：不再逐个点名 `*-api.js` / `qishui-*.js`，那套点名写法
+  // 正是 qishui-client-bridge.js 漏打包的成因。判据改成"两份清单都要覆盖整个 server/ 目录"，
+  // 后端新增任何模块都自动落在覆盖范围内。
+  // The manifest collapsed into a single `server/**/*` entry instead of naming each `*-api.js` /
+  // `qishui-*.js` file — that per-name list is exactly how qishui-client-bridge.js went missing from
+  // a build. The check now requires both manifests to cover the whole server/ directory, so any new
+  // backend module is inside the covered range by construction.
+  if (!/"server\/\*\*\/\*"/.test(packageText) || !/"server\/\*\*\/\*"/.test(internalBuilderText)) {
+    fail('official and internal-beta package file lists must cover server/**/*, or a backend module can be left out of the build');
   }
   if (!/\.spotify-credentials\.json/.test(gitignoreText) || !/spotify-credentials\.json/.test(gitignoreText) || !/\.spotify-token\.json/.test(gitignoreText) || !/spotify-token\.json/.test(gitignoreText)) {
     fail('Spotify local credential files must stay ignored by git');
@@ -2246,31 +2339,57 @@ async function checkSpotifyProviderGuard() {
   console.log('[OK] Spotify Web API match source is guarded across backend, UI, playback fallback, lyrics, and packaging.');
 }
 
-function checkSpotifyRemovalGuard() {
-  logStep('Removed provider surface guard');
+// Spotify 已作为一档正式平台回归，这里守卫的是「接入面必须完整存在」：
+// 登录/设置 UI、账号胶囊排序、登录工作流排序、以及未被 PROVIDER_REMOVED 404 拦死的 HTTP 路由。
+// Spotify is restored as a first-class provider, so this guard asserts the surface is intact:
+// login/setup UI, account capsule ordering, login workflow ordering, and HTTP routes not short-circuited.
+function checkSpotifyProviderSurface() {
+  logStep('Spotify provider surface guard');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const searchText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '07-search.js'), 'utf8');
+  const flowsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '03-login-modal-flows.js'), 'utf8');
   const accountText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '01-login-modal-utils.js'), 'utf8');
-  const startupText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '05-startup-bindings.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
-  const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
-  const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
-  if (/search-mode-spotify|login-provider-spotify|user-provider-spotify|account-add-spotify|spotify-setup-wizard/.test(indexText)) {
-    fail('removed provider must not expose search, login, account, or setup UI');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
+  if (!/login-provider-spotify/.test(indexText) || !/spotify-setup-wizard/.test(indexText)) {
+    fail('spotify login and setup UI surface is missing');
   }
-  if (/MUSIC_SEARCH_PROVIDER_ORDER\s*=\s*\[[^\]]*spotify/.test(searchText) || /ACCOUNT_PROVIDER_KEYS\s*=\s*\[[^\]]*spotify/.test(accountText)) {
-    fail('removed provider must not participate in search or account capsule ordering');
+  // ⚠️ 平台清单已改为从 provider 注册表派生，源码里不再有 `ACCOUNT_PROVIDER_KEYS = ['netease', …]`
+  //    这样的字面量数组。原先这两条判据钉的正是字面量 —— 于是"实现改成派生"会让守卫失败，
+  //    而它真正要守的是「spotify 仍参与账号胶囊与登录工作流的排序」。现在真跑一遍注册表、断言
+  //    派生集合里含 spotify：判据跟着**意图**走，而不是跟着实现的写法走。
+  //    （这正是"钉快照"的典型代价：写法一变就红，而它守的东西其实没变。）
+  // ⚠️ The lists now derive from the provider registry, so the literal arrays are gone. The old
+  //    judgements pinned those literals, which means a change of implementation SHAPE would fail
+  //    them even though the thing they guard — spotify participating in both orderings — is intact.
+  //    Run the registry and assert the derived set: the judgement follows the intent, not the syntax.
+  const vmModule = require('vm');
+  const registryProbe = { console };
+  vmModule.createContext(registryProbe);
+  vmModule.runInContext(
+    fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '16-provider-registry.js'), 'utf8')
+      + '\nthis.loginProviders = providerRegistryKeysWith("login");',
+    registryProbe
+  );
+  if (!Array.isArray(registryProbe.loginProviders) || registryProbe.loginProviders.indexOf('spotify') < 0) {
+    fail('spotify must participate in account capsule ordering (absent from the registry login set)');
   }
-  if (/refreshSpotifyLoginStatus\(\)|startSpotifyLoginStatusAutoRefresh\(\)/.test(startupText)) {
-    fail('startup must not request removed provider status');
+  // 两边都必须**从注册表派生**：写回字面量清单就等于把"新增平台会漏"的坑重新挖开。
+  // Both sites must derive from the registry: a literal list would reopen the "a new provider is
+  // silently skipped" hole this refactor closed.
+  if (!/ACCOUNT_PROVIDER_KEYS = providerRegistryKeysWith\('login'\)/.test(accountText)) {
+    fail('ACCOUNT_PROVIDER_KEYS must derive from the provider registry, not a hand-kept list');
   }
-  if (!/PROVIDER_REMOVED/.test(serverText) || !/pn\.indexOf\('\/api\/spotify\/'\) === 0/.test(serverText)) {
-    fail('removed provider HTTP routes must terminate with an explicit 404 guard');
+  if (!/LOGIN_WORKFLOW_PROVIDERS = providerRegistryKeysWith\('login'\)/.test(flowsText)) {
+    fail('LOGIN_WORKFLOW_PROVIDERS must derive from the provider registry, not a hand-kept list');
   }
-  if (/spotify-music-(?:open-login|verify-setup|clear-login)/.test(mainText + '\n' + preloadText)) {
-    fail('desktop bridge must not expose removed provider login IPC');
+  // 旧的"已移除平台"404 拦截会盖掉所有 /api/spotify/* 真实路由，必须彻底不存在。
+  // The legacy removed-provider 404 gate shadows every live /api/spotify/* route, so it must be gone.
+  if (/pn\.indexOf\('\/api\/spotify\/'\) === 0/.test(serverText)) {
+    fail('/api/spotify/* must not be short-circuited by a PROVIDER_REMOVED 404 gate');
   }
-  console.log('[OK] Removed provider has no searchable, login, account-capsule, startup, HTTP, or desktop IPC surface.');
+  if (!/pn === '\/api\/spotify\/status'/.test(serverText) || !/pn === '\/api\/spotify\/config'/.test(serverText)) {
+    fail('spotify HTTP routes must stay registered after the removed-provider gate');
+  }
+  console.log('[OK] Spotify keeps login, setup, account-capsule ordering and HTTP surface.');
 }
 
 function checkPlaybackControlBadgesGuard() {
@@ -2386,7 +2505,7 @@ async function checkProviderFallbackTerminalStateGuard() {
   const playbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
   const beatPrefetchText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '03-beat', '00-tempo-worker-cache-prefetch.js'), 'utf8');
   const controlsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '14-player-controls.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   if (!/function sourceFallbackProviderReady/.test(fallbackText) || !/status\.playbackKeyReady === true/.test(fallbackText) || !/function alternatePlaybackProviders/.test(fallbackText) || /if \(provider === 'netease'\) return 'qq'/.test(fallbackText)) {
     fail('automatic fallback must only select logged-in direct providers with complete playback authorization');
   }
@@ -2648,7 +2767,12 @@ async function checkProviderFallbackTerminalStateGuard() {
     searchCalls: 0,
     childPlayCalls: 0,
   };
-  vm.runInNewContext(fallbackText, sandbox, { filename: '11-provider-fallback.js' });
+  // 平台注册表要一同进沙箱：本模块在**加载时**就用它取清单
+  //（`var SOURCE_FALLBACK_DIRECT_PROVIDERS = providerRegistryKeysWith('directFallback')`）。
+  // 真实加载也是这样 —— index-loader 把模块拼成一个 script，注册表排在消费方之前。
+  // The registry rides along: this module calls it at load time to build its list, exactly as in
+  // production, where index-loader concatenates the registry ahead of its consumers.
+  vm.runInNewContext(providerRegistrySourceText() + '\n' + fallbackText, sandbox, { filename: '11-provider-fallback.js' });
   sandbox.showSourceFallbackNotice = function (title, body) { notices.push({ title, body }); };
   const noTargetProviders = sandbox.alternatePlaybackProviders(sourceSong);
   if (noTargetProviders.length !== 0) fail('Netease-only login must not silently select logged-out QQ or Kugou');
@@ -2850,9 +2974,9 @@ function checkSearchGlassEntranceGuard() {
 
 function checkProviderEntitlementBoundaryGuard() {
   logStep('Provider entitlement boundary guard');
-  const kugouText = fs.readFileSync(path.join(appRoot, 'kugou-api.js'), 'utf8');
-  const qishuiText = fs.readFileSync(path.join(appRoot, 'qishui-api.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const kugouText = fs.readFileSync(path.join(appRoot, 'server', 'kugou-api.js'), 'utf8');
+  const qishuiText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-api.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const loginText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '02-login-status.js'), 'utf8');
   const userModalText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '04-user-modal-logout.js'), 'utf8');
@@ -2917,8 +3041,8 @@ function checkProviderEntitlementBoundaryGuard() {
 
 function checkQQVipStatusSyncGuard() {
   logStep('QQ VIP status refresh guard');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
-  const vipModuleText = fs.readFileSync(path.join(appRoot, 'qq-vip-api.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
+  const vipModuleText = fs.readFileSync(path.join(appRoot, 'server', 'qq-vip-api.js'), 'utf8');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const loginStatusText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '02-login-status.js'), 'utf8');
@@ -3012,7 +3136,7 @@ function checkQQVipStatusSyncGuard() {
 
 async function checkProviderAuthCookiePathGuard() {
   logStep('Provider auth cookie path guard');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const qqLoginText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '03-login-modal-flows.js'), 'utf8');
   const accountUtilsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '01-login-modal-utils.js'), 'utf8');
@@ -3319,7 +3443,7 @@ function checkNonCurrentAudioPrefetchGuard() {
 
 function checkCuefieldAutoMixGuard() {
   logStep('Cuefield AutoMix integration guard');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const desktopText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const loaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
@@ -3444,8 +3568,8 @@ function checkAlbumDetailGaplessGuard() {
   const playbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
   const controlsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '14-player-controls.js'), 'utf8');
   const snapshotText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '09-queue-snapshot-autoplay.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
-  const spotifyText = fs.readFileSync(path.join(appRoot, 'spotify-api.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
+  const spotifyText = fs.readFileSync(path.join(appRoot, 'server', 'spotify-api.js'), 'utf8');
   if (!/thumb-cover[\s\S]{0,180}openTrackDetailModal\('album'\)/.test(htmlText) || !/control-cover[\s\S]{0,260}openTrackDetailModal\('album'\)/.test(htmlText)) {
     fail('album detail must be reachable from both current cover entry points');
   }
@@ -3528,7 +3652,7 @@ function checkInternalBetaPackagingGuard() {
   if (mineradio.runtimeName !== 'Mineradio_Beat' || update.disabled !== true || update.provider !== 'none') {
     fail('internal beta runtime name and update-disable metadata must stay isolated');
   }
-  const requiredRuntimeFiles = ['qishui-audio-decryptor/**/*'];
+  const requiredRuntimeFiles = ['server/**/*'];
   const packageBuildFiles = pkg.build && Array.isArray(pkg.build.files) ? pkg.build.files : [];
   const betaBuildFiles = Array.isArray(beta.files) ? beta.files : [];
   requiredRuntimeFiles.forEach((entry) => {
@@ -3577,7 +3701,7 @@ function checkInternalBetaPackagingGuard() {
   if (!/APP_PACKAGE_INFO/.test(mainText) || !/runtimeName/.test(mainText) || !/appUserModelId/.test(mainText)) {
     fail('desktop runtime must read beta name/AppUserModelID from package metadata');
   }
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   if (!/qishui-audio-decryptor\/track-decryptor/.test(serverText)) {
     fail('server qishui decryptor dependency must stay covered by package files');
   }
@@ -3880,8 +4004,47 @@ function checkPlaylistPanelTriggerGuard() {
   }
   const shelfHoverText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '00-layout-hover.js'), 'utf8');
   const shelfPanelSyncText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '02-rebuild-panel-sync.js'), 'utf8');
-  if (!/focusHover\.wantType === type[\s\S]{0,180}type === 'queue' && immediate[\s\S]{0,220}clearTimeout\(focusHover\.exitTimer\)[\s\S]{0,260}activateFocusZone\(type\)/.test(focusCameraText) || /if \(type && focusHover\.exitTimer\)/.test(focusCameraText)) {
-    fail('same-type focus reactivation must stay queue-only so 3D shelf focus keeps the previous version feel');
+  // 左侧歌单/队列面板不再驱动镜头：它挂在左边缘的鼠标位置上，所以贴着边缘一晃镜头就跟着摆，整屏
+  // 连歌词一起"跳来跳去"。这里把 setFocusZone() 整段抽出来真跑一遍，断言『queue 不激活任何跟拍』
+  // 并且『歌单架档位照样能激活』——后半句是防空转：只断言前者的话，一个把任何输入都丢掉的实现也能过。
+  // The left playlist/queue panel no longer drives the camera: it follows the pointer on the left edge,
+  // so brushing that edge swung the camera and dragged the whole screen — lyrics included. The function
+  // is extracted and really invoked to assert that a 'queue' zone activates nothing while a shelf zone
+  // still does; the second half is what keeps the first from being vacuous, since an implementation that
+  // discarded every input would satisfy it on its own.
+  // 判据要读源码文本，而注释里正写着这一段历史，所以先把注释剥掉再比。
+  // The checks below read source text and the comments above spell out the same history, so strip
+  // comments first.
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const focusStart = focusCameraText.indexOf('function setFocusZone(');
+  const focusEnd = focusCameraText.indexOf('\nfunction ', focusStart + 1);
+  if (focusStart < 0 || focusEnd <= focusStart) fail('setFocusZone() cannot be evaluated');
+  const focusCode = stripComments(focusCameraText.slice(focusStart, focusEnd));
+  const focusProbe = {
+    activated: [],
+    timeouts: [],
+    orbit: { focus: { active: false, type: null, theta: 0, phi: 0, radius: 0, lookAt: { set: function () { } } } },
+    focusHover: { wantType: null, pendingTimer: null, exitTimer: null },
+    shouldUseShelfDynamicCamera: function () { return true; },
+    activateFocusZone: function (type) { focusProbe.activated.push(type); focusProbe.orbit.focus.active = true; focusProbe.orbit.focus.type = type; },
+    setTimeout: function (fn, ms) { focusProbe.timeouts.push(ms); return 1; },
+    clearTimeout: function () { }
+  };
+  vm.runInNewContext('(function () {\n' + focusCode + '\nreturn setFocusZone;\n})()', focusProbe)( 'queue', true);
+  if (focusProbe.activated.length || focusProbe.focusHover.wantType !== null) {
+    fail('the left playlist/queue panel must not activate any follow camera');
+  }
+  vm.runInNewContext('(function () {\n' + focusCode + '\nreturn setFocusZone;\n})()', focusProbe)('shelf-side', true);
+  if (focusProbe.activated.length !== 1 || focusProbe.activated[0] !== 'shelf-side') {
+    fail('the 3D shelf follow camera must still activate, or the queue check above proves nothing');
+  }
+  // 姿态表里也不能再留着那一档：留一份永远读不到的相机数值，下一个人会以为它还能打开。
+  // The pose table must not keep that zone either: camera numbers that can never be read would make the
+  // next reader think the zone can still be turned on.
+  const poseStart = focusCameraText.indexOf('function activateFocusZone(');
+  const poseEnd = focusCameraText.indexOf('function setFocusZone(');
+  if (poseStart < 0 || poseEnd <= poseStart || /queue/.test(stripComments(focusCameraText.slice(poseStart, poseEnd)))) {
+    fail('the queue follow camera pose must stay deleted from activateFocusZone()');
   }
   if (!/function isFullscreenPlaylistQueueFocusLockedAtEdge/.test(peekText) || !/isPlaylistFullscreenEdgeFocusHold\(panel,\s*ex,\s*ey,\s*innerHeight\)/.test(peekText) || !/function clearShelfPreviewOnPointerExit\(e\)/.test(shelfHoverText) || !/keepQueueFocus \? 'queue' : null/.test(shelfHoverText) || !/clearShelfPreviewOnPointerExit\(e\)/.test(shelfPanelSyncText)) {
     fail('fullscreen left-edge playlist focus must survive edge leave events without broadening 3D shelf focus behavior');
@@ -3903,6 +4066,1236 @@ function checkPlaylistPanelTriggerGuard() {
     fail('playlist panel animation slider range must match runtime, persistence, and archive clamps');
   }
   console.log('[OK] Playlist panel trigger, secondary-edge, bottom-control, and animation-duration guards are in sync.');
+}
+
+/**
+ * 全屏工具行守卫 / Fullscreen tool row guard
+ *
+ * 起因：全屏时 #desktop-titlebar 整条被隐藏，于是标题栏里那排工具按钮（? / 语言 / 更新 / 热键 / DIY）
+ * 会一起消失 —— 而它已经不是第一次了：热键按钮从视觉控制台搬进标题栏（2.4.0）、语言按钮从搜索框
+ * 搬进标题栏（同期），两次都静默丢掉了全屏入口，因为没有任何一处守在这条关系上。
+ * 所以这里守的不是某几个字符串，而是那条关系本身：**标题栏控件簇里的每个工具控件都必须在
+ * FULLSCREEN_TOOL_SELECTORS 名单里**（名单由 HTML 反推，不是抄一份快照），以及这条链路
+ * 每一步都在（状态变化 → 搬移 / 全屏隐藏标题栏 / 工具行只在全屏显示 / 未浮现时不可 Tab 可达）。
+ *
+ * Why this exists: fullscreen hides the whole title bar, which silently takes the tool buttons with it.
+ * That already happened twice (the hotkey button moved in from the visual console in 2.4.0, the language
+ * button from the search box in the same period) because nothing guarded the relationship. So the guard
+ * checks the relationship, not a handful of strings: every tool control in the title bar cluster must be
+ * in FULLSCREEN_TOOL_SELECTORS (derived from the HTML, not a hand-copied snapshot), and every step of the
+ * chain must be present.
+ */
+// 自动节奏分析开关（默认关闭）的守卫。
+// 为什么值得写：这个开关唯一的硬要求就是「默认关闭」，而它由**四处彼此独立**的归一化代码共同决定
+// —— fxDefaults、两个持久化归一化（raw / fx 两条路径）、以及存档与分享码归一化。任何一处写成
+// `!== false`，缺键就会变成开启，而界面上完全看不出异常：开关只是"自己打开了"，用户不会知道为什么。
+// 分享码那边还更隐蔽 —— 码是按下标编码的，别人用旧版本生成的码里根本没有这个键。
+// 另外它必须真的拦在分析入口上，否则开关只是装饰。
+// Guard for the automatic-beat-analysis switch, which must default to off. That single requirement is
+// decided by four independent normalisers (fxDefaults, both persistence paths, the archive/share
+// normaliser), and one `!== false` among them turns a missing key into "on" with no visible symptom.
+// The share-code path hides it best: codes are index-encoded, so an older build's code has no such key.
+// The switch must also actually gate the analysis entry points, or it is decoration.
+function checkBeatAnalysisToggleGuard() {
+  logStep('Beat analysis toggle guard');
+  const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
+  const layoutText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
+  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
+  const beatText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '03-beat', '00-tempo-worker-cache-prefetch.js'), 'utf8');
+  const panelText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
+  const bindingsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
+  const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
+  // 判据读源码文本，而上面的注释里正写着同样的键名与 `!== false`，所以先剥注释。
+  // The checks read source text and the comments above spell out the same names, so strip comments first.
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const defaultsCode = stripComments(defaultsText);
+  const layoutCode = stripComments(layoutText);
+  const persistenceCode = stripComments(persistenceText);
+  const archiveCode = stripComments(archiveText);
+  const beatCode = stripComments(beatText);
+  const panelCode = stripComments(panelText);
+  const bindingsCode = stripComments(bindingsText);
+  const indexCode = stripComments(indexText);
+
+  // 1) 默认值必须是显式 false。
+  if (!/beatAnalysis:\s*false\s*,/.test(defaultsCode)) {
+    fail('fxDefaults must declare beatAnalysis: false — the feature is meant to ship off');
+  }
+
+  // 2) 三处归一化只能认显式 true。逐条点名 raw/fx 两条持久化路径，因为它们是分别写的、可以只改一条。
+  if (!/beatAnalysis:\s*raw\.beatAnalysis === true/.test(persistenceCode)) {
+    fail('the persistence normaliser (raw path) must read beatAnalysis === true, or a missing key becomes on');
+  }
+  if (!/beatAnalysis:\s*fx\.beatAnalysis === true/.test(persistenceCode)) {
+    fail('the persistence normaliser (fx path) must read beatAnalysis === true, or a missing key becomes on');
+  }
+  if (!/beatAnalysis:\s*raw\.beatAnalysis === true/.test(archiveCode)) {
+    fail('the archive/share normaliser must read beatAnalysis === true, or importing an older code turns it on');
+  }
+  // 反向：这几处一律不许出现 `!== false` 形态（那正是"缺键即开启"的写法）。
+  if (/beatAnalysis[^\n]*!==\s*false/.test(persistenceCode) || /beatAnalysis[^\n]*!==\s*false/.test(archiveCode)) {
+    fail('beatAnalysis must never be normalised with `!== false`: a missing key would silently turn the default-off switch on');
+  }
+
+  // 3) 行为验证而不是文本验证：把 beatAnalysisEnabled() 抽进沙箱真跑。文本只能说明"写了 === true"，
+  //    跑一遍才能证明「缺键 / undefined / 字符串 / 数字 一律是关，只有字面量 true 是开」。
+  // Behavioural rather than textual: extract the predicate and actually run it. Text only proves the
+  // characters are there; running proves a missing key, undefined, a string and a number all read as off.
+  const predicateStart = layoutCode.indexOf('function beatAnalysisEnabled()');
+  if (predicateStart < 0) fail('beatAnalysisEnabled() is missing from the fx runtime state module');
+  const predicateRest = layoutCode.slice(predicateStart);
+  const predicateNext = predicateRest.search(/\n(?:async\s+)?function\s/);
+  const predicateBody = predicateNext < 0 ? predicateRest : predicateRest.slice(0, predicateNext);
+  const probe = fxLiteral => vm.runInNewContext(
+    '(function () { var fx = ' + fxLiteral + ';\n' + predicateBody + '\nreturn beatAnalysisEnabled(); })()',
+    {}
+  );
+  const probeCases = [
+    ['undefined fx', 'undefined', false],
+    ['missing key', '{}', false],
+    ['explicit false', '{ beatAnalysis: false }', false],
+    ['string "true"', '{ beatAnalysis: "true" }', false],
+    ['number 1', '{ beatAnalysis: 1 }', false],
+    ['explicit true', '{ beatAnalysis: true }', true]
+  ];
+  probeCases.forEach(function (entry) {
+    const got = probe(entry[1]);
+    if (got !== entry[2]) {
+      fail('beatAnalysisEnabled() must return ' + entry[2] + ' for ' + entry[0] + ', got ' + got);
+    }
+  });
+
+  // 4) 门控必须真的拦在分析入口上。逐函数切开比对，不能只在整文件里找一次：那样把门控只留在
+  //    其中一个入口、删掉另一个，判据照样绿。
+  // Each analysis entry point is sliced out and checked on its own: searching the whole file would
+  // stay green if the gate survived on one entry point and was deleted from another.
+  const inBody = (source, signature) => {
+    const at = source.indexOf(signature);
+    if (at < 0) return '';
+    const rest = source.slice(at + signature.length);
+    const next = rest.search(/\n(?:async\s+)?function\s/);
+    return next < 0 ? rest : rest.slice(0, next);
+  };
+  const gatedEntries = [
+    ['function scheduleBeatAnalysis(', 'the on-demand analysis scheduler'],
+    ['function scheduleQueueBeatPrefetch(', 'the queue prefetch scheduler'],
+    ['function runQueueBeatPrefetch(', 'the prefetch worker (the switch can flip while it awaits)']
+  ];
+  gatedEntries.forEach(function (entry) {
+    const body = inBody(beatCode, entry[0]);
+    if (!body) fail(entry[0] + ' not found — it is a gated analysis entry point');
+    else if (!/beatAnalysisEnabled\(\)/.test(body)) {
+      fail(entry[1] + ' must bail out when automatic beat analysis is off');
+    }
+  });
+
+  // 5) 面板接线。开关必须存在、能反映状态、且改动会被持久化 —— 少了持久化，重启就自己弹回默认值。
+  if (!/id="t-beatAnalysis"/.test(indexCode) || !/onclick="toggleFx\('beatAnalysis'\)"/.test(indexCode)) {
+    fail('the panel must expose #t-beatAnalysis wired to toggleFx(\'beatAnalysis\')');
+  }
+  if (!/data-i18n="toggle_beat_analysis"/.test(indexCode)) {
+    fail('the new switch label must go through the dictionary, or it renders as a bare key');
+  }
+  if (!/getElementById\('t-beatAnalysis'\)/.test(panelCode) || !/fx\.beatAnalysis === true/.test(panelCode)) {
+    fail('updateFxInputs/updatePerformanceControls must reflect fx.beatAnalysis onto #t-beatAnalysis');
+  }
+  if (!/key === 'beatAnalysis'\)\s*saveLyricLayout/.test(bindingsCode)) {
+    fail('toggleFx must persist beatAnalysis, or the switch reverts to its default after a restart');
+  }
+  if (!/cancelBeatAnalysisTimer\(\)/.test(bindingsCode) || !/cancelBeatPrefetchTimer\(\)/.test(bindingsCode)) {
+    fail('turning the switch off must cancel the queued analysis and prefetch, not just flip a flag');
+  }
+
+  // 6) 存档与分享码是按下标编码的（见 USER_FX_SHARE_KEYS 里的 Append-only 标记），所以新键只能
+  //    追加在末尾。这里把「最后一个追加前的老键」的下标钉死：往后追加不影响它，而只要有人把新键
+  //    插在中间，下标立刻变化 —— 那种改动会静默解错所有已发出的分享码。
+  // The archive key list is index-encoded, so a new key may only be appended. Pinning the index of the
+  // last pre-append key catches a middle insertion, which would silently mis-decode every issued code.
+  const shareKeysStart = archiveCode.indexOf('var USER_FX_SHARE_KEYS = [');
+  const shareKeysEnd = archiveCode.indexOf('];', shareKeysStart);
+  const shareKeys = shareKeysStart < 0 || shareKeysEnd < 0
+    ? []
+    : Array.from(archiveCode.slice(shareKeysStart, shareKeysEnd).matchAll(/'([A-Za-z0-9_]+)'/g)).map(m => m[1]);
+  if (shareKeys.indexOf('lyricTextureClarity') !== 205) {
+    fail('USER_FX_SHARE_KEYS must stay append-only: lyricTextureClarity moved from index 205 to ' + shareKeys.indexOf('lyricTextureClarity'));
+  }
+  if (shareKeys[shareKeys.length - 1] !== 'beatAnalysis') {
+    fail('beatAnalysis must be the last USER_FX_SHARE_KEYS entry so the next append goes after it');
+  }
+
+  // 7) 四语都要有文案：缺一份，那个语言的开关就显示裸键。
+  ['toggle_beat_analysis', 'fx_beat_analysis_title', 'bind_beat_analysis_on', 'bind_beat_analysis_off'].forEach(function (key) {
+    ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'].forEach(function (lang) {
+      const dict = fs.readFileSync(path.join(appRoot, 'public', 'locales', lang + '.json'), 'utf8');
+      if (!dict.includes('"' + key + '"')) fail('locale ' + lang + ' is missing the key ' + key);
+    });
+  });
+
+  // 8) 面板在运行时会把这排开关整体搬进「系统 → 性能与后台」分组（fxConsoleAppendItem 里是
+  //    appendChild，会改父节点），没登记的会被残留扫描收进「其他设置」—— 它仍然在面板里，只是
+  //    位置不对，所以没有任何报错、截图也看不出异常。判据落在"同格兄弟全都要登记"而不是只钉这
+  //    一个键：只钉一个的话，下次往这排里加开关会以完全相同的方式漏掉。
+  // The panel re-parents this grid into System → performance at runtime (fxConsoleAppendItem calls
+  // appendChild), and anything unregistered is swept into "other settings" — still in the panel, just
+  // in the wrong place, so nothing errors and a screenshot looks fine. Judge the whole sibling grid,
+  // not this one key: a per-key check would let the next switch in this row slip through identically.
+  const consoleText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '09-console-workspace.js'), 'utf8');
+  const consoleCode = stripComments(consoleText);
+  const gridAt = indexCode.indexOf('id="visual-performance-toggle-grid"');
+  if (gridAt < 0) fail('the panel must keep #visual-performance-toggle-grid, the row this switch lives in');
+  const nextGridAt = indexCode.indexOf('fx-toggle-grid', gridAt + 1);
+  const gridHtml = nextGridAt < 0 ? indexCode.slice(gridAt) : indexCode.slice(gridAt, nextGridAt);
+  const gridIds = Array.from(gridHtml.matchAll(/id="(t-[A-Za-z0-9_]+)"/g)).map(m => m[1]);
+  if (gridIds.indexOf('t-beatAnalysis') < 0) {
+    fail('t-beatAnalysis must sit in the realtime-visual-performance grid with its siblings');
+  }
+  const unregistered = gridIds.filter(id => !consoleCode.includes("fxConsoleItem('" + id + "'"));
+  if (unregistered.length) {
+    fail('every switch in the realtime-visual-performance grid must be registered in the console layout, '
+      + 'or the residual sweep files it under "other settings": ' + unregistered.join(', '));
+  }
+
+  console.log('[OK] Automatic beat analysis defaults to off, is gated on every analysis entry point, and is wired to the panel.');
+}
+
+// 备用更新线路的极简版本说明守卫。
+// 为什么值得写：GitHub API 取不到 Release 时（限流 / 网络 / 404），客户端会去 Release 资产里取
+// latest.yml 作为备用线路。这个文件出问题**双方都不会报错**：客户端读到的版本比当前低，就安静地
+// 显示"已是最新"，用户永远收不到更新提示 —— 这正是它曾经的状态（文件停在 2.2.0，包版本已到 2.4.3）。
+// 另一头是反方向的风险：改用打包工具生成的 dist/latest.yml 会带 files[].url / sha512 / path，
+// 配上 Release 里的 .blockmap 就是 electron-updater 的完整自动更新源，任何 electron-builder 生态的
+// 客户端都能静默下载安装，绕过"只提示、用户自行去网盘下载"的设计。两个方向都要钉住。
+// 另外把文件内容真的喂给解析器跑一遍：这个文件的标量是逐行正则取的，而它顶部有一大段注释，
+// 注释里又必然写着 "version" 这个词 —— 文本判据看不出注释是否会被误当成键。
+// Guard for the minimal version manifest behind the fallback update path. When the GitHub API is
+// unavailable the client reads latest.yml from the release assets, and a broken file fails silently
+// on both sides: a version lower than the running build makes the client report "up to date" forever
+// (which is exactly what happened — the file sat at 2.2.0 while the package reached 2.4.3). The
+// opposite risk is swapping in the builder-generated dist/latest.yml, whose files[].url / sha512 /
+// path plus the .blockmap form a full electron-updater feed. And the content is fed to the real
+// parser: its scalars are read line-by-line with a regex while the file opens with a prose comment
+// that necessarily contains the word "version", so source text cannot show whether that comment is
+// mistaken for a key.
+// 平台（provider）注册表守卫。
+// 这是"以后新增一个音源不会漏"的**机制本身**：注册表是唯一数据源，各处清单都由能力位派生，
+// 任何地方重新写死一份平台清单都必须失败。历史教训是同一个清单散落 6 处、彼此不一致，而漏掉
+// 一处**不报任何错** —— 只表现为"那个平台在某些功能里就是不存在"（汽水在搜索里有、在自动换源里没有）。
+// Guard for the provider registry — the mechanism that keeps a newly added source from being missed.
+// The registry is the single data source and every list derives from a capability flag, so any place
+// that reintroduces a hardcoded platform list has to fail. The history: the same list lived in six
+// places, none agreeing, and a miss reported nothing at all — it only showed up as "that platform
+// simply does not exist for this feature" (Qishui was in search but absent from auto-fallback).
+function checkProviderRegistryGuard() {
+  logStep('Provider registry single-source guard');
+  const registryText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '16-provider-registry.js'), 'utf8');
+  const loaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
+
+  // 1) 模块必须被加载，且排在消费方之前（消费方在**加载时**就按能力取清单）。
+  // The module must be loaded, and ahead of its consumers, which derive their lists at LOAD time.
+  if (!loaderText.includes("'js/modules/00-state/16-provider-registry.js'")) {
+    fail('the provider registry must be registered in index-loader.js, or nothing that derives from it loads');
+  }
+  const registryAt = loaderText.indexOf('16-provider-registry.js');
+  ['05-playback/07-search.js', '05-playback/11-provider-fallback.js', '08-account/01-login-modal-utils.js',
+    '08-account/03-login-modal-flows.js', '08-account/04-user-modal-logout.js', '06-lyrics/01-playlist-panel-shell.js'
+  ].forEach(function (consumer) {
+    const at = loaderText.indexOf(consumer);
+    if (at < 0) fail('consumer ' + consumer + ' is not registered in index-loader.js');
+    else if (at < registryAt) fail('the provider registry must load before ' + consumer + ', which derives its list from it');
+  });
+
+  // 2) 行为验证：真跑注册表，断言每个能力位的集合。这些集合同时定义多处清单的语义。
+  // Behavioural: run the registry and assert each capability set. These sets define several lists at once.
+  const probe = { console };
+  vm.createContext(probe);
+  vm.runInContext(registryText + '\nthis.sets = {' +
+    'login: providerRegistryKeysWith("login"),' +
+    'mainSearch: providerRegistryKeysWith("mainSearch"),' +
+    'sourceSwitcher: providerRegistryKeysWith("sourceSwitcher"),' +
+    'directFallback: providerRegistryKeysWith("directFallback"),' +
+    'preferred: providerRegistryKeysWith("preferred"),' +
+    'all: providerRegistryKeys()' +
+    '};', probe);
+  const expectedSets = {
+    login: 'netease,qq,kugou,qishui,spotify',
+    mainSearch: 'netease,qq,kugou,qishui',
+    sourceSwitcher: 'netease,qq,kugou,qishui,spotify',
+    directFallback: 'netease,qq,kugou',
+    preferred: 'netease,qq,kugou,qishui,spotify',
+    all: 'netease,qq,kugou,qishui,spotify'
+  };
+  Object.keys(expectedSets).forEach(function (capability) {
+    const got = (probe.sets[capability] || []).join(',');
+    if (got !== expectedSets[capability]) {
+      fail('provider registry capability "' + capability + '" is now [' + got + '], expected ['
+        + expectedSets[capability] + '] — every list deriving from it changes with it');
+    }
+  });
+  // ⚠️ 只有 directFallback 必须排除 Spotify，**preferred 不能排除**。
+  //    两者的语义不同：directFallback 要求"能直接拿到可播放地址"（Spotify 做不到，换过去还得再换一次）；
+  //    preferred 只是决定查找顺序里谁排最前 —— 开了「唤起 Spotify 客户端」的 Premium 用户正是靠
+  //    本机客户端播 Spotify 曲目，所以要能把它设为默认源。
+  //    我最初把两者一并排除，是按"它播不了"这个单一理由推的，漏掉了客户端唤起这条真实播放路径。
+  // ⚠️ Only directFallback excludes Spotify; preferred must NOT. They ask different questions:
+  //    directFallback requires a directly playable URL (Spotify cannot, so a fallback there would have
+  //    to switch again), while preferred merely decides who goes first in the lookup order — and a
+  //    Premium user with the client-launch setting plays Spotify tracks natively. Excluding both was a
+  //    single-reason inference that missed the client-launch playback path.
+  if ((probe.sets.directFallback || []).indexOf('spotify') >= 0) {
+    fail('spotify must not be in "directFallback": it never yields a playable URL, so the fallback would '
+      + 'land on an equally unplayable source and have to switch again');
+  }
+  if ((probe.sets.preferred || []).indexOf('spotify') < 0) {
+    fail('spotify must be selectable as a preferred source: users who play Spotify through the launched '
+      + 'client need their tracks matched to Spotify first');
+  }
+
+  // 3) 每个消费方都必须**从注册表派生**。逐处点名能力位，而不是只检查"文件里提到过注册表"：
+  //    只检查提到过的话，把某处改回字面量、而文件别处仍引用注册表，判据照样绿。
+  // Every consumer must DERIVE from the registry. Each site names its capability: checking only that a
+  // file mentions the registry would stay green when one site reverts to a literal.
+  const consumerSites = [
+    ['public/js/modules/05-playback/07-search.js', "providerRegistryKeysWith('sourceSwitcher')", 'the playback source switcher list'],
+    ['public/js/modules/05-playback/07-search.js', "providerRegistryKeysWith('mainSearch')", 'the search panel platform list'],
+    ['public/js/modules/05-playback/07-search.js', "providerRegistryHasCapability(provider, 'mainSearch')", 'the search capability check'],
+    ['public/js/modules/05-playback/11-provider-fallback.js', "providerRegistryKeysWith('directFallback')", 'the auto-fallback candidate list'],
+    ['public/js/modules/05-playback/11-provider-fallback.js', "providerRegistryHasCapability(provider, 'preferred')", 'the preferred-source readiness check'],
+    ['public/js/modules/08-account/01-login-modal-utils.js', "providerRegistryKeysWith('login')", 'the account platform list'],
+    ['public/js/modules/08-account/03-login-modal-flows.js', "providerRegistryKeysWith('login')", 'the login workflow platform list'],
+    ['public/js/modules/08-account/04-user-modal-logout.js', "providerRegistryKeysWith('login')", 'the logged-provider count'],
+    ['public/js/modules/06-lyrics/01-playlist-panel-shell.js', "providerRegistryKeysWith('login')", 'the playlist catalogue sweeps']
+  ];
+  consumerSites.forEach(function (site) {
+    const text = fs.readFileSync(path.join(appRoot, site[0]), 'utf8');
+    if (!text.includes(site[1])) {
+      fail(site[2] + ' must derive from the registry via ' + site[1] + ' — a hand-kept list silently '
+        + 'skips any platform added later');
+    }
+  });
+
+  // 4) 禁止重新写死平台清单。**这一条才是「以后加源不会漏」的机制**：只靠"我改过了"是不够的，
+  //    必须让下一个人写死清单时立刻失败。
+  // ⚠️ 白名单只收「优先级声明」形式，且那条文件必须同时从注册表补全集合（下面紧接着断言）——
+  //    白名单不是"允许写死"，而是"允许声明顺序，集合仍由注册表决定"。
+  // No hardcoded platform lists may come back. THIS is the mechanism: "I already converted them" is not
+  // enough — the next person writing a literal list has to fail immediately. The whitelist only admits
+  // PRIORITY declarations, and each such file must also complete its set from the registry, asserted
+  // right after. It is not "hardcoding allowed"; it is "ordering allowed, set still decided by the registry".
+  const PRIORITY_LITERAL_ALLOWLIST = [
+    {
+      file: 'public/js/modules/06-lyrics/01-playlist-panel-shell.js',
+      literal: "['netease', 'spotify']",
+      // ⚠️ 必须点名**该处**的补全语句，不能只检查"文件里提到过注册表"：该文件别处还有别的注册表调用，
+      //    只检查"提到过"的话，把这一处的补全删掉判据照样绿（反向验证抓到的就是这个）。
+      //    所以这里存的是那句补全本身，比对时去掉空白以便不受缩进影响。
+      // ⚠️ The completion for THIS site must be named explicitly. Checking merely that the file mentions
+      //    the registry stays green when this particular completion is deleted, because the file calls
+      //    the registry elsewhere too — exactly what the reverse verification caught. The marker is the
+      //    completion statement itself, compared whitespace-insensitively so indentation cannot matter.
+      completion: "var order = PLAYLIST_CATALOG_PREFETCH_PRIORITY.slice();"
+        + "providerRegistryKeysWith('login').forEach(function (provider) {"
+        + "if (order.indexOf(provider) < 0) order.push(provider);});",
+      reason: 'playlist catalogue prefetch priority (netease first, then Spotify); the set is completed '
+        + 'from the registry right below and the resulting order is unchanged'
+    }
+  ];
+  const PLATFORM_LIST_RE = /\[\s*'(?:netease|qq|kugou|qishui|spotify)'(?:\s*,\s*'(?:netease|qq|kugou|qishui|spotify)')+\s*\]/;
+  const offenders = [];
+  const scanFile = function (file) {
+    const text = fs.readFileSync(file, 'utf8');
+    // 先剥注释：注释里举例说明平台清单是说明性的，不是代码。
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const match = code.match(PLATFORM_LIST_RE);
+    if (!match) return;
+    const literal = match[0].replace(/\s+/g, ' ');
+    const relative = rel(file);
+    const allowed = PRIORITY_LITERAL_ALLOWLIST.some(function (entry) {
+      return entry.file === relative && entry.literal.replace(/\s+/g, ' ') === literal;
+    });
+    if (!allowed) offenders.push(relative + '  ' + literal);
+  };
+  const walkForLists = function (dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (/^(node_modules|\.git|dist|custom-source)$/.test(entry.name)) continue;
+        walkForLists(full);
+      } else if (entry.name.endsWith('.js')) scanFile(full);
+    }
+  };
+  ['public/js/modules', 'desktop', 'server'].forEach(function (root) { walkForLists(path.join(appRoot, root)); });
+  if (offenders.length) {
+    fail('hardcoded platform list(s) found — every list must derive from the provider registry, or a '
+      + 'platform added later silently misses this feature:\n      ' + offenders.join('\n      '));
+  }
+  PRIORITY_LITERAL_ALLOWLIST.forEach(function (entry) {
+    const text = fs.readFileSync(path.join(appRoot, entry.file), 'utf8');
+    // 去掉所有空白再比对：缩进/换行风格都不该影响结果，但**必须是这一处的**补全语句。
+    // Whitespace is stripped before comparing, so indentation cannot matter — but it must be THIS site's
+    // completion statement, not merely some mention elsewhere in the file.
+    const compact = text.replace(/\s+/g, '');
+    if (!compact.includes(entry.completion.replace(/\s+/g, ''))) {
+      fail('the allowlisted priority declaration in ' + entry.file + ' must complete its set from the '
+        + 'registry (' + entry.reason + '), or it is just a hardcoded list again');
+    }
+  });
+
+  // 5) 默认源偏好：默认值、纯读、以及「显式不指定」可区分。
+  //    写回默认值会把"默认"锁死成"用户的选择"（本项目在关闭行为上真踩过），所以读必须是纯读。
+  // The preferred-source preference: its default, that reading is pure, and that an explicit "none" is
+  // distinguishable. Writing the default back would freeze it into a user choice.
+  const preferenceProbe = function (stored) {
+    const box = { console };
+    if (stored !== undefined) {
+      box.localStorage = { _v: stored, getItem() { return this._v; }, setItem(key, value) { this._v = String(value); } };
+    }
+    vm.createContext(box);
+    vm.runInContext(registryText + '\nthis.pref = readPreferredSourcePreference();'
+      + '\nthis.provider = preferredSourceProvider();'
+      + '\nthis.options = preferredSourceOptions();', box);
+    return box;
+  };
+  const unset = preferenceProbe(undefined);
+  if (unset.pref !== 'netease' || unset.provider !== 'netease') {
+    fail('with nothing stored the preferred source must be netease (the requested default), got '
+      + JSON.stringify(unset.pref));
+  }
+  if (preferenceProbe('auto').provider !== '') {
+    fail('an explicit "auto" must resolve to no preferred source; collapsing it into the default would '
+      + 'make that dropdown option a no-op');
+  }
+  if (preferenceProbe('qq').provider !== 'qq') fail('a stored platform key must be honoured');
+  if (preferenceProbe('spotify').provider !== 'spotify') {
+    fail('spotify must be honoured as a preferred source (it is selectable in the dropdown)');
+  }
+  // 不认识的平台（已下线/被移除）仍要自愈回默认值，而不是让整条链路拿到空值。
+  // An unknown platform (retired/removed) must still self-heal to the default rather than leaving the
+  // chain with an empty value.
+  if (preferenceProbe('gone-provider').provider !== 'netease') {
+    fail('a stored but unknown platform key must fall back to the default preferred source');
+  }
+  const optionValues = (unset.options || []).map(function (option) { return option.value; });
+  if (optionValues.join(',') !== 'auto,' + expectedSets.preferred) {
+    fail('the dropdown options must be "auto" plus the registry preferred set, got [' + optionValues.join(',') + ']');
+  }
+  const writeProbe = { console, localStorage: { getItem() { return null; }, setItem() { writeProbe.wrote = true; } } };
+  vm.createContext(writeProbe);
+  vm.runInContext(registryText + '\nthis.pref = readPreferredSourcePreference();', writeProbe);
+  if (writeProbe.wrote) {
+    fail('reading the preferred source must not write to storage: persisting a default locks it in as a '
+      + 'user choice, so changing the default later stops applying');
+  }
+
+  // 6) 接线：设置项要真的存在且由注册表填充；播放链路要真的调用选源，并在 await 之后验 token
+  //   （否则用户在这段时间里切歌会把已失效的结果播出去）。
+  // Wiring: the setting must exist and be filled from the registry, and the playback path must call the
+  // resolver and re-check its token after the await.
+  const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
+  if (!/id="preferred-source-select"[^>]*onchange="setPreferredSourceProvider\(this\.value\)"/.test(indexText)) {
+    fail('index.html must declare #preferred-source-select wired to setPreferredSourceProvider()');
+  }
+  if (!/data-i18n="settings_preferred_source"/.test(indexText)) {
+    fail('the preferred-source label must go through the dictionary, or it renders as a bare key');
+  }
+  // ⚠️ 登记的是**外层容器**而非 <select>：运行时面板按登记表把控件 appendChild 进分组页，只搬登记过的
+  //    那个节点，标签若是兄弟节点就会被留在被丢弃的旧容器里 —— 下拉仍在，但**没有标题**，看不出
+  //    是干什么的（本轮实测过一次：截图里只有下拉、没有「默认源」三个字）。
+  //    同时容器类必须进「块」选择器，否则 select 会被当成无归属裸控件按扫描顺序落位。
+  // ⚠️ The WRAPPER is registered, not the <select>: the runtime panel appends the registered node into
+  //    its group page, so a sibling label would stay behind in the discarded container — the dropdown
+  //    would survive but lose its title (measured this round: the screenshot showed the control with no
+  //    "默认源" label). The wrapper class must also be in the block selector, or the select degrades to
+  //    an unowned bare control placed by scan order.
+  const consoleText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '09-console-workspace.js'), 'utf8');
+  if (!/id="preferred-source-row"[\s\S]{0,400}id="preferred-source-select"/.test(indexText)) {
+    fail('#preferred-source-select must be wrapped in #preferred-source-row together with its label, so '
+      + 'the console moves the label along with the control');
+  }
+  if (!/fxConsoleItem\('preferred-source-row'/.test(consoleText)) {
+    fail('the preferred-source wrapper must be registered in the console layout, or the residual sweep '
+      + 'files it under "other settings" (wrong place, no error)');
+  }
+  if (!/fxConsoleItem\('t-spotifyLaunchClient'/.test(consoleText)) {
+    fail('t-spotifyLaunchClient must be registered too — it was missed when added and has been sitting in '
+      + '"other settings" since');
+  }
+  if (!/var blockSelector = '\.fx-select-row,/.test(consoleText)) {
+    fail('the block selector must include .fx-select-row, or the wrapped control is treated as an unowned '
+      + 'bare control and placed by scan order rather than by its registration');
+  }
+  const startText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
+  const hookAt = startText.indexOf('await resolvePreferredSourceSong(song, opts)');
+  if (hookAt < 0) fail('playQueueAt must apply the preferred source before using the song downstream');
+  else if (!/token !== trackSwitchToken/.test(startText.slice(hookAt, hookAt + 320))) {
+    fail('the preferred-source hook must re-check its token after awaiting, or a track the user switched '
+      + 'to during the search would play the stale result');
+  }
+  // 内层搜索的就绪门必须同时接受「可被指定为默认源」的平台，否则选了汽水会永远搜不到
+  // ——这条是测试抓出来的真实缺陷，钉住它。
+  const fallbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '11-provider-fallback.js'), 'utf8');
+  if (!/!sourceFallbackProviderReady\(target\) && !preferredSourceProviderReady\(target\)/.test(fallbackText)) {
+    fail('the shared search must accept preferred-capability providers too, or a Qishui preference passes '
+      + 'the outer check and is rejected inside: the option would never work');
+  }
+
+  // 7) 四语词条齐全（缺一份，那个语言的下拉与提示就显示裸键）。
+  ['settings_preferred_source', 'settings_preferred_source_sub', 'settings_preferred_source_auto',
+    'settings_preferred_source_on', 'settings_preferred_source_off'].forEach(function (key) {
+    ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'].forEach(function (lang) {
+      const dict = fs.readFileSync(path.join(appRoot, 'public', 'locales', lang + '.json'), 'utf8');
+      if (!dict.includes('"' + key + '"')) fail('locale ' + lang + ' is missing the key ' + key);
+    });
+  });
+
+  console.log('[OK] Every platform list derives from the single provider registry, no hardcoded list can come '
+    + 'back, and the preferred source defaults to netease with a pure (non-persisting) read.');
+}
+
+function checkUpdateManifestGuard() {
+  logStep('Fallback update manifest guard');
+  const pkg = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
+  const manifestText = fs.readFileSync(path.join(appRoot, 'docs', 'update', 'latest.yml'), 'utf8');
+  const workflowPath = path.join(appRoot, '.github', 'workflows', 'release.yml');
+  const workflowText = fs.readFileSync(workflowPath, 'utf8');
+  // 判据要读 workflow 文本，而上面解释"为什么去掉 blockmap"的注释里正写着 blockmap 这个词，
+  // 所以先剥注释 —— 否则注释自己就能把判据喂绿。
+  // The checks read the workflow text and the comment above spells out "blockmap", so strip first —
+  // otherwise the comment alone would satisfy the assertion.
+  const workflowCode = workflowText.replace(/(^|[^:])\/\/[^\n]*/g, '$1').split('\n')
+    .filter((line) => !/^\s*#/.test(line)).join('\n');
+
+  // 1) 版本必须与 package.json 一致：这是"静默失效"的唯一入口，必须由机械判据盯着。
+  // The version must match package.json: this is the one way the file fails silently, so a machine
+  // has to watch it rather than a release checklist.
+  const parsed = /^version:\s*(.+)$/m.exec(manifestText);
+  if (!parsed) fail('docs/update/latest.yml must declare a version scalar');
+  const manifestVersion = parsed[1].trim().replace(/^['"]|['"]$/g, '');
+  if (manifestVersion !== pkg.version) {
+    fail('docs/update/latest.yml says version ' + manifestVersion + ' but package.json is ' + pkg.version
+      + '; the fallback update path would silently report "up to date"');
+  }
+
+  // 2) 反方向：绝不能出现自动更新源字段。逐字段点名，而不是找一次 "files"。
+  // The other direction: none of the auto-update feed fields may appear. Each is named on its own.
+  ['files', 'path', 'url', 'sha512'].forEach(function (field) {
+    if (new RegExp('^\\s*' + field + '\\s*:', 'm').test(manifestText)) {
+      fail('docs/update/latest.yml must not declare `' + field + ':` — those fields turn it into an '
+        + 'electron-updater feed that can silently download and install, bypassing the mirror-only design');
+    }
+  });
+
+  // 3) 发布流程必须真的把这份文件发布出去，并且不能同时放上 blockmap。
+  // The release workflow must actually publish this file, and must not ship the blockmap alongside it.
+  if (!/Copy-Item docs\/update\/latest\.yml dist\/latest\.yml -Force/.test(workflowCode)) {
+    fail('release.yml must overwrite the builder-generated dist/latest.yml with the minimal manifest, '
+      + 'or the auto-update feed fields reach the release assets');
+  }
+  if (/(^|\s)dist\/\*?\.?blockmap/.test(workflowCode)) {
+    fail('release.yml must not upload .blockmap: paired with a feed manifest it completes an auto-update path');
+  }
+  if (!/dist\/latest\.yml/.test(workflowCode)) {
+    fail('release.yml must still publish latest.yml, or the fallback path has nothing to read');
+  }
+
+  // 4) 行为验证：把文件内容真的喂给解析器。文本判据证明不了"注释没被当成键"。
+  // Behavioural probe: feed the real content to the parser. Source text cannot show whether the
+  // leading comment is mistaken for a key.
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
+  const extractFn = (src, name) => {
+    const start = src.indexOf('function ' + name + '(');
+    if (start < 0) return null;
+    let depth = 0;
+    let i = src.indexOf('{', start);
+    for (; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+    return src.slice(start, i);
+  };
+  const vm = require('vm');
+  const probeManifest = (text) => {
+    const probe = { console, manifestText: text };
+    vm.createContext(probe);
+    vm.runInContext([
+      extractFn(serverText, 'yamlScalar'),
+      extractFn(serverText, 'normalizeVersion'),
+      extractFn(serverText, 'compareVersions'),
+      'this.scalarVersion = yamlScalar(manifestText, "version");',
+      'this.scalarDate = yamlScalar(manifestText, "releaseDate");',
+      'this.normalized = normalizeVersion(this.scalarVersion);',
+      // 端到端语义：备用线路要能对"比它老的客户端"报出更新可用，否则它是接好了但没用。
+      // End-to-end semantics: the fallback must report an update as available to an older client,
+      // otherwise the path is wired but useless.
+      'this.newerThanOldBuild = compareVersions(this.scalarVersion, "2.0.0");'
+    ].join('\n'), probe, { filename: 'update-manifest-probe' });
+    return probe;
+  };
+  // 两种行尾都要测：工作区的 .yml 是 CRLF（.gitattributes 只给 .js/.json/.md 等指定 eol=lf），
+  // 而 CI checkout 之后是 LF。只测本地那种的话，"本地读得到版本、发布后读不到"这类差异
+  // 永远不会在本地暴露。
+  // Both line endings are exercised: the working tree keeps .yml as CRLF (only .js/.json/.md get
+  // eol=lf) while a CI checkout yields LF. Testing just the local variant would hide any
+  // "reads fine here, not after publishing" difference.
+  [['CRLF', manifestText], ['LF', manifestText.replace(/\r\n/g, '\n')]].forEach(function (variant) {
+    const probe = probeManifest(variant[1]);
+    if (probe.normalized !== pkg.version) {
+      fail('the parser must read ' + pkg.version + ' out of the manifest with ' + variant[0]
+        + ' line endings (its leading comment must not be mistaken for a key); got '
+        + JSON.stringify(probe.normalized));
+    }
+    if (!probe.scalarDate) {
+      fail('the parser must still find releaseDate in the manifest with ' + variant[0] + ' line endings');
+    }
+    if (probe.newerThanOldBuild !== 1) {
+      fail('compareVersions must see the manifest version as newer than an older build with '
+        + variant[0] + ' line endings, got ' + probe.newerThanOldBuild);
+    }
+  });
+
+  // 5) 发布正文必须带上「网盘下载」标记。
+  // 客户端从 Release 正文里解析 `mineradio-download-page` 标记来构造软件内的「网盘下载」入口；
+  // 标记没了**不会报错**，只会安静地退回成「打开 Release 页面」，用户再也拿不到不限速直链。
+  // 实测过一次：v2.4.3 的 Release 正文里就没有这个标记，而当时记录了这条要求的 RELEASE.md
+  // 已被删除 —— 于是"必须有标记"这件事既没人执行、也没人检查。
+  // 这里同时把 URL 与 README 里公布的分发入口对齐：两处写的是同一个网盘，改了一处另一处必须跟上，
+  // 否则用户从软件内点进去、和从 README 点进去会拿到两个不同的链接，而两边都不报错。
+  // The release body must carry the mirror-download marker. The client parses
+  // `mineradio-download-page` out of it; a missing marker fails silently by degrading the in-app
+  // entry to "open the release page". v2.4.3 shipped without it while the RELEASE.md that documented
+  // the requirement had already been deleted — nobody enforced it and nothing checked it. The URL is
+  // also aligned with the distribution route published in README: two places advertise one mirror,
+  // and a one-sided edit would send users to different links from the app and from the docs.
+  const markerPattern = /<!--\s*mineradio-download-page\s*:\s*([^|<>\r\n]{1,32})\s*\|\s*(https:\/\/[^\s<>]+?)\s*-->/g;
+  // 扫的是已剥注释的 workflowCode：上面解释"标记必须保留"的那段注释里正写着这个词。
+  // Scanning the comment-stripped text: the comment above spells the marker name out.
+  const markers = Array.from(workflowCode.matchAll(markerPattern));
+  if (!markers.length) {
+    fail('release.yml must emit a `mineradio-download-page` marker in the release body, or the in-app '
+      + 'mirror-download entry silently degrades to "open the release page"');
+  }
+  const readmeText = fs.readFileSync(path.join(appRoot, 'README.md'), 'utf8');
+  markers.forEach(function (marker) {
+    if (!readmeText.includes(marker[2])) {
+      fail('the mirror URL in release.yml (' + marker[2] + ') is not published in README.md: the two '
+        + 'documented download routes would drift apart with nothing failing');
+    }
+  });
+
+  console.log('[OK] The fallback update manifest matches package.json, stays free of auto-update feed fields, is '
+    + 'published by the release workflow, and the real parser reads the right version out of it in both line endings. '
+    + 'The release body still carries its mirror-download marker, aligned with README.');
+}
+
+// 为什么值得写：2.4.x 的便携数据构建把默认值写成 'exit'，且 initializeDesktopCloseBehavior 在首次启动时
+// 把默认值写回 localStorage，于是「关窗口=退出、无托盘」被永久锁死。这里守两件事：
+//  (1) 存储键已从 v1 升到 v2，丢弃那个被错误持久化的 exit；
+//  (2) readCloseBehaviorPreference 与 main.js 的 closeBehavior 默认值都是 'tray'，且空键时确实返回 'tray'
+//      （行为验证，不是文本验证 —— 把函数抽进沙箱、localStorage 返回 null 真跑一遍）。
+// Guard for the default close behavior being "stay in tray".
+// An earlier portable-data build defaulted to 'exit' and initializeDesktopCloseBehavior persisted that
+// default on first launch, permanently locking the window into "close = quit, no tray". This guards:
+// (1) the store key was bumped v1 -> v2 to discard the wrongly-persisted exit;
+// (2) readCloseBehaviorPreference and main.js both default to 'tray', and an empty key actually resolves
+//     to 'tray' (behavioural: the function is extracted into a sandbox with a null localStorage).
+function checkCloseBehaviorDefaultGuard() {
+  logStep('Close behavior default guard');
+  const storesText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
+  const prefsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '02-preferences-ui-modes.js'), 'utf8');
+  const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const storesCode = stripComments(storesText);
+  const prefsCode = stripComments(prefsText);
+  const mainCode = stripComments(mainText);
+
+  if (/var CLOSE_BEHAVIOR_STORE_KEY = 'mineradio-close-behavior-v1';/.test(storesCode)) {
+    fail('CLOSE_BEHAVIOR_STORE_KEY must no longer be v1; the buggy auto-persisted exit value would survive the bump');
+  }
+  if (!/var CLOSE_BEHAVIOR_STORE_KEY = 'mineradio-close-behavior-v2';/.test(storesCode)) {
+    fail('CLOSE_BEHAVIOR_STORE_KEY must be bumped to v2 so the wrongly-persisted exit value is discarded');
+  }
+  if (!/function readCloseBehaviorPreference\(\)\s*\{[\s\S]*?localStorage\.getItem\(CLOSE_BEHAVIOR_STORE_KEY\) \|\| 'tray'/.test(prefsCode)) {
+    fail('readCloseBehaviorPreference must default to tray when no key is stored, not exit');
+  }
+  if (!/function readCloseBehaviorPreference\(\)\s*\{[\s\S]*?catch \(e\)\s*\{\s*return 'tray';/.test(prefsCode)) {
+    fail("readCloseBehaviorPreference's catch branch must fall back to tray, not exit");
+  }
+  if (!/let closeBehavior = 'tray';/.test(mainCode)) {
+    fail('main.js must default closeBehavior to tray');
+  }
+
+  // 行为验证：把 normalizeCloseBehavior + readCloseBehaviorPreference 抽进沙箱真跑，localStorage 返回 null。
+  // Behavioural check: extract both functions into a sandbox and run them with a null localStorage.
+  const extractFn = (src, name) => {
+    const start = src.indexOf('function ' + name + '(');
+    if (start < 0) return null;
+    let depth = 0;
+    let i = src.indexOf('{', start);
+    for (; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+    return src.slice(start, i);
+  };
+  const vm = require('vm');
+  const sandbox = {
+    CLOSE_BEHAVIOR_STORE_KEY: 'mineradio-close-behavior-v2',
+    localStorage: { _v: null, getItem() { return this._v; }, setItem(k, v) { this._v = v; } },
+    console
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFn(prefsCode, 'normalizeCloseBehavior') + '\n' + extractFn(prefsCode, 'readCloseBehaviorPreference') + "\nthis.result = readCloseBehaviorPreference();", sandbox);
+  if (sandbox.result !== 'tray') {
+    fail('readCloseBehaviorPreference must resolve to tray when localStorage has no stored key; got ' + JSON.stringify(sandbox.result));
+  }
+
+  console.log('[OK] Close behavior defaults to tray; the v1 auto-persisted exit is discarded and an empty key resolves to tray.');
+}
+
+// 面板内横向工具行的溢出守卫。
+// 为什么值得写：这类失效**在界面上就是"按钮不见了"**，没有任何报错 ——
+// #playlist-panel 固定 340px（内边距 18px、边框 1px → 内容盒 302px），卡片内只有 280px；
+// 行用 display:flex 且不换行时，按钮既不收缩（flex: 0 0 auto / min-width）又排不下，
+// 就会溢出到面板外被 `contain: paint` 直接裁掉：点不到、也看不见。
+// 实测过的两次：① 歌单详情操作行「播放歌单/重命名/删除/多选」需 388px，溢出 108px，
+// 后两个按钮整个消失（俄文侧仅原前三项就需 315px，本来已溢出）；② 选项卡标签随语言变长，
+// 日文 285px、俄文 284px、英文 274px 逼近 302px，默认的 flex-shrink 把「現在のキュー」
+// 压成两行（按钮高 30→46px），再长一点就被裁。
+// 判据因此盯住这组**组合特征**：不换行 + 子项不收缩 = 溢出必然被裁。要么允许换行，要么子项可收缩。
+// Guard for horizontally laid-out tool rows inside the playlist panel. This failure shows up as
+// "the button is gone" with nothing logged: #playlist-panel is a fixed 340px (18px padding + 1px
+// border -> 302px content box) and a card leaves only 280px. With `display: flex` and no wrapping,
+// buttons that neither shrink (`flex: 0 0 auto` / min-width) nor fit overflow past the panel and are
+// clipped away by `contain: paint` — invisible and unclickable. Measured twice: (1) the playlist
+// detail action row needs 388px for 「播放歌单/重命名/删除/多选」, overflowing by 108px and losing the
+// last two buttons entirely (in Russian even the original three need 315px, so it was already
+// overflowing); (2) the tab labels grow with the language — 285px Japanese, 284px Russian, 274px
+// English against 302px — and the default flex-shrink broke 「現在のキュー」 onto two lines (button
+// height 30 -> 46px). The judgement therefore targets the dangerous combination: no wrapping plus
+// non-shrinking children means the overflow must be clipped. Either the row wraps, or its children
+// may shrink.
+function checkPanelRowOverflowGuard() {
+  logStep('Playlist panel tool row overflow guard');
+  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
+  const cssCode = stripComments(cssText);
+
+  // 按精确选择器取出规则体；同名规则有多条时合并全部（后写的可能覆盖前面的）。
+  function ruleBodies(selector) {
+    const out = [];
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(?:^|\\})\\s*' + escaped + '\\s*\\{([^}]*)\\}', 'g');
+    let match;
+    while ((match = re.exec(cssCode))) out.push(match[1]);
+    return out;
+  }
+  const declares = (bodies, property, valuePattern) =>
+    bodies.some((body) => new RegExp('(?:^|;|\\{)\\s*' + property + '\\s*:\\s*' + valuePattern, 'm').test(';' + body));
+
+  const tabsBody = ruleBodies('.panel-tabs');
+  const tabBody = ruleBodies('.panel-tab');
+  const actionsBody = ruleBodies('.pl-detail-actions');
+  const actionChildBody = ruleBodies('.pl-detail-actions > button');
+
+  // 两个行本身必须存在，否则下面的断言会因为"取不到规则"而空转成绿。
+  // The rows themselves must exist, or the assertions below would pass vacuously.
+  if (!tabsBody.length) fail('.panel-tabs rule is missing from the stylesheet');
+  if (!actionsBody.length) fail('.pl-detail-actions rule is missing from the stylesheet');
+  if (!tabBody.length) fail('.panel-tab rule is missing from the stylesheet');
+  if (!actionChildBody.length) fail('.pl-detail-actions > button rule is missing — the row relies on it to keep buttons whole');
+
+  // 1) 两行都必须允许换行。这是"排不下就换行"的唯一出口。
+  if (!declares(tabsBody, 'flex-wrap', 'wrap\\b')) {
+    fail('.panel-tabs must wrap: the tab labels grow with the language (285px Japanese vs 302px available), '
+      + 'and without wrapping flex-shrink breaks a label across two lines inside its pill');
+  }
+  if (!declares(actionsBody, 'flex-wrap', 'wrap\\b')) {
+    fail('.pl-detail-actions must wrap: the four buttons need 388px inside a 280px card, and without '
+      + 'wrapping they overflow past the panel edge and `contain: paint` clips them away unseen');
+  }
+
+  // 2) 子项不许被压窄（压窄会把标签折行），且标签内部不许断行 —— 两者缺一，标签就会在两行里断开。
+  if (!declares(tabBody, 'white-space', 'nowrap')) {
+    fail('.panel-tab must set white-space: nowrap, or a long label breaks mid-label instead of the row wrapping');
+  }
+  if (!declares(tabBody, 'flex', '0\\s+0\\b|none\\b')) {
+    fail('.panel-tab must be flex: 0 0 auto, or flex-shrink squeezes it and the label wraps to two lines');
+  }
+  if (!declares(actionChildBody, 'flex', '0\\s+0\\b|none\\b')) {
+    fail('.pl-detail-actions > button must be flex: 0 0 auto, or a squeezed button hides part of its label');
+  }
+  if (!declares(actionChildBody, 'white-space', 'nowrap')) {
+    fail('.pl-detail-actions > button must set white-space: nowrap so the row wraps instead of the label');
+  }
+
+  // 3) 不许用 overflow: hidden 把溢出的按钮"藏起来"充数 —— 那是把看不见当成修好了。
+  // overflow: hidden must not be used to hide the overflow: that treats "invisible" as "fixed".
+  [['.panel-tabs', tabsBody], ['.pl-detail-actions', actionsBody]].forEach(function (entry) {
+    if (/(?:^|;)\s*overflow(-x)?\s*:\s*(hidden|clip)\s*(?:;|$)/m.test(';' + entry[1].join(';'))) {
+      fail(entry[0] + ' must not clip its own overflow: hidden buttons are still broken, just invisible');
+    }
+  });
+
+  // 4) 面板内容盒必须仍然算得出 302px。宽度或内边距一改，"排不下"的算式就变了，
+  //    上面几条判据的前提也就不成立了 —— 所以把算式本身钉住。
+  // The content box must still work out to 302px: changing the width or padding changes the arithmetic
+  // that makes the rows overflow, and the judgements above would silently lose their premise.
+  const panelBody = ruleBodies('#playlist-panel');
+  const widthDecl = panelBody.join(';').match(/(?:^|;)\s*width\s*:\s*(\d+)px/);
+  const paddingDecl = panelBody.join(';').match(/(?:^|;)\s*padding\s*:\s*(\d+)px/);
+  if (!widthDecl || !paddingDecl) {
+    fail('#playlist-panel must keep an explicit px width and padding: the overflow budget is derived from them');
+  } else {
+    const contentBox = Number(widthDecl[1]) - 2 * Number(paddingDecl[1]) - 2;
+    if (contentBox !== 302) {
+      fail('#playlist-panel content box is now ' + contentBox + 'px, not the 302px the row budgets assume: '
+        + 're-measure the tab strip and the action row before changing the width or padding');
+    }
+  }
+
+  console.log('[OK] Both playlist panel tool rows wrap and keep their labels whole; the 302px content budget they are sized against is pinned.');
+}
+
+// 歌单 / 队列多选 → 批量加入内置歌单的接线守卫。
+// 为什么值得写：这条链路横跨五层（主进程库 → IPC → preload → 渲染层 helper → 多选模块），少接一层
+// 都不会报错，只会「功能静静地不存在」—— 勾选框不出现、工具条不出现、点了没反应，控制台一片干净。
+// 更隐蔽的是虚拟滚动：勾选态一旦被存进 DOM，滚出视野再滚回来就丢了，而短列表上完全看不出来。
+// 所以判据分三块：(1) 五层符号齐全，且 IPC 频道名两侧拼的是同一个串；(2) HTML / CSS / i18n 的落点
+// 都在，且新增词条真的被消费（没消费的键就是死文案）；(3) 把整个多选模块放进沙箱真跑一遍，验证
+// 「按行下标记勾选」「换个歌单不继承上一次的勾选」「全选 / 取消全选」。
+// Guard for multi-select over the queue and the playlist detail, plus the bulk "add to built-in
+// playlist" path. The feature spans five layers (library -> IPC -> preload -> renderer helper ->
+// multi-select module) and a missing link fails silently: no checkboxes, no bar, no reaction, clean
+// console. The virtualised lists make it worse — selection kept in the DOM is lost as soon as a row
+// scrolls out and back, which a short list never reveals. Three parts: layer symbols with both sides
+// of the IPC channel spelled identically; HTML/CSS/i18n anchors with every new key actually consumed;
+// and the module itself run in a sandbox to prove the index-keyed bookkeeping and the scope pinning.
+function checkPlaylistMultiselectGuard() {
+  logStep('Playlist / queue multi-select guard');
+  const MULTISELECT_MODULE = 'public/js/modules/06-lyrics/07-playlist-multiselect.js';
+  const readText = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8');
+  // 判据读源码文本，而上面的注释里正写着同样的名字，所以先剥注释。
+  // The checks read source text and the comments above spell out the same names, so strip first.
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const libraryCode = stripComments(readText('desktop/built-in-playlist-library.js'));
+  const mainCode = stripComments(readText('desktop/main.js'));
+  const preloadCode = stripComments(readText('desktop/preload.js'));
+  const loaderCode = stripComments(readText('public/js/index-loader.js'));
+  const rendererCode = stripComments(readText('public/js/modules/06-lyrics/00-built-in-playlists.js'));
+  const shellCode = stripComments(readText('public/js/modules/06-lyrics/01-playlist-panel-shell.js'));
+  const detailCode = stripComments(readText('public/js/modules/06-lyrics/02-playlist-detail.js'));
+  const multiselectCode = stripComments(readText(MULTISELECT_MODULE));
+  const indexCode = stripComments(readText('public/index.html'));
+  const cssCode = stripComments(readText('public/css/index.css'));
+
+  // ── 1) 五层符号，以及两侧必须拼出同一个频道名 ──────────────────────────────
+  if (!/addTracks\(id, sources\)\s*\{/.test(libraryCode)) {
+    fail('BuiltInPlaylistLibrary must expose addTracks(id, sources): one mutate for the whole batch');
+  }
+  if (!/addBuiltInPlaylistTracks:\s*\(/.test(preloadCode)) {
+    fail('preload must export addBuiltInPlaylistTracks');
+  }
+  const bulkChannel = /addBuiltInPlaylistTracks:[\s\S]{0,120}?ipcRenderer\.invoke\('([^']+)'/.exec(preloadCode);
+  if (!bulkChannel) fail('addBuiltInPlaylistTracks must invoke its own IPC channel');
+  else {
+    // 只钉"存在这个名字"是不够的：频道名两边各写一次，改名时只改一侧就会得到一个永远不返回的
+    // invoke（渲染层 await 挂住，界面没有任何报错）。所以用 preload 里的名字去主进程找 handler。
+    // Naming both sides separately is not enough: renaming one side yields an invoke that never
+    // resolves and the awaited promise simply hangs with nothing in the UI.
+    if (!mainCode.includes("ipcMain.handle('" + bulkChannel[1] + "'")) {
+      fail('main and preload must agree on the bulk-add channel: preload invokes ' + bulkChannel[1] + ' but main does not handle it');
+    }
+    if (!new RegExp("ipcMain\\.handle\\('" + bulkChannel[1] + "'[\\s\\S]{0,200}?isTrustedMainWindowIpc\\(event\\)").test(mainCode)) {
+      fail('the bulk-add channel must keep the untrusted-sender guard every other playlist mutation has');
+    }
+  }
+  if (!/async function addTracksToBuiltInPlaylist\(/.test(rendererCode)) {
+    fail('the renderer must expose addTracksToBuiltInPlaylist(id, tracks): one IPC call per batch');
+  }
+  if (!/window\.desktopWindow\.addBuiltInPlaylistTracks\(/.test(rendererCode)) {
+    fail('the renderer bulk helper must go through window.desktopWindow.addBuiltInPlaylistTracks');
+  }
+  if (!loaderCode.includes("'js/modules/06-lyrics/07-playlist-multiselect.js'")) {
+    fail('the multi-select module must be registered in index-loader.js, or none of it is ever loaded');
+  }
+
+  // ── 2) 勾选框只能由「行构造器」发出：两处列表各管自己的 scope ───────────────
+  // 队列行与歌单详情行分别是两个渲染函数，只接一处的话另一个列表就没有勾选框 —— 而另一处往往
+  // 正好是用户抱怨的那个列表。逐处点名，而不是在整文件里找一次。
+  // The queue row and the playlist-detail row are rendered by two different functions; wiring only
+  // one leaves the other list without checkboxes. Each site is named instead of searched once.
+  [
+    ['the queue row builder', shellCode, "playlistMultiActiveFor('queue')"],
+    ['the playlist-detail row builder', detailCode, "playlistMultiActiveFor('detail', st.key)"]
+  ].forEach(function (site) {
+    if (!site[1].includes(site[2])) {
+      fail(site[0] + ' must ask whether multi-select is active for its own scope');
+    }
+    if (!site[1].includes('playlistMultiCheckboxHtml(i)')) {
+      fail(site[0] + ' must render the row checkbox from the full-list index');
+    }
+    if (!site[1].includes('playlistMultiRowClass(i)')) {
+      fail(site[0] + ' must render the selected-row class from the full-list index');
+    }
+  });
+
+  // ── 3) 点击拦截必须挂在常驻容器上、且跑在捕获阶段 ──────────────────────────
+  // 行是反复重建的（虚拟滚动），监听只能挂容器；而行的播放/跳转写在内联 onclick 里，冒泡阶段拦
+  // 已经晚了：歌会先播起来。所以必须是捕获阶段 + stopImmediatePropagation。
+  // Rows are rebuilt by the virtualiser, so the listener belongs on the container. The row's own
+  // play/navigate handler is an inline onclick, which a bubble-phase listener runs after. Capture
+  // phase plus stopImmediatePropagation is what keeps a tick from also starting playback.
+  [
+    ['the queue list (#queue-list)', 'queue-list'],
+    ['the playlist list (#pl-list)', 'pl-list']
+  ].forEach(function (site) {
+    const at = multiselectCode.indexOf("getElementById('" + site[1] + "')");
+    if (at < 0) fail(site[0] + ' must carry the multi-select click listener, not the rows');
+    // 监听必须紧跟在刚取到的那个容器后面挂上，否则「容器上挂了监听」这件事就不成立。
+    // The listener has to be attached to the container that was just looked up.
+    const listenerAt = multiselectCode.indexOf("addEventListener('click'", at);
+    if (listenerAt < 0 || listenerAt - at > 160) {
+      fail(site[0] + ' must attach its click listener to the container it just looked up');
+    }
+    // 把监听函数体整个截出来，再看注册语句结尾是不是 `, true)`：只在片段里找 "true" 会被函数体
+    // 内的其他 true 骗过。阶段判断读的是函数闭合括号之后那几个字符。
+    // Scan to the listener's closing brace, then read what follows it: searching the fragment for
+    // "true" would be satisfied by any `true` inside the body, which is a different claim.
+    let depth = 0;
+    let cursor = multiselectCode.indexOf('{', multiselectCode.indexOf('function', listenerAt));
+    const bodyStart = cursor;
+    for (; bodyStart >= 0 && cursor < multiselectCode.length; cursor++) {
+      if (multiselectCode[cursor] === '{') depth++;
+      else if (multiselectCode[cursor] === '}') { depth--; if (depth === 0) { cursor++; break; } }
+    }
+    const body = bodyStart < 0 ? '' : multiselectCode.slice(bodyStart, cursor);
+    if (!/^,\s*true\s*\)/.test(multiselectCode.slice(cursor, cursor + 10).trim())) {
+      fail(site[0] + "'s listener must run in the capture phase, or the row's own onclick fires first");
+    }
+    if (!/stopImmediatePropagation\(\)/.test(body)) {
+      fail(site[0] + " must stop propagation, or ticking a row also starts playing it");
+    }
+  });
+
+  // ── 4) HTML 落点 ──────────────────────────────────────────────────────────
+  ['queue-multiselect-btn', 'playlist-multiselect-bar', 'ms-select-all', 'ms-count', 'ms-add', 'ms-done',
+    'bulk-playlist-modal', 'bulk-playlist-list', 'bulk-playlist-current', 'bulk-playlist-new-name'].forEach(function (id) {
+    if (!indexCode.includes('id="' + id + '"')) fail('index.html must declare #' + id);
+  });
+  if (!/id="queue-multiselect-btn"[^>]*onclick="playlistMultiToggle\('queue'\)"/.test(indexCode)) {
+    fail('the queue entry button must open multi-select for the queue scope');
+  }
+  if (!/id="ms-select-all"[^>]*onclick="playlistMultiToggleAll\(\)"/.test(indexCode)) {
+    fail('the select-all button must be wired to playlistMultiToggleAll()');
+  }
+  if (!/id="ms-add"[^>]*onclick="playlistMultiOpenPicker\(\)"/.test(indexCode)) {
+    fail('the add button must be wired to playlistMultiOpenPicker()');
+  }
+  if (!/id="ms-done"[^>]*onclick="playlistMultiExit\(\)"/.test(indexCode)) {
+    fail('the done button must be wired to playlistMultiExit()');
+  }
+  // 工具条必须在 #playlist-panel 内部：它靠 sticky bottom 贴着面板的滚动容器，被挪到面板外面就
+  // 变成页面底部一条悬空横条。按 div 深度扫描找闭合处，而不是钉"后面某个 id"—— 后者会随无关
+  // 改动失效，而失效方向恰好是「永远绿」。
+  // The bar relies on sticky-bottom inside the panel's scroll container; outside it, it becomes a
+  // floating strip at the page bottom. The panel's closing tag is found by a div-depth scan rather
+  // than by pinning a later element's id — that form breaks on unrelated edits, and it breaks green.
+  const panelStart = indexCode.indexOf('<div id="playlist-panel"');
+  const barStart = indexCode.indexOf('id="playlist-multiselect-bar"');
+  let panelEnd = -1;
+  if (panelStart >= 0) {
+    let depth = 0;
+    for (const token of indexCode.slice(panelStart).matchAll(/<div\b|<\/div>/g)) {
+      depth += token[0] === '</div>' ? -1 : 1;
+      if (depth === 0) { panelEnd = panelStart + token.index + token[0].length; break; }
+    }
+  }
+  // 必须落在面板开标签之后、闭合标签之前：只判「在闭合标签之前」的话，把工具条挪到面板**前面**
+  // 照样绿（反向验证抓到的正是这一条），而那时它已经不在面板里了。
+  // It has to sit after the panel's opening tag and before its closing tag: checking only the closing
+  // side stays green when the bar is moved *ahead* of the panel, where it is equally outside.
+  if (panelStart < 0 || barStart < 0 || panelEnd < 0 || barStart < panelStart || barStart > panelEnd) {
+    fail('the selection bar must live inside #playlist-panel, or sticky-bottom floats it outside the panel');
+  }
+
+  // ── 5) 词条：四语齐全、键序一致、且每一个都被真的用上 ──────────────────────
+  const multiselectKeys = ['ms_select', 'ms_select_all', 'ms_clear_all', 'ms_selected_count', 'ms_add_to_playlist',
+    'ms_pick_songs_first', 'ms_picker_title', 'ms_no_builtin_target', 'ms_batch_added', 'ms_batch_added_partial', 'ms_batch_dup_all'];
+  const keyPositions = {};
+  ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'].forEach(function (lang) {
+    const dict = JSON.parse(readText('public/locales/' + lang + '.json'));
+    const order = Object.keys(dict);
+    multiselectKeys.forEach(function (key) {
+      if (!dict[key]) fail('locale ' + lang + ' must define ' + key + ', or that language renders a bare key');
+    });
+    keyPositions[lang] = multiselectKeys.map(function (key) { return order.indexOf(key); });
+  });
+  // 键序四语必须一致：词典是按位置对齐维护的，插在不同位置会让后续对齐整体错位。
+  // Key order must match across the four dictionaries; they are kept aligned by position.
+  Object.keys(keyPositions).forEach(function (lang) {
+    if (keyPositions[lang].join(',') !== keyPositions.zh_cn.join(',')) {
+      fail('locale ' + lang + ' must place the multi-select keys at the same positions as zh_cn');
+    }
+  });
+  // 每个词条都得有人取：没被消费的键是死文案，四语翻译白做，而且没人会发现它其实没接线。
+  // Every key must be consumed: an unused key is dead copy that silently never reaches the UI.
+  ['ms_select', 'ms_picker_title'].forEach(function (key) {
+    if (!indexCode.includes('data-i18n="' + key + '"')) {
+      fail('index.html must take ' + key + ' from the dictionary instead of hardcoding the label');
+    }
+  });
+  ['ms_select_all', 'ms_clear_all', 'ms_selected_count', 'ms_add_to_playlist', 'ms_pick_songs_first',
+    'ms_no_builtin_target', 'ms_batch_added', 'ms_batch_added_partial', 'ms_batch_dup_all'].forEach(function (key) {
+    if (!multiselectCode.includes("'" + key + "'") && !detailCode.includes("'" + key + "'")) {
+      fail('no module renders ' + key + ': the key is dead copy');
+    }
+  });
+
+  // ── 6) CSS：默认隐藏 + 勾只在选中态出现 ───────────────────────────────────
+  if (!/\.ms-check\.on svg\s*\{[\s\S]{0,80}?opacity:\s*1/.test(cssCode)) {
+    fail('the tick must only be drawn on .ms-check.on, or every row reads as selected');
+  }
+  if (!/\.multiselect-bar\s*\{[\s\S]{0,420}?display:\s*none/.test(cssCode) || !/\.multiselect-bar\.show\s*\{\s*display:\s*flex/.test(cssCode)) {
+    fail('the selection bar must start hidden and be revealed by .show — a bar that is always visible covers the last rows');
+  }
+  // 选择器后面必须紧跟 `,` 或 `{`：只匹配前缀的话，把 `.qi-act` 改成 `.qi-act-unused` 也照样命中
+  // （反向验证抓到过这一条），而那等于把这排按钮又放回来了。
+  // The selector must be followed by `,` or `{`: matching the bare prefix stays green when the rule is
+  // renamed to `.qi-act-unused`, which is the same thing as putting the buttons back.
+  if (!/body\.playlist-multiselect \.queue-item \.qi-act\s*[,{]/.test(cssCode)
+    || !/body\.playlist-multiselect \.pl-detail-remove\s*[,{]/.test(cssCode)) {
+    fail('per-row action buttons must be hidden in multi-select, or a tick click reads as a remove/collect click');
+  }
+
+  // ── 7) 行为验证：把整个多选模块放进沙箱真跑 ───────────────────────────────
+  // DOM 查询一律返回 null：这里测的是「勾选怎么记、scope 怎么认」，不是渲染。文本判据只能说明
+  // 函数名写在文件里；跑一遍才能证明勾选真的按下标记、且换一个歌单不会继承上一次的勾选。
+  // Behavioural probe: the whole module runs in a sandbox with every DOM lookup returning null. Text
+  // only proves the names are present; running proves the selection is index-keyed and that opening
+  // another playlist does not inherit the previous selection.
+  const vm = require('vm');
+  const sandbox = {
+    console: { log() {}, warn() {}, error() {} },
+    window: {},
+    document: {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      body: { classList: { add() {}, remove() {}, toggle() {} } }
+    }
+  };
+  vm.createContext(sandbox);
+  const probeSource = multiselectCode + '\n' + [
+    "playQueue = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];",
+    'var out = {};',
+    "playlistMultiState = { active: true, scope: 'queue', key: '', selected: Object.create(null) };",
+    'playlistMultiToggleIndex(2);',
+    'playlistMultiToggleIndex(0);',
+    'playlistMultiToggleIndex(2);',
+    'out.toggledCount = playlistMultiCount();',
+    'out.toggledIndices = playlistMultiSelectedIndices().join(",");',
+    'out.toggledSongs = playlistMultiSelectedSongs().map(function (song) { return song.name; }).join(",");',
+    'playlistMultiToggleAll();',
+    'out.allCount = playlistMultiCount();',
+    'playlistMultiToggleAll();',
+    'out.clearedCount = playlistMultiCount();',
+    "playlistMultiState = { active: true, scope: 'detail', key: 'mineradio:A', selected: Object.create(null) };",
+    "out.sameKey = playlistMultiActiveFor('detail', 'mineradio:A');",
+    "out.otherKey = playlistMultiActiveFor('detail', 'mineradio:B');",
+    "out.otherScope = playlistMultiActiveFor('queue');",
+    "playlistMultiState = { active: false, scope: 'detail', key: 'mineradio:A', selected: Object.create(null) };",
+    "out.whenInactive = playlistMultiActiveFor('detail', 'mineradio:A');",
+    'this.probe = out;'
+  ].join('\n');
+  vm.runInContext(probeSource, sandbox);
+  const probe = sandbox.probe || {};
+  const expectations = [
+    ['toggledCount', 1],
+    ['toggledIndices', '0'],
+    ['toggledSongs', 'a'],
+    ['allCount', 3],
+    ['clearedCount', 0],
+    ['sameKey', true],
+    ['otherKey', false],
+    ['otherScope', false],
+    ['whenInactive', false]
+  ];
+  expectations.forEach(function (entry) {
+    if (probe[entry[0]] !== entry[1]) {
+      fail('playlistMulti ' + entry[0] + ' must be ' + JSON.stringify(entry[1]) + ', got ' + JSON.stringify(probe[entry[0]]));
+    }
+  });
+
+  console.log('[OK] Multi-select keys selection by row index and pins it to one playlist; bulk add crosses all five layers on one channel name.');
+}
+
+function checkFullscreenToolsRowGuard() {
+  logStep('Fullscreen tools row guard');
+  const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
+  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const prefsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '02-preferences-ui-modes.js'), 'utf8');
+  const overlayText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '04-desktop-overlay-fullscreen.js'), 'utf8');
+  const guideText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '09-idle-toast-libraries.js'), 'utf8');
+  // 判据读源码文本，而上面这段注释里正写着同样的名字与历史，所以先剥注释。
+  // The checks below read source text and the comments above spell out the same names, so strip first.
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const cssCode = stripComments(cssText);
+  const indexCode = stripComments(indexText);
+  const prefsCode = stripComments(prefsText);
+  const overlayCode = stripComments(overlayText);
+  const guideCode = stripComments(guideText);
+
+  // 前提：全屏隐藏标题栏。这条关系一旦不成立，工具行会和标题栏同时出现（两个 DIY 按钮）。
+  if (!/body\.desktop-shell\.desktop-fullscreen #desktop-titlebar,[\s\S]{0,80}?\{\s*display:\s*none\s*!important/.test(cssCode)) {
+    fail('fullscreen must keep hiding #desktop-titlebar, or the tool row and the title bar would both show up');
+  }
+  // 工具行只在全屏显示，且未浮现时必须整块不可达 —— 只靠 opacity:0 的话，Tab 还能聚焦到里面的按钮，
+  // 读屏也会念出来。所以隐藏态必须写 visibility: hidden。
+  if (!/body\.desktop-shell\.desktop-fullscreen #fullscreen-tools-zone,[\s\S]{0,80}?\{\s*display:\s*flex/.test(cssCode)) {
+    fail('the tool row must only be displayed in fullscreen');
+  }
+  const baseRule = /(?:^|\n)#fullscreen-tools-zone \{([\s\S]*?)\n\}/.exec(cssCode);
+  if (!baseRule || !/opacity:\s*0/.test(baseRule[1]) || !/visibility:\s*hidden/.test(baseRule[1]) || !/pointer-events:\s*none/.test(baseRule[1])) {
+    fail('a hidden tool row must use visibility: hidden (not opacity alone): opacity:0 keeps its buttons tab-focusable and announced');
+  }
+  if (!/body\.fullscreen-tools-peek #fullscreen-tools-zone,[\s\S]{0,200}?visibility:\s*visible/.test(cssCode)) {
+    fail('the peek class must reveal the tool row with visibility: visible');
+  }
+  // 桌面壁纸模式下标题栏本来就隐藏，控制入口在右上角的 dock —— 工具行要跟着不出现，别去抢位置。
+  if (!/body\.desktop-shell\.desktop-wallpaper-mode #fullscreen-tools-zone\s*\{\s*display:\s*none\s*!important/.test(cssCode)) {
+    fail('the tool row must stay hidden in desktop-wallpaper mode, where the title bar is hidden too');
+  }
+
+  // 旧的全屏 DIY 镜像必须彻底消失：留着它就会和搬进来的真按钮同时出现。
+  if (/fullscreen-diy/.test(indexCode) || /fullscreen-diy/.test(cssCode) || /fullscreen-diy-btn/.test(prefsCode)) {
+    fail('the old #fullscreen-diy-btn mirror must stay deleted — the real #diy-mode-btn now moves into the row');
+  }
+
+  // 工具行在 HTML 里必须是空的：内容由脚本搬进来。写死一个 DIY 按钮就等于又造了一个镜像。
+  if (!/<div id="fullscreen-tools-zone"[^>]*><\/div>/.test(indexCode)) {
+    fail('#fullscreen-tools-zone must be declared empty in index.html and filled by script');
+  }
+
+  // 名单从 HTML 反推：标题栏控件簇里每个直接子控件（窗口按钮除外）都必须被搬。反推而不是抄快照 ——
+  // 抄一份的话，新增按钮永远进不了守卫范围。只取直接子元素，所以控制按钮内部的节点（例如更新入口
+  // 里的进度环 #update-progress-ring）不会被误判：它们跟着外层节点一起走。
+  // The list is derived from the HTML, not copied: every direct child control of the cluster (window
+  // buttons aside) must be moved. Only direct children count, so inner nodes of a control (such as
+  // #update-progress-ring inside the update entry) are not mistaken for controls — they travel along.
+  // 标签扫描而不是正则切片：缩进/换行/换行符风格都不影响结果，重排格式也不会误判深度。
+  // A tag scan instead of a regex slice: indentation, line breaks and EOL style cannot change the result.
+  // ⚠️ 自闭合只认 `/>`；VOID 名单里的标签（SVG 的 circle/path、input/img 之类）两种写法都要当空气 ——
+  // 只让「开始」不计数而让「结束」计数的话，一次错配就把深度提前打回 0。真实踩过：更新入口的
+  // SVG 里写着 <circle ...></circle>（成对），于是扫描在它那里提前收尾，后面三个控件整个被漏掉，
+  // 而漏掉的表现是「没找到任何问题」。
+  // Self-closing is detected by `/>` alone; names in VOID_TAGS count neither as an open nor as a close.
+  // Counting the close but not the open of a paired void element (SVG <circle></circle>) desyncs the depth
+  // and silently truncates the scan — which is exactly how the three controls after it went missing.
+  const TAG_TOKEN = /<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  const VOID_TAGS = new Set(['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'br', 'img', 'input', 'meta', 'link']);
+  const isSelfClosing = match => /\/\s*$/.test(match[3] || '') || VOID_TAGS.has(match[2].toLowerCase());
+  const elementInnerHtml = (text, openAt) => {
+    const bodyAt = text.indexOf('>', openAt);
+    if (bodyAt < 0) fail('cannot read the title bar control cluster markup — check index.html or this guard');
+    const token = new RegExp(TAG_TOKEN.source, 'g');
+    token.lastIndex = bodyAt + 1;
+    let depth = 0;
+    let end = text.length;
+    let match;
+    while ((match = token.exec(text))) {
+      if (match[1] === '/') {
+        if (VOID_TAGS.has(match[2].toLowerCase())) continue;
+        depth -= 1;
+        if (depth < 0) { end = match.index; break; }
+        continue;
+      }
+      if (isSelfClosing(match)) continue;
+      depth += 1;
+    }
+    return text.slice(bodyAt + 1, end);
+  };
+  const directChildren = block => {
+    const token = new RegExp(TAG_TOKEN.source, 'g');
+    const children = [];
+    let depth = 0;
+    let match;
+    while ((match = token.exec(block))) {
+      // VOID 标签「开」「关」都不计数（同上：只错一侧就会把深度打偏）。
+      // Void tags count on neither side for the same reason as above.
+      if (VOID_TAGS.has(match[2].toLowerCase())) continue;
+      if (match[1] === '/') {
+        depth = Math.max(0, depth - 1);
+        continue;
+      }
+      if (isSelfClosing(match)) continue;
+      if (depth === 0) children.push(match[3] || '');
+      depth += 1;
+    }
+    return children;
+  };
+  const clusterOpen = indexCode.indexOf('<div class="desktop-window-controls">');
+  if (clusterOpen < 0) {
+    fail('cannot locate the title bar control cluster (.desktop-window-controls) in index.html — check the markup or this guard');
+  }
+  const childSelector = attrs => {
+    const id = /\bid="([\w-]+)"/.exec(attrs);
+    if (id) return '#' + id[1];
+    const cls = /\bclass="([^"]+)"/.exec(attrs);
+    return cls ? '.' + cls[1].trim().split(/\s+/)[0] : '';
+  };
+  const childEntries = directChildren(elementInnerHtml(indexCode, clusterOpen))
+    .map(attrs => ({ selector: childSelector(attrs), isWindowButton: /data-window-action=/.test(attrs) }))
+    .filter(entry => entry.selector);
+  const windowButtonCount = childEntries.filter(entry => entry.isWindowButton).length;
+  const toolSelectors = childEntries.filter(entry => !entry.isWindowButton).map(entry => entry.selector);
+  if (windowButtonCount !== 3 || toolSelectors.length < 4) {
+    fail('the title bar cluster must hold the three window buttons, the .lang-switch wrapper and the tool controls — check the markup or this guard');
+  }
+  const moveListMatch = /var FULLSCREEN_TOOL_SELECTORS = \[([\s\S]*?)\];/.exec(prefsCode);
+  if (!moveListMatch) fail('FULLSCREEN_TOOL_SELECTORS is gone: nothing moves the tool buttons into the fullscreen row');
+  const moveListCode = moveListMatch[1];
+  const moveTargets = (moveListCode.match(/'[#.][\w-]+'/g) || []).map(entry => entry.slice(1, -1));
+  toolSelectors.forEach(selector => {
+    if (moveTargets.indexOf(selector) < 0) {
+      fail(`${selector} lives in the title bar but is not in FULLSCREEN_TOOL_SELECTORS — it would disappear in fullscreen`);
+    }
+  });
+  moveTargets.forEach(target => {
+    if (toolSelectors.indexOf(target) < 0) {
+      fail(`${target} is listed in FULLSCREEN_TOOL_SELECTORS but is not a title bar control — the list drifted`);
+    }
+  });
+  // 窗口按钮不该被搬：全屏下最小化/最大化/关闭没有意义，搬走反而把标题栏掏空。
+  if (/data-window-action/.test(moveListCode)) {
+    fail('window buttons must not be moved into the fullscreen tool row');
+  }
+
+  // 链路：状态变化时真的调用了搬移，而且拿的正是那份状态。
+  if (!/document\.body\.classList\.toggle\('desktop-fullscreen', isFullScreen\)/.test(overlayCode)
+    || !/desktopRuntimeState\.fullscreen = isFullScreen;[\s\S]{0,600}?syncFullscreenToolsRow\(isFullScreen\)/.test(overlayCode)) {
+    fail('the desktop overlay state handler must call syncFullscreenToolsRow(isFullScreen) — otherwise the row is never filled');
+  }
+  if (!/function syncFullscreenToolsRow\(isFullscreen\) \{/.test(prefsCode)
+    || !/function layoutFullscreenToolsZone\(\) \{/.test(prefsCode)
+    || !/function updateFullscreenToolsPeekFromPointer\(x, y\) \{/.test(prefsCode)) {
+    fail('syncFullscreenToolsRow / layoutFullscreenToolsZone / updateFullscreenToolsPeekFromPointer must all exist');
+  }
+  // 语言菜单是向下展开的下拉层，指针移进菜单项会离开命中框 —— 菜单开着时必须继续算浮现，
+  // 否则鼠标往下一移，整行连菜单一起消失，语言根本切不了。
+  if (!/function fullscreenToolsMenuOpen\(\) \{[\s\S]{0,200}?!menu\.hidden/.test(prefsCode)
+    || !/if \(!active && fullscreenToolsMenuOpen\(\)\) active = true;/.test(prefsCode)) {
+    fail('the tool row must stay revealed while the language menu is open, or the menu cannot be clicked');
+  }
+
+  // 视觉引导的 DIY 那一步：引导进行中指针浮现被挡着，得靠 .fullscreen-tools-guided 把行亮出来。
+  // 三处必须一致 —— 引导加类、CSS 因它显示、CSS 的引导态压制又要把它排除在外。
+  if (!/classList\.toggle\('fullscreen-tools-guided', isFullscreenToolRowStep\)/.test(guideCode)
+    || !/body\.fullscreen-tools-guided #fullscreen-tools-zone/.test(cssCode)
+    || !/body\.visual-guide-active:not\(\.fullscreen-tools-guided\) #fullscreen-tools-zone/.test(cssCode)
+    || !/classList\.remove\('fullscreen-tools-guided'\)/.test(guideCode)) {
+    fail('the visual guide must be able to reveal the tool row for its DIY step, and must clear that state on close');
+  }
+  console.log('[OK] Fullscreen tool row wiring, control coverage, and reveal/visibility rules are in sync.');
 }
 
 function checkShuffleQueueOrderGuard() {
@@ -5625,7 +7018,7 @@ function runMainStartupRecoveryCheck() {
   fs.mkdirSync(qaUserDataParent, { recursive: true });
   const qaUserData = path.join(qaUserDataParent, runtimeName);
   const stateFile = path.join(qaUserData, 'startup-state.json');
-  const qaSessionData = path.join('D:\\MineradioCache\\chromium', runtimeName);
+  const qaSessionData = path.join(qaUserData, 'cache', 'chromium', runtimeName);
   try {
     const result = spawnSync(electron, [appRoot], {
       cwd: appRoot,
@@ -5715,8 +7108,8 @@ async function checkLargePlaylistVirtualizationGuard() {
   const loaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '03-podcast-playlist-loaders.js'), 'utf8');
   const shelfText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '01-manager-core.js'), 'utf8');
   const shelfContentText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '03-content-list-manager.js'), 'utf8');
-  const qishuiText = fs.readFileSync(path.join(appRoot, 'qishui-api.js'), 'utf8');
-  const serverText = fs.readFileSync(path.join(appRoot, 'server.js'), 'utf8');
+  const qishuiText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-api.js'), 'utf8');
+  const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
 
   if (!/fetchNeteaseUserPlaylistsPage/.test(serverText) || !/nextOffset/.test(serverText) || !/hasMore/.test(serverText)) {
@@ -6130,6 +7523,78 @@ if (!/fxConsoleItem\('t-windowsGameMode'/.test(workspace)) {
   if (!/home:\s*1[\s\S]*interface:\s*1[\s\S]*lyrics:\s*1[\s\S]*motion:\s*1[\s\S]*shelf:\s*1[\s\S]*system:\s*1/.test(panel)) fail('visual console tab allow-list is incomplete');
   if (!/\.fx-console-toolbar/.test(css) || !/\.fx-console-group/.test(css) || !/prefers-reduced-motion:reduce/.test(css)) fail('visual console layout or reduced-motion styles are missing');
   if (!/fxConsoleSearchHitDelayTimer/.test(workspace) || !/outline-offset:\s*-2px/.test(css) || !/\.bg-media-actions,[\s\S]{0,160}\.wallpaper-engine-actions/.test(css)) fail('visual console search highlight or background media responsive layout is missing');
+  // 「背景星河」的归属：它是预设自带的背景层，不是通用粒子参数，必须留在 动效→基础画面，
+  // 且不得再回到 粒子与光影。
+  // 判据**真跑一遍布局数据**，而不是比两个分组 key 的先后位置。位置比对只能说明"这条声明夹在
+  // 它们之间"：看不出重复声明（旧的留在基础画面组、再加一份到粒子组时，第一处仍在基础画面组，
+  // 位置判据照样绿），也分不清"删掉了"和"挪进了别的分组"。而重复声明**不会报错**——
+  // fxConsoleAppendItem 认到同一个 DOM 节点后只把别名拼起来，控件实际仍渲染在第一个分组里。
+  // 这里把 fxConsoleLayout() 整段抽出来，在只提供 consoleWorkspaceText / fxConsoleItem 的沙箱里
+  // 真调一次，直接问数据"这个控件在哪个标签页的哪个分组"，并且必须**恰好命中一次**。
+  // 沙箱里没有词典，consoleWorkspaceText 会退回键名，所以断言标题等于 'fx_bg_galaxy' 就是断言
+  // "标题取自这个键"。注释一律先剥掉，否则注释里的字样就能单独把判据满足。
+  //
+  // Where the background star river belongs: it is a preset-owned background layer rather than a
+  // generic particle parameter, so it must sit in motion -> base and must not drift back into the
+  // particle group. The check RUNS the layout data instead of comparing the positions of the two group
+  // keys. Position only shows that a declaration sits between them: it cannot see a duplicate (with the
+  // old one left in base and a second added to particles, the first occurrence is still inside base, so
+  // the positional check stays green) and cannot tell "deleted" from "moved elsewhere". And a duplicate
+  // is silent — fxConsoleAppendItem sees the same element, merges only the aliases, and the control
+  // keeps rendering in the first group. The function is therefore extracted and really invoked in a
+  // sandbox that only provides consoleWorkspaceText / fxConsoleItem, and the control must be found
+  // exactly once. Without a dictionary in the sandbox, consoleWorkspaceText falls back to the key name,
+  // so asserting the title equals 'fx_bg_galaxy' asserts which key it came from. Comments are stripped
+  // first, or a matching comment alone would satisfy the check.
+  const consoleStripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const workspaceCode = consoleStripComments(workspace);
+  const panelCode = consoleStripComments(panel);
+  const layoutStart = workspaceCode.indexOf('function fxConsoleLayout()');
+  const layoutEnd = workspaceCode.indexOf('function fxConsoleResolveBlock');
+  if (layoutStart < 0 || layoutEnd <= layoutStart) fail('fxConsoleLayout() cannot be evaluated');
+  // 必须包一层函数：runInNewContext 按「脚本」求值，顶层 return 是语法错误。
+  // The wrapper is required: runInNewContext evaluates a script, where a top-level return is illegal.
+  const consoleTabs = vm.runInNewContext(
+    '(function () {\n' + workspaceCode.slice(layoutStart, layoutEnd) + '\nreturn fxConsoleLayout();\n})()',
+    {
+      consoleWorkspaceText: (key, fallback) => (fallback == null ? key : String(fallback)),
+      fxConsoleItem: (ref, title, aliases, history, child) => ({
+        ref: ref, title: title, aliases: aliases || '', history: history !== false, child: child === true
+      })
+    }
+  );
+  const starRiverHits = [];
+  consoleTabs.forEach(tab => (tab.groups || []).forEach(group => (group.items || []).forEach(item => {
+    if (item.ref === 't-backgroundStarRiver') starRiverHits.push({ tab: tab.key, group: group.key, item: item });
+  })));
+  if (starRiverHits.length !== 1) {
+    fail(`the console layout must declare the background star river exactly once, found ${starRiverHits.length}`);
+  }
+  const starRiverEntry = starRiverHits[0];
+  if (starRiverEntry.tab !== 'motion' || starRiverEntry.group !== 'base') {
+    fail(`the background star river must live in motion -> base, not in ${starRiverEntry.tab} -> ${starRiverEntry.group}`);
+  }
+  // 别名必须是**中文同义措辞**，不能再拼第二个词典键：曾经有个 fx_starfield，值与标题逐字相同，
+  // 对搜索零增益（搜同一串字本来就命中标题），已合并掉。沙箱里 consoleWorkspaceText 返回键名本身，
+  // 所以「别名里出现 fx_ 开头的词」就说明有人又把键拼进来了 —— 判据正好利用这一点。
+  // The alias must hold Chinese synonyms and must not append a second dictionary key: a former
+  // fx_starfield key duplicated the title verbatim and added nothing to search, so it was merged away.
+  // In the sandbox consoleWorkspaceText returns the key name, so an `fx_` token in the aliases means a
+  // key reference crept back in.
+  if (starRiverEntry.item.title !== 'fx_bg_galaxy' || !/星空/.test(starRiverEntry.item.aliases)) {
+    fail('the star river console item must be titled with the switch\'s own label and keep the Chinese synonyms as a search alias');
+  }
+  if (/fx_\w+/.test(starRiverEntry.item.aliases)) {
+    fail('the star river search alias must not be assembled from a second dictionary key: ' + starRiverEntry.item.aliases);
+  }
+  // 旧特效面板（organizeFxPanel 走的降级路径）里，这个开关也不能再被歌词开关的 grid 收走。
+  // The legacy panel (the degraded path behind organizeFxPanel) must not claim it for the lyric grid either.
+  const lyricListStart = panelCode.indexOf('function ensureLyricPrimaryControls');
+  const lyricListEnd = panelCode.indexOf('.forEach(function (id) { moveToggleToGrid(id, grid); })', lyricListStart);
+  const lyricMoveList = lyricListStart > -1 && lyricListEnd > lyricListStart ? panelCode.slice(lyricListStart, lyricListEnd) : '';
+  if (!/t-lyricVerticalFloat/.test(lyricMoveList) || /t-backgroundStarRiver/.test(lyricMoveList)) {
+    fail('the legacy lyric switch grid must keep the lyric switches and must not claim the background star river');
+  }
   const clarityButtonsReady = ['1', '2', '3', '4'].every(value => html.includes(`data-lyric-texture-clarity="${value}"`));
   const clarityLabelsReady = ['1×', '2×', '3×', '4×', '标清', '高清', '超清', '极致'].every(label => html.includes(label));
   const packagedDefaultsUseRuntimeDefaults = /PACKAGED_DEFAULT_FX_SNAPSHOT\s*=\s*Object\.freeze\(Object\.assign\(\{[\s\S]{0,180}visualPresetSchema:\s*VISUAL_PRESET_SCHEMA[\s\S]{0,120}\},\s*fxDefaults\)\)/.test(packagedDefaults);
@@ -6147,6 +7612,8 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const packagedText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '05-packaged-fx-archive.js'), 'utf8');
   const archive = JSON.parse(fs.readFileSync(path.join(appRoot, 'public', 'default-user-fx-archive.json'), 'utf8'));
+  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const fxArchiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const splashText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '03-splash.js'), 'utf8');
   const css = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const marker = 'var fxDefaults = ';
@@ -6171,16 +7638,40 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
     playlistPanelGlassBlur: 14,
     playlistPanelGlassDensity: 0.55,
     performanceBackground: 'release',
-    performanceQuality: 'eco',
+    // 默认档位从 eco 提到 balanced：eco 的粒子预算系数只有 0.28，首启动就少七成粒子。
+    // Default tier raised from eco to balanced: eco's particle budget factor is only 0.28.
+    performanceQuality: 'balanced',
     memoryAutoSystemTrim: true,
     memorySystemAutoElevate: false,
     wallpaperFps: 60,
     shelfCameraMode: 'dynamic',
-    shelfPresence: 'auto'
+    shelfPresence: 'auto',
+    // 两个视觉开关的默认值：溢光默认关、轮廓默认开。它们同时在打包快照里（上面的 drift 比对已覆盖），
+    // 这里再单独钉一次，是为了让"顺手改默认值"必须先解释清楚，而不是悄悄跟着快照一起漂走。
+    // The two visual switch defaults: bloom off, edge on. The packaged snapshot is already covered by
+    // the drift comparison above; pinning them here as well forces any future flip to be deliberate.
+    edge: true,
+    bloom: false
   };
   const capturedDrift = Object.keys(expectedCapturedDefaults).filter(key => JSON.stringify(defaults[key]) !== JSON.stringify(expectedCapturedDefaults[key]));
   if (capturedDrift.length || archive.exportedAt !== 1784607916226 || archive.savedAt !== 1784607916226) {
     fail(`captured first-launch settings identity drifted: ${capturedDrift.join(', ') || 'timestamp'}`);
+  }
+  // 存档读取的缺键方向：bloom 默认关，缺键就该是 false（`=== true`）；edge 默认开，缺键就该是 true
+  //（`!== false`）。两处都写成同一个方向时，旧存档会静默拿到与当前默认相反的值——正是这次要修的坑。
+  // 判据必须先剥注释：说明文字里同时出现了两种写法，直接匹配原文会被自己的注释满足。
+  // Missing-key direction in the archive readers: bloom defaults off, so a missing key has to read
+  // false (`=== true`); edge defaults on, so it has to read true (`!== false`). Forcing both in one
+  // direction hands old saves the opposite of the current default — the bug this change fixes.
+  // Comments are stripped first because the comment above spells out both spellings.
+  const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const persistenceCode = stripComments(persistenceText);
+  const fxArchiveCode = stripComments(fxArchiveText);
+  if (!/bloom:\s*raw\.bloom === true/.test(persistenceCode) || !/edge:\s*raw\.edge !== false/.test(persistenceCode)) {
+    fail('autosave read must treat a missing bloom as off and a missing edge as on, matching the defaults');
+  }
+  if (!/bloom:\s*!!raw\.bloom/.test(fxArchiveCode) || !/edge:\s*raw\.edge !== false/.test(fxArchiveCode)) {
+    fail('preset archive read must follow the same missing-key direction as the autosave read');
   }
   if (!/PACKAGED_DEFAULT_FX_SNAPSHOT\s*=\s*Object\.freeze\(Object\.assign\(\{[\s\S]{0,180}visualPresetSchema:\s*VISUAL_PRESET_SCHEMA[\s\S]{0,120}\},\s*fxDefaults\)\)/.test(packagedText)) {
     fail('packaged first-launch snapshot must inherit the synchronized runtime defaults');
@@ -6213,6 +7704,7 @@ async function main() {
   runPlaybackSingleRepeatLoopRegressionCheck();
   runLocalMusicLibraryRegressionCheck();
   runBuiltInPlaylistRegressionCheck();
+  runServerModuleRelocationCheck();
   runWallpaperEngineIdleDisposeRegressionCheck();
   runWallpaperEngineMinimizeResidentRegressionCheck();
   runWallpaperEngineWin10YellowBorderRegressionCheck();
@@ -6221,6 +7713,7 @@ async function main() {
   runGestureRuntimeLifecycleRegressionCheck();
   runCuratedVisualPresetsRegressionCheck();
   runVisualClarityAndPortraitFullscreenRegressionCheck();
+  runParticlePopulationBudgetRegressionCheck();
   runQQVipEntitlementRegressionCheck();
   runLoginEasterEggGateRegressionCheck();
   runQishuiProviderDistributionRegressionCheck();
@@ -6246,7 +7739,7 @@ async function main() {
   checkLyricVerticalFloatToggleGuard();
   checkQishuiProviderGuard();
   checkCustomSourceGuard();
-  checkSpotifyRemovalGuard();
+  checkSpotifyProviderSurface();
   checkPlaybackControlBadgesGuard();
   await checkProviderFallbackTerminalStateGuard();
   checkSearchGlassEntranceGuard();
@@ -6263,6 +7756,13 @@ async function main() {
   checkSonicTopographyPresetGuard();
   checkLongPressReorderGuard();
   checkPlaylistPanelTriggerGuard();
+  checkFullscreenToolsRowGuard();
+  checkBeatAnalysisToggleGuard();
+  checkCloseBehaviorDefaultGuard();
+  checkUpdateManifestGuard();
+  checkProviderRegistryGuard();
+  checkPlaylistMultiselectGuard();
+  checkPanelRowOverflowGuard();
   checkShuffleQueueOrderGuard();
   await checkLargePlaylistVirtualizationGuard();
   checkFirstLaunchDefaultsAndSplashGuard();
@@ -6271,7 +7771,7 @@ async function main() {
     runElectronRuntimeCheck();
     runMainStartupRecoveryCheck();
   }
-  else console.log('\n== Electron runtime smoke check ==\n[SKIP] Fast/static mode. Use quick-check.bat full to enable it.');
+  else console.log('\n== Electron runtime smoke check ==\n[SKIP] Fast/static mode. Re-run with --electron, or npm run check:quick -- --electron.');
 }
 
 main().then(function () {

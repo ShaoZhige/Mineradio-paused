@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const qishui = require('../qishui-api');
+const qishui = require('../server/qishui-api');
 
 const api = qishui._test;
 

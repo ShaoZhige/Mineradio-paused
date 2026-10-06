@@ -23,9 +23,9 @@ const {
   LOGIN_EASTER_EGG_GATE_VERSION,
   LOGIN_EASTER_EGG_STATE_FILE,
 } = require('./login-easter-egg-gate');
-const { extractKugouAuth } = require('../kugou-api');
-const { qishuiCookieHasLogin } = require('../qishui-api');
-const { clearSpotifyToken } = require('../spotify-api');
+const { extractKugouAuth } = require('../server/kugou-api');
+const { qishuiCookieHasLogin } = require('../server/qishui-api');
+const { clearSpotifyToken } = require('../server/spotify-api');
 const { CustomSourceManager } = require('./custom-source/manager');
 
 registerWallpaperEngineScheme(protocol);
@@ -67,7 +67,7 @@ let memoryAutoState = {
   lastResult: null,
   lastError: '',
 };
-let closeBehavior = 'exit';
+let closeBehavior = 'tray';
 let appQuitting = false;
 let appQuitCleanupPromise = null;
 let appQuitCleanupComplete = false;
@@ -163,9 +163,154 @@ const STARTUP_QA_USER_DATA_PATH = (() => {
   if (process.env.MINERADIO_STARTUP_QA_HIDDEN !== '1' || !value || !path.isAbsolute(value)) return '';
   return path.resolve(value);
 })();
-const STABLE_USER_DATA_PATH = STARTUP_QA_USER_DATA_PATH || path.join(app.getPath('appData'), APP_NAME);
+// 便携数据根：应用自己的一切（设置、凭证、缓存、登录分区、临时脚本）都落在软件目录内的
+// userdata/，不再往 %APPDATA% 或盘符根目录散落文件。
+// Portable data root: everything the app owns (settings, credentials, caches, login
+// partitions, temp scripts) stays under <app dir>/userdata instead of the user profile or a
+// drive root.
+const APP_ROOT_PATH = path.join(__dirname, '..');
+const PORTABLE_USER_DATA_PATH = path.join(APP_ROOT_PATH, 'userdata');
+const LEGACY_USER_DATA_PATH = path.join(app.getPath('appData'), APP_NAME);
+function resolveStableUserDataPath() {
+  if (STARTUP_QA_USER_DATA_PATH) return STARTUP_QA_USER_DATA_PATH;
+  try {
+    fs.mkdirSync(PORTABLE_USER_DATA_PATH, { recursive: true });
+    fs.accessSync(PORTABLE_USER_DATA_PATH, fs.constants.W_OK);
+    return PORTABLE_USER_DATA_PATH;
+  } catch (error) {
+    // 只读安装目录（例如 Program Files）写不进去，退回用户配置目录，至少保证应用能启动。
+    // A read-only install folder cannot be written; fall back to the user profile so the app
+    // still starts instead of failing before the window appears.
+    console.warn('[PortableData] app folder is not writable, falling back to the user profile:', error && error.message || error);
+    return LEGACY_USER_DATA_PATH;
+  }
+}
+const STABLE_USER_DATA_PATH = resolveStableUserDataPath();
 fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
 app.setPath('userData', STABLE_USER_DATA_PATH);
+
+// 一次性迁移：把旧位置（%APPDATA%\<APP> 与旧缓存根，历史上默认是 D:\MineradioCache）里的
+// 用户数据【复制】进便携数据根。旧目录原样保留、不删除任何东西；已存在的目标文件一律不覆盖，
+// 所以重复运行也安全。必须赶在 readCacheSettings() 之前跑完，否则读到的还是旧缓存根。
+// One-time copy migration from the legacy user profile and the legacy cache root (historically
+// D:\MineradioCache) into the portable data root. Legacy directories are left untouched and
+// existing target files always win, so re-running is safe. It has to finish before
+// readCacheSettings(), or the legacy cache root would be read back in.
+const PORTABLE_MIGRATION_MARKER = '.portable-data-migrated';
+// 纯可再生缓存，复制它们只会白白拖慢首次启动。
+// Purely regenerable caches; copying them would only slow the first launch down.
+const PORTABLE_MIGRATION_SKIP_DIRS = new Set([
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'DawnCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'GrShaderCache',
+  'ShaderCache',
+  'Shared Dictionary',
+  'native-helper-temp',
+  'cache-fallback',
+]);
+
+// 真正的缓存根一定由 ensureCacheDirectories() 建过，因此必然含 chromium/ 子目录。
+// 这道判据用来排除 Windows 大小写不敏感造成的撞名：历史默认缓存根 %APPDATA%\<APP>\cache
+// 与 Chromium 自己的 HTTP 缓存目录 %APPDATA%\<APP>\Cache 在 Windows 上是同一个目录。
+// A genuine cache root always contains a chromium/ subdirectory because
+// ensureCacheDirectories() creates it. That check rules out a case-insensitive collision on
+// Windows: the historical default root %APPDATA%\<APP>\cache and Chromium's own HTTP cache
+// directory %APPDATA%\<APP>\Cache are the same directory there.
+function looksLikeLegacyCacheRoot(directory) {
+  try {
+    return fs.statSync(directory).isDirectory() && fs.existsSync(path.join(directory, 'chromium'));
+  } catch (_) {
+    return false;
+  }
+}
+
+// 旧缓存根可能来自旧配置，也可能只是历史默认值，候选一并探测。
+// The legacy cache root may come from a saved setting or just the old hard-coded default.
+function legacyCacheRootCandidates() {
+  const candidates = [];
+  try {
+    const file = path.join(LEGACY_USER_DATA_PATH, CACHE_SETTINGS_FILE);
+    if (fs.existsSync(file)) {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
+      const configured = String(parsed.rootPath || '').trim();
+      if (configured) candidates.push(path.resolve(configured));
+    }
+  } catch (error) {
+    console.warn('[PortableData] legacy cache settings unreadable:', error && error.message || error);
+  }
+  candidates.push(path.join('D:\\', 'MineradioCache'));
+  candidates.push(path.join(LEGACY_USER_DATA_PATH, 'cache'));
+  return candidates;
+}
+
+function copyPortableTree(sourceDir, targetDir) {
+  let copied = 0;
+  const stack = [[sourceDir, targetDir]];
+  while (stack.length) {
+    const [from, to] = stack.pop();
+    let entries = [];
+    try { entries = fs.readdirSync(from, { withFileTypes: true }); } catch (_) { continue; }
+    try { fs.mkdirSync(to, { recursive: true }); } catch (_) { continue; }
+    for (const entry of entries) {
+      if (PORTABLE_MIGRATION_SKIP_DIRS.has(entry.name)) continue;
+      const source = path.join(from, entry.name);
+      const target = path.join(to, entry.name);
+      if (entry.isDirectory()) { stack.push([source, target]); continue; }
+      if (!entry.isFile()) continue;
+      if (fs.existsSync(target)) continue;
+      try { fs.copyFileSync(source, target); copied += 1; } catch (_) {}
+    }
+  }
+  return copied;
+}
+
+function migratePortableUserData() {
+  try {
+    if (fs.existsSync(path.join(STABLE_USER_DATA_PATH, PORTABLE_MIGRATION_MARKER))) return;
+    const actions = [];
+    if (path.resolve(LEGACY_USER_DATA_PATH) !== path.resolve(STABLE_USER_DATA_PATH) && fs.existsSync(LEGACY_USER_DATA_PATH)) {
+      const count = copyPortableTree(LEGACY_USER_DATA_PATH, STABLE_USER_DATA_PATH);
+      if (count) actions.push(`userdata:${count}`);
+    }
+    const targetCacheRoot = defaultCacheRootPath();
+    for (const legacyRoot of legacyCacheRootCandidates()) {
+      if (!legacyRoot || path.resolve(legacyRoot) === path.resolve(targetCacheRoot)) continue;
+      if (!looksLikeLegacyCacheRoot(legacyRoot)) continue;
+      const count = copyPortableTree(legacyRoot, targetCacheRoot);
+      if (count) actions.push(`cache:${count}`);
+    }
+    // 复制过来的 cache-settings.json 可能还指着旧缓存根，那会把缓存又写回软件目录外。
+    // The copied cache-settings.json may still point at the legacy root, which would push the
+    // cache right back outside the app folder.
+    const settingsFile = path.join(STABLE_USER_DATA_PATH, CACHE_SETTINGS_FILE);
+    if (fs.existsSync(settingsFile)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) || {};
+        const configured = String(parsed.rootPath || '').trim();
+        if (configured && path.resolve(configured) !== path.resolve(targetCacheRoot)) {
+          fs.writeFileSync(settingsFile, JSON.stringify(Object.assign({}, parsed, { version: 1, rootPath: targetCacheRoot }), null, 2), 'utf8');
+          actions.push('cache-settings:retargeted');
+        }
+      } catch (error) {
+        console.warn('[PortableData] cache settings retarget skipped:', error && error.message || error);
+      }
+    }
+    fs.writeFileSync(
+      path.join(STABLE_USER_DATA_PATH, PORTABLE_MIGRATION_MARKER),
+      JSON.stringify({ at: Date.now(), target: STABLE_USER_DATA_PATH, actions }, null, 2),
+      'utf8'
+    );
+    if (actions.length) console.log('[PortableData] migrated legacy data into the app folder:', actions.join(', '));
+  } catch (error) {
+    console.warn('[PortableData] migration skipped:', error && error.message || error);
+  }
+}
+
+migratePortableUserData();
 const INITIAL_CACHE_SETTINGS = ensureCacheDirectories(readCacheSettings());
 const loginEasterEggGate = new LoginEasterEggGate({
   userDataPath: STABLE_USER_DATA_PATH,
@@ -342,10 +487,9 @@ function cacheSettingsConfigPath() {
 }
 
 function defaultCacheRootPath() {
-  const dDrive = 'D:\\';
-  return fs.existsSync(dDrive)
-    ? path.join(dDrive, 'MineradioCache')
-    : path.join(app.getPath('userData'), 'cache');
+  // 缓存根固定在软件目录内的用户数据下，不再往任何盘符根目录建 MineradioCache。
+  // The cache root always lives inside the app's own user data; never at a drive root.
+  return path.join(app.getPath('userData'), 'cache');
 }
 
 function normalizeCacheRootPath(value) {
@@ -2464,7 +2608,9 @@ bindStartupFailureHandlers();
 function shouldEnsureDesktopShortcut() {
   if (process.platform !== 'win32') return false;
   if (process.env.MINERADIO_NO_DESKTOP_SHORTCUT === '1') return false;
-  return app.isPackaged || process.env.MINERADIO_CREATE_DESKTOP_SHORTCUT === '1';
+  // 默认不往桌面写任何东西；只有显式要求才创建快捷方式。
+  // Nothing is written to the desktop by default; the shortcut is strictly opt-in.
+  return process.env.MINERADIO_CREATE_DESKTOP_SHORTCUT === '1';
 }
 
 function ensureDesktopShortcut() {
@@ -3142,7 +3288,7 @@ async function clearNeteaseMusicLoginSession() {
 }
 
 async function clearQishuiMusicLoginSession() {
-  const qishuiQrLogin = require('../qishui-qr-login');
+  const qishuiQrLogin = require('../server/qishui-qr-login');
   await qishuiQrLogin.clear();
   for (const filePath of [process.env.QISHUI_COOKIE_FILE, process.env.QISHUI_TOKEN_FILE]) {
     if (!filePath) continue;
@@ -5021,6 +5167,11 @@ ipcMain.handle('mineradio-built-in-playlist-add-track', async (event, id, track)
   try { return await builtInPlaylistLibrary.addTrack(id, track); } catch (error) { return builtInPlaylistMutationError(error); }
 });
 
+ipcMain.handle('mineradio-built-in-playlist-add-tracks', async (event, id, tracks) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+  try { return await builtInPlaylistLibrary.addTracks(id, Array.isArray(tracks) ? tracks : []); } catch (error) { return builtInPlaylistMutationError(error); }
+});
+
 ipcMain.handle('mineradio-built-in-playlist-remove-track', async (event, id, index) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
   try { return await builtInPlaylistLibrary.removeTrack(id, index); } catch (error) { return builtInPlaylistMutationError(error); }
@@ -5191,7 +5342,12 @@ ipcMain.handle('mineradio-export-login-cookie', async (_event, provider) => {
     if (!source) return { ok: false, error: 'COOKIE_NOT_FOUND', message: `${meta.label} 当前没有可导出的登录 cookie` };
     const text = fs.readFileSync(source, 'utf8');
     const safeName = String(`${meta.label}_登录cookie.txt`).replace(/[\\/:*?"<>|]+/g, '-');
-    const filePath = path.join(app.getPath('desktop'), safeName);
+    // 导出目录固定在软件目录内的 userdata/exports/，绝不往桌面写登录凭证。
+    // Exports stay inside the app's own data folder; login credentials are never written to
+    // the desktop.
+    const exportDir = path.join(STABLE_USER_DATA_PATH, 'exports');
+    fs.mkdirSync(exportDir, { recursive: true });
+    const filePath = path.join(exportDir, safeName);
     fs.writeFileSync(filePath, text, 'utf8');
     return { ok: true, filePath };
   } catch (e) {
@@ -5426,8 +5582,12 @@ ipcMain.handle('mineradio-open-update-page', async (event, value) => {
 
 ipcMain.handle('mineradio-restart-app', async () => {
   try {
+    // 走正常退出流程而非硬退出：硬退出（app.exit(0)）会绕过 before-quit，
+    // 托盘销毁与资源回收不执行，重启后通知区残留幽灵图标。
+    // Normal quit instead of a hard exit: app.exit(0) skips before-quit, so the
+    // tray is never destroyed and a ghost icon lingers in the notification area.
     app.relaunch();
-    app.exit(0);
+    app.quit();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'RESTART_FAILED' };
@@ -5792,7 +5952,7 @@ async function ensureLocalServerStarted() {
     migrateLegacyAuthStorage();
     await initializeLoginEasterEggGate();
 
-    const serverModulePath = path.join(__dirname, '..', 'server.js');
+    const serverModulePath = path.join(__dirname, '..', 'server', 'server.js');
     try { delete require.cache[require.resolve(serverModulePath)]; } catch (_) {}
     localServer = require(serverModulePath);
     await waitForServer(localServer, STARTUP_SERVER_TIMEOUT_MS);
@@ -6049,7 +6209,7 @@ function recoverMainWindowAfterRendererGone(win, details = {}, cleanupPromise = 
     await ensureLocalServerStarted();
     // 服务器模块被重新 require 后是一个全新实例，resolver 必须重新注入，否则
     // 崩溃恢复之后自定义音源会静默失效（内置音源不受影响，属于降级而非报错）。
-    // ensureLocalServerStarted re-requires server.js, which yields a brand new module
+    // ensureLocalServerStarted re-requires server/server.js, which yields a brand new module
     // instance; the resolver has to be re-injected or custom sources silently stop
     // resolving after a renderer recovery (a degradation, not a crash).
     await initializeCustomSourceManager();
@@ -6648,3 +6808,14 @@ if (!gotSingleInstanceLock) {
     });
   });
 }
+
+// will-quit 兜底：万一 before-quit 因任何原因被绕过（硬退出、外部 kill、二次退出竞态），
+// 这里再销毁一次托盘，避免通知区残留幽灵图标。before-quit 已把 tray 置空时此处为空操作。
+// will-quit belt-and-suspenders: if before-quit was ever bypassed, destroy the tray once
+// more so no ghost icon lingers. No-op when before-quit already nulled the tray.
+app.on('will-quit', () => {
+  if (tray) {
+    try { tray.destroy(); } catch (e) {}
+    tray = null;
+  }
+});

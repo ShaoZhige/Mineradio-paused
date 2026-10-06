@@ -675,8 +675,14 @@ body.desktop-shell #desktop-titlebar::after {
   box-shadow: 0 0 16px rgba(255, 83, 103, .56)
 }
 
-body.desktop-shell #desktop-titlebar #visual-guide-btn,
-body.desktop-shell #desktop-titlebar #update-entry {
+/* 这两个按钮在窗口化时住在标题栏、全屏时被脚本搬进 #fullscreen-tools-zone，所以作用域收到
+   body.desktop-shell 一层即可 —— 再往下写 #desktop-titlebar 会让搬到工具行后尺寸突然变成
+   .icon-btn / .update-entry 的 44px 圆形。
+   These two buttons live in the title bar when windowed and are moved into the fullscreen tool row
+   by script, so scoping stops at body.desktop-shell: an extra #desktop-titlebar level would make
+   them jump back to .icon-btn / .update-entry's 44px circle once they move. */
+body.desktop-shell #visual-guide-btn,
+body.desktop-shell #update-entry {
   width: 30px;
   height: 30px;
   border-radius: 10px;
@@ -688,26 +694,26 @@ body.desktop-shell #desktop-titlebar #update-entry {
   -webkit-backdrop-filter: none
 }
 
-body.desktop-shell #desktop-titlebar #visual-guide-btn {
+body.desktop-shell #visual-guide-btn {
   font-size: 14px
 }
 
-body.desktop-shell #desktop-titlebar #update-entry.available {
+body.desktop-shell #update-entry.available {
   display: flex
 }
 
-body.desktop-shell #desktop-titlebar #update-entry svg {
+body.desktop-shell #update-entry svg {
   width: 18px;
   height: 18px
 }
 
-body.desktop-shell #desktop-titlebar #update-entry::before,
-body.desktop-shell #desktop-titlebar #update-entry::after {
+body.desktop-shell #update-entry::before,
+body.desktop-shell #update-entry::after {
   display: none
 }
 
-body.desktop-shell #desktop-titlebar #visual-guide-btn:hover,
-body.desktop-shell #desktop-titlebar #update-entry:hover {
+body.desktop-shell #visual-guide-btn:hover,
+body.desktop-shell #update-entry:hover {
   background: rgba(255, 83, 103, .10);
   border-color: rgba(255, 83, 103, .32);
   color: #fff;
@@ -747,61 +753,79 @@ body.desktop-shell #toast {
   top: 60px
 }
 
-#fullscreen-diy-zone {
+/* ============================================================
+   全屏工具行 / Fullscreen tool row
+   全屏时 #desktop-titlebar 被整条隐藏，标题栏里的工具按钮（? / 语言 / 更新 / 热键 / DIY）
+   会跟着消失。脚本在进入全屏时把同一批节点搬进这里，鼠标靠近右上角（账号图标一带）才浮现。
+   宽度写死会被撑破：按钮文案随语言变长（「键」/ hotkey / 热键…），所以宽度由内容决定，
+   右边缘与账号胶囊对齐，位置用 --fullscreen-tools-right / --fullscreen-tools-top 由脚本写入。
+   The fullscreen tool row. #desktop-titlebar is hidden in fullscreen, so the script moves the
+   title bar's tool buttons in here and reveals them when the pointer nears the top-right account
+   icons. Auto width on purpose: button labels grow with the language. ============ */
+#fullscreen-tools-zone {
   display: none;
   position: fixed;
   z-index: 520;
-  top: var(--fullscreen-diy-top, 24px);
-  left: var(--fullscreen-diy-left, calc(100vw - 510px));
-  width: var(--fullscreen-diy-width, 128px);
-  height: 52px;
+  top: var(--fullscreen-tools-top, 80px);
+  right: var(--fullscreen-tools-right, 24px);
   align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  -webkit-app-region: no-drag
-}
-
-#fullscreen-diy-btn {
-  min-width: 108px;
-  height: 34px;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: rgba(6, 9, 12, .46);
+  border: 1px solid rgba(255, 255, 255, .07);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .34);
+  backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+  /* 未浮现时用 visibility 兜底，不能只靠 opacity：opacity:0 的按钮仍然可被 Tab 聚焦、
+     仍然会被读屏念出来，而这排按钮在浮现前不该可达。隐藏态的 transition 把 visibility
+     延后到淡出结束，可见态（见下面那组）不延迟 —— 方向不同，取的是各自那一侧的列表。
+     The hidden state uses visibility, not opacity alone: an opacity:0 button is still
+     tab-focusable and still announced. The hidden state delays visibility until the fade ends;
+     the revealed state below does not, because each direction uses its own transition list. */
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transform: translateY(-18px) scale(.96);
-  transition: opacity .2s cubic-bezier(.16, 1, .3, 1), transform .2s cubic-bezier(.16, 1, .3, 1), background .18s, color .18s, border-color .18s, box-shadow .18s
+  -webkit-app-region: no-drag;
+  transform: translateY(-12px) scale(.98);
+  transform-origin: top right;
+  transition: opacity .2s cubic-bezier(.16, 1, .3, 1), transform .2s cubic-bezier(.16, 1, .3, 1), visibility 0s linear .2s
 }
 
-body.visual-guide-active #fullscreen-diy-zone {
-  opacity: 0;
-  pointer-events: none !important;
-  transition: opacity .18s cubic-bezier(.16, 1, .3, 1)
+body.desktop-shell.desktop-fullscreen #fullscreen-tools-zone,
+html:fullscreen body.desktop-shell #fullscreen-tools-zone {
+  display: flex
 }
 
-body.visual-guide-active #fullscreen-diy-btn {
+/* 浮现：指针命中（脚本加 .fullscreen-tools-peek）或指针停在按钮上；
+   视觉引导要指着 DIY 那一步时用 .fullscreen-tools-guided 强制亮出来。 */
+body.fullscreen-tools-peek #fullscreen-tools-zone,
+body.fullscreen-tools-guided #fullscreen-tools-zone,
+#fullscreen-tools-zone:hover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  transition: opacity .2s cubic-bezier(.16, 1, .3, 1), transform .2s cubic-bezier(.16, 1, .3, 1), visibility 0s
+}
+
+/* 视觉引导进行中默认藏起来（引导有自己的遮罩与焦点环），但引导的 DIY 步骤要指着这排按钮时例外，
+   否则那一步会指着一片空白。 */
+body.visual-guide-active:not(.fullscreen-tools-guided) #fullscreen-tools-zone {
   opacity: 0 !important;
-  pointer-events: none !important;
-  transform: translateY(-18px) scale(.96) !important
+  visibility: hidden !important;
+  pointer-events: none !important
+}
+
+/* 桌面壁纸模式下标题栏本来就隐藏，控制入口在右上角的 #desktop-mode-control-dock；
+   这排按钮跟着不出现，免得和那个 dock 抢同一块位置。 */
+body.desktop-shell.desktop-wallpaper-mode #fullscreen-tools-zone {
+  display: none !important
 }
 
 body.desktop-shell.desktop-fullscreen #desktop-titlebar,
 html:fullscreen body.desktop-shell #desktop-titlebar {
   display: none !important
-}
-
-body.desktop-shell.desktop-fullscreen #fullscreen-diy-zone,
-html:fullscreen body.desktop-shell #fullscreen-diy-zone {
-  display: flex
-}
-
-body.fullscreen-diy-peek #fullscreen-diy-zone,
-#fullscreen-diy-zone:hover {
-  pointer-events: auto
-}
-
-body.fullscreen-diy-peek #fullscreen-diy-btn,
-#fullscreen-diy-zone:hover #fullscreen-diy-btn {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0) scale(1)
 }
 
 body.desktop-shell.desktop-fullscreen #search-area.peek {
@@ -821,16 +845,10 @@ body.desktop-shell.desktop-fullscreen #top-right {
   body.desktop-shell #search-area.peek {
     top: 58px
   }
-}
 
-@media (max-width:720px) {
-  #fullscreen-diy-zone {
-    height: 48px
-  }
-
-  #fullscreen-diy-btn {
-    min-width: 96px;
-    height: 32px
+  #fullscreen-tools-zone {
+    gap: 5px;
+    padding: 7px 8px
   }
 }
 
@@ -1847,80 +1865,8 @@ body.startup-fast-skip-revealing #bottom-bar {
   transform: translateY(-1px)
 }
 
-#lang-toggle-btn {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border: 1px solid rgba(255, 255, 255, .10);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .05);
-  color: rgba(255, 255, 255, .55);
-  font-size: 11px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background .2s, color .2s, border-color .2s;
-  margin-right: 8px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center
-}
-
-#lang-toggle-btn:hover {
-  background: rgba(255, 255, 255, .10);
-  color: #fff;
-  border-color: rgba(255, 255, 255, .20)
-}
-
-#lang-menu {
-  position: absolute;
-  top: 64px;
-  left: 0;
-  min-width: 136px;
-  padding: 6px;
-  border-radius: 14px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(28px) saturate(1.30);
-  -webkit-backdrop-filter: blur(28px) saturate(1.30);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 540
-}
-
-/* display:flex 会盖过 hidden 属性自带的 display:none，必须显式写回，
-   否则菜单永远收不起来。
-   display:flex outranks the hidden attribute's built-in display:none,
-   so it must be restored explicitly or the menu can never close. */
-#lang-menu[hidden] {
-  display: none
-}
-
-#lang-menu button {
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: rgba(255, 255, 255, .62);
-  font-size: 12px;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background .18s, color .18s
-}
-
-#lang-menu button:hover {
-  background: rgba(255, 255, 255, .08);
-  color: #fff
-}
-
-#lang-menu button.active {
-  background: rgba(var(--fc-accent-rgb), .22);
-  color: #fff
-}
+/* 语言切换相关样式已迁移至文件下方的「语言切换 / Language switcher」区块（按钮复用 .icon-btn）。
+   Language-switch styles moved to the dedicated section lower in this file (button reuses .icon-btn). */
 
 #search-icon {
   color: rgba(255, 255, 255, 0.3);
@@ -7933,62 +7879,61 @@ body.login-guide-active #login-guide-canvas {
   pointer-events: auto
 }
 
-.login-easter-input-shell {
+/* 彩蛋的「选项」：整块就是一个按钮，点一下即许愿。**不放下拉箭头** —— 箭头承诺的是"点开还有
+   别的可选"，而这里点下去就是答案；留下的横向内边距左右对称，词条居中。
+   字号由 00-login-easter-egg.js 按词条长度与实测宽度写入 --select-font-size（预留宽度见那边的
+   LOGIN_EASTER_EGG_SELECT_PADDING，改这里的 padding 必须同步改它），否则俄语的
+   「Мир во всём мире」在窄窗里会顶破边框。
+   The easter egg "choice": the whole field is one button and a single click makes the wish. **No
+   dropdown chevron** — an arrow promises a list to choose from and there is nothing to choose, so the
+   horizontal padding is symmetric and the label is centred. 00-login-easter-egg.js writes
+   --select-font-size from the label length and the measured width (its reserved width lives in
+   LOGIN_EASTER_EGG_SELECT_PADDING — change that constant with this padding); otherwise the Russian
+   label overflows in a narrow window. */
+.login-easter-select {
   position: relative;
-  width: 100%
-}
-
-.login-easter-cells {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  pointer-events: none
-}
-
-.login-easter-cell {
+  width: 100%;
   height: 68px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, .11);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 26px;
+  border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 20px;
-  background: rgba(255, 255, 255, .035);
-  color: rgba(255, 255, 255, .94);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055), 0 12px 28px rgba(0, 0, 0, .16);
+  background: rgba(255, 255, 255, .045);
+  color: rgba(255, 255, 255, .95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 12px 28px rgba(0, 0, 0, .18);
   font-family: SimHei, 'Microsoft YaHei', sans-serif;
-  font-size: 28px;
+  font-size: var(--select-font-size, 26px);
   font-weight: 800;
-  transition: border-color .22s ease, background .22s ease, transform .22s ease, color .22s ease
+  letter-spacing: .08em;
+  text-indent: .08em;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color .22s ease, background .22s ease, transform .22s ease, box-shadow .22s ease
 }
 
-.login-easter-cell.filled {
-  border-color: rgba(255, 255, 255, .25);
-  background: rgba(255, 255, 255, .07);
+.login-easter-select:hover {
+  border-color: rgba(255, 255, 255, .3);
+  background: rgba(255, 255, 255, .075);
   transform: translateY(-2px)
 }
 
-.login-easter-cell.fixed {
-  color: rgba(255, 226, 170, .96);
-  border-color: rgba(244, 210, 138, .32);
-  background: rgba(244, 210, 138, .07)
+.login-easter-select:focus-visible {
+  outline: 0;
+  border-color: rgba(255, 226, 170, .6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 2px rgba(244, 210, 138, .3), 0 12px 28px rgba(0, 0, 0, .18)
 }
 
-.login-easter-input {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: transparent;
-  caret-color: transparent;
-  opacity: 1;
-  font-size: 24px;
-  cursor: text;
-  pointer-events: auto;
-  touch-action: manipulation
+.login-easter-select.is-pressed {
+  transform: translateY(0) scale(.985)
+}
+
+.login-easter-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
 }
 
 .login-easter-status {
@@ -8061,8 +8006,27 @@ body.login-guide-active #login-guide-canvas {
   justify-content: center;
   gap: .06em;
   color: #fff;
-  font-family: SimSun, SimHei, monospace;
-  font-size: clamp(72px, 9.4vw, 132px);
+  /* 字体栈与像素烘焙共用：这里只在烘焙失败、字格留着纯文字时生效，所以同样要挑有真实粗体字面的
+     字体 —— 宋体只有一个 400，900 会被合成加粗，把 W 糊成一块。
+     Shared with the pixel bake; this only applies when the bake fails and the cells keep plain text,
+     so it also needs a family with a genuine bold face — SimSun ships a single 400, so a 900 request
+     gets synthesised and smears a W. */
+  font-family: 'Arial', 'Segoe UI', 'Microsoft YaHei', SimHei, sans-serif;
+  /* 字号按**整行占多少 em** 反推：每格占多少 em 由渲染脚本按量出来的字宽写进 --phrase-em。
+     拉丁字母不再是 1em 一格，否则同一屏宽里英文的字号只能拿到中文的一半 —— 那正是 W 又小又糊
+     的来源之一；汉字本来就是全角，比例仍是 1。
+     四项各管一件事：13vw 是首选尺寸（四个汉字正好铺半屏）、72px 是极窄窗的下限、
+     240px 是上限（烘焙画布只有 40 像素高，屏幕上再放大会变成巨大的方块）、
+     90vw / em 是硬约束（长词自动收字号，左右各留 5vw，绝不顶边）。
+     The size is derived from how many em the whole row needs; the renderer measures the glyphs and
+     writes that into --phrase-em. Latin letters no longer pay a full em each, which used to cap
+     English at half the size of Chinese on the same screen -- part of why a W came out small and
+     smeared; Han glyphs are full-width, so their ratio stays 1. Each term has one job: 13vw is the
+     preferred size (four Han glyphs fill half the screen), 72px is the floor for tiny windows, 240px
+     is the ceiling (the bake is only 40 pixels tall, so a bigger display turns it into giant blocks),
+     and 90vw / em is the hard constraint that shrinks long phrases, keeping 5vw of margin on both
+     sides so they never touch the edge. */
+  font-size: min(clamp(72px, 13vw, 240px), calc(90vw / var(--phrase-em, 3.86)));
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
@@ -8075,7 +8039,11 @@ body.login-guide-active #login-guide-canvas {
 }
 
 .login-easter-unlock-phrase span {
-  width: 1em;
+  /* 高度给死 1em、宽度不给死：字格宽度由画布（按量出来的字宽裁的比例）或文字自己决定，
+     这样 i 不会白占半格、W 也不会被压扁。 */
+  /* The height is fixed at 1em while the width is left to the content — the baked canvas (its ratio
+     taken from the measured advance) or the text itself — so an i stops wasting half a cell and a W
+     stops being squeezed. */
   height: 1em;
   display: grid;
   place-items: center;
@@ -8087,13 +8055,27 @@ body.login-guide-active #login-guide-canvas {
   will-change: transform, opacity, filter
 }
 
+/* 词内空格按窄格处理，否则每个空格都会占掉一整个字格宽度。
+   Spaces inside the label get a narrow box, otherwise each one eats a full glyph cell. */
+.login-easter-unlock-phrase span.is-space {
+  width: .34em
+}
+
 .login-easter-pixel-glyph {
-  width: .92em;
+  /* 只给高度、不给宽度：画布是按每个字形量出来的宽高比裁的，width: auto 让替换元素自己按比例
+     算宽度，压成正方会把它拉变形。
+     Height only: every canvas is cut to the glyph's measured ratio, and width: auto lets the replaced
+     element keep that ratio — forcing a square would squeeze it. */
   height: .92em;
+  width: auto;
   display: block;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  filter: drop-shadow(4px 0 0 #111) drop-shadow(-4px 0 0 #111) drop-shadow(0 4px 0 #111) drop-shadow(0 -4px 0 #111)
+  /* 描边从 4px 收到 2px：它是一圈深色轮廓，在深色背景上只能在字形**内部**的空隙里露出来，
+     所以越粗越会把 W 中间那个 V 填死 —— 那正是"糊成一团"的最后一笔。
+     Trail trimmed from 4px to 2px: it is a dark outline that, on a dark background, only shows inside
+     the glyph's own counters, so the thicker it is the more it fills the V inside a W. */
+  filter: drop-shadow(2px 0 0 #111) drop-shadow(-2px 0 0 #111) drop-shadow(0 2px 0 #111) drop-shadow(0 -2px 0 #111)
 }
 
 .login-easter-unlock-cinematic.is-positioned .login-easter-unlock-phrase span {
@@ -8102,12 +8084,12 @@ body.login-guide-active #login-guide-canvas {
 
 .login-easter-unlock-cinematic.is-extracting .login-easter-unlock-phrase span {
   filter: blur(0);
-  transform: translate3d(0, 0, 0) scale(1)
+  transform: translate3d(0, 0, 0) scale(1);
+  /* 逐字入场延迟由渲染脚本按序号写入；写死 nth-child 撑不住不同语言的字数。 */
+  /* The per-glyph delay comes from the renderer by index; hardcoded nth-child rules cannot
+     cover a label whose length changes with the language. */
+  transition-delay: var(--extract-delay, 0s)
 }
-
-.login-easter-unlock-cinematic.is-extracting .login-easter-unlock-phrase span:nth-child(2) { transition-delay: .08s }
-.login-easter-unlock-cinematic.is-extracting .login-easter-unlock-phrase span:nth-child(3) { transition-delay: .16s }
-.login-easter-unlock-cinematic.is-extracting .login-easter-unlock-phrase span:nth-child(4) { transition-delay: .24s }
 
 .login-easter-unlock-cinematic.is-ready .login-easter-unlock-phrase span {
   animation: login-easter-world-float var(--float-duration, 4s) var(--float-delay, 0s) ease-in-out infinite alternate;
@@ -8260,7 +8242,7 @@ body.login-guide-active #login-guide-canvas {
   #login-modal.login-easter-egg-locked .login-easter-egg-gate { min-height: 400px }
   .login-easter-eye-trigger { width: 144px; height: 144px }
   .login-easter-egg-wish { top: 172px }
-  .login-easter-cell { height: 56px; border-radius: 17px; font-size: 24px }
+  .login-easter-select { height: 56px; border-radius: 17px }
   .login-easter-achievement { top: 22px; right: 22px; width: min(326px, calc(100vw - 44px)) }
 }
 
@@ -13794,6 +13776,75 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   color: var(--fc-accent)
 }
 
+/* 默认源选择器用原生 select，而不是 .fx-seg 那样的一排按钮：候选平台名随语言变长
+   （中文「网易云音乐」、俄文「NetEase Cloud Music」…），而 .fx-seg 是 flex:1 + overflow:hidden，
+   标签一长就被裁掉——正是本仓刚修过的那类溢出。原生 select 由浏览器处理宽度，标签再长也不会破版。
+   The preferred-source picker uses a native select rather than a row of .fx-seg buttons: platform
+   names grow with the language while .fx-seg is `flex: 1` with `overflow: hidden`, so a long label
+   gets clipped — the exact overflow class this repository just fixed. A native select lets the
+   browser handle the width, so no label length can break the layout. */
+.fx-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 26px 0 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  background: rgba(255, 255, 255, .026);
+  color: rgba(255, 255, 255, .82);
+  font-family: inherit;
+  font-size: 11.5px;
+  outline: none;
+  cursor: pointer;
+  /* 原生下拉箭头在深色底上默认是浅色方块，换成自绘的 chevron。 */
+  /* Replace the native arrow, which renders as a light box on a dark surface. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, .5) 50%), linear-gradient(135deg, rgba(255, 255, 255, .5) 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% + 1px), calc(100% - 11px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat
+}
+
+.fx-select:hover {
+  border-color: rgba(255, 255, 255, .16);
+  color: #fff
+}
+
+.fx-select:focus {
+  border-color: rgba(var(--fc-accent-rgb), .42);
+  background-color: rgba(var(--fc-accent-rgb), .05)
+}
+
+/* 下拉展开的列表由系统绘制，但深色主题下必须显式指定，否则在部分平台上是白底白字。 */
+/* The popup list is system-drawn, but on a dark theme it must be stated explicitly or it renders
+   light-on-light on some platforms. */
+.fx-select option {
+  background: #0f1116;
+  color: rgba(255, 255, 255, .9)
+}
+
+/* 标签 + 下拉作为一个整体块：控制台按登记项搬运节点，单独的标签会被丢在旧容器里。
+   允许换行且两侧都留出收缩余地 —— 标签文案随语言变长（俄文「Источник по умолчанию」），
+   与刚修过的面板横向溢出是同一类风险。
+   Label and select as one block: the console moves the registered node, so a standalone label would be
+   left behind. It wraps and lets both sides shrink, because the label grows with the language — the
+   same overflow class fixed earlier in this panel. */
+.fx-select-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px
+}
+
+.fx-select-row-label {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, .62);
+  white-space: nowrap
+}
+
 .lyric-texture-quality-seg button {
   display: flex;
   min-width: 0;
@@ -14523,11 +14574,23 @@ html:fullscreen body.desktop-shell #playlist-panel {
 .panel-tabs {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px
 }
 
+/* 面板只有 302px 可用宽，而标签文案随语言变长：中文 3 个共 210px，日文 285px、俄文 284px，
+   英文 274px。默认的 flex-shrink 会把按钮压窄、把「現在のキュー」折成两行（实测按钮高 30→46px），
+   再长一点就直接溢出被面板边缘裁掉。所以：按钮自己不许被压窄、标签内部不许折行，
+   排不下时让**整行换行**，每个标签始终完整可读。
+   The panel offers 302px while the labels grow with the language: 210px in Chinese, 285px in
+   Japanese, 284px in Russian, 274px in English. The default flex-shrink squeezes the buttons and
+   breaks 「現在のキュー」 across two lines (measured button height 30 -> 46px); one longer label
+   more and the row overflows past the panel edge and gets clipped. So buttons keep their width,
+   labels never break mid-label, and the ROW wraps instead — every label stays fully readable. */
 .panel-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
   padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, .1);
@@ -14911,11 +14974,28 @@ html:fullscreen body.desktop-shell #playlist-panel {
   text-overflow: ellipsis
 }
 
+/* 操作行在卡片内只有 280px 可用，而按钮是不收缩的胶囊：中文「播放歌单/重命名/删除」已占满，
+   再加一个「多选」实测需要 388px → 溢出 108px，后两个按钮被面板边缘直接裁掉（点不到、也看不见）。
+   俄文/日文仅「播放歌单/重命名/删除」三项就需要 315px，本来就已经溢出。
+   这里让整行换行 + 按钮不被压窄：`.pl-detail-list` 是 flex:1 1 auto / min-height:0，
+   头部变高只会让列表变矮，不会裁掉任何内容，所以换行是安全的。
+   The action row has only 280px inside the card while its buttons are non-shrinking pills: the
+   Chinese 「播放歌单/重命名/删除」 already fills it, and adding 「多选」 needs 388px — a 108px
+   overflow that the panel edge clips away entirely (invisible and unclickable). In Russian/Japanese
+   even the original three need 315px, so the row was already overflowing before. Wrapping the row
+   and keeping buttons at full width is safe because `.pl-detail-list` is flex:1 1 auto with
+   min-height:0: a taller header only makes the list shorter, it never clips anything. */
 .pl-detail-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 8px 0 10px
+}
+
+.pl-detail-actions > button {
+  flex: 0 0 auto;
+  white-space: nowrap
 }
 
 .pl-detail-play {
@@ -16319,8 +16399,15 @@ body.empty-home-active #home-btn {
   stroke: currentColor !important;
 }
 
+/* 引导按钮窗口化时在标题栏、全屏时在 #fullscreen-tools-zone，两处都要点名 —— 这两条不是冗余的：
+   html.control-glass-svg-ok #visual-guide-btn 的特异性高于光秃秃的 #visual-guide-btn，
+   少点一处，玻璃态下 backdrop-filter 就会从 none 变回玻璃滤镜（按钮外观跟着变）。
+   The guide button sits in the title bar when windowed and in the fullscreen tool row otherwise, so
+   both homes are named here. Neither selector is redundant: html.control-glass-svg-ok #visual-guide-btn
+   outranks a bare #visual-guide-btn, so dropping one flips backdrop-filter back to the glass filter. */
 #visual-guide-btn,
 body.desktop-shell #desktop-titlebar #visual-guide-btn,
+body.desktop-shell #fullscreen-tools-zone #visual-guide-btn,
 html.control-glass-svg-ok #visual-guide-btn {
   color: rgba(184, 188, 196, .58) !important;
   border-color: rgba(255, 255, 255, .08) !important;
@@ -16332,6 +16419,7 @@ html.control-glass-svg-ok #visual-guide-btn {
 
 #visual-guide-btn:hover,
 body.desktop-shell #desktop-titlebar #visual-guide-btn:hover,
+body.desktop-shell #fullscreen-tools-zone #visual-guide-btn:hover,
 html.control-glass-svg-ok #visual-guide-btn:hover {
   color: #fff !important;
   border-color: rgba(255, 255, 255, .24) !important;
@@ -17603,7 +17691,34 @@ body.panel-reordering .mini-queue-item.is-reordering {
 #empty-home .home-grid.home-quick-grid {
   grid-column: 2;
   grid-row: 1;
-  grid-template-columns: minmax(320px, 1.75fr) repeat(3, minmax(145px, 1fr));
+  /* 两列等宽（两行四张卡全部一样长），右侧留一条固定宽度的空白带给右上角账号胶囊。
+     Two equal columns (all four cards share one length) with a fixed gutter on the right reserved
+     for the top-right account pills.
+
+     为什么必须留白而不是换行就够了：#top-right 是 position:fixed + z-index:10，top:58px
+     right:24px；多账号时 #user-btn 变成纵向堆叠、每个 pill 宽 190px。而 #empty-home 在
+     desktop-shell 下是 width:calc(100vw - 44px) 居中，右边缘离屏幕只剩 22px —— 胶囊横向完全
+     压在首页右侧。1fr 轨道一定会撑满、align-items:stretch 一定填满轨道，所以卡片必然顶到最右，
+     光换行救不了，必须让出真实的空白。
+     Reserving space is required because #top-right is position:fixed/z-index:10 at top:58px
+     right:24px and stacks 190px-wide pills vertically, while #empty-home is
+     width:calc(100vw - 44px) — only 22px from the screen edge. Tracks sized with 1fr always fill
+     the row and stretch always fills the track, so a plain reorder can never clear the pills.
+
+     210px 是怎么来的（对齐 #top-right 里的 home 小房子图标）：
+     #top-right 从右往左是 user-btn（pill 190px）→ gap 10 → home-btn（44px），
+     所以 home 图标左边缘距屏幕右边 = 24 + 190 + 10 = 224px；
+     #empty-home 右边缘距屏幕右边 22px，于是需要让出 224 - 22 = 202px，取 210px 留 8px 余量。
+     胶囊和图标都是固定像素、不随窗口缩放，所以这里用固定像素而不是百分比，
+     这样任何窗口宽度下卡片右边缘都稳定落在 home 图标左边缘的左侧。
+     Where 210px comes from (aligning to the little house icon inside #top-right): reading
+     right-to-left it is user-btn (190px pill) -> 10px gap -> home-btn (44px), so the icon's left
+     edge sits 24+190+10 = 224px from the screen's right edge. #empty-home's right edge is 22px
+     from it, so 224-22 = 202px of clearance is needed; 210px keeps an 8px margin. Both the pills
+     and the icon are pixel-sized and never scale, so this stays a fixed pixel value rather than a
+     percentage — the card edge then lands just left of the icon at any window width. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-right: 210px;
   grid-auto-flow: row;
   align-items: stretch;
   gap: 13px;
@@ -17611,31 +17726,31 @@ body.panel-reordering .mini-queue-item.is-reordering {
 }
 
 #empty-home .home-grid.home-quick-grid .home-card {
-  min-height: 158px;
+  min-height: 126px;
   height: auto;
   padding: 20px
 }
 
 #empty-home .home-grid.home-quick-grid .home-card-featured {
-  min-height: 176px
+  min-height: 142px
 }
 
 #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
-  max-width: calc(100% - 142px);
-  font-size: 24px
+  max-width: calc(100% - 120px);
+  font-size: 22px
 }
 
 #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-sub {
-  max-width: calc(100% - 142px);
+  max-width: calc(100% - 120px);
   font-size: 12.5px
 }
 
 #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
   right: 20px;
   bottom: 20px;
-  width: 126px;
-  height: 126px;
-  border-radius: 26px
+  width: 96px;
+  height: 96px;
+  border-radius: 22px
 }
 
 #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-title {
@@ -17678,12 +17793,12 @@ body.panel-reordering .mini-queue-item.is-reordering {
   }
 
   #empty-home .home-grid.home-quick-grid .home-card {
-    min-height: 122px;
+    min-height: 106px;
     padding: 16px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured {
-    min-height: 132px
+    min-height: 114px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
@@ -17693,9 +17808,9 @@ body.panel-reordering .mini-queue-item.is-reordering {
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
     right: 16px;
     bottom: 16px;
-    width: 96px;
-    height: 96px;
-    border-radius: 22px
+    width: 82px;
+    height: 82px;
+    border-radius: 20px
   }
 }
 
@@ -17705,17 +17820,17 @@ body.panel-reordering .mini-queue-item.is-reordering {
   }
 
   #empty-home .home-grid.home-quick-grid {
-    grid-template-columns: minmax(240px, 1.6fr) repeat(3, minmax(120px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card {
-    min-height: 100px;
+    min-height: 88px;
     padding: 13px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured {
-    min-height: 108px
+    min-height: 94px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
@@ -17727,15 +17842,15 @@ body.panel-reordering .mini-queue-item.is-reordering {
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
-    width: 72px;
-    height: 72px;
-    border-radius: 18px
+    width: 60px;
+    height: 60px;
+    border-radius: 16px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
-    width: 56px;
-    height: 56px;
-    border-radius: 15px
+    width: 50px;
+    height: 50px;
+    border-radius: 14px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-sub {
@@ -18214,16 +18329,14 @@ body.panel-reordering .mini-queue-item.is-reordering {
 }
 
 @media (min-width:761px) and (max-width:1500px) {
-  #empty-home .home-grid.home-quick-grid {
-    grid-template-columns: minmax(250px, 1.55fr) repeat(3, minmax(110px, 1fr))
-  }
-
-  #empty-home .home-grid.home-quick-grid .home-card-featured {
-    grid-column: auto
-  }
-
+  /* 六轨道底座和避让列在窄屏同样需要（胶囊宽度不随窗口变），这里不再覆盖列模板。
+     旧的 `.home-card-featured { grid-column: auto }` 是 featured 曾经跨列时的残留，
+     它会把上面 :nth-child() 的避让定位顶掉，所以删掉。
+     The six-track scaffold and the reserved columns are needed at every desktop width because the
+     pill width does not scale with the window. The legacy `grid-column: auto` on the featured card
+     (left over from when it spanned columns) would knock out the :nth-child() placement above. */
   #empty-home .home-grid.home-quick-grid .home-card-quick {
-    min-height: 142px;
+    min-height: 116px;
     padding: 16px
   }
 
@@ -18247,35 +18360,46 @@ body.panel-reordering .mini-queue-item.is-reordering {
 }
 
 @media (min-width:761px) and (max-width:1060px) {
-  #empty-home .home-grid.home-quick-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr))
-  }
-
+  /* 让出右侧轨道后，第一行的卡只剩约六分之一的窗口宽，封面和标题要再收一档才装得下。
+     After reserving the right tracks, row-one cards only get about a sixth of the window, so the
+     art and copy shrink another step to fit. */
   #empty-home .home-grid.home-quick-grid .home-card-featured {
-    grid-column: auto;
-    min-height: 126px
+    min-height: 112px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card {
-    min-height: 116px;
-    padding: 14px
+    min-height: 102px;
+    padding: 11px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
-    max-width: calc(100% - 104px);
-    font-size: 20px
+    max-width: calc(100% - 74px);
+    font-size: 18px
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-sub {
-    max-width: calc(100% - 104px)
+    max-width: calc(100% - 74px)
   }
 
   #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
-    right: 14px;
-    bottom: 14px;
-    width: 92px;
-    height: 92px;
-    border-radius: 21px
+    right: 11px;
+    bottom: 11px;
+    width: 58px;
+    height: 58px;
+    border-radius: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-title {
+    max-width: calc(100% - 54px);
+    font-size: 15px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
+    right: 9px;
+    bottom: 9px;
+    width: 46px;
+    height: 46px;
+    border-radius: 13px
   }
 }
 
@@ -18348,11 +18472,10 @@ body.panel-reordering .mini-queue-item.is-reordering {
   #empty-home .home-grid.home-quick-grid {
     grid-column: 1;
     grid-row: 2;
-    grid-template-columns: 1fr
-  }
-
-  #empty-home .home-grid.home-quick-grid .home-card-featured {
-    grid-column: auto
+    grid-template-columns: 1fr;
+    /* 单列堆叠时让不出 210px（窄屏整列才三百多像素），回到铺满。
+       A single stacked column cannot spare 210px, so it goes back to full width. */
+    padding-right: 0
   }
 
   #empty-home .home-insight-rail {
@@ -18816,38 +18939,27 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
 
 /* ============================================================
    语言切换 / Language switcher
-   搜索框内的紧凑入口，展开为四语言菜单。
-   A compact entry inside the search box that opens a four-language menu.
+   已移至标题栏 .desktop-window-controls 内（? 号右侧、热键左侧），
+   按钮复用 .icon-btn 的 44px 圆形；菜单相对 .lang-switch 绝对定位下拉。
+   Moved to the titlebar inside .desktop-window-controls (right of "?", left of hotkey);
+   the button reuses .icon-btn's 44px circle; the menu is absolutely positioned
+   below the button via the .lang-switch wrapper.
    ============================================================ */
+.lang-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center
+}
+
 #search-box {
   position: relative
 }
 
 #lang-toggle-btn {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  margin-left: 8px;
-  flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, .10);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, .05);
-  color: rgba(255, 255, 255, .58);
-  font-family: inherit;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background .2s, color .2s, border-color .2s
-}
-
-#lang-toggle-btn:hover {
-  background: rgba(255, 255, 255, .10);
-  border-color: rgba(255, 255, 255, .20);
-  color: #fff
+  margin: 0
 }
 
 #lang-menu {
@@ -18856,7 +18968,7 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
   right: 0;
   min-width: 136px;
   padding: 6px;
-  z-index: 60;
+  z-index: 560;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -19133,4 +19245,156 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, .08)
+}
+
+/* ============================================================
+   歌单 / 队列多选与批量加入
+   Multi-select over the queue and playlist detail, plus the bulk "add to built-in playlist" bar.
+   面板用 position:fixed + overflow:auto，所以工具条用 sticky bottom 就能在长列表里钉住底部，
+   内容不够长时它自然落在面板底部（面板高度由内容撑开）。
+   The panel is position:fixed with overflow:auto, so a sticky-bottom bar pins itself in long lists
+   and, when the content is short, simply rests at the panel bottom (the panel is content-sized).
+   ============================================================ */
+.ms-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .04);
+  color: rgba(var(--fc-accent-rgb), 1);
+  transition: border-color .18s, background .18s
+}
+
+.ms-check svg {
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity .15s, transform .15s
+}
+
+.ms-check.on {
+  border-color: rgba(var(--fc-accent-rgb), .92);
+  background: rgba(var(--fc-accent-rgb), .18)
+}
+
+.ms-check.on svg {
+  opacity: 1;
+  transform: scale(1)
+}
+
+.queue-item.ms-selected,
+.pl-detail-row.ms-selected {
+  border-color: rgba(var(--fc-accent-rgb), .42);
+  background: rgba(var(--fc-accent-rgb), .10)
+}
+
+/* 多选态：逐行操作按钮收起，行内链接不再截走点击（点行只切换勾选） */
+body.playlist-multiselect .queue-item .qi-act,
+body.playlist-multiselect .pl-detail-remove {
+  display: none
+}
+
+body.playlist-multiselect .queue-artist-link,
+body.playlist-multiselect .pl-detail-row-artist {
+  pointer-events: none
+}
+
+/* 工具条是 sticky 的，会盖住最后几行，给列表底部留出等高空间 */
+body.playlist-multiselect #queue-pane,
+body.playlist-multiselect #pl-pane {
+  padding-bottom: 56px
+}
+
+.pl-detail-multi {
+  height: 30px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .82);
+  font: 700 11.5px var(--font-sans);
+  cursor: pointer
+}
+
+.pl-detail-multi.active {
+  border-color: rgba(var(--fc-accent-rgb), .42);
+  background: rgba(var(--fc-accent-rgb), .14);
+  color: #eafffb
+}
+
+.multiselect-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 10px -4px 0;
+  padding: 8px 8px 9px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(11, 13, 18, .90), rgba(8, 10, 14, .86)), linear-gradient(135deg, rgba(255, 255, 255, .058), rgba(var(--fc-accent-rgb), .05));
+  border: 1px solid rgba(255, 255, 255, .09);
+  backdrop-filter: blur(28px) saturate(1.25);
+  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  box-shadow: 0 13px 30px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .08)
+}
+
+.multiselect-bar.show {
+  display: flex
+}
+
+.ms-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  color: rgba(255, 255, 255, .72);
+  font: 600 11.5px var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.ms-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .86);
+  font: 700 11.5px var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap
+}
+
+.ms-btn.primary {
+  border-color: rgba(var(--fc-accent-rgb), .40);
+  background: rgba(var(--fc-accent-rgb), .16);
+  color: #eafffb
+}
+
+.ms-btn.ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, .62)
+}
+
+.ms-btn:disabled {
+  opacity: .45;
+  cursor: default
+}
+
+.collect-empty {
+  padding: 16px 10px;
+  text-align: center;
+  color: rgba(255, 255, 255, .34);
+  font-size: 11.5px
+}
+
+.collect-list.busy {
+  opacity: .6;
+  pointer-events: none
 }

@@ -33,7 +33,14 @@ function accountPanelText(key, fallback, params) {
   return out;
 }
 function loggedProviderCount() {
-  return ['netease', 'qq', 'kugou', 'qishui'].filter(function (key) { return hasPlatformLogin(key); }).length;
+  // ⚠️ 这里原先手写 ['netease','qq','kugou','qishui']，**漏了 Spotify** —— 而登出弹窗单独处理了
+  //    Spotify、hasAnyPlatformLogin() 也认它，所以只用 Spotify 登录时这个计数会算出 0，
+  //    连带把「双账号模式」判成关闭（下方两处都拿它比 2）。改为按注册表的 login 能力取集合。
+  // ⚠️ This used to hardcode ['netease','qq','kugou','qishui'] and therefore MISSED Spotify, even
+  //    though the logout modal handles Spotify explicitly and hasAnyPlatformLogin() counts it. A
+  //    Spotify-only session scored 0 here, which in turn disabled dual-account mode (both call sites
+  //    below compare it against 2). The set now comes from the registry's login capability.
+  return providerRegistryKeysWith('login').filter(function (key) { return hasPlatformLogin(key); }).length;
 }
 function updateUserModalUi() {
   activeAccountProvider = firstLoggedProvider();

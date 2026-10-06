@@ -1,2 +1,28 @@
-version: 2.2.0
-releaseDate: '2026-09-07T03:56:08.000Z'
+## 备用更新线路的极简版本说明（Release 资产名：latest.yml）
+## Minimal version manifest for the fallback update path (published as the `latest.yml` asset).
+##
+## 谁读它：server/server.js 的 fetchLatestYmlUpdateInfo()。当 GitHub API 取不到 Release
+## （限流 / 网络 / 404）时，客户端去
+##   https://github.com/<owner>/<repo>/releases/latest/download/latest.yml
+## 取这个文件，只解析 version 与 releaseDate 两个标量。前端只用 latestVersion 显示版本号，
+## releaseDate 仅作人类可读记录。
+## Who reads it: fetchLatestYmlUpdateInfo() in server/server.js, when the GitHub API is unavailable
+## (rate limit / network / 404). Only the `version` and `releaseDate` scalars are parsed.
+##
+## 绝对不要加入 files / path / url / sha512 字段，也不要改用打包工具生成的 dist/latest.yml。
+## 那套字段加上 Release 里的 .blockmap 就是 electron-updater 的完整自动更新源，任何
+## electron-builder 生态的客户端或第三方工具都能据此静默下载并安装，绕过这里「只提示、
+## 由用户自行前往网盘下载」的设计。本文件缺少这些字段时，那种自动下载在物理上无法发生。
+## Never add files / path / url / sha512, and never swap in the builder-generated
+## dist/latest.yml. Those fields plus the .blockmap asset form a complete electron-updater
+## feed that any electron-builder-based client could use to download and install silently,
+## bypassing the deliberate "notify only, user downloads from the mirror themselves" design.
+## Without them, that automatic download is physically impossible.
+##
+## 发版时 version 必须与 package.json 的 version 一致。曾经漏改过一次：本文件停在 2.2.0
+## 而包版本已到 2.4.3，于是备用线路读到「没有新版本」，静默失效且无任何报错。现在
+## scripts/quick-check.js 有守卫钉住这条一致性（release.yml 的 test 阶段会跑它）。
+## `version` must match package.json. It was once left at 2.2.0 while the package had reached
+## 2.4.3, so the fallback path silently reported "up to date". A quick-check guard now pins it.
+version: 2.5.0
+releaseDate: '2026-10-06T03:45:22.433Z'

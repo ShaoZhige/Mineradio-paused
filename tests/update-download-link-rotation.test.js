@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const serverSource = fs.readFileSync(path.join(root, 'server', 'server.js'), 'utf8');
 const uiSource = fs.readFileSync(path.join(root, 'public/js/modules/08-account/00-update-preview.js'), 'utf8');
 const releaseUrl = 'https://example.invalid/releases/v2.2.0';
 const oldUrl = 'https://example.invalid/retired-download';

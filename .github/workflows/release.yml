@@ -78,6 +78,17 @@ jobs:
         run: npm run build:win -- --publish never
       - name: 校验打包产物
         run: node scripts/verify-package.js
+      - name: 用仓库内的极简版本说明覆盖打包工具生成的更新清单
+        # electron-builder 会在 dist/ 生成带 files[].url / sha512 / path 的 latest.yml，那是
+        # electron-updater 的自动更新源；再配上 .blockmap，任何 electron-builder 生态的客户端
+        # 或第三方工具都能据此静默下载并安装，绕过「只提示、用户自行到网盘下载」的设计。
+        # 用版本控制内的极简文件覆盖掉它（只含 version/releaseDate），并因此不再随附 blockmap。
+        # electron-builder emits a dist/latest.yml carrying files[].url / sha512 / path — an
+        # electron-updater feed. Together with the .blockmap it would let any electron-builder-based
+        # client download and install silently. Overwrite it with the minimal, version-controlled
+        # manifest (version/releaseDate only) and drop the blockmap for the same reason.
+        shell: pwsh
+        run: Copy-Item docs/update/latest.yml dist/latest.yml -Force
       - name: 生成 SHA-256 校验和
         shell: pwsh
         run: |
@@ -91,7 +102,6 @@ jobs:
           path: |
             dist/Mineradio-*-Setup.exe
             dist/latest.yml
-            dist/*.blockmap
             dist/Mineradio-*-SHA256SUMS.txt
           retention-days: 7
 
@@ -129,6 +139,8 @@ jobs:
             echo
             echo "## 下载"
             echo
+            echo "国内用户推荐从阿里云盘下载（不限速）：https://www.alipan.com/s/36YiXCzvuKt"
+            echo
             echo "完整安装包：\`Mineradio-$VERSION-Setup.exe\`"
             echo
             echo "SHA-256 校验文件：\`Mineradio-$VERSION-SHA256SUMS.txt\`"
@@ -136,6 +148,13 @@ jobs:
             echo '```'
             cat "dist/Mineradio-$VERSION-SHA256SUMS.txt"
             echo '```'
+            echo
+            # ⚠️ 这两行必须保留：客户端从正文里解析 `mineradio-download-page` 标记，
+            # 用它构造「网盘下载」入口。清理发布说明时删掉它，软件内的更新入口就会悄悄
+            # 退回成「打开 Release 页面」，不会报错、也没有日志。
+            # ⚠️ The marker below must survive any edit of the release notes: the client parses
+            # `mineradio-download-page` from the body to build its mirror-download entry.
+            echo '<!-- mineradio-download-page: 阿里云盘|https://www.alipan.com/s/36YiXCzvuKt -->'
           } > release-notes.md
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@01570a1f39cb168c169c802c3bceb9e93fb10974 # v2.1.0
@@ -148,5 +167,4 @@ jobs:
           files: |
             dist/Mineradio-*-Setup.exe
             dist/latest.yml
-            dist/*.blockmap
             dist/Mineradio-*-SHA256SUMS.txt

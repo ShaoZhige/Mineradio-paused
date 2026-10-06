@@ -169,6 +169,33 @@ async function addTrackToBuiltInPlaylist(id, track, opts) {
   return result.duplicate ? 'duplicate' : true;
 }
 
+// 批量加入内置歌单：一次 IPC 把整批歌交给主进程，只落盘一次，并回传 added/duplicate/invalid。
+// Bulk add: one IPC call hands the whole batch to the main process, which persists once and
+// reports back the added/duplicate/invalid split for the caller's toast.
+async function addTracksToBuiltInPlaylist(id, tracks, opts) {
+  opts = opts || {};
+  var list = (Array.isArray(tracks) ? tracks : []).filter(function (song) { return !!song; });
+  if (!list.length) return { ok: false, added: 0, duplicate: 0, invalid: 0, overflow: 0 };
+  if (!builtInPlaylistApiAvailable() || typeof window.desktopWindow.addBuiltInPlaylistTracks !== 'function') {
+    if (typeof showToast === 'function') showToast(builtInPlaylistsText('track_builtin_add_failed'));
+    return { ok: false, added: 0, duplicate: 0, invalid: 0, overflow: 0 };
+  }
+  var result = await window.desktopWindow.addBuiltInPlaylistTracks(String(id || ''), list);
+  if (!result || result.ok !== true) {
+    if (typeof showToast === 'function') showToast(builtInPlaylistErrorMessage(result, builtInPlaylistsText('track_builtin_add_failed')));
+    return { ok: false, added: 0, duplicate: 0, invalid: 0, overflow: 0 };
+  }
+  applyBuiltInPlaylistSnapshot(result, { preserveScroll: true, reason: 'built-in-playlist-add-tracks' });
+  return {
+    ok: true,
+    added: Number(result.added) || 0,
+    duplicate: Number(result.duplicate) || 0,
+    invalid: Number(result.invalid) || 0,
+    overflow: Number(result.overflow) || 0,
+    playlist: result.playlist || null
+  };
+}
+
 async function removeTrackFromBuiltInPlaylist(id, index) {
   if (!builtInPlaylistApiAvailable() || typeof window.desktopWindow.removeBuiltInPlaylistTrack !== 'function') return false;
   var result = await window.desktopWindow.removeBuiltInPlaylistTrack(String(id || ''), Number(index));

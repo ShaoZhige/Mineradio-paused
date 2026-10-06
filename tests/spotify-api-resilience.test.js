@@ -48,7 +48,7 @@ async function run() {
   process.env.SPOTIFY_CLIENT_ID = validClientId;
   delete process.env.SPOTIFY_CLIENT_SECRET;
 
-  const spotify = require('../spotify-api');
+  const spotify = require('../server/spotify-api');
   const runtime = spotify._test;
   try {
     assert.throws(

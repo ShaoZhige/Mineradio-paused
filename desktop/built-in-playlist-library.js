@@ -8,7 +8,7 @@ const MAX_PLAYLISTS = 100;
 const MAX_TRACKS_PER_PLAYLIST = 5000;
 const MAX_INDEX_BYTES = 32 * 1024 * 1024;
 const MAX_TRACK_BYTES = 48 * 1024;
-const ALLOWED_PROVIDERS = new Set(['netease', 'qq', 'kugou', 'qishui', 'local']);
+const ALLOWED_PROVIDERS = new Set(['netease', 'qq', 'kugou', 'qishui', 'local', 'spotify']);
 
 const TRACK_FIELDS = [
   'provider', 'source', 'type', 'id', 'providerSongId', 'provider_song_id', 'trackId', 'track_id',
@@ -21,6 +21,7 @@ const TRACK_FIELDS = [
   'localKey', 'localFileId', 'localUrl', 'localPath', 'localMissing', 'hasLyric', 'lyricSource',
   'vipRequired', 'needVip', 'onlyVipPlayable', 'only_vip_playable',
   'privilege', 'Privilege', 'mediaPrivilege', 'media_privilege',
+  'spotifyId', 'spotifyUri', 'uri', 'previewUrl', 'restriction',
 ];
 
 function cleanText(value, fallback = '', maxLength = 1000) {
@@ -30,7 +31,7 @@ function cleanText(value, fallback = '', maxLength = 1000) {
 
 function normalizeProvider(song) {
   const source = cleanText(song && (song.provider || song.source || song.type), '', 32).toLowerCase();
-  if (source === 'spotify' || song && (song.spotifyId || song.spotifyUri)) return 'unsupported';
+  if (source === 'spotify' || song && (song.spotifyId || song.spotifyUri)) return 'spotify';
   if (source === 'local' || song && (song.localFileId || song.localKey || song.localUrl)) return 'local';
   if (source === 'qq') return 'qq';
   if (source === 'kugou' || song && (song.hash || song.fileHash || song.audioHash)) return 'kugou';
@@ -65,6 +66,7 @@ function trackIdentity(track) {
   else if (provider === 'qq') value = track.mid || track.songmid || track.id;
   else if (provider === 'kugou') value = track.hash || track.fileHash || track.audioHash || track.id;
   else if (provider === 'qishui') value = track.id || track.providerSongId || track.trackId || track.track_id;
+  else if (provider === 'spotify') value = track.spotifyId || track.providerSongId || track.id;
   else value = track.id;
   value = cleanText(value, '', 512);
   return value ? `${provider}:${provider === 'kugou' ? value.toLowerCase() : value}` : '';
@@ -82,7 +84,7 @@ function sanitizeTrack(source) {
   });
   track.provider = provider;
   track.source = provider;
-  if (!track.type) track.type = provider === 'local' ? 'local' : (provider === 'qq' ? 'qq' : 'song');
+  if (!track.type) track.type = provider === 'local' ? 'local' : (provider === 'qq' ? 'qq' : (provider === 'spotify' ? 'spotify' : 'song'));
   track.name = cleanText(track.name || track.title, '未知歌曲', 1000);
   track.title = cleanText(track.title || track.name, track.name, 1000);
   track.artist = cleanText(track.artist, provider === 'local' ? '本地文件' : '未知歌手', 1000);
@@ -254,6 +256,44 @@ class BuiltInPlaylistLibrary {
       playlist.tracks.push(track);
       playlist.updatedAt = Date.now();
       return { playlist: this.summary(playlist), added: true };
+    });
+  }
+
+  // 批量加入：与 addTrack 共用同一次 mutate，只落盘一次。
+  // 逐条 addTrack 会为每首歌各写一次索引文件，几十首就是几十次全量重写；这里把去重与上限判断
+  // 放进同一个 worker，最终只持久化一次。重复的按 identity 跳过，不视为失败。
+  // Bulk add shares one mutate with addTrack so the index is written once instead of once per
+  // track. Dedupe and the per-playlist cap both happen inside that single worker; a duplicate is
+  // counted and skipped rather than treated as an error.
+  addTracks(id, sources) {
+    const list = Array.isArray(sources) ? sources.slice(0, MAX_TRACKS_PER_PLAYLIST) : [];
+    const tracks = [];
+    let invalid = 0;
+    for (const source of list) {
+      const track = sanitizeTrack(source);
+      if (!track) { invalid += 1; continue; }
+      tracks.push(track);
+    }
+    // 一首都入不了库时直接返回、不落盘：一次 persist 就是一次全量重写，没东西可写就别写。
+    // Nothing survives sanitising means nothing to store: a persist is a full rewrite of the index,
+    // so an empty batch must not touch the file at all.
+    if (!tracks.length) {
+      return Promise.resolve({ ...this.listSync(), playlist: null, added: 0, duplicate: 0, invalid, overflow: 0 });
+    }
+    return this.mutate((next) => {
+      const playlist = next.find((item) => item.id === cleanText(id, '', 64).toLowerCase());
+      if (!playlist) throw Object.assign(new Error('BUILT_IN_PLAYLIST_NOT_FOUND'), { code: 'BUILT_IN_PLAYLIST_NOT_FOUND' });
+      let added = 0;
+      let duplicate = 0;
+      let overflow = 0;
+      for (const track of tracks) {
+        if (playlist.tracks.some((item) => item.builtInIdentity === track.builtInIdentity)) { duplicate += 1; continue; }
+        if (playlist.tracks.length >= MAX_TRACKS_PER_PLAYLIST) { overflow += 1; continue; }
+        playlist.tracks.push(track);
+        added += 1;
+      }
+      if (added) playlist.updatedAt = Date.now();
+      return { playlist: this.summary(playlist), added, duplicate, invalid, overflow };
     });
   }
 

@@ -32,8 +32,8 @@ process.env.QISHUI_CLIENT_DIR = EMPTY_CLIENT_DIR;
 process.env.HOMEDRIVE = SANDBOX.slice(0, 2);
 process.env.HOMEPATH = SANDBOX.slice(2);
 
-const qishui = require('../qishui-api');
-const bridge = require('../qishui-client-bridge');
+const qishui = require('../server/qishui-api');
+const bridge = require('../server/qishui-client-bridge');
 
 function withHttpsMock(handler, task) {
   const original = https.request;
@@ -228,9 +228,9 @@ function testRevokeDropsTheLocalAuthorization() {
 
 function testSignaturesAreNeverHardcoded() {
   // 签名头由官方 SDK 生成，模块自身不得出现签名头名或高熵字面量：任何硬编码的签名值都会在这里露馅。
-  const bridgeSource = stripComments(fs.readFileSync(path.join(ROOT, 'qishui-client-bridge.js'), 'utf8'));
+  const bridgeSource = stripComments(fs.readFileSync(path.join(ROOT, 'server', 'qishui-client-bridge.js'), 'utf8'));
   assert.strictEqual(/X-Helios|X-Medusa/.test(bridgeSource), false, '签名头只能来自 SDK 返回值，不能在代码里写死');
-  const apiSource = stripComments(fs.readFileSync(path.join(ROOT, 'qishui-api.js'), 'utf8'));
+  const apiSource = stripComments(fs.readFileSync(path.join(ROOT, 'server', 'qishui-api.js'), 'utf8'));
   assert.strictEqual(/X-Helios|X-Medusa/.test(apiSource), false, 'qishui-api 不得自行拼装签名头');
   const entitlementLiterals = (bridgeSource.match(/['"][A-Za-z0-9+/=_-]{40,}['"]/g) || []);
   assert.deepStrictEqual(entitlementLiterals, [], '桥接模块不得内嵌任何长签名/密钥字面量');

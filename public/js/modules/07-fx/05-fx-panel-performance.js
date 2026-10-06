@@ -188,6 +188,8 @@ function updatePerformanceControls() {
   });
   var liveBackgroundKeepToggle = document.getElementById('t-liveBackgroundKeep');
   if (liveBackgroundKeepToggle) liveBackgroundKeepToggle.classList.toggle('on', fx.liveBackgroundKeep === true);
+  var beatAnalysisToggle = document.getElementById('t-beatAnalysis');
+  if (beatAnalysisToggle) beatAnalysisToggle.classList.toggle('on', fx.beatAnalysis === true);
 }
 var SONIC_ORIGINAL_FX_CONTROL_IDS = [
   'fx-sonic-ground-section', 'fx-sonicamp', 'fx-sonicspeed', 'fx-sonicdensity', 'fx-sonicrange', 'fx-soniclower', 'fx-sonicdepth', 'fx-sonicautorotate',
@@ -433,6 +435,8 @@ function updateFxInputs() {
   if (shelfMergeToggle) shelfMergeToggle.classList.toggle('on', fx.shelfMergeCollections === true);
   var liveBackgroundKeepToggle = document.getElementById('t-liveBackgroundKeep');
   if (liveBackgroundKeepToggle) liveBackgroundKeepToggle.classList.toggle('on', fx.liveBackgroundKeep === true);
+  var beatAnalysisToggle = document.getElementById('t-beatAnalysis');
+  if (beatAnalysisToggle) beatAnalysisToggle.classList.toggle('on', fx.beatAnalysis === true);
   var sonicFloatingToggle = document.getElementById('t-sonicGroundFloatingEnabled');
   if (sonicFloatingToggle) sonicFloatingToggle.classList.toggle('on', fx.sonicGroundFloatingEnabled !== false);
   var sonicAudioToggle = document.getElementById('t-sonicAudioMonitorEnabled');
@@ -770,7 +774,11 @@ function ensureLyricPrimaryControls() {
     't-lyricGlow',
     't-lyricGlowBeat',
     't-lyricGlowParticles',
-    't-backgroundStarRiver',
+    // 背景星河不在这里：它是预设自带的背景层，归在画面级开关里（见 index.html 的 #fx-overlay-fold
+    // 开关池，以及控制台布局的 motion→base 分组）。放进这个列表会把它和歌词开关混在同一个 grid 里。
+    // The background star river is deliberately absent: it is a preset-owned background layer and sits
+    // with the scene-level switches (the #fx-overlay-fold pool in index.html and the console's
+    // motion -> base group). Listing it here would file it among the lyric switches in one grid.
     't-lyricVerticalFloat',
     't-lyricPauseHold'
   ].forEach(function (id) { moveToggleToGrid(id, grid); });

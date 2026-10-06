@@ -41,7 +41,10 @@ jobs:
       - name: Check relative links
         run: |
           errors=0
-          for f in README.md RELEASE.md SECURITY.md; do
+          # 仓库只保留这几份对外文档；脚本里的清单要跟着走，指向已删文件会让这一步静默空转。
+          # Keep this list in step with the docs that still exist: naming a deleted file makes the
+          # step a silent no-op.
+          for f in README.md; do
             echo "=== $f ==="
             grep -oP '\(\./[^)]+' "$f" | while read -r link; do
               link="${link#(}"

@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
+const portablePaths = require('./portable-paths');
 
 const isWin = process.platform === 'win32';
 const SYSTEM_PURGE_AVAILABLE = isWin && process.env.MINERADIO_DISABLE_SYSTEM_MEMORY_PURGE !== '1';
@@ -123,10 +124,10 @@ let extendedCache = { at: 0, data: null };
 let nativeTempPath = '';
 
 function defaultNativeTempPath() {
-  const configured = String(process.env.MINERADIO_NATIVE_TEMP_DIR || '').trim();
-  if (configured) return path.resolve(configured);
-  const localRoot = String(process.env.LOCALAPPDATA || process.env.APPDATA || os.tmpdir()).trim();
-  return path.join(localRoot, 'Mineradio', 'native-helper-temp');
+  // 兜底也留在软件目录内：环境变量缺失时不再往 %LOCALAPPDATA%\Mineradio 建目录。
+  // The fallback stays inside the app folder too: a missing variable no longer creates a
+  // %LOCALAPPDATA%\Mineradio directory.
+  return portablePaths.resolveNativeTempDir();
 }
 
 function setNativeTempPath(value) {
