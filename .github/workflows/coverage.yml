@@ -25,7 +25,13 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
       - run: npm ci
-      - name: Run tests with coverage
+      # 覆盖率在这里是**报告**，不是门禁：这条步骤的产物是上传的 coverage-report 工件，
+      # 没有覆盖率门槛（仓库里也没有覆盖率阈值配置）。步骤名写明 report only，
+      # 免得有人看到 "Coverage ✓" 以为存在一条覆盖率红线。
+      # Coverage here is a REPORT, not a gate: the step's product is the uploaded coverage-report
+      # artifact and there is no threshold configured anywhere. The step name says so, so a green
+      # "Coverage" is not mistaken for a coverage floor being enforced.
+      - name: Run tests with coverage (report only)
         run: node --experimental-test-coverage scripts/run-ci-tests.js
         continue-on-error: true
       - name: Upload coverage report

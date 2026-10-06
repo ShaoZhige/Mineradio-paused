@@ -109,10 +109,28 @@ function updateCuefieldAutoMixUi(status) {
     : cuefieldAutomixIntegrationText('cue_automix_desc');
 }
 
+// 描述符本身很小（一个代理 URL + 过期时刻），但此前只在读取时判 TTL、过期条目从不删除，
+// 于是键数会随播放过的歌单调增长。这里过期即删，并给键数一个上界。
+// The descriptor is tiny (a proxy URL plus an expiry), but the map only checked the TTL on read and
+// never dropped expired entries, so its key count grew with every song played. Expired entries are
+// now removed on access, and the key count is capped.
+var CUEFIELD_AUDIO_DESCRIPTOR_LIMIT = 16;
+function pruneCuefieldAudioDescriptorCache() {
+  var keys = Object.keys(cuefieldAudioDescriptorCache);
+  var now = Date.now();
+  keys.forEach(function (key) {
+    var entry = cuefieldAudioDescriptorCache[key];
+    if (!entry || entry.expiresAt <= now) delete cuefieldAudioDescriptorCache[key];
+  });
+  keys = Object.keys(cuefieldAudioDescriptorCache);
+  var excess = keys.length - CUEFIELD_AUDIO_DESCRIPTOR_LIMIT;
+  for (var i = 0; i < excess; i++) delete cuefieldAudioDescriptorCache[keys[i]];
+}
 function cuefieldAutoMixAudioDescriptor(song) {
   var key = cuefieldSongKey(song);
   var cached = key && cuefieldAudioDescriptorCache[key];
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached);
+  if (cached) delete cuefieldAudioDescriptorCache[key];
   return Promise.resolve(typeof fetchBeatPrefetchAudioUrl === 'function' ? fetchBeatPrefetchAudioUrl(song) : null).then(function (proxyUrl) {
     if (!proxyUrl) return null;
     var descriptor = {
@@ -120,7 +138,9 @@ function cuefieldAutoMixAudioDescriptor(song) {
       playbackData: { url: proxyUrl, source: songProviderKey(song), level: '' },
       expiresAt: Date.now() + 4 * 60 * 1000
     };
-    if (key) cuefieldAudioDescriptorCache[key] = descriptor;
+    if (!key) return descriptor;
+    cuefieldAudioDescriptorCache[key] = descriptor;
+    pruneCuefieldAudioDescriptorCache();
     return descriptor;
   });
 }

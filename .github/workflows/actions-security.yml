@@ -34,7 +34,17 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Run actionlint
+      # actionlint 保持 advisory（continue-on-error）是**刻意的**，不是忘了摘：
+      # 它除了校验 YAML 结构，还会对 `run:` 块跑 shellcheck，而本机没有可复现的运行方式
+      # （无 docker、无 actionlint 二进制），因此无法证明"摘掉之后它一定绿"。
+      # 按本仓库的惯例，**证明不了能红的检查就不当门禁**，只标注为参考。
+      # 真正提供安全信号的是下面的 zizmor 步骤（结果以 SARIF 进 Security 标签页）。
+      # actionlint stays advisory ON PURPOSE, not by neglect: besides YAML structure it shellchecks
+      # every `run:` block, and there is no reproducible way to run it here (no docker, no actionlint
+      # binary), so "it would pass if we removed continue-on-error" cannot be proven. This repo's rule
+      # is that a check which cannot be proven able to fail does not get to gate. The real security
+      # signal comes from the zizmor step below, whose findings land in the Security tab via SARIF.
+      - name: Run actionlint (advisory)
         uses: docker://rhysd/actionlint:latest
         with:
           args: -color

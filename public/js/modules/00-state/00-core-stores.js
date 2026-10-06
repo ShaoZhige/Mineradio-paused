@@ -228,6 +228,11 @@ var playbackQuality = getProviderPlaybackQuality('netease');
 var audioOutputDeviceId = readAudioOutputDevicePreference();
 var audioOutputDevices = [];
 var audioInputDevices = [];
+// 设备枚举与热插拔监听都推迟到输出设备界面首次可见（启动时枚举会拉起 Video Capture Service）。
+// Device enumeration and the hot-plug listener both wait for the output-device UI's first
+// reveal; enumerating at boot spawns the Video Capture Service.
+var audioOutputDevicesLoaded = false;
+var audioOutputDeviceChangeBound = false;
 var audioOutputMirrorDeviceIds = readAudioOutputMirrorPreference();
 var audioInputBridgeState = readAudioInputBridgePreference();
 var audioOutputMirrorElements = {};

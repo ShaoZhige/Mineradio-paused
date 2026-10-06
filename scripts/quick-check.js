@@ -491,14 +491,74 @@ function runQishuiProviderDistributionRegressionCheck() {
   process.stdout.write(result.stdout || '');
 }
 
-function parseCombinedIndexModules() {
-  logStep('Combined index module parse');
+function readIndexModulePaths() {
   const publicDir = path.join(appRoot, 'public');
   const loaderPath = path.join(publicDir, 'js', 'index-loader.js');
   const loader = fs.readFileSync(loaderPath, 'utf8');
   const match = loader.match(/const modulePaths = \[([\s\S]*?)\];/);
   if (!match) fail('modulePaths not found in public/js/index-loader.js');
-  const modulePaths = [...match[1].matchAll(/'([^']+)'/g)].map(m => m[1]);
+  return { publicDir, loader, modulePaths: [...match[1].matchAll(/'([^']+)'/g)].map(m => m[1]) };
+}
+
+function checkIndexModuleRegistrationGuard() {
+  logStep('Index module registration guard');
+  const { publicDir, loader, modulePaths } = readIndexModulePaths();
+  // 漏登记不会报错、不会红测试、控制台也不提醒 —— 那个文件就是不会被加载，
+  // 所以这条判据要盯的就是"模块目录里的每个 .js 都在 modulePaths 里"。
+  // An unregistered module never loads and never complains, so the judgement is set equality
+  // between the module tree on disk and the loader's registration list.
+  // 扫描面只取 js/modules：这是"模块"的约定目录。
+  // public/js/index-loader.js 与 public/js/preload-mode.js 由 index.html 的 <script src> 显式加载，
+  // 不走 modulePaths；public 根下的两个 preset 文件则是**登记了的**（下面的 existsSync 会覆盖它们），
+  // 所以不把"public 根下每个 .js 都必须登记"写进判据 —— 那会把正常的一次性脚本误判成漏登记。
+  // The scan is scoped to js/modules (the module tree by convention). index-loader.js and
+  // preload-mode.js load through index.html's <script src> instead, and every other path in
+  // modulePaths is covered by the existsSync check below — so "all .js at public root must be
+  // registered" is deliberately NOT asserted, as it would flag legitimate one-off scripts.
+  const modulesRoot = path.join(publicDir, 'js', 'modules');
+  const onDisk = [];
+  (function walk(dir) {
+    fs.readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile() && entry.name.endsWith('.js')) {
+          onDisk.push(path.relative(publicDir, full).split(path.sep).join('/'));
+        }
+      });
+  })(modulesRoot);
+  const registered = new Set(modulePaths);
+  const unregistered = onDisk.filter((rel) => !registered.has(rel));
+  if (unregistered.length) {
+    fail(`module files missing from modulePaths (they would never load): ${unregistered.join(', ')}`);
+  }
+  const missingFiles = modulePaths.filter((rel) => !fs.existsSync(path.join(publicDir, rel)));
+  if (missingFiles.length) {
+    fail(`modulePaths entries without a file on disk: ${missingFiles.join(', ')}`);
+  }
+  // 重复登记会让同一个模块执行两次，顶层 var/function 被重复声明（后者静默覆盖前者）。
+  // A duplicate registration executes the module twice and silently re-declares its top-level names.
+  const duplicates = modulePaths.filter((rel, i) => modulePaths.indexOf(rel) !== i);
+  if (duplicates.length) {
+    fail(`modulePaths contains duplicates: ${[...new Set(duplicates)].join(', ')}`);
+  }
+  // 加载模型是"拼成一个 classic script"，没有 import/export；一旦有人在模块里写 ESM 语法，
+  // 整段拼接脚本会直接抛语法错误。
+  // The model concatenates modules into one classic script; ESM syntax anywhere breaks the batch.
+  const esmOffenders = onDisk.filter((rel) => /^\s*(import|export)\s/m.test(fs.readFileSync(path.join(publicDir, rel), 'utf8')));
+  if (esmOffenders.length) {
+    fail(`module files must stay classic scripts (no import/export): ${esmOffenders.join(', ')}`);
+  }
+  if (!/Loading model/.test(loader)) {
+    fail('the loader must keep its loading-model note so the order-sensitivity is not folklore');
+  }
+  console.log(`[OK] All ${onDisk.length} module files are registered exactly once, hold no ESM syntax, and the loader documents the concatenated-script model.`);
+}
+
+function parseCombinedIndexModules() {
+  logStep('Combined index module parse');
+  const { publicDir, modulePaths } = readIndexModulePaths();
   const combined = modulePaths
     .map(modulePath => fs.readFileSync(path.join(publicDir, modulePath), 'utf8'))
     .join('\n');
@@ -3396,6 +3456,13 @@ function checkAudioOutputWorkflowPanelGuard() {
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const qualityText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '00-api-quality-output.js'), 'utf8');
+  // 结构判据一律跑在剥掉注释的代码上：注释里出现 "enumerateDevices()" 这类字样
+  // 会让判据误报（判据不能匹配注释里描述的行为，只能匹配真的行为）。
+  // Structural judgements run on comment-stripped code: an "enumerateDevices()" mention inside a
+  // comment would otherwise trip them. A guard must match what the code does, not what it says.
+  const qualityCode = qualityText
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const modalUtilsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '01-login-modal-utils.js'), 'utf8');
   if (!/id="audio-output-workflow-modal"/.test(indexText) || !/id="audio-output-workflow-body"/.test(indexText) || !/openAudioOutputWorkflowPanel\(\)/.test(indexText)) {
     fail('audio output workflow must have a dedicated derivative modal entry instead of only the compact settings panel');
@@ -3414,7 +3481,55 @@ function checkAudioOutputWorkflowPanelGuard() {
   if (!/\['audio-output-workflow-modal', closeAudioOutputWorkflowPanel\]/.test(modalUtilsText)) {
     fail('audio output workflow modal must close through the shared backdrop modal handler');
   }
-  console.log('[OK] Audio output workflow opens as a dedicated wiring panel and leaves settings compact.');
+  // 启动时不得枚举媒体设备。enumerateDevices() 会让 Chromium 启动 audio+video 设备监视，
+  // 视频侧随之拉起 Video Capture Service 进程（本机实测常驻约 116MB），而默认配置下本应用
+  // 根本不碰摄像头。枚举与热插拔监听都只能发生在"输出设备界面首次可见"之后。
+  // Media devices must not be enumerated at boot: it makes Chromium start audio+video device
+  // monitoring and spawn the Video Capture Service (~116MB measured resident) although this app
+  // never touches a camera by default. Enumeration and the hot-plug listener may only happen after
+  // the output-device UI first becomes visible.
+  const bootBindStart = qualityCode.indexOf('function bindAudioOutputControls(');
+  const revealStart = qualityCode.indexOf('function bindAudioOutputDeviceRevealHook(');
+  if (bootBindStart < 0 || revealStart < 0) {
+    fail('audio output controls must arm a first-reveal hook instead of enumerating during boot');
+  }
+  const bootBindBlock = qualityCode.slice(bootBindStart, revealStart);
+  if (/refreshAudioOutputDevices\(|enumerateDevices|addEventListener\('devicechange'/.test(bootBindBlock)) {
+    fail('boot must not enumerate media devices nor register the hot-plug listener; the reveal hook does it lazily');
+  }
+  // 枚举只允许出现在 refreshAudioOutputDevices 里：判据是"它之前一处都没有"，
+  // 这样新增一个启动期调用点会立刻命中，而不需要维护一份出现次数快照。
+  // Enumeration may only appear inside refreshAudioOutputDevices: the judgement is "none before
+  // it", so a newly added boot-time call site trips immediately without pinning a count.
+  const beforeRefresh = qualityCode.slice(0, qualityCode.indexOf('async function refreshAudioOutputDevices('));
+  if (/enumerateDevices/.test(beforeRefresh)) {
+    fail('enumerateDevices must not appear before refreshAudioOutputDevices');
+  }
+  const ensureBlock = qualityCode.slice(
+    qualityCode.indexOf('function ensureAudioOutputDevicesLoaded('),
+    qualityCode.indexOf('async function refreshAudioOutputDevices(')
+  );
+  if (!/audioOutputDevicesLoaded\) return;/.test(ensureBlock) || !/audioOutputDevicesLoaded = true;/.test(ensureBlock)) {
+    fail('the lazy device load must be one-shot, otherwise every reveal re-enumerates');
+  }
+  if (!/addEventListener\('devicechange'/.test(ensureBlock)) {
+    fail('the device hot-plug listener must be registered by the lazy loader, not at boot');
+  }
+  const panelOpenBlock = qualityCode.slice(
+    qualityCode.indexOf('function openAudioOutputWorkflowPanel('),
+    qualityCode.indexOf('function closeAudioOutputWorkflowPanel(')
+  );
+  if (!/ensureAudioOutputDevicesLoaded\(\);/.test(panelOpenBlock)) {
+    fail('opening the output workflow panel must trigger the lazy device load');
+  }
+  if (!/IntersectionObserver/.test(qualityCode) || !/getElementById\('audio-output-panel'\)/.test(qualityCode)) {
+    fail('the settings section must trigger the lazy load on first reveal (it starts inside an inactive tab)');
+  }
+  const storesText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
+  if (!/var audioOutputDevicesLoaded = false;/.test(storesText) || !/var audioOutputDeviceChangeBound = false;/.test(storesText)) {
+    fail('the lazy-load flags must start false in the shared store');
+  }
+  console.log('[OK] Audio output workflow opens as a dedicated wiring panel, leaves settings compact, and enumerates devices only on first reveal.');
 }
 
 function checkVolumeWheelStepGuard() {
@@ -3486,6 +3601,26 @@ function checkCuefieldAutoMixGuard() {
   }
   if (/id="cuefield-automix-btn"/.test(htmlText) || /#cuefield-automix-btn/.test(cssText)) {
     fail('the transport-bar Cuefield AutoMix button must stay removed now that the switch lives in the DIY panel');
+  }
+  // 上面钉的是静态资源里"按钮必须保持移除"。但仓库里另有两处**休眠**判据曾经反过来要求它存在：
+  // Electron 冒烟 `tests/cuefield-electron-smoke.js` 与实时 QA 脚本 `runtimeQaScript()`。两者从按钮
+  // 被移除那天起就一直是坏的，却没人发现——冒烟没有任何 npm 脚本或工作流引用，实时 QA 只在
+  // `--electron` 模式下跑。两处已改为断言"按钮不在"，并在这里钉住两端，防止那种写法再长回来。
+  // The line above pins the removal in static assets. Two DORMANT checks used to demand the button's
+  // existence instead (the Electron smoke and the live QA script) and had been broken since the day
+  // it was removed, because neither runs in CI. Both now assert absence; this pins that in turn.
+  const cuefieldSmokeText = fs.readFileSync(path.join(appRoot, 'tests', 'cuefield-electron-smoke.js'), 'utf8');
+  // 拆成两段拼接：这样这条守卫不会在自己的源码里匹配到自己写的字面量。
+  // Split the needles so this guard cannot match its own literals in this file.
+  const removedButtonDemands = ['Cuefield AutoMix ' + 'button missing', 'button: ' + '!!button'];
+  if (!/cuefield-automix-btn/.test(cuefieldSmokeText) || !/buttonRemoved:/.test(cuefieldSmokeText)) {
+    fail('tests/cuefield-electron-smoke.js must keep asserting the removed transport button is absent');
+  }
+  if (removedButtonDemands.some((needle) => cuefieldSmokeText.includes(needle))) {
+    fail('tests/cuefield-electron-smoke.js must not require the removed cuefield-automix-btn again');
+  }
+  if (removedButtonDemands.some((needle) => fs.readFileSync(__filename, 'utf8').includes(needle))) {
+    fail('runtimeQaScript() must not require the removed cuefield-automix-btn again');
   }
   if (!/var cuefieldAutoMixEnabled = false/.test(integrationText) || !/CUEFIELD_AUTOMIX_STORE_KEY/.test(integrationText) || !/if \(!cuefieldAutoMixEnabled \|\| !audio/.test(integrationText) || !/function toggleCuefieldAutoMix/.test(integrationText)) {
     fail('Cuefield AutoMix must be opt-in and must not prepare while disabled');
@@ -5449,9 +5584,8 @@ app.whenReady().then(async () => {
       if (runtime && runtime.viewport && !runtime.viewport.adaptiveLoad) failures.push('viewport adaptiveLoad missing');
       if (runtime && runtime.viewport && !(runtime.viewport.adaptiveLoad.avgMs > 0)) failures.push('adaptiveLoad avgMs was not sampled');
       if (!perf || !perf.render) failures.push('perf render snapshot missing');
-      const cuefieldButton = document.getElementById('cuefield-automix-btn');
-      if (!cuefieldButton) failures.push('Cuefield AutoMix button missing');
-      if (cuefieldButton && cuefieldButton.getAttribute('aria-pressed') !== 'false') failures.push('Cuefield AutoMix must default off in a fresh profile');
+      if (document.getElementById('cuefield-automix-btn')) failures.push('Cuefield AutoMix transport button must stay removed now that the switch lives in the DIY panel');
+      if (window.cuefieldAutoMixEnabled !== false) failures.push('Cuefield AutoMix must default off in a fresh profile');
       if (!window.CuefieldAutoMix || typeof window.CuefieldAutoMix.createCuefieldAutoMix !== 'function') failures.push('Cuefield AutoMix core missing');
       if (!window.CuefieldTimelineExecutor || typeof window.CuefieldTimelineExecutor.buildCuefieldTimelineExecution !== 'function') failures.push('Cuefield timeline executor missing');
       if (typeof toggleCuefieldAutoMix !== 'function' || typeof tickCuefieldAutoMix !== 'function') failures.push('Cuefield renderer integration missing');
@@ -7607,6 +7741,67 @@ if (!/fxConsoleItem\('t-windowsGameMode'/.test(workspace)) {
   console.log('[OK] Six task tabs, explicit grouping, scoped history, safe DOM cleanup, search, and responsive styles are wired.');
 }
 
+function checkIdleGuideCanvasReleaseGuard() {
+  logStep('Idle guide canvas release guard');
+  const idleText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '09-idle-toast-libraries.js'), 'utf8');
+  // 判据跑在剥掉注释的代码上：注释里出现函数名会让"不许出现某写法"这类判据误报。
+  // Judgements run on comment-stripped code so a function name mentioned in prose cannot trip them.
+  const idleCode = idleText
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  // 空闲引导画布只在可见期间被绘制（不可见时那一帧只清屏就返回），所以隐藏后必须把后备存储
+  // 收回 1x1，否则一块全屏画布会一直占着，直到下次窗口 resize 才被重新撑开。
+  // The idle guide canvas is only drawn while visible (the hidden branch just clears and returns),
+  // so its backing store has to collapse to 1x1 on hide, otherwise a full-viewport canvas stays
+  // allocated until the next window resize re-inflates it.
+  if (!/function releaseIdleGuideCanvas\(/.test(idleCode)) {
+    fail('the idle guide canvas must be releasable');
+  }
+  const releaseBlock = idleCode.slice(
+    idleCode.indexOf('function releaseIdleGuideCanvas('),
+    idleCode.indexOf('function resizeIdleGuideCanvas(')
+  );
+  if (!/idleGuideCanvas\.width = 1;/.test(releaseBlock) || !/idleGuideCanvas\.height = 1;/.test(releaseBlock)) {
+    fail('the idle guide canvas backing store must collapse to 1x1 when hidden');
+  }
+  if (!/idleGuideParticles = \[\];/.test(releaseBlock)) {
+    fail('the idle guide particle array must be dropped with the canvas');
+  }
+  const visibleBlock = idleCode.slice(
+    idleCode.indexOf('function setIdleGuideVisible('),
+    idleCode.indexOf('function releaseIdleGuideCanvas(')
+  );
+  if (!/releaseIdleGuideCanvas\(\);/.test(visibleBlock)) {
+    fail('hiding the idle guide must release its canvas');
+  }
+  // 隐藏分支必须是幂等的、且不能只在状态翻转时执行：初始 idleGuideVisible 就是 false，
+  // 若那一轮提前返回，画布会一直保持全屏尺寸。
+  // The hidden branch has to be idempotent and must not run only on state flips: the initial
+  // idleGuideVisible is already false, and an early return there leaves the canvas full-size.
+  if (/if \(idleGuideVisible === show\) return;/.test(visibleBlock)) {
+    fail('the idle guide visibility handler must not early-return on an unchanged state');
+  }
+  if (!/if \(!idleGuideCanvasReleased\) return;/.test(visibleBlock) || !/idleGuideCanvasReleased = false;/.test(visibleBlock)) {
+    fail('showing the idle guide again must rebuild the canvas exactly once per hide/show cycle');
+  }
+  // 这条判据必须收窄到 resizeIdleGuideCanvas 内部：同一行文本也出现在 releaseIdleGuideCanvas 里，
+  // 只在文件里全局搜一次的话，"resize 忘了挡"这种回归会被另一处相同写法蒙过去。
+  // This judgement has to be scoped inside resizeIdleGuideCanvas: the very same line also appears in
+  // releaseIdleGuideCanvas, so a whole-file search would let a "resize forgot to bail" regression
+  // pass on the strength of the other copy.
+  const resizeBlock = idleCode.slice(
+    idleCode.indexOf('function resizeIdleGuideCanvas('),
+    idleCode.indexOf('function projectIdleGuidePoint(')
+  );
+  if (!/if \(!idleGuideCanvas \|\| idleGuideCanvasReleased\) return;/.test(resizeBlock)) {
+    fail('resizeIdleGuideCanvas must bail while the canvas is released, or a resize re-inflates it');
+  }
+  if (!/var idleGuideCanvasReleased = false;/.test(idleCode)) {
+    fail('the idle guide release flag must start false');
+  }
+  console.log('[OK] The idle guide canvas releases its full-screen backing store while hidden and rebuilds it on show, resilient to the initial hidden state.');
+}
+
 function checkFirstLaunchDefaultsAndSplashGuard() {
   logStep('First-launch defaults and splash timing guard');
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
@@ -7615,6 +7810,7 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
   const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
   const fxArchiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const splashText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '03-splash.js'), 'utf8');
+  const splashCode = splashText.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const css = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const marker = 'var fxDefaults = ';
   const start = defaultsText.indexOf(marker);
@@ -7693,7 +7889,86 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
     || !/\.user-archive-tools \.fx-mini-btn\s*\{[\s\S]{0,180}width:\s*100%;[\s\S]{0,160}white-space:\s*nowrap/.test(css)) {
     fail('user archive actions must stay in one balanced three-column row');
   }
-  console.log(`[OK] ${keys.length} captured defaults match; splash motion is 5.2s/4.2s while entry stays ready at 1.5s/0.65s; archive actions stay in one row.`);
+  // 启动画面结束后必须释放渲染资源：它不会重播，否则一个活的 WebGL 上下文 + 一块全屏画布
+  // 会一直占着内存。关键是"两条收尾路径都要释放"，且释放后 resize 不能把它重新撑回来。
+  // The splash must release its render resources once gone: it never replays, so a live WebGL
+  // context plus a full-viewport canvas would stay allocated forever. Both dismissal paths have to
+  // release, and a later resize must not re-inflate what was released.
+  if (!/function releaseSplashRenderResources\(/.test(splashCode)) {
+    fail('the splash must release its render resources on dismissal');
+  }
+  const releaseBlock = splashCode.slice(
+    splashCode.indexOf('function releaseSplashRenderResources('),
+    splashCode.indexOf('function dismissSplash(')
+  );
+  if (!/WEBGL_lose_context/.test(releaseBlock) || !/loseContext\(\)/.test(releaseBlock)) {
+    fail('the splash WebGL context must be explicitly released, not just dereferenced');
+  }
+  if (!/removeEventListener\('resize', splashResizeHandler\)/.test(releaseBlock)) {
+    fail('the splash resize listener must be removed, otherwise a resize re-inflates the canvas');
+  }
+  if (!/splashCanvas\.width = 1;/.test(releaseBlock) || !/splashCanvas\.height = 1;/.test(releaseBlock)) {
+    fail('the splash canvas backing store must collapse to 1x1 on release');
+  }
+  const releaseCalls = (splashCode.match(/releaseSplashRenderResources\(\);/g) || []).length;
+  if (releaseCalls < 2) {
+    fail(`both splash dismissal paths must release resources (found ${releaseCalls} release call)`);
+  }
+  if (!/function resize\(\) \{\s*if \(splashResourcesReleased\) return;/.test(splashCode)) {
+    fail('the splash resize handler must bail out after release');
+  }
+  // 释放标志必须在 IIFE 之前赋值：resize() 在模块执行期就跑过一次，靠 var 提升读到的会是
+  // undefined，语义含糊。
+  // The release flag must be assigned before the IIFE because resize() already runs during module
+  // evaluation and would otherwise read a hoisted undefined.
+  if (splashCode.indexOf('var splashResourcesReleased = false;') > splashCode.indexOf('(function initMineradioSplashCanvas()')) {
+    fail('the splash release flag must be declared before the splash canvas IIFE');
+  }
+  console.log(`[OK] ${keys.length} captured defaults match; splash motion is 5.2s/4.2s while entry stays ready at 1.5s/0.65s; archive actions stay in one row; splash releases its GL context and canvas on dismissal.`);
+}
+
+// 工作流里"永远不会红的检查"必须自述是仅信息，否则读者会把绿灯当成门禁。
+// 判据：凡是带 `continue-on-error: true`，或 run 命令里写了 `|| true` 的步骤，
+// 它最近的 `- name:` / `- uses:` 必须含 "(report only)" 或 "(advisory)"。
+// A check that can never fail has to declare itself, otherwise a green light reads as a gate.
+// Judgement: any step carrying `continue-on-error: true` or a `|| true` in its run command must have
+// its nearest `- name:` / `- uses:` say "(report only)" or "(advisory)".
+function checkWorkflowGatingHonestyGuard() {
+  logStep('Workflow gating honesty guard');
+  const dir = path.join(appRoot, '.github', 'workflows');
+  const declares = /\((report only|advisory)\)/i;
+  const offenders = [];
+  const reportOnly = [];
+  fs.readdirSync(dir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml')).sort().forEach((file) => {
+    const lines = fs.readFileSync(path.join(dir, file), 'utf8').split(/\r?\n/);
+    lines.forEach((line, index) => {
+      const neverFails = /^\s*continue-on-error:\s*true\s*$/i.test(line) || /\|\|\s*true\s*$/.test(line.trim());
+      if (!neverFails) return;
+      // 向上找最近的步骤声明行（`- name:` 或 `- uses:`）——步骤名就在它附近，不会跨到别的步骤。
+      // Walk up to the nearest step declaration; the step name sits right there and cannot belong
+      // to a different step.
+      let label = null;
+      for (let i = index; i >= 0 && index - i <= 6; i -= 1) {
+        const m = lines[i].match(/^\s*-\s*(?:name|uses):\s*(.+?)\s*$/);
+        if (m) {
+          label = m[1];
+          break;
+        }
+      }
+      if (label === null) {
+        offenders.push(`${file}:${index + 1} 无法定位所属步骤名`);
+        return;
+      }
+      if (declares.test(label)) reportOnly.push(`${file} → ${label}`);
+      else offenders.push(`${file}:${index + 1} 步骤「${label}」永不失败却没有标注 (report only)/(advisory)`);
+    });
+  });
+  if (offenders.length) {
+    fail(`decorative CI steps must declare themselves: ${offenders.join(' | ')}`);
+  }
+  // 只有 13 个工作流里有少量仅信息步骤是正常的；这条日志让"哪些是仅信息"一眼可见。
+  // A handful of declared report-only steps is expected; this log makes the inventory visible.
+  console.log(`[OK] Every never-failing step declares itself. Report-only steps: ${reportOnly.length}${reportOnly.length ? ' → ' + reportOnly.join('; ') : ''}.`);
 }
 
 async function main() {
@@ -7721,6 +7996,13 @@ async function main() {
   runVisualPerformanceControlsRegressionCheck();
   runPlatformAccountSyncGuardCheck();
   runHomeDailyRecommendationRegressionCheck();
+  // 注册守卫必须排在 parseCombinedIndexModules 之前：后者会对每条注册做 readFileSync，
+  // 一旦有"注册了但文件不存在"就会先抛 ENOENT 栈，本函数的 missingFiles 判据便永远轮不到执行
+  // （那会让它变成一条不可能失败的检查）。
+  // The registration guard runs BEFORE the combined parse: the parse readFileSyncs every entry, so a
+  // registered-but-absent path would blow up with an ENOENT stack first and this function's
+  // missingFiles judgement would never be reached — i.e. it would be a check that cannot fail.
+  checkIndexModuleRegistrationGuard();
   parseCombinedIndexModules();
   scanForbiddenMarkers();
   checkMainWindowChrome();
@@ -7766,6 +8048,8 @@ async function main() {
   checkShuffleQueueOrderGuard();
   await checkLargePlaylistVirtualizationGuard();
   checkFirstLaunchDefaultsAndSplashGuard();
+  checkIdleGuideCanvasReleaseGuard();
+  checkWorkflowGatingHonestyGuard();
   checkFxConsoleWorkspaceGuard();
   if (runElectron) {
     runElectronRuntimeCheck();

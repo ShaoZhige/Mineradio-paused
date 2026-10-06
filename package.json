@@ -15,6 +15,7 @@
     "test:custom-source-host": "electron tests/custom-source-electron-smoke.js",
     "check:quick": "node scripts/quick-check.js",
     "check:package": "node scripts/verify-package.js",
+    "audit:prod": "node scripts/audit-prod.js",
     "build:win": "electron-builder --win nsis",
     "build:win:dir": "electron-builder --win dir",
     "build:win:internal-beta": "electron-builder --config electron-builder.internal-beta.json --win nsis --publish never"
@@ -106,12 +107,13 @@
     "qrcode": "^1.5.4"
   },
   "overrides": {
-    "axios": "1.18.1",
-    "body-parser": "1.20.6",
+    "axios": "1.20.0",
+    "basic-ftp": "6.2.2",
+    "body-parser": "1.20.8",
     "music-metadata": "11.14.0"
   },
   "devDependencies": {
-    "electron": "^42.4.1",
+    "electron": "^42.11.10",
     "electron-builder": "^26.15.3",
     "rcedit": "^5.0.2"
   }

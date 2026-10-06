@@ -32,6 +32,38 @@ function hasUsableLyricLines(lines) {
 }
 var lyricTranslationFallbackCache = {};
 var lyricTranslationFallbackMissCache = {};
+// 兜底缓存的键含"歌名|歌手|专辑"，长会话里只会不断增加；而 miss 与 pending 两张表
+// 此前的条目永不删除（miss 只在读取时判 TTL、pending 只被置回 false）。
+// 持久化歌词缓存（writePersistentLyricCache）已经承担跨次启动的复用，内存层只需要最近若干条。
+// The fallback keys carry song/artist/album, so they only ever grow across a long session; the miss
+// and pending maps never dropped entries at all. The persistent lyric cache already covers
+// cross-launch reuse, so the in-memory layer only needs the most recent few.
+var LYRIC_FALLBACK_PAYLOAD_LIMIT = 12;
+var LYRIC_FALLBACK_MISS_LIMIT = 128;
+function pruneLyricFallbackCache(cache, limit) {
+  if (!cache) return 0;
+  var keys = Object.keys(cache);
+  var excess = keys.length - limit;
+  if (excess <= 0) return 0;
+  for (var i = 0; i < excess; i++) delete cache[keys[i]];
+  return excess;
+}
+function pruneLyricFallbackCaches() {
+  pruneLyricFallbackCache(lyricPrimaryFallbackCache, LYRIC_FALLBACK_PAYLOAD_LIMIT);
+  pruneLyricFallbackCache(lyricTranslationFallbackCache, LYRIC_FALLBACK_PAYLOAD_LIMIT);
+  pruneLyricFallbackCache(lyricPrimaryFallbackMissCache, LYRIC_FALLBACK_MISS_LIMIT);
+  pruneLyricFallbackCache(lyricTranslationFallbackMissCache, LYRIC_FALLBACK_MISS_LIMIT);
+}
+function rememberLyricFallbackMiss(cache, key) {
+  if (!cache || !key) return;
+  cache[key] = Date.now();
+  pruneLyricFallbackCache(cache, LYRIC_FALLBACK_MISS_LIMIT);
+}
+function rememberLyricFallbackPayload(cache, key, value) {
+  if (!cache || !key) return;
+  cache[key] = value;
+  pruneLyricFallbackCache(cache, LYRIC_FALLBACK_PAYLOAD_LIMIT);
+}
 var lyricQueuePrefetchTimer = 0;
 var lyricQueuePrefetchToken = 0;
 var lyricQueuePrefetchBusy = false;
@@ -250,7 +282,7 @@ async function fetchNeteaseLyricTranslationFallback(song, token, cacheKey) {
     if (token !== trackSwitchToken) return false;
     var translationPayload = buildLyricTranslationPayload(response || {});
     if (!translationPayload.lines.length) {
-      lyricTranslationFallbackMissCache[cacheKey] = Date.now();
+      rememberLyricFallbackMiss(lyricTranslationFallbackMissCache, cacheKey);
       return false;
     }
     cached = {
@@ -259,10 +291,10 @@ async function fetchNeteaseLyricTranslationFallback(song, token, cacheKey) {
       candidateId: candidate.id,
       cachedAt: Date.now()
     };
-    lyricTranslationFallbackCache[cacheKey] = cached;
+    rememberLyricFallbackPayload(lyricTranslationFallbackCache, cacheKey, cached);
     return mergeNeteaseFallbackTranslationsIntoCurrent(song, token, cached, cacheKey);
   } catch (err) {
-    lyricTranslationFallbackMissCache[cacheKey] = Date.now();
+    rememberLyricFallbackMiss(lyricTranslationFallbackMissCache, cacheKey);
     console.warn('[LyricTranslationFallback]', err);
     return false;
   }
@@ -353,12 +385,12 @@ async function fetchNeteasePrimaryLyricFallback(song, token, cacheKey) {
     var candidate = await findNeteaseLyricFallbackCandidate(song);
     if (token !== trackSwitchToken) return false;
     if (!candidate || !candidate.id) {
-      lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+      rememberLyricFallbackMiss(lyricPrimaryFallbackMissCache, cacheKey);
       return false;
     }
     // 搜索命中不足以直接采信，必须再确认是"同名同歌手"，否则宁可保持无歌词。
     if (typeof isSameTitleArtist !== 'function' || !isSameTitleArtist(song, candidate)) {
-      lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+      rememberLyricFallbackMiss(lyricPrimaryFallbackMissCache, cacheKey);
       return false;
     }
     var response = await apiJson('/api/lyric?id=' + encodeURIComponent(candidate.id), { timeoutMs: LYRIC_PRIMARY_FALLBACK_TIMEOUT_MS });
@@ -366,17 +398,17 @@ async function fetchNeteasePrimaryLyricFallback(song, token, cacheKey) {
     var merged = mergeInlineLyricResponseForSong({}, response || {});
     var state = parseLyricResponseToOriginalState(song, merged);
     if (!state.usableLyric) {
-      lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+      rememberLyricFallbackMiss(lyricPrimaryFallbackMissCache, cacheKey);
       return false;
     }
-    lyricPrimaryFallbackCache[cacheKey] = merged;
+    rememberLyricFallbackPayload(lyricPrimaryFallbackCache, cacheKey, merged);
     return adoptNeteasePrimaryLyricFallback(song, merged, token, cacheKey);
   } catch (err) {
-    lyricPrimaryFallbackMissCache[cacheKey] = Date.now();
+    rememberLyricFallbackMiss(lyricPrimaryFallbackMissCache, cacheKey);
     console.warn('[LyricPrimaryFallback]', err);
     return false;
   } finally {
-    lyricPrimaryFallbackPending[cacheKey] = false;
+    delete lyricPrimaryFallbackPending[cacheKey];
   }
 }
 function scheduleNeteasePrimaryLyricFallback(song, token, state) {

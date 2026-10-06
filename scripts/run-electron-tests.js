@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
-// Electron integration test runner.
-// Used by electron-integration.yml when an Electron binary is available (Windows runner).
+// 跨平台回归测试运行器：在 Windows 上再跑一遍 tests/*.test.js（ci.yml 的那一遍跑在 ubuntu 上）。
+// 注意它**不是** Electron 运行器：下面用 `process.execPath` 启动测试，而本脚本由 `node` 调起，
+// 所以运行时是普通 Node。真正跑在 Electron 里的检查是 `npm run test:custom-source-host`。
+// Cross-platform regression runner: a second pass over tests/*.test.js on Windows (ci.yml runs the
+// same suite on ubuntu). NOT an Electron runtime — see the note above about `process.execPath`.
+// The Electron-hosted check is `npm run test:custom-source-host`.
+//
+// 用法：不带参数跑全部；带一个文件名（相对 tests/）只跑那一个，便于本地定位。
+// Usage: no argument runs everything; a single file name (relative to tests/) runs just that one.
 
 const fs = require('node:fs');
 const path = require('node:path');

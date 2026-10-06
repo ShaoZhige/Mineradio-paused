@@ -142,6 +142,25 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(stateVars[0], sandbox);
+// 有界缓存的支持代码：逐函数抽取不会带上它们，缺了就会在写入时抛
+// "rememberLyricFallbackMiss is not defined"。这里显式注入，与 withProviderRegistry 同理。
+// Support code for the bounded caches: per-function extraction never brings them along, so the
+// writes would throw "rememberLyricFallbackMiss is not defined". Injected explicitly, same idea as
+// withProviderRegistry.
+const cacheLimitSource = (source.match(/var LYRIC_FALLBACK_[A-Z_]+ = \d+;/g) || []).join('\n');
+assert(cacheLimitSource.includes('LYRIC_FALLBACK_PAYLOAD_LIMIT'), 'fallback cache limits are missing');
+assert(cacheLimitSource.includes('LYRIC_FALLBACK_MISS_LIMIT'), 'fallback miss cache limit is missing');
+const cacheHelperSource = [
+  'pruneLyricFallbackCache',
+  'pruneLyricFallbackCaches',
+  'rememberLyricFallbackMiss',
+  'rememberLyricFallbackPayload',
+].map((name) => extractFunction(name)).join('\n');
+vm.runInContext(cacheLimitSource, sandbox);
+vm.runInContext(cacheHelperSource, sandbox);
+// 反向验证：这两个常量必须真的取到数字，否则下面的"有界"断言会因为 limit 是 undefined 而失效。
+assert.strictEqual(sandbox.LYRIC_FALLBACK_PAYLOAD_LIMIT, 12, 'payload limit must resolve to a number');
+assert.strictEqual(sandbox.LYRIC_FALLBACK_MISS_LIMIT, 128, 'miss limit must resolve to a number');
 [
   'hasUsableLyricLines',
   'lyricTranslationTextFromAliases',
@@ -357,7 +376,56 @@ function emptyState() {
   assert(/writePersistentLyricCache\(song, merged\)/.test(rescueBlock), 'the rescued lyric is persisted so repeat playback is instant');
   assert(!/lyric_new/.test(rescueBlock), 'the rescue must not re-implement upstream lyric endpoints');
 
-  console.log('netease cloud lyric fallback: 13 checks passed');
+  // 14. 有界：miss 表与 pending 表在长会话里必须封顶，键随歌单调增就是内存泄漏。
+  //     Bounded: the miss and pending maps must cap, otherwise keys grow with every song played.
+  reset();
+  for (let i = 0; i < 400; i += 1) {
+    sandbox.rememberLyricFallbackMiss(sandbox.lyricPrimaryFallbackMissCache, `key-${i}`);
+    sandbox.rememberLyricFallbackPayload(sandbox.lyricPrimaryFallbackCache, `key-${i}`, { i });
+  }
+  const missKeys = Object.keys(sandbox.lyricPrimaryFallbackMissCache);
+  const payloadKeys = Object.keys(sandbox.lyricPrimaryFallbackCache);
+  assert.strictEqual(
+    missKeys.length,
+    sandbox.LYRIC_FALLBACK_MISS_LIMIT,
+    'miss cache must never exceed its limit'
+  );
+  assert.strictEqual(
+    payloadKeys.length,
+    sandbox.LYRIC_FALLBACK_PAYLOAD_LIMIT,
+    'payload cache must never exceed its limit'
+  );
+  // 保留的必须是最近写入的那批，而不是最早的 —— 否则缓存会退化成"永远命中旧条目"。
+  // The survivors must be the most recent inserts, not the oldest.
+  assert.ok(missKeys.includes('key-399'), 'the newest miss key must survive');
+  assert.ok(!missKeys.includes('key-0'), 'the oldest miss key must be evicted');
+  assert.ok(payloadKeys.includes('key-399'), 'the newest payload key must survive');
+  assert.ok(!payloadKeys.includes('key-0'), 'the oldest payload key must be evicted');
+
+  // 15. 源码接线：四处写入都必须经过带边界的辅助函数，pending 必须用 delete 而不是置 false。
+  //     Wiring: all four write sites go through the bounded helpers, and pending uses delete.
+  const boundedBlock = source.slice(
+    source.indexOf('var lyricPrimaryFallbackCache = {};'),
+    source.indexOf('function lyricFallbackTextForSong(')
+  );
+  assert(
+    !/lyricPrimaryFallbackMissCache\[cacheKey\] = Date\.now\(\)/.test(source),
+    'primary miss writes must go through rememberLyricFallbackMiss'
+  );
+  assert(
+    !/lyricTranslationFallbackMissCache\[cacheKey\] = Date\.now\(\)/.test(source),
+    'translation miss writes must go through rememberLyricFallbackMiss'
+  );
+  assert(
+    !/lyricPrimaryFallbackCache\[cacheKey\] = merged;/.test(source),
+    'primary payload writes must go through rememberLyricFallbackPayload'
+  );
+  assert(
+    /delete lyricPrimaryFallbackPending\[cacheKey\];/.test(boundedBlock),
+    'pending entries must be deleted, not left behind as false'
+  );
+
+  console.log('netease cloud lyric fallback: 15 checks passed');
 })().catch((err) => {
   console.error(err && err.stack ? err.stack : err);
   process.exit(1);

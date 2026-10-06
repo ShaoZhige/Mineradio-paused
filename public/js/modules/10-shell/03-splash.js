@@ -46,6 +46,12 @@ var splashDust = [];
 var splashStreaks = [];
 var splashShards = [];
 var splashPixelRatio = 1;
+// 释放标志必须在 IIFE 之前就位：resize() 在模块执行期就会被调用一次，
+// 那时它需要读到确定的 false（靠 var 提升得到的是 undefined，语义含糊）。
+// The release flag is declared before the IIFE because resize() already runs once during module
+// evaluation and must read a definite false there instead of a hoisted undefined.
+var splashResourcesReleased = false;
+var splashResizeHandler = null;
 var splashStartedAt = performance.now();
 var splashSoundPlayed = false;
 var splashAudioCtx = null;
@@ -281,6 +287,7 @@ function drawMineradioSplashWebgl(elapsed) {
     splashCtx = splashCanvas.getContext('2d');
   }
   function resize() {
+    if (splashResourcesReleased) return;
     splashPixelRatio = Math.min(1.6, Math.max(1, window.devicePixelRatio || 1));
     splashW = window.innerWidth;
     splashH = window.innerHeight;
@@ -339,7 +346,8 @@ function drawMineradioSplashWebgl(elapsed) {
     }
   }
   resize();
-  window.addEventListener('resize', resize);
+  splashResizeHandler = resize;
+  window.addEventListener('resize', splashResizeHandler);
   drawMineradioSplash();
 })();
 
@@ -634,6 +642,43 @@ function finishSplashReveal(forceLoad, opts) {
   });
 }
 
+// 启动画面结束后释放它的渲染资源。splash 不会重播（splashAnimating 一旦为 false 就再无
+// 回到 true 的路径），因此留着一个活的 WebGL 上下文 + 一块全屏画布 + 三个粒子数组，
+// 纯属长期白占内存。释放后 drawMineradioSplash 会因为 splashAnimating 为 false 而直接返回。
+// Release the splash's render resources once it is gone. The splash never replays, so keeping a
+// live WebGL context, a full-viewport canvas and three particle arrays alive costs memory for a
+// screen that is already off.
+function releaseSplashRenderResources() {
+  if (splashResourcesReleased) return;
+  splashResourcesReleased = true;
+  // 必须同时注销 resize：否则窗口一变化就有把画布尺寸和粒子数组重新撑回来的路径。
+  // The resize listener has to go too, otherwise a resize re-inflates the canvas and the arrays.
+  if (splashResizeHandler) {
+    window.removeEventListener('resize', splashResizeHandler);
+    splashResizeHandler = null;
+  }
+  if (splashGl) {
+    try {
+      var loseContext = splashGl.getExtension('WEBGL_lose_context');
+      if (loseContext && typeof loseContext.loseContext === 'function') loseContext.loseContext();
+    } catch (e) { }
+  }
+  splashGl = null;
+  splashGlProgram = null;
+  splashGlBuffer = null;
+  splashGlUniforms = null;
+  splashCtx = null;
+  splashDust = [];
+  splashStreaks = [];
+  splashShards = [];
+  if (splashCanvas) {
+    // 缩到 1x1 让浏览器回收后备存储；元素本身留着，避免动到已经排好的样式与过渡。
+    // Shrink to 1x1 so the backing store can be reclaimed; the element stays in place so the
+    // already-scheduled styles and transitions are untouched.
+    splashCanvas.width = 1;
+    splashCanvas.height = 1;
+  }
+}
 function dismissSplash(opts) {
   opts = opts || {};
   var s = document.getElementById('splash');
@@ -651,6 +696,7 @@ function dismissSplash(opts) {
     document.body.classList.remove('splash-active');
     document.body.classList.remove('splash-revealing');
     revealIdleParticles(0, 520);
+    releaseSplashRenderResources();
     finishSplashReveal(true, { fastSkip: true, reason: 'fast-skip' });
     return;
   }
@@ -676,6 +722,7 @@ function dismissSplash(opts) {
     document.body.classList.remove('splash-active');
     document.body.classList.remove('splash-revealing');
     if (s && s.parentNode) s.style.display = 'none';
+    releaseSplashRenderResources();
     finishSplashReveal(true, { reason: 'splash-dismiss' });
   }, 620);
 }

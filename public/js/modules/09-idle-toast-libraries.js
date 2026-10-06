@@ -4,6 +4,9 @@ var idleGuideCtx = null;
 var idleGuideW = 0, idleGuideH = 0, idleGuideDpr = 1;
 var idleGuideParticles = [];
 var idleGuideTrails = [[], [], [], []];
+// 隐藏期间为 true：此时 resize 不得把画布重新撑成全屏（见 releaseIdleGuideCanvas）。
+// True while hidden: resize must not re-inflate the canvas (see releaseIdleGuideCanvas).
+var idleGuideCanvasReleased = false;
 var idleGuideStartedAt = performance.now();
 var idleGuideVisible = false;
 var idleGuideLastFrameAt = performance.now();
@@ -36,8 +39,31 @@ function setIdleGuideVisible(show, interactive) {
   document.body.classList.toggle('idle-guide-on', show);
   document.body.classList.toggle('idle-guide-interactive', !!interactive);
   if (!interactive) document.body.classList.remove('idle-guide-dragging');
-  if (idleGuideVisible === show) return;
   idleGuideVisible = show;
+  // 两个分支都写成幂等动作：可见时"若已释放才重建"，隐藏时"释放（已释放即返回）"。
+  // 不能只在状态翻转时处理 —— 初始 idleGuideVisible 就是 false，那一轮若提前返回，
+  // 画布会一直保持全屏尺寸直到第一次真正的显隐翻转。
+  // Both branches are idempotent: when visible, rebuild only if previously released; when hidden,
+  // release (a no-op once done). Handling only state flips would miss the initial false state and
+  // leave the canvas full-size until the first real transition.
+  if (show) {
+    if (!idleGuideCanvasReleased) return;
+    idleGuideCanvasReleased = false;
+    resizeIdleGuideCanvas();
+    return;
+  }
+  releaseIdleGuideCanvas();
+}
+// 画布只在空闲引导（含书架悬停提示）可见期间有意义，隐藏后释放它占的后备存储与粒子数组。
+// The canvas only matters while the idle guide (including the shelf hover cue) is visible, so its
+// backing store and particle array are released once it hides.
+function releaseIdleGuideCanvas() {
+  if (!idleGuideCanvas || idleGuideCanvasReleased) return;
+  idleGuideCanvasReleased = true;
+  idleGuideParticles = [];
+  resetIdleGuideTrails();
+  idleGuideCanvas.width = 1;
+  idleGuideCanvas.height = 1;
 }
 function shouldShowIdleGuide() {
   if (!IDLE_GUIDE_BACKGROUND_ENABLED) return false;
@@ -125,7 +151,7 @@ function idleGuideWheel(e) {
   return true;
 }
 function resizeIdleGuideCanvas() {
-  if (!idleGuideCanvas) return;
+  if (!idleGuideCanvas || idleGuideCanvasReleased) return;
   idleGuideDpr = Math.min(window.devicePixelRatio || 1, 1.6);
   idleGuideW = window.innerWidth;
   idleGuideH = window.innerHeight;

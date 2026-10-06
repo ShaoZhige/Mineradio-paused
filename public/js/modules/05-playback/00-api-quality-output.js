@@ -556,11 +556,35 @@ function bindAudioOutputControls() {
   bindAudioRouteWorkflowPointerEvents(outputList);
   bindAudioRouteWorkflowPointerEvents(workflowBody);
   renderAudioOutputDeviceUi();
-  refreshAudioOutputDevices(false);
-  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener && !bindAudioOutputControls._deviceChangeBound) {
-    bindAudioOutputControls._deviceChangeBound = true;
-    navigator.mediaDevices.addEventListener('devicechange', function () { refreshAudioOutputDevices(false); });
-  }
+  bindAudioOutputDeviceRevealHook();
+}
+
+// 启动阶段只装一个"界面首次可见"的触发器，不在这里枚举设备。
+// 原因见 ensureAudioOutputDevicesLoaded 的说明。
+// Boot only arms a first-reveal trigger; it does not enumerate here. See
+// ensureAudioOutputDevicesLoaded for why.
+function bindAudioOutputDeviceRevealHook() {
+  var panel = document.getElementById('audio-output-panel');
+  if (!panel || panel._mineradioDeviceRevealBound) return;
+  panel._mineradioDeviceRevealBound = true;
+  var onEnter = function () {
+    panel.removeEventListener('pointerenter', onEnter);
+    ensureAudioOutputDevicesLoaded();
+  };
+  panel.addEventListener('pointerenter', onEnter);
+  if (typeof IntersectionObserver !== 'function') return;
+  // 面板可能一开始在未激活的分区里（display:none），所以用可见性而不是"文档已加载"来触发。
+  // The panel often starts inside an inactive section, hence a visibility trigger rather than
+  // a document-ready one.
+  var observer = new IntersectionObserver(function (entries) {
+    for (var i = 0; i < entries.length; i++) {
+      if (!entries[i].isIntersecting) continue;
+      observer.disconnect();
+      ensureAudioOutputDevicesLoaded();
+      return;
+    }
+  });
+  observer.observe(panel);
 }
 function readAudioOutputDevicePreference() {
   try { return localStorage.getItem(AUDIO_OUTPUT_DEVICE_STORE_KEY) || ''; } catch (e) { return ''; }
@@ -802,10 +826,27 @@ function openAudioOutputWorkflowPanel() {
     renderAudioRouteWorkflowEdges();
     setTimeout(renderAudioRouteWorkflowEdges, 80);
   });
-  refreshAudioOutputDevices(false);
+  ensureAudioOutputDevicesLoaded();
 }
 function closeAudioOutputWorkflowPanel() {
   closeGsapModal(document.getElementById('audio-output-workflow-modal'));
+}
+// 启动时不枚举媒体设备。enumerateDevices() 会让 Chromium 启动 audio+video 设备监视，
+// 视频侧会因此拉起 Video Capture Service 进程 —— 实测常驻约 116MB，而本应用在默认配置下
+// 根本不使用摄像头。这份列表只被输出设备界面读取（见 renderAudioOutputDeviceUi），
+// 因此推迟到界面首次可见时再枚举。设备热插拔监听同理一并推迟。
+// Do not enumerate media devices at boot. enumerateDevices() makes Chromium start audio+video
+// device monitoring, and the video side spawns the Video Capture Service (~116MB resident)
+// while this app never uses a camera in its default configuration. The list is only consumed by
+// the output-device UI, so enumeration (and the hot-plug listener) wait for first reveal.
+function ensureAudioOutputDevicesLoaded() {
+  if (audioOutputDevicesLoaded) return;
+  audioOutputDevicesLoaded = true;
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener && !audioOutputDeviceChangeBound) {
+    audioOutputDeviceChangeBound = true;
+    navigator.mediaDevices.addEventListener('devicechange', function () { refreshAudioOutputDevices(false); });
+  }
+  refreshAudioOutputDevices(false);
 }
 async function refreshAudioOutputDevices(showNotice) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {

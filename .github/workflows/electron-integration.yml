@@ -41,9 +41,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Electron-dependent tests
+      - name: Run Electron host contract tests
+        # 这一步才是真正跑在 Electron 里的检查：`electron tests/custom-source-electron-smoke.js`
+        # 会开出真实 Electron 运行时，验证自定义音源脚本的沙箱边界（globalThis.lx 的全部公开字段、
+        # crypto/buffer/zlib 通道、以及 require/process 确实不可见）。单元测试用的是假的
+        # ipcMain/BrowserWindow，只有这里能证明沙箱本身——`docs/LX_CUSTOM_SOURCE.md` 也是这么写的，
+        # 但在此之前没有任何工作流跑过它。
+        # This is the step that genuinely runs inside Electron and proves the custom-source sandbox
+        # itself (the unit tests use fake ipcMain/BrowserWindow stubs).
+        run: npm run test:custom-source-host
+
+      - name: Run Node test suite on Windows
+        # 注意：这一步**不是** Electron。`scripts/run-electron-tests.js` 用 `process.execPath`
+        # 启动每个 `.test.js`，而它由 `node` 调起，所以运行时是普通 Node（实测探针里
+        # `process.versions.electron` 为 undefined）。它在这里的价值是**跨平台**：
+        # ci.yml 跑的是同一套测试但平台是 ubuntu-latest，而这里有大量 Windows 专属行为
+        # （路径分隔符、PowerShell 帮手的命令行长度上限、壁纸引擎）。步骤名照实写。
+        # Note this step is NOT Electron: the runner spawns every `.test.js` with
+        # `process.execPath`, and `node` invokes it, so the runtime is plain Node. Its value here is
+        # cross-platform coverage — ci.yml runs the same suite on ubuntu-latest.
         run: npm run test:electron
-        continue-on-error: true
 
       - name: Upload test logs on failure
         if: failure()

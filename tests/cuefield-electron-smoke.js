@@ -68,15 +68,24 @@ app.whenReady().then(async () => {
   let result = null;
   while (Date.now() < deadline) {
     result = await win.webContents.executeJavaScript(` + "`" + `(() => {
-      const button = document.getElementById('cuefield-automix-btn');
+      const transportButton = document.getElementById('cuefield-automix-btn');
       const checks = {
         core: !!(window.CuefieldAutoMix && typeof window.CuefieldAutoMix.createCuefieldAutoMix === 'function'),
         timeline: !!(window.CuefieldTimelineExecutor && typeof window.CuefieldTimelineExecutor.buildCuefieldTimelineExecution === 'function'),
         bridge: !!(window.CuefieldBridgeEngine && typeof window.CuefieldBridgeEngine.createCuefieldBridgeEngine === 'function'),
         sourceLoop: !!(window.CuefieldSourceLoop && typeof window.CuefieldSourceLoop.createCuefieldSourceLoop === 'function'),
         integration: typeof window.toggleCuefieldAutoMix === 'function',
-        button: !!button,
-        defaultOff: !!button && button.getAttribute('aria-pressed') === 'false',
+        // 控制栏那个图标按钮已被刻意移除，开关搬进了 DIY 面板的"实验功能"分组，
+        // 所以这里断言的是"它确实不在"。此前这里反过来要求它存在，与 quick-check 的移除守卫
+        // 直接矛盾，从按钮被移除那天起就是坏的 —— 仅因本文件没有任何脚本或工作流引用而无人发现。
+        // The transport-bar icon button was deliberately removed (the switch moved into the DIY
+        // panel), so assert its ABSENCE. This used to demand its existence, which contradicted the
+        // removal guard in quick-check and had been broken since the day the button went away.
+        buttonRemoved: transportButton === null,
+        // 默认关闭。模块被拼进同一个 classic script 且没有 IIFE 包裹，所以顶层 var 就是全局变量。
+        // Defaults off. The modules are concatenated into one classic script with no IIFE wrapper,
+        // so the top-level var is a global.
+        defaultOff: window.cuefieldAutoMixEnabled === false,
       };
       return { ready: Object.values(checks).every(Boolean), checks };
     })()` + "`" + `, true);

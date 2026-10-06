@@ -1,5 +1,32 @@
 'use strict';
 
+// ── 必须知道的加载模型（改这个文件之前先读完）────────────────────────────────
+// 1. 下面每一条路径都会被逐个 XHR 取回文本，然后**拼成一个 classic <script>** 一次性执行
+//    （不是 ES module，没有 import/export）。因此：
+//    - 所有顶层 `function` / `var` 都落在**同一个全局作用域**里，模块之间靠名字互相看见；
+//      这也意味着两个模块用了同名顶层变量会**互相覆盖且不报错**。
+//    - 脚本内不存在 `import`，所以「谁依赖谁」只能靠**顺序**表达。
+// 2. 顺序敏感，以下是**既有约定**，改顺序前先确认：
+//    - i18n 三个模块（13/14/15）排在最前。它们提供 `window.MineradioI18n`，而其它模块的
+//      文案访问器在加载期与运行期都会读它，所以不要往后挪；
+//    - `00-core-stores.js` 要在所有读它那份状态的模块之前；
+//    - 同一目录内按文件名序号排列，新文件请顺着序号往后加。
+// 3. **新增模块必须登记到 `modulePaths`**（位置按上面的顺序规则挑）。
+//    没登记不会报错、不会红测试、控制台也不会提醒 —— 那个文件就是不会被加载。
+//    `scripts/quick-check.js` 的 "Index module registration guard" 会拦住这种漏登记。
+// 4. 模块文件名带 `a`/`b` 后缀（如 `17a-`、`17b-`）表示"插在同序号模块之间的补充模块"，
+//    它们是靠顺序插进去的，不要重命名成整数序号。
+//
+// ── Loading model (read this before editing the file) ────────────────────────
+// Each path below is fetched as text and the pieces are concatenated into ONE classic <script>
+// executed in a single pass — no ES modules, no import/export. So every top-level `function`/`var`
+// lands in the SAME global scope (modules see each other by name, and two modules declaring the
+// same top-level name overwrite each other silently), and dependencies can only be expressed by
+// ORDER. i18n (13/14/15) comes first because other modules may call its copy accessors while
+// loading; `00-core-stores.js` precedes everything that reads its state. A new module file MUST be
+// registered below — an unregistered file does not error, does not fail a test, and does not warn;
+// it simply never loads. quick-check's index module registration guard catches that omission.
+
 (function loadMineradioIndexModules() {
   const moduleCacheBust = String(Date.now());
   const modulePaths = [

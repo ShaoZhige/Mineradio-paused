@@ -21,7 +21,22 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
       - run: npm ci
+      # 生产依赖闸门：`scripts/audit-prod.js` 跑 `npm audit --omit=dev`，只放行白名单里的公告。
+      # 生产树从 11 项（3 中 / 7 高 / 1 严重）降到 1 项，而那一项上游没有修复版
+      # （node-forge 的 RSA PKCS#1 v1.5 验签，公告区间 `<=1.4.0` 而 1.4.0 就是最新版）。
+      # 闸门三个方向都会失败：出现白名单之外的公告、白名单条目过期不再被报告、audit 输出不可解析。
+      # 所以这一步是**真门禁**——它红了一定有动作可做，而不是常量红噪声。
+      # Production gate: `scripts/audit-prod.js` runs `npm audit --omit=dev` and lets through only
+      # the allowlisted advisories. It fails on a new advisory, on a stale allowlist entry, and on
+      # unparseable audit output, so a red here always means there is something to act on.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high || true
-      - name: Audit all dependencies
+        run: node scripts/audit-prod.js
+      # 含 devDependencies 的全量审计仍是**仅信息**步骤，理由是实话：生产树已经由上面那步把关，
+      # 而这一份里绝大多数来自构建链本身（electron-builder → xmldom / brace-expansion / js-yaml /
+      # fast-uri / undici 等），不进产物，且修复要跨大版本升级打包器，得单独排期。
+      # 步骤名自述为 report only，诚实性守卫能识别，且不允许它长成"看起来在把关"的样子。
+      # The full audit (devDependencies included) stays report-only: the production tree is already
+      # gated above, and nearly all of this is the build toolchain, which does not ship. The step
+      # name says so, so nobody mistakes it for a gate.
+      - name: Audit all dependencies (report only)
         run: npm audit --audit-level=critical || true

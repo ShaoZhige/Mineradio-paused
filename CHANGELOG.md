@@ -1,5 +1,79 @@
 # Changelog
 
+## 未发布
+
+本批改动是内部质量整改，不改用户可见行为：降低常驻内存、堵住一个静默失效点、清掉 CI 的"假绿灯"、把生产依赖漏洞从 11 项压到 1 项。
+
+### 内存：常驻占用下降约 17%
+
+- **启动时不再枚举媒体设备。** 此前 `bindAudioOutputControls()` 在启动阶段就调 `navigator.mediaDevices.enumerateDevices()`，Chromium 会因此启动 audio+video 设备监视（日志里的 `MDM::StartMonitoring`），视频侧随之拉起 **Video Capture Service 进程**——实测常驻约 116MB，而本应用在默认配置下根本不碰摄像头，这份设备列表也只有"输出接口"面板可见时才被读取。现在改为**输出设备界面首次可见时**才枚举（`IntersectionObserver` + `pointerenter`），热插拔监听一并推迟。
+  - 实测：媒体设备枚举请求 **2–3 次 → 0 次**，Video Capture Service 进程消失，整棵进程树 **640–650MB → 525–531MB**。
+  - 恢复已选输出设备走 `setSinkId(deviceId)`，不依赖枚举列表，因此延迟枚举不影响"选了哪个输出设备"的记忆。
+- **启动画面结束后释放渲染资源。** splash 不会再播放，此前却一直留着一个活的 **WebGL 上下文**、一块 1280×720 画布和三个粒子数组。现在收尾时 `WEBGL_lose_context.loseContext()` 并清空引用、画布缩到 1×1，**同时注销它的 resize 监听**——否则窗口一变化就会把画布重新撑回来。
+- **空闲引导画布隐藏时缩到 1×1。** 它的绘制本来就完全由可见性控制（不可见那一帧只清屏就返回），但画布一直保持全屏尺寸，且 `resize` 也会把它重新撑开。释放动作写成幂等的"获取/释放"形式，因为初始状态就是隐藏——只在状态翻转时处理会漏掉这一轮。
+- **两族无界缓存加上界。** 歌词兜底缓存（键含歌名/歌手/专辑）此前只增不减，`*MissCache` 与 `lyricPrimaryFallbackPending` 的条目**永不删除**（miss 只在读取时判 TTL、pending 只被置回 `false`）；cuefield 音频描述符缓存同理（只在读取时判 TTL）。现在写入统一走带裁剪的辅助函数（payload 上限 12、miss 上限 128、描述符上限 16），pending 改用 `delete`，描述符过期即删。
+
+### 模块加载：补上说明与漏登记守卫
+
+- `public/js/index-loader.js` 的 114 条 `modulePaths` 此前**一行说明都没有**。现在写清加载模型：所有模块被拼成一个 classic `<script>` 一次执行、顶层声明共享同一全局作用域（同名会互相覆盖且不报错）、依赖只能靠顺序表达、i18n 三个模块排最前、**新增模块必须登记**。
+- 新增守卫 `Index module registration guard`：模块目录下每个 `.js` 必须**恰好登记一次**（漏登记此前不会报错、不红测试、控制台也不提醒，那个文件就是不会被加载）、每条注册都必须有对应文件、模块内不得出现 ESM 语法、加载说明不得被删。
+  - 该守卫排在 `parseCombinedIndexModules()` **之前**：后者对每条注册做 `readFileSync`，"注册了但文件不存在"会先抛 ENOENT 栈，那样守卫里那条判据就永远轮不到执行。
+
+### CI：清掉永不失败的"假绿灯"
+
+- **删除 3 个工作流**：`lint.yml`、`format.yml`、`docs-check.yml`。它们的主步骤都带 `continue-on-error: true`，而仓库里**根本没有** eslint / prettier / markdownlint 配置，也没有对应的 npm 脚本与依赖——`npx eslint .` 必然因找不到配置而报错，然后被 `continue-on-error` 咽掉。留着只会让人以为存在格式与文档检查。顺带说明为什么不"补齐"：本仓库的模块模型是拼接共享全局，`no-undef` 这类基础规则需要手工维护几百个全局名，标准 lint 在这里不可用。
+- **`electron-integration.yml` 的 `continue-on-error: true` 已移除，并纠正了一处错误说法。** 那一步此前被描述成"在 Electron 下跑"——**是错的**：`scripts/run-electron-tests.js` 用 `process.execPath` 启动每个 `.test.js`，而它由 `node` 调起，所以运行时是普通 Node（探针实测 `process.versions.electron` 为 undefined、`execPath` 是 node.exe）。它在这个工作流里的真实价值是**跨平台**：`ci.yml` 跑同一套测试但平台是 ubuntu-latest，而这里有大量 Windows 专属行为（路径分隔符、PowerShell 帮手的命令行长度上限、壁纸引擎）。步骤名已照实写成 `Run Node test suite on Windows`，`run-electron-tests.js` 的头注释也一并纠正。
+- **仅信息步骤一律自述**：`coverage.yml` 的覆盖率步骤、`actions-security.yml` 的 actionlint、以及 `npm-audit.yml` 里含 devDependencies 的那份全量审计，步骤名分别标注 `(report only)` / `(advisory)`。其中 actionlint 保持 advisory 是**刻意**的——它还会对 `run:` 块跑 shellcheck，而这里无法复现运行，证明不了"摘掉注释后它一定绿"；仓库的规矩是**证明不了能红的检查不当门禁**。生产依赖那份审计没有停在自述上，它已经改成真门禁（见下节）。
+- 新增守卫 `Workflow gating honesty guard`：凡带 `continue-on-error: true` 或 run 命令里写了 `|| true` 的步骤，步骤名必须自述是 `(report only)` / `(advisory)`，否则直接失败。防止这类装饰性检查再长回来。
+
+### 依赖漏洞：生产树 11 项 → 1 项，剩下那条上游没有修复版
+
+`npm audit --omit=dev` 此前报告 **3 中 / 7 高 / 1 严重**，全部由上游 `NeteaseCloudMusicApi` 传递带入。逐条查清后的处置：
+
+| 包 | 受影响区间 | 处置 |
+| --- | --- | --- |
+| `proxy-addr` | `<=2.0.7` | 非破坏性升级修掉（含那条严重项：IPv4-mapped IPv6 信任子网 IP 伪造） |
+| `axios` | `1.0.0 - 1.19.0` | override 由 1.18.1 提到 **1.20.0** |
+| `body-parser` | `1.20.5 - 1.20.6` | override 由 1.20.6 提到 **1.20.8** |
+| `qs` | `<6.16.0` | 随 body-parser 1.20.8 一并解决 |
+| `basic-ftp` | `<=6.2.0` | override 到 **6.2.2** |
+| `node-forge` | `<=1.4.0` | **上游无修复版** |
+
+- **旧 override 反而把版本钉在了漏洞区间里。** 上一轮处理公告的方式是把 `axios` 钉到 1.18.1、`body-parser` 钉到 1.20.6，而本次公告的受影响区间分别是 `1.0.0-1.19.0` 与 `1.20.5-1.20.6`——两个 pin 都落在区间内部。这是"照上一轮公告钉版本"的固有漂移：**公告会扩展，pin 不会自己跟着走**，只能靠重新审计发现。
+- **解 `qs` 的正确入口是 `body-parser` 而不是 `qs` 自己。** `body-parser@1.20.8` 依赖 `qs ~6.16.0`，正好是修复版；而 express 声明的是 `~1.20.5`（即 `>=1.20.5 <1.21.0`），**1.20.8 不越界**，属于区间内正常升级而非硬覆盖。改完 `qs` 以单一副本提升到 6.16.0，原先嵌套的 `express/node_modules/qs` 直接消失。
+- **`basic-ftp` 跨大版本前先核对过 API。** `get-uri` 声明的是 `^5.0.2`，跨大版本必须给出依据：逐项比对 `Client.access() / lastMod() / list() / downloadTo() / close()` 等全部同名同签名，`engines` 仍是 `>=10.0.0`，且 `parseListUnix.js` 的 `RE_LINE` 从无锚定的 `([bcdelfmpSs-])…` 改成 `^[\s\d]*…`——正是那条 ReDoS 的修复本体。
+- **`node-forge` 是"放行并写明依据"，不是"忽略"。** 公告区间为 `<=1.4.0`，而 1.4.0 就是最新版，没有可升版本；npm 给出的唯一方案是把 `NeteaseCloudMusicApi` **降级**到 4.13.6，那是拿 19 个次版本的功能与修复去换一条本项目根本走不到的路径。该公告针对 RSA PKCS#1 v1.5 **验签**（CWE-347），而本项目对 node-forge 的全部用法只有 `forge.pki.publicKeyFromPem()` + `publicKey.encrypt()` + `forge.util.bytesToHex()`（`NeteaseCloudMusicApi/util/crypto.js` 的 `rsaEncrypt`），全程不触碰验签路径。
+
+`npm-audit.yml` 此前两步都用 `|| true` 把报告整个咽掉。现在拆开：
+
+- **生产审计是真门禁**，跑新增的 `scripts/audit-prod.js`（`npm run audit:prod`）。它没有简单转发 `npm audit` 的退出码——那条无修复版公告会让退出码永远为 1，红就成了常量噪声而没人再看。改成白名单制，并且**三个方向都会失败**：出现白名单之外的公告、白名单条目过期不再被报告（过期条目本身就是谎）、`npm audit` 输出不可解析（工具坏了不能当成"没有漏洞"）。每条放行都必须写清依据与复查触发条件，缺字段或 GHSA 编号写错会被 `validateAllowlist` 当场拒绝，闸门拒绝运行。
+- **全量审计（含 devDependencies）保持仅信息**，理由写在 workflow 注释里：生产树已由上面那步把关，这一份里绝大多数来自构建链本身（electron-builder → xmldom / brace-expansion / js-yaml / fast-uri / undici 等），不进产物，且修复需跨大版本升级打包器，得单独排期。
+- 新增 `tests/audit-prod-gate.test.js`：新公告失败、过期白名单条目失败、输出不可解析失败、真实生产树形状通过、`via` 里只有字符串的"被牵连"包不被当成新公告、以及 workflow 那步确实在调用闸门且没有吞掉失败。三条失败路径另外用伪造的 `npm.cmd` 桩做过端到端验证，确认退出码确实为 1。
+
+### Electron 运行时升到 42.11.10
+
+`npm audit --omit=dev` **看不到** electron 自身的公告——它写在 `devDependencies` 里，会被 `--omit=dev` 直接排除，可它恰恰是**随包发布的运行时**。全量审计暴露出 42.4.1 有 **6 条公告（5 高 1 中）**：
+
+| 受影响区间 | 问题 |
+| --- | --- |
+| `<42.5.1` | `ProtocolResponse.url` 复用默认 session 的缓存，而不是注册它的那个 session（中） |
+| `<42.5.2` | 经 `OpenURLFromTab` 打开的弹窗丢失继承来的 HTML 沙箱限制 |
+| `<42.9.2` | 沙箱化顶层文档打开的窗口不继承其沙箱限制；File/HTTP 协议处理器允许无 `corsEnabled` 的跨源读取；`<webview>` 可在 Web Worker 里打开 Node 集成 |
+| `<42.10.0` | 沙箱化 preload 的代码缓存可被受损渲染进程投毒 |
+
+`^42.4.1` 本来就允许 42.11.10，所以这次是**区间内更新**（Electron 大版本不变，Chromium 大版本也随之不变），不是跨大版本跳跃。`package.json` 里把声明提到 `^42.11.10`，是把安全下限写进清单、防止以后被静默降回受影响区间；打包脚本与启动命令都不用改，但**下次构建出的安装包换的就是这个运行时**。
+
+验证：`npm run test:custom-source-host`（真实 Electron 宿主契约）在 42.11.10 下通过；`tests/cuefield-electron-smoke.js` 修好之后也通过。
+
+### 补上真正跑在 Electron 里的检查，并修掉两处休眠的过期判据
+
+清点"假绿灯"时又查出两件事，是同一个毛病：**判据不在任何地方跑，于是坏了也没人知道**。
+
+- **`npm run test:custom-source-host` 此前从不进 CI。** 它是唯一真正跑在 Electron 运行时里的检查——用真实 Electron 验证自定义音源脚本的沙箱边界（`globalThis.lx` 的全部公开字段、crypto/buffer/zlib 通道、以及 `require`/`process` 确实不可见），单元测试用的是假的 `ipcMain`/`BrowserWindow`，证明不了沙箱本身。`docs/LX_CUSTOM_SOURCE.md` 早就把它写成对应手段，但**没有任何工作流调用过它**。现已接进 `electron-integration.yml`，那个工作流叫 "Electron Integration" 才算名副其实。
+- **两处判据在要求一个已被刻意移除的按钮存在。** `tests/cuefield-electron-smoke.js` 与 `scripts/quick-check.js` 实时 QA 脚本 `runtimeQaScript()` 都在找 `cuefield-automix-btn`，找不到就报 "Cuefield AutoMix button missing"；而同一个仓库的静态守卫（`quick-check.js` 的 Cuefield 段）明写着该按钮**必须保持移除**——开关已搬进 DIY 面板的"实验功能"分组，与完整桌面模式同处。也就是说这两处从按钮被移除那天起就是坏的，只因两者都处于**休眠**（冒烟没有任何 npm 脚本或工作流引用，实时 QA 只在 `--electron` 模式下执行）而无人发现。
+  - 两处都改为断言它**不在**，并把"默认关闭"换成真正可观测的判据：模块被拼进同一个 classic `<script>` 且没有 IIFE 包裹，所以顶层 `var cuefieldAutoMixEnabled` 就是全局变量，直接断言 `window.cuefieldAutoMixEnabled === false`。
+  - 新增守卫钉住这两端：冒烟必须继续断言按钮缺失、不得再出现"要求按钮存在"的写法，实时 QA 脚本同样。三个变异用例（删掉冒烟判据 / 冒烟里追加旧写法 / 实时 QA 里改回旧写法）均确认能触发失败，且两个文件都按字节还原。
+
 ## v2.5.0
 
 本版是一次范围较大的迭代：数据便携化、Spotify 接入、歌单批量管理、视觉与面板的一系列修复，以及仓库结构整治。
