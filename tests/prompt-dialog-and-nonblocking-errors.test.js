@@ -10,6 +10,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadDict } = require('./helpers/module-source');
 
 const appRoot = path.join(__dirname, '..');
 const dialogSource = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '09-prompt-dialogs.js'), 'utf8');
@@ -196,7 +197,23 @@ async function noPromptAnywhere() {
   assert.doesNotMatch(archiveSource, /window\.prompt\(/, 'the share-code display must not call window.prompt');
   assert.match(playlistSource, /requestMineradioTextInput\(\{/, 'playlist create must use the in-app dialog');
   assert.match(playlistSource, /await requestMineradioTextInput\(\{/, 'playlist rename must await the in-app dialog');
-  assert.match(archiveSource, /showMineradioTextDialog\('复制这段 MR2 短代码', code\)/, 'the share code must fall back to a read-only dialog');
+  // 接线之后文案搬进词典，源码里搜中文原文必然失配；判据改钉「取词键 + 调用形状」，并按词典反查，
+  // 而不是把那条中文抄进测试里（抄进来的那份会和真实词典脱钩）。
+  // Once the copy moves into the dictionary, grepping the Chinese out of the source can no longer
+  // match. Pin the accessor key and the call shape instead, and verify the key against the real
+  // dictionaries rather than re-typing the copy here.
+  assert.match(
+    archiveSource,
+    /showMineradioTextDialog\(packagedFxArchiveText\('archive_prompt_copy_code'\), code\)/,
+    'the share code must fall back to a read-only dialog'
+  );
+  for (const lang of ['zh_cn', 'en_us', 'ja_jp', 'ru_ru']) {
+    const dict = loadDict(lang);
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(dict, 'archive_prompt_copy_code') && String(dict.archive_prompt_copy_code).trim(),
+      lang + ' 词典缺少非空的 archive_prompt_copy_code'
+    );
+  }
   assert.match(playlistSource, /typeof requestMineradioTextInput !== 'function'/, 'the renderer flows must degrade when the dialog module is unavailable');
   assert.match(archiveSource, /typeof showMineradioTextDialog === 'function'/, 'the share-code fallback must degrade when the dialog module is unavailable');
 }

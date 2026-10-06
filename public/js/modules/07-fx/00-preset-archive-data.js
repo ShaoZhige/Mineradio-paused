@@ -30,26 +30,32 @@ var presetIcons = [
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><path d="M12 20c-1-5-7-5-7-10 4 0 6 2 7 5 1-3 3-5 7-5 0 5-6 5-7 10Z"/><path d="M12 15c-3-3-2-7 0-11 2 4 3 8 0 11Z"/><circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none"/></svg>',
 ];
 var presetDisplayOrder = [0, 9, 10, 11, 12, 6, 7, 8, 5, 4, 2, 1, 3];
-var lyricColorPresets = [
-  { name: '雾蓝', color: '#a9b8c8' },
-  { name: '银蓝', color: '#9db8cf' },
-  { name: '冰川', color: '#7ec8d8' },
-  { name: '青绿', color: '#66d2b5' },
-  { name: '松针', color: '#7fa894' },
-  { name: '月白', color: '#d7d2c4' },
-  { name: '岩金', color: '#c3ae7c' },
-  { name: '琥珀', color: '#d9a45f' },
-  { name: '暮粉', color: '#c78aa4' },
-  { name: '玫红', color: '#d76a8d' },
-  { name: '烟紫', color: '#9b83d3' },
-  { name: '电紫', color: '#8d70ff' },
-  { name: '靛蓝', color: '#5e78d8' },
-  { name: '海蓝', color: '#3c9fe0' },
-  { name: '霓青', color: '#28c5c3' },
-  { name: '夜绿', color: '#245c49' },
-  { name: '酒红', color: '#6d1f35' },
-  { name: '墨黑', color: '#111318' },
-];
+// 含取词调用的顶层数据一律用函数：本模块在解析期求值，而词典是异步 fetch 的，
+// 写成顶层常量会把键名冻进配色名里。消费方一律调用 lyricColorPresets()。
+// Top-level data that calls the accessors must be a function: this module evaluates during
+// parse while the dictionary is still loading, so a constant would freeze the key names in.
+function lyricColorPresets() {
+  return [
+    { name: packagedFxArchiveText('lyric_swatch_mist_blue'), color: '#a9b8c8' },
+    { name: packagedFxArchiveText('lyric_swatch_silver_blue'), color: '#9db8cf' },
+    { name: packagedFxArchiveText('lyric_swatch_glacier'), color: '#7ec8d8' },
+    { name: packagedFxArchiveText('lyric_swatch_teal_green'), color: '#66d2b5' },
+    { name: packagedFxArchiveText('lyric_swatch_pine'), color: '#7fa894' },
+    { name: packagedFxArchiveText('lyric_swatch_moon_white'), color: '#d7d2c4' },
+    { name: packagedFxArchiveText('lyric_swatch_rock_gold'), color: '#c3ae7c' },
+    { name: packagedFxArchiveText('lyric_swatch_amber'), color: '#d9a45f' },
+    { name: packagedFxArchiveText('lyric_swatch_dusk_pink'), color: '#c78aa4' },
+    { name: packagedFxArchiveText('lyric_swatch_rose'), color: '#d76a8d' },
+    { name: packagedFxArchiveText('lyric_swatch_smoke_purple'), color: '#9b83d3' },
+    { name: packagedFxArchiveText('lyric_swatch_electric_purple'), color: '#8d70ff' },
+    { name: packagedFxArchiveText('lyric_swatch_indigo'), color: '#5e78d8' },
+    { name: packagedFxArchiveText('lyric_swatch_ocean_blue'), color: '#3c9fe0' },
+    { name: packagedFxArchiveText('lyric_swatch_neon_cyan'), color: '#28c5c3' },
+    { name: packagedFxArchiveText('lyric_swatch_night_green'), color: '#245c49' },
+    { name: packagedFxArchiveText('lyric_swatch_wine_red'), color: '#6d1f35' },
+    { name: packagedFxArchiveText('lyric_swatch_ink_black'), color: '#111318' },
+  ];
+}
 var USER_FX_ARCHIVE_STORE_KEY = 'mineradio-user-fx-archives-v1';
 var USER_FX_ARCHIVE_EXPORT_TYPE = 'mineradio-user-fx-archive';
 var USER_FX_ARCHIVE_SCHEMA = 1;
@@ -279,14 +285,6 @@ var USER_FX_SHARE_KEYS = [
   'wallpaperEngineGlassSampler',
   'beatAnalysis'
 ];
-function defaultUserFxArchiveName(index) {
-  return '存档 ' + (index + 1);
-}
-function normalizeUserFxArchiveName(name, index) {
-  name = String(name || '').replace(/\s+/g, ' ').trim();
-  if (!name) name = defaultUserFxArchiveName(index);
-  return name.slice(0, 18);
-}
 function archiveNumber(raw, key, fallback, min, max) {
   var value = raw && raw[key] != null ? Number(raw[key]) : fallback;
   if (!isFinite(value)) value = fallback;
@@ -560,6 +558,18 @@ function normalizeFxArchiveSnapshot(raw) {
     visualRotationY: archiveNumber(raw, 'visualRotationY', 0, -Math.PI * 8, Math.PI * 8)
   };
 }
+// 打包默认存档的名字曾被解析期的取词固化写进 localStorage（那时词典还没到，缺键返回键名本身），
+// 于是存档名一直显示 preset_default_test。只在能确证这条就是这个打包槽位（createdAt 与打包常量
+// 一致）**且**名字本身确实是一个"词典里认得的键"时才顺手修好；用户自己起的名字一律不动。
+// The packaged default slot's name had the bare key persisted back when the dictionary was not
+// loaded yet. Repair it only when the slot is provably the packaged one (matching createdAt) and
+// the stored name really resolves as a dictionary key; user-chosen names are left alone.
+function repairPackagedDefaultArchiveName(name, createdAt) {
+  var text = typeof name === 'string' ? name : '';
+  if (!text || Number(createdAt) !== PACKAGED_DEFAULT_USER_FX_ARCHIVE_EXPORTED_AT) return name;
+  var translated = packagedFxArchiveText(text);
+  return translated && translated !== text ? translated : name;
+}
 function readUserFxArchives() {
   var raw = [];
   try {
@@ -585,7 +595,7 @@ function saveUserFxArchives() {
   try {
     localStorage.setItem(USER_FX_ARCHIVE_STORE_KEY, JSON.stringify(userFxArchives));
   } catch (e) {
-    showToast('用户存档保存失败，本地存储空间可能不足');
+    showToast(packagedFxArchiveText('archive_save_failed_quota'));
   }
 }
 function hasStoredUserFxArchives() {
@@ -597,7 +607,7 @@ function hasStoredUserFxArchives() {
 }
 function createPackagedDefaultUserFxArchiveSlot() {
   return {
-    name: normalizeUserFxArchiveName(PACKAGED_DEFAULT_USER_FX_ARCHIVE_NAME, 0),
+    name: normalizeUserFxArchiveName(packagedDefaultUserFxArchiveName(), 0),
     createdAt: PACKAGED_DEFAULT_USER_FX_ARCHIVE_EXPORTED_AT,
     savedAt: PACKAGED_DEFAULT_USER_FX_ARCHIVE_SAVED_AT,
     snapshot: normalizeFxArchiveSnapshot(clonePackagedDefaultFxSnapshot())
@@ -605,10 +615,10 @@ function createPackagedDefaultUserFxArchiveSlot() {
 }
 function formatUserArchiveTime(ts) {
   ts = Number(ts) || 0;
-  if (!ts) return '空槽位';
+  if (!ts) return packagedFxArchiveText('archive_time_empty_slot');
   var diff = Date.now() - ts;
-  if (diff < 60000) return '刚刚保存';
-  if (diff < 3600000) return Math.max(1, Math.round(diff / 60000)) + ' 分钟前';
+  if (diff < 60000) return packagedFxArchiveText('archive_time_just_now');
+  if (diff < 3600000) return packagedFxArchiveText('archive_time_minutes_ago', '{count} 分钟前', { count: Math.max(1, Math.round(diff / 60000)) });
   var d = new Date(ts);
   function pad(v) { return String(v).padStart(2, '0'); }
   return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
@@ -778,76 +788,35 @@ if (!hadStoredUserFxArchives) {
 }
 var userFxArchiveEditing = -1;
 var userFxArchiveShareDraft = '';
-function renderUserFxArchives() {
-  var grid = document.getElementById('user-archive-grid');
-  if (!grid) return;
-  grid.innerHTML = userFxArchives.map(function (slot, index) {
-    var hasSave = !!slot.snapshot;
-    var editing = userFxArchiveEditing === index;
-    var nameHtml = editing
-      ? '<input class="user-archive-input" id="user-archive-input-' + index + '" type="text" maxlength="18" value="' + escHtml(slot.name) + '" onkeydown="handleUserFxArchiveRenameKey(event,' + index + ')">'
-      : '<div class="user-archive-name" title="' + escHtml(slot.name) + '">' + escHtml(slot.name) + '</div>';
-    var actionsHtml = editing
-      ? '<button type="button" onclick="commitUserFxArchiveRename(' + index + ')">确定</button>' +
-      '<button type="button" onclick="cancelUserFxArchiveRename()">取消</button>'
-      : '<button type="button" onclick="applyUserFxArchive(' + index + ')"' + (hasSave ? '' : ' disabled') + '>应用</button>' +
-      '<button type="button" onclick="saveUserFxArchive(' + index + ')">保存</button>' +
-      '<button type="button" onclick="renameUserFxArchive(' + index + ')">命名</button>';
-    return '<div class="user-archive-slot' + (hasSave ? ' has-save' : '') + '" data-slot="' + index + '">' +
-      nameHtml +
-      '<div class="user-archive-meta">' + formatUserArchiveTime(slot.savedAt) + '</div>' +
-      '<div class="user-archive-actions">' +
-      actionsHtml +
-      '</div>' +
-      '</div>';
-  }).join('');
-  if (userFxArchiveEditing >= 0) {
-    setTimeout(function () {
-      var input = document.getElementById('user-archive-input-' + userFxArchiveEditing);
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    }, 0);
+// 打包默认存档的名字曾被解析期的取词固化写进 localStorage：那时词典还没到，缺键返回键名本身，
+// 于是存档名一直显示 preset_default_test。修复必须在词典就绪之后做 —— readUserFxArchives() 也跑在
+// 解析期，那时根本判不出"这个名字是一个词典键"，所以放在那里等于一条永不生效的判据。
+// 名字是用户数据（可改名、会持久化），因此只修一次，并且只在能确证这条就是这个打包槽位
+// （createdAt 与打包常量一致）**且**名字确实是一个词典认得的键时才动；用户自己起的名字一律不动，
+// 后续切语言也不会把已存的名字重新翻译一遍。
+// The packaged default slot's name had the bare key persisted while the dictionary was still
+// loading. The repair has to wait for the dictionary: readUserFxArchives() also runs during parse,
+// where the key cannot be recognised at all. The name is user data, so repair exactly once, only
+// for the provably packaged slot, and never re-translate a stored name on later switches.
+var packagedDefaultArchiveNameRepaired = false;
+function repairPackagedDefaultArchiveNameOnce() {
+  if (packagedDefaultArchiveNameRepaired) return;
+  packagedDefaultArchiveNameRepaired = true;
+  var changed = false;
+  for (var i = 0; i < userFxArchives.length; i += 1) {
+    var slot = userFxArchives[i];
+    if (!slot) continue;
+    var fixed = repairPackagedDefaultArchiveName(slot.name, slot.createdAt);
+    if (fixed !== slot.name) {
+      slot.name = fixed;
+      changed = true;
+    }
   }
-}
-function saveUserFxArchive(index) {
-  index = clampRange(Number(index) || 0, 0, Math.max(0, userFxArchives.length - 1));
-  userFxArchives[index].snapshot = captureFxArchiveSnapshot();
-  userFxArchives[index].savedAt = Date.now();
-  userFxArchives[index].name = normalizeUserFxArchiveName(userFxArchives[index].name, index);
-  saveUserFxArchives();
-  renderUserFxArchives();
-  showToast('已保存到 ' + userFxArchives[index].name);
-}
-function applyUserFxArchive(index) {
-  index = clampRange(Number(index) || 0, 0, Math.max(0, userFxArchives.length - 1));
-  var slot = userFxArchives[index];
-  if (!slot || !slot.snapshot) {
-    showToast('这个用户存档还是空的');
-    return;
-  }
-  if (applyFxArchiveSnapshot(slot.snapshot)) {
-    showToast('已应用 ' + slot.name);
-  }
-}
-function renameUserFxArchive(index) {
-  index = clampRange(Number(index) || 0, 0, Math.max(0, userFxArchives.length - 1));
-  userFxArchiveEditing = index;
+  if (changed) saveUserFxArchives();
   renderUserFxArchives();
 }
-function commitUserFxArchiveRename(index) {
-  index = clampRange(Number(index) || 0, 0, Math.max(0, userFxArchives.length - 1));
-  var input = document.getElementById('user-archive-input-' + index);
-  userFxArchives[index].name = normalizeUserFxArchiveName(input && input.value, index);
-  userFxArchiveEditing = -1;
-  saveUserFxArchives();
-  renderUserFxArchives();
-  showToast('已命名为 ' + userFxArchives[index].name);
-}
-function cancelUserFxArchiveRename() {
-  userFxArchiveEditing = -1;
-  renderUserFxArchives();
+if (typeof window !== 'undefined' && window.MineradioI18n && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(repairPackagedDefaultArchiveNameOnce);
 }
 function handleUserFxArchiveRenameKey(e, index) {
   if (e.key === 'Enter') {
@@ -860,7 +829,7 @@ function handleUserFxArchiveRenameKey(e, index) {
 }
 
 function defaultUserFxArchiveName(index) {
-  return '用户存档 ' + (Number(index) + 1);
+  return packagedFxArchiveText('archive_default_name', '用户存档 {index}', { index: Number(index) + 1 });
 }
 function normalizeUserFxArchiveName(name, index) {
   name = String(name || '').replace(/\s+/g, ' ').trim();
@@ -1032,18 +1001,18 @@ async function decodeUserFxArchiveShareCode(text) {
   var snapshot = expandUserFxArchiveSnapshot(compactSnapshot);
   if (!snapshot) throw new Error('INVALID_SHARE_SNAPSHOT');
   return {
-    name: normalizeUserFxArchiveName(archiveName || '短代码存档', userFxArchives.length),
+    name: normalizeUserFxArchiveName(archiveName || packagedFxArchiveText('archive_share_code_default_name'), userFxArchives.length),
     createdAt: Date.now(),
     savedAt: archiveSavedAt,
     snapshot: snapshot
   };
 }
-function addImportedUserFxArchiveSlot(slot, toastLabel) {
+function addImportedUserFxArchiveSlot(slot, toastKey) {
   if (!slot || !slot.snapshot) return false;
   userFxArchives.push(slot);
   saveUserFxArchives();
   renderUserFxArchives();
-  showToast((toastLabel || '已导入 ') + slot.name);
+  showToast(packagedFxArchiveText(toastKey || 'archive_toast_imported', null, { name: slot.name }));
   return true;
 }
 function getArchiveClipboardApi() {
@@ -1085,34 +1054,34 @@ async function readUserFxArchiveClipboard() {
 async function copyUserFxArchiveShareCode(index) {
   var slot = userFxArchiveAt(index);
   if (!slot || !slot.snapshot) {
-    showToast('空白存档不能复制短码');
+    showToast(packagedFxArchiveText('archive_err_empty_copy'));
     return;
   }
   try {
     var code = await encodeUserFxArchiveShareCode(slot);
     var copied = await writeUserFxArchiveClipboard(code);
     if (copied) {
-      showToast(code.length > 12000 ? '完整短码已复制，配置较长' : '用户存档短码已复制');
+      showToast(code.length > 12000 ? packagedFxArchiveText('archive_toast_full_code_copied') : packagedFxArchiveText('archive_toast_code_copied'));
     } else {
       // 剪贴板写入失败时改为只读展示：window.prompt 在 Electron 渲染进程会直接抛异常。
       // 中英对照：Fall back to a read-only view — window.prompt throws in Electron's renderer.
       if (typeof showMineradioTextDialog === 'function') {
-        showMineradioTextDialog('复制这段 MR2 短代码', code).catch(function () {});
-        showToast('已打开完整短码，可全选复制');
+        showMineradioTextDialog(packagedFxArchiveText('archive_prompt_copy_code'), code).catch(function () {});
+        showToast(packagedFxArchiveText('archive_toast_full_code_opened'));
       } else {
-        showToast('短码复制失败，请检查剪贴板权限后重试');
+        showToast(packagedFxArchiveText('archive_err_copy_failed'));
       }
     }
   } catch (e) {
-    showToast('短码生成失败');
+    showToast(packagedFxArchiveText('archive_err_code_generate'));
   }
 }
 async function importUserFxArchiveShareCodeText(text) {
   try {
     var slot = await decodeUserFxArchiveShareCode(text);
-    return addImportedUserFxArchiveSlot(slot, '已导入短码 ');
+    return addImportedUserFxArchiveSlot(slot, 'archive_toast_code_imported');
   } catch (e) {
-    showToast(e && e.message === 'BAD_SHARE_CHECKSUM' ? '短码校验失败，未导入' : '短码无效，未导入');
+    showToast(e && e.message === 'BAD_SHARE_CHECKSUM' ? packagedFxArchiveText('archive_err_code_checksum') : packagedFxArchiveText('archive_err_code_invalid'));
     return false;
   }
 }
@@ -1137,7 +1106,7 @@ async function pasteUserFxArchiveShareCodeToBox() {
   }
   text = String(text || '').trim();
   if (!text) {
-    showToast('剪贴板里没有可粘贴的存档码');
+    showToast(packagedFxArchiveText('archive_err_clipboard_empty'));
     focusUserFxArchiveShareInput(false);
     return false;
   }
@@ -1147,7 +1116,7 @@ async function pasteUserFxArchiveShareCodeToBox() {
     input.value = userFxArchiveShareDraft;
     input.focus();
   }
-  showToast(looksLikeUserFxShareCode(text) ? '短码已粘到输入框' : '已粘到输入框，可尝试作为旧 JSON 导入');
+  showToast(looksLikeUserFxShareCode(text) ? packagedFxArchiveText('archive_toast_code_pasted') : packagedFxArchiveText('archive_toast_text_pasted'));
   return true;
 }
 async function importUserFxArchiveShareCodeFromBox() {
@@ -1155,11 +1124,11 @@ async function importUserFxArchiveShareCodeFromBox() {
   var text = input ? input.value : userFxArchiveShareDraft;
   userFxArchiveShareDraft = String(text || '');
   if (!userFxArchiveShareDraft.trim()) {
-    showToast('先把 MR2 短码粘到输入框');
+    showToast(packagedFxArchiveText('archive_err_paste_first'));
     focusUserFxArchiveShareInput(false);
     return false;
   }
-  var ok = await importUserFxArchiveText(userFxArchiveShareDraft, '短代码');
+  var ok = await importUserFxArchiveText(userFxArchiveShareDraft, packagedFxArchiveText('archive_import_name_shortcode'));
   if (ok) {
     userFxArchiveShareDraft = '';
     renderUserFxArchives();
@@ -1188,20 +1157,20 @@ function renderUserFxArchives() {
   if (!grid) return;
   var toolbar =
     '<div class="user-archive-toolbar">' +
-    '<div class="user-archive-note">主入口使用 MR2 短代码复制/粘贴；旧 JSON 仍可拖拽或作为兼容备份导入。</div>' +
+    '<div class="user-archive-note">' + escHtml(packagedFxArchiveText('archive_note')) + '</div>' +
     '<div class="user-archive-tools">' +
-    '<button class="fx-mini-btn ghost" type="button" onclick="createUserFxArchive()">新建</button>' +
-    '<button class="fx-mini-btn ghost" type="button" onclick="importUserFxArchiveFromShareCodePrompt()">粘贴码</button>' +
-    '<button class="fx-mini-btn ghost" type="button" onclick="importUserFxArchiveFromDialog()">导入 JSON</button>' +
+    '<button class="fx-mini-btn ghost" type="button" onclick="createUserFxArchive()">' + packagedFxArchiveText('archive_btn_new') + '</button>' +
+    '<button class="fx-mini-btn ghost" type="button" onclick="importUserFxArchiveFromShareCodePrompt()">' + packagedFxArchiveText('archive_btn_paste_code') + '</button>' +
+    '<button class="fx-mini-btn ghost" type="button" onclick="importUserFxArchiveFromDialog()">' + packagedFxArchiveText('archive_btn_import_json') + '</button>' +
     '</div>' +
     '</div>';
   var shareBox =
     '<div class="user-archive-share-panel">' +
-    '<textarea id="user-archive-share-input" class="user-archive-share-input" spellcheck="false" placeholder="把 MR2 短代码粘到这里，也兼容旧 JSON 存档" oninput="updateUserFxArchiveShareDraft(this.value)" onkeydown="handleUserFxArchiveShareInputKey(event)">' + escHtml(userFxArchiveShareDraft) + '</textarea>' +
+    '<textarea id="user-archive-share-input" class="user-archive-share-input" spellcheck="false" placeholder="' + escHtml(packagedFxArchiveText('archive_share_placeholder')) + '" oninput="updateUserFxArchiveShareDraft(this.value)" onkeydown="handleUserFxArchiveShareInputKey(event)">' + escHtml(userFxArchiveShareDraft) + '</textarea>' +
     '<div class="user-archive-share-actions">' +
-    '<button type="button" onclick="pasteUserFxArchiveShareCodeToBox()">从剪贴板粘贴</button>' +
-    '<button type="button" onclick="importUserFxArchiveShareCodeFromBox()">导入短码</button>' +
-    '<button type="button" onclick="clearUserFxArchiveShareCodeBox()">清空</button>' +
+    '<button type="button" onclick="pasteUserFxArchiveShareCodeToBox()">' + packagedFxArchiveText('archive_btn_paste_clipboard') + '</button>' +
+    '<button type="button" onclick="importUserFxArchiveShareCodeFromBox()">' + packagedFxArchiveText('archive_btn_import_code') + '</button>' +
+    '<button type="button" onclick="clearUserFxArchiveShareCodeBox()">' + packagedFxArchiveText('btn_clear_queue') + '</button>' +
     '</div>' +
     '</div>';
   var cards = userFxArchives.map(function (slot, index) {
@@ -1211,21 +1180,21 @@ function renderUserFxArchives() {
       ? '<input class="user-archive-input" id="user-archive-input-' + index + '" type="text" maxlength="28" value="' + escHtml(slot.name) + '" onkeydown="handleUserFxArchiveRenameKey(event,' + index + ')">'
       : '<div class="user-archive-name" title="' + escHtml(slot.name) + '">' + escHtml(slot.name) + '</div>';
     var actionsHtml = editing
-      ? '<button type="button" onclick="commitUserFxArchiveRename(' + index + ')">确定</button>' +
-      '<button type="button" onclick="cancelUserFxArchiveRename()">取消</button>'
-      : '<button type="button" onclick="applyUserFxArchive(' + index + ')"' + (hasSave ? '' : ' disabled') + '>应用</button>' +
-      '<button type="button" onclick="saveUserFxArchive(' + index + ')">保存</button>' +
-      '<button type="button" onclick="copyUserFxArchiveShareCode(' + index + ')"' + (hasSave ? '' : ' disabled') + '>复制码</button>' +
-      '<button type="button" onclick="renameUserFxArchive(' + index + ')">命名</button>' +
-      '<button type="button" onclick="exportUserFxArchive(' + index + ')"' + (hasSave ? '' : ' disabled') + '>文件</button>' +
-      '<button type="button" onclick="removeUserFxArchive(' + index + ')">删除</button>';
+      ? '<button type="button" onclick="commitUserFxArchiveRename(' + index + ')">' + g('btn_ok') + '</button>' +
+      '<button type="button" onclick="cancelUserFxArchiveRename()">' + packagedFxArchiveText('btn_cancel') + '</button>'
+      : '<button type="button" onclick="applyUserFxArchive(' + index + ')"' + (hasSave ? '' : ' disabled') + '>' + packagedFxArchiveText('fx_apply') + '</button>' +
+      '<button type="button" onclick="saveUserFxArchive(' + index + ')">' + packagedFxArchiveText('btn_save') + '</button>' +
+      '<button type="button" onclick="copyUserFxArchiveShareCode(' + index + ')"' + (hasSave ? '' : ' disabled') + '>' + packagedFxArchiveText('archive_btn_copy_code') + '</button>' +
+      '<button type="button" onclick="renameUserFxArchive(' + index + ')">' + packagedFxArchiveText('archive_btn_rename') + '</button>' +
+      '<button type="button" onclick="exportUserFxArchive(' + index + ')"' + (hasSave ? '' : ' disabled') + '>' + packagedFxArchiveText('archive_btn_file') + '</button>' +
+      '<button type="button" onclick="removeUserFxArchive(' + index + ')">' + packagedFxArchiveText('custom_source_action_remove') + '</button>';
     return '<div class="user-archive-slot' + (hasSave ? ' has-save' : '') + '" data-slot="' + index + '">' +
       nameHtml +
-      '<div class="user-archive-meta">' + (hasSave ? formatUserArchiveTime(slot.savedAt) : '空白存档，点击保存写入当前视觉') + '</div>' +
+      '<div class="user-archive-meta">' + (hasSave ? formatUserArchiveTime(slot.savedAt) : packagedFxArchiveText('archive_slot_empty_hint')) + '</div>' +
       '<div class="user-archive-actions">' + actionsHtml + '</div>' +
       '</div>';
   }).join('');
-  var addCard = '<button class="user-archive-slot is-new" type="button" onclick="createUserFxArchive()"><strong>＋ 新建空白存档</strong><span class="user-archive-meta">可继续创建，不限制 4 个</span></button>';
+  var addCard = '<button class="user-archive-slot is-new" type="button" onclick="createUserFxArchive()"><strong>' + packagedFxArchiveText('archive_new_blank') + '</strong><span class="user-archive-meta">' + packagedFxArchiveText('archive_new_blank_hint') + '</span></button>';
   grid.innerHTML = toolbar + shareBox + cards + addCard;
   bindUserFxArchiveDrop();
   if (userFxArchiveEditing >= 0) {
@@ -1249,7 +1218,7 @@ function createUserFxArchive() {
   userFxArchiveEditing = index;
   saveUserFxArchives();
   renderUserFxArchives();
-  showToast('已新建空白用户存档');
+  showToast(packagedFxArchiveText('archive_toast_created'));
 }
 function saveUserFxArchive(index) {
   var slot = userFxArchiveAt(index);
@@ -1260,15 +1229,15 @@ function saveUserFxArchive(index) {
   slot.name = normalizeUserFxArchiveName(slot.name, index);
   saveUserFxArchives();
   renderUserFxArchives();
-  showToast('已保存到 ' + slot.name);
+  showToast(packagedFxArchiveText('archive_toast_saved_to', '已保存到 {name}', { name: slot.name }));
 }
 function applyUserFxArchive(index) {
   var slot = userFxArchiveAt(index);
   if (!slot || !slot.snapshot) {
-    showToast('这个用户存档还是空白');
+    showToast(packagedFxArchiveText('archive_err_empty_apply'));
     return;
   }
-  if (applyFxArchiveSnapshot(slot.snapshot)) showToast('已应用 ' + slot.name);
+  if (applyFxArchiveSnapshot(slot.snapshot)) showToast(packagedFxArchiveText('archive_toast_applied', '已应用 {name}', { name: slot.name }));
 }
 function renameUserFxArchive(index) {
   if (!userFxArchiveAt(index)) return;
@@ -1284,7 +1253,7 @@ function commitUserFxArchiveRename(index) {
   userFxArchiveEditing = -1;
   saveUserFxArchives();
   renderUserFxArchives();
-  showToast('已命名为 ' + slot.name);
+  showToast(packagedFxArchiveText('archive_toast_renamed_to', '已命名为 {name}', { name: slot.name }));
 }
 function cancelUserFxArchiveRename() {
   userFxArchiveEditing = -1;
@@ -1296,7 +1265,7 @@ function removeUserFxArchive(index) {
   userFxArchiveEditing = -1;
   saveUserFxArchives();
   renderUserFxArchives();
-  showToast('已删除用户存档');
+  showToast(packagedFxArchiveText('archive_toast_deleted'));
 }
 function userFxArchiveExportPayload(slot) {
   return {
@@ -1309,12 +1278,12 @@ function userFxArchiveExportPayload(slot) {
   };
 }
 function safeArchiveFileName(name) {
-  return String(name || 'Mineradio 用户存档').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 48) + '.json';
+  return String(name || packagedFxArchiveText('archive_export_title')).replace(/[\\/:*?"<>|]+/g, '-').slice(0, 48) + '.json';
 }
 function exportUserFxArchive(index) {
   var slot = userFxArchiveAt(index);
   if (!slot || !slot.snapshot) {
-    showToast('空白存档不能导出');
+    showToast(packagedFxArchiveText('archive_err_empty_export'));
     return;
   }
   var payload = userFxArchiveExportPayload(slot);
@@ -1322,9 +1291,9 @@ function exportUserFxArchive(index) {
   var api = getDesktopWindowApi && getDesktopWindowApi();
   if (api && typeof api.exportJsonFile === 'function') {
     api.exportJsonFile({ defaultName: safeArchiveFileName(slot.name), text: text }).then(function (res) {
-      if (res && res.ok) showToast('用户存档已导出');
-      else if (!res || !res.canceled) showToast('用户存档导出失败');
-    }).catch(function () { showToast('用户存档导出失败'); });
+      if (res && res.ok) showToast(packagedFxArchiveText('archive_toast_exported'));
+      else if (!res || !res.canceled) showToast(packagedFxArchiveText('archive_err_export_failed'));
+    }).catch(function () { showToast(packagedFxArchiveText('archive_err_export_failed')); });
     return;
   }
   var blob = new Blob([text], { type: 'application/json;charset=utf-8' });
@@ -1353,18 +1322,18 @@ async function importUserFxArchiveText(text, fileName) {
   try { payload = JSON.parse(String(text || '')); } catch (e) { }
   var slot = normalizeImportedFxArchivePayload(payload, fileName);
   if (!slot) {
-    showToast('导入失败，文件不是有效的用户存档');
+    showToast(packagedFxArchiveText('archive_err_import_invalid_file'));
     return false;
   }
-  return addImportedUserFxArchiveSlot(slot, '已导入 ');
+  return addImportedUserFxArchiveSlot(slot, 'archive_toast_imported');
 }
 function importUserFxArchiveFromDialog() {
   var api = getDesktopWindowApi && getDesktopWindowApi();
   if (api && typeof api.importJsonFile === 'function') {
     api.importJsonFile().then(function (res) {
-      if (res && res.ok) importUserFxArchiveText(res.text, res.filePath || '用户存档.json');
-      else if (!res || !res.canceled) showToast('导入失败');
-    }).catch(function () { showToast('导入失败'); });
+      if (res && res.ok) importUserFxArchiveText(res.text, res.filePath || packagedFxArchiveText('archive_export_filename'));
+      else if (!res || !res.canceled) showToast(packagedFxArchiveText('we_import_failed'));
+    }).catch(function () { showToast(packagedFxArchiveText('we_import_failed')); });
     return;
   }
   var input = document.createElement('input');
@@ -1378,12 +1347,12 @@ function importUserFxArchiveFromDialog() {
 }
 function readUserFxArchiveImportFile(file) {
   if (!file || !/\.json$/i.test(file.name || '')) {
-    showToast('请导入 JSON 用户存档');
+    showToast(packagedFxArchiveText('archive_err_pick_json'));
     return;
   }
   var reader = new FileReader();
   reader.onload = function (e) { importUserFxArchiveText(e.target && e.target.result, file.name); };
-  reader.onerror = function () { showToast('导入失败'); };
+  reader.onerror = function () { showToast(packagedFxArchiveText('we_import_failed')); };
   reader.readAsText(file, 'utf-8');
 }
 function bindUserFxArchiveDrop() {

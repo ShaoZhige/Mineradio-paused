@@ -40,7 +40,7 @@ function buildLyricColorControls() {
   if (!grid) return;
   var html = lyricColorControlsText('lyriccolor_auto_btn',
     '<button class="lyric-swatch auto" type="button" data-auto="1" onclick="setLyricColorAuto()" title="封面取色">AUTO</button>');
-  html += lyricColorPresets.map(function (p, i) {
+  html += lyricColorPresets().map(function (p, i) {
     return '<button class="lyric-swatch" type="button" data-color="' + p.color + '" onclick="setLyricColorPreset(' + i + ')" title="' + escHtml(p.name) + '" style="--swatch:' + p.color + '"></button>';
   }).join('');
   grid.innerHTML = html;

@@ -591,3 +591,15 @@ function renderUserBtn() {
   }
   updatePlaybackQualityUi();
 }
+
+// 账号胶囊上的会员标记（"普通"）是 renderUserBtn() 写进去的一次性文案，语言切换后不会自己变。
+// 胶囊上其余文字（昵称、平台短名、头像）都与语言无关，所以症状恰恰表现为"只有『普通』滞后"。
+// 登录弹窗那侧的可见性闸门管不到胶囊 —— 胶囊在弹窗之外，且用户切语言时弹窗通常是关着的，
+// 所以必须在这里单独订阅。
+// The VIP tag on the account pill is written once by renderUserBtn() and never follows a language
+// switch. Everything else on the pill is language-independent, which is exactly why only "普通"
+// appeared to lag. The modal-side visibility gate cannot cover the pill: the pill lives outside the
+// modal, and the modal is normally closed while the user switches language.
+if (typeof window !== 'undefined' && window.MineradioI18n && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(function () { renderUserBtn(); });
+}

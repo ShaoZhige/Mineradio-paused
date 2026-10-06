@@ -332,7 +332,7 @@ function setLyricColorCustom(color, silent) {
   if (!silent) showToast(coverPickerFontsText('bind_lyrics_color_prefix') + fx.lyricColor.toUpperCase());
 }
 function setLyricColorPreset(i) {
-  var p = lyricColorPresets[i];
+  var p = lyricColorPresets()[i];
   if (!p) return;
   setLyricColorCustom(p.color);
 }

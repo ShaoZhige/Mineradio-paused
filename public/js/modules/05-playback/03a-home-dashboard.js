@@ -826,6 +826,22 @@ function renderHomeDashboardDiscovery() {
   }).join('');
 }
 
+// 空发现列表那段文案是 HTML 片段，由 renderHomeDashboardDiscovery() 写进 innerHTML；而该函数开头有
+// 幂等短路（指纹没变就早退），解析期写下的键名因此在词典就绪后也重贴不到。
+// 重贴前必须先把指纹清掉，否则下面这次调用等于空操作。
+// The empty-discovery copy is an HTML fragment written by renderHomeDashboardDiscovery(), which
+// short-circuits on an unchanged fingerprint — so the key name written during parse never got
+// repainted once the dictionary landed. The fingerprint must be cleared first or the call below
+// is a no-op.
+function relabelHomeDashboardDiscovery() {
+  homeDashboardDiscoveryFingerprint = '';
+  try {
+    renderHomeDashboardDiscovery();
+  } catch (e) {
+    console.warn('[HomeDashboard] relabel discovery failed:', e);
+  }
+}
+
 function playHomeDashboardDiscoverySong(index) {
   if (!homeDashboardDiscoveryCache.length) homeDashboardDiscoveryCache = homeDashboardDiscoverySongs();
   if (!homeDashboardDiscoveryCache.length) {
@@ -1365,6 +1381,9 @@ if (typeof window !== 'undefined' && window.MineradioI18n
   && typeof window.MineradioI18n.onLanguageChange === 'function') {
   window.MineradioI18n.onLanguageChange(function () {
     homeDashboardUpdateClock();
+    // 这一条不受可见性闸门限制：它只重写那段空态 HTML，不做整页重绘。
+    // Not gated on visibility: it only rewrites that empty-state HTML, not the whole dashboard.
+    relabelHomeDashboardDiscovery();
     if (typeof emptyHomeActive !== 'undefined' && !document.hidden && emptyHomeActive) {
       renderHomeDashboard();
     }

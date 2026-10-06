@@ -25,7 +25,15 @@ function packagedFxArchiveText(key, fallback, params) {
   return out;
 }
 
-var PACKAGED_DEFAULT_USER_FX_ARCHIVE_NAME = packagedFxArchiveText('preset_default_test');
+// 必须写成函数，不能是顶层常量：本模块在解析期求值，而词典是异步 fetch 的，
+// 那时 packagedFxArchiveText() 缺键会返回键名本身，于是 preset_default_test 这个键名
+// 会被写进存档名并持久化到 localStorage。含取词调用的顶层数据一律用函数。
+// This must be a function, not a top-level constant: the module is evaluated during parse while
+// the dictionary is still being fetched, so a missing key returns the key itself and the bare
+// "preset_default_test" used to be persisted as the archive name.
+function packagedDefaultUserFxArchiveName() {
+  return packagedFxArchiveText('preset_default_test');
+}
 var PACKAGED_DEFAULT_USER_FX_ARCHIVE_EXPORTED_AT = 1784607916226;
 var PACKAGED_DEFAULT_USER_FX_ARCHIVE_SAVED_AT = 1784607916226;
 // Keep the packaged first-launch snapshot sourced from the runtime defaults so

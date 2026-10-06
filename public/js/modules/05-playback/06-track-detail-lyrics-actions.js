@@ -1018,6 +1018,15 @@ function updateCustomLyricControls() {
     customBtn.title = hasCustom ? trackActionText('track_edit_custom_lyrics') : trackActionText('track_add_custom_lyrics');
   }
 }
+// 这两个按钮的 title 是持久文案，而本函数平时只在事件里被调用；词典是异步 fetch 的、
+// bindFxPanel() 却在解析期就跑，于是解析期固化的键名会一直留在悬停提示里没人改。
+// 让词典就绪（init 会广播一次）与后续每次切换都重跑一遍。
+// These two titles are persistent copy while this function otherwise only runs from events. The
+// dictionary loads asynchronously, so the key name frozen during parse stayed on screen with
+// nothing to refresh it. Repaint once the dictionary is ready and on every later switch.
+if (typeof window !== 'undefined' && window.MineradioI18n && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(function () { updateCustomLyricControls(); });
+}
 function updateLyricDisplayModeControls() {
   var mode = normalizeLyricDisplayMode(fx && fx.lyricDisplayMode);
   document.querySelectorAll('#lyric-display-mode-seg button').forEach(function (btn) {

@@ -553,14 +553,31 @@ function resetFxSliderValue(id, key, btn) {
   animateFxResetButton(btn);
   showToast(fxPanelPerformanceText('fx_restored_defaults'));
 }
+// 复位按钮的提示文案与滑条标签同源，必须和它们一起重贴：按钮只在创建那一刻取过一次词，
+// 若创建发生在词典就绪之前（bindFxPanel() 跑在解析期，词典是异步 fetch 的），
+// 键名就会被固化进 title / aria-label，而之后没有任何地方再改它。
+// The reset buttons share this copy with the slider labels, so they must be relabelled with them:
+// they read the dictionary once at creation, and bindFxPanel() runs during parse while the
+// dictionary is still loading, so the key name used to freeze into title / aria-label for good.
+function fxSliderResetLabel() {
+  return fxPanelPerformanceText('fx_restore_slider_default');
+}
+function applyFxSliderResetLabel(btn) {
+  if (!btn) return;
+  var label = fxSliderResetLabel();
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+function relabelFxSliderResetButtons() {
+  document.querySelectorAll('.fx-reset-one').forEach(applyFxSliderResetLabel);
+}
 function ensureFxSliderResetButton(id, key) {
   var el = document.getElementById(id);
   if (!el || !el.parentElement || el.parentElement.querySelector('.fx-reset-one')) return;
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'fx-reset-one';
-  btn.title = fxPanelPerformanceText('fx_restore_slider_default');
-  btn.setAttribute('aria-label', fxPanelPerformanceText('fx_restore_slider_default'));
+  applyFxSliderResetLabel(btn);
   btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
   btn.addEventListener('click', function (e) {
     e.preventDefault();
@@ -917,4 +934,8 @@ function relabelFxPanelControls() {
   setFxSliderLabel('fx-bloom', fxPanelPerformanceText('fx_bloom_strength'));
   setFxSliderLabel('fx-scatter', fxPanelPerformanceText('scatter', '离散感'));
   setFxSliderLabel('fx-bgfade', fxPanelPerformanceText('fx_bg_darken'));
+  // 下面两项是"只在创建时取过一次词"的控件，必须一并重贴，否则词典就绪后它们的键名会永远留在界面上。
+  // Two sets of once-only controls: relabel them here too, or the key names stay on screen for good.
+  relabelFxSliderResetButtons();
+  if (typeof updateCustomBackgroundControls === 'function') updateCustomBackgroundControls();
 }

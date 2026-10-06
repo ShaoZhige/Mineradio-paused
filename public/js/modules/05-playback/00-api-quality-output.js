@@ -1112,3 +1112,19 @@ function setAudioInputBridgeDevice(deviceId, showNotice) {
   }
   renderAudioOutputDeviceUi();
 }
+
+// 补丁台状态文案与音质选项都由本模块一次性写进面板 HTML，而它们平时只在设备/质量事件里跑。
+// 词典是异步 fetch 的，启动时那次渲染与它**赛跑**：跑输时取到的是键名本身，之后没人再改它
+// （实测这个竞态是间歇性的——同一个探针多次运行，有时 0 处暴露、有时 7 处）。
+// 让词典就绪（init 会广播一次）与后续每次切换都重渲染一遍，两种情形一起覆盖。
+// The patch-bay status copy and the quality options are both written into the panel HTML by this
+// module, which otherwise only runs on device/quality events. The dictionary loads asynchronously
+// and the boot render RACES it; losing the race freezes bare key names with nothing to refresh
+// them (measured as intermittent: the same probe reported 0 leaks on some runs and 7 on others).
+// Re-render once the dictionary is ready and on every later switch, covering both cases.
+if (typeof window !== 'undefined' && window.MineradioI18n && typeof window.MineradioI18n.onLanguageChange === 'function') {
+  window.MineradioI18n.onLanguageChange(function () {
+    renderAudioOutputDeviceUi();
+    updatePlaybackQualityUi();
+  });
+}

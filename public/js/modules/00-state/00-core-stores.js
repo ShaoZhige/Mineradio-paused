@@ -58,10 +58,16 @@ var lastStrongDrop = 0;           // 用于 burst 预设的强 drop 时刻
 var lyricsLines = [], lyricsTranslationLines = [], lyricsVisible = false, lyricsHasNativeKaraoke = false, lyricsTimingSource = 'none', lyricsTranslationSource = 'none';
 var playlist = [], playQueue = [], currentIdx = -1, playing = false, playToggleBusy = false;
 var searchMode = 'song', podcastResults = [], podcastPrograms = [], podcastCurrentRadio = null;
-var loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: coreStoresText('vip_none') };
+// 这三处的兜底是**刻意写的**：本模块在解析期求值，而词典是异步 fetch 的，那时缺键会返回键名本身。
+// 没有兜底的话，初值会被固化成 vip_none / provider_kugou / provider_qishui 这种裸键名。
+// 兜底必须与词典同键的值逐字一致（tests/i18n-accessor-contract.test.js 会校验）。
+// The explicit fallbacks below are deliberate: this module is evaluated during parse while the
+// dictionary is still being fetched, and a missing key returns the key itself. The fallback must
+// match the dictionary verbatim for the same key — i18n-accessor-contract.test.js enforces that.
+var loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: coreStoresText('vip_none', '无VIP') };
 var qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: coreStoresText('login_qq', 'QQ 音乐'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false };
-var kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: coreStoresText('provider_kugou'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
-var qishuiLoginStatus = { provider: 'qishui', loggedIn: false, configured: false, preview: false, nickname: coreStoresText('provider_qishui'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match' };
+var kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: coreStoresText('provider_kugou', '酷狗音乐'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
+var qishuiLoginStatus = { provider: 'qishui', loggedIn: false, configured: false, preview: false, nickname: coreStoresText('provider_qishui', '汽水音乐'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match' };
 var qqLoginAutoRefreshTimer = null;
 var qqLoginStatusLastForcedAt = 0;
 var kugouLoginAutoRefreshTimer = null;
