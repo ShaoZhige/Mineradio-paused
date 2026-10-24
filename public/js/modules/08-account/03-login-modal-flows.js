@@ -813,8 +813,13 @@ function renderSpotifySetupWizard() {
   });
   var input = document.getElementById('spotify-setup-client-id');
   if (input && !input.value && spotifyLoginStatus && spotifyLoginStatus.clientId) input.value = spotifyLoginStatus.clientId;
+  var redirectUri = spotifyLoginStatus && spotifyLoginStatus.redirectUri || SPOTIFY_REDIRECT_URI;
   var redirect = document.getElementById('spotify-setup-redirect-uri');
-  if (redirect) redirect.textContent = spotifyLoginStatus && spotifyLoginStatus.redirectUri || SPOTIFY_REDIRECT_URI;
+  if (redirect) redirect.textContent = redirectUri;
+  // 第一步也要显示回调地址：用户在开发者后台填的就是它，不必往下滚到第二步去抄。
+  // Step 1 shows the redirect URI too, since that is what the dashboard form asks for.
+  var redirectHint = document.getElementById('spotify-setup-redirect-hint');
+  if (redirectHint) redirectHint.textContent = redirectUri;
   var saveButton = document.getElementById('spotify-setup-save-client');
   var callbackButton = document.getElementById('spotify-setup-check-callback');
   var authButton = document.getElementById('spotify-setup-authorize');

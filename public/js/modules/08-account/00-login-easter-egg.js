@@ -410,11 +410,9 @@ function buildLoginEasterEggPhrase(phrase, wish) {
     var span = document.createElement('span');
     span.textContent = glyph;
     if (!glyph.trim()) span.className = 'is-space';
-    // 浮动节奏错开，否则整排字会同频抖动。
-    // Stagger the float or the whole row pulses in lockstep.
-    span.style.setProperty('--float-duration', (3.5 + (index % 4) * 0.3).toFixed(2) + 's');
-    span.style.setProperty('--float-delay', (-0.7 - index * 0.35).toFixed(2) + 's');
-    span.style.setProperty('--float-distance', (8 + (index % 3) * 2) + 'px');
+    // 浮动周期的节奏统一交给 CSS：整排同频同相，逐字错开会让字间距一直变，看着像抖。
+    // Float timing lives in CSS: one shared cycle, since per-glyph offsets make the
+    // spacing between glyphs drift and read as jitter.
     span.style.setProperty('--extract-delay', (index * 0.08).toFixed(2) + 's');
     phrase.appendChild(span);
     return span;

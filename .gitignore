@@ -92,6 +92,7 @@ start-mineradio.bat
 quick-check.bat
 5-diag-wallpaper.bat
 _dryrun-diag.bat
+_env.bat
 wallpaper-diagnosis.txt
 
 # 外部程序误写到工作区的产物（如手动跑 Wallpaper Engine 时它按 CWD 落下日志）

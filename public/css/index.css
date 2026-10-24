@@ -8092,14 +8092,17 @@ body.login-guide-active #login-guide-canvas {
 }
 
 .login-easter-unlock-cinematic.is-ready .login-easter-unlock-phrase span {
-  animation: login-easter-world-float var(--float-duration, 4s) var(--float-delay, 0s) ease-in-out infinite alternate;
+  /* 整排同频同相共用一个周期，字与字之间不再有相对漂移。调快调慢改这里。 */
+  /* One shared cycle for the whole row, so glyphs never drift apart. Tune the speed here. */
+  animation: login-easter-world-float 4.5s ease-in-out infinite;
   will-change: transform
 }
 
+/* 从 0 出发再回到 0，入场定格结束后不会先跳一下才浮起来。 */
+/* Starts and ends at 0, so the handoff from the intro hold does not jump first. */
 @keyframes login-easter-world-float {
-  0% { transform: translate3d(0, calc(0px - var(--float-distance, 10px)), 0) scale(.992) }
-  48% { transform: translate3d(0, 2px, 0) scale(1.012) }
-  100% { transform: translate3d(0, var(--float-distance, 10px), 0) scale(.998) }
+  0%, 100% { transform: translate3d(0, 0, 0) }
+  50% { transform: translate3d(0, -5px, 0) }
 }
 
 .login-easter-unlock-cinematic.is-dismissing {
@@ -8251,8 +8254,13 @@ body.login-guide-active #login-guide-canvas {
   .login-easter-egg-wish,
   .login-easter-hint { transition-duration: .01ms !important }
   .login-easter-eye-trigger.tap-feedback,
-  .login-easter-egg-wish.error-shake,
-  .login-easter-unlock-cinematic.is-ready .login-easter-unlock-phrase span { animation-duration: .01ms !important }
+  .login-easter-egg-wish.error-shake { animation-duration: .01ms !important }
+  /* 解锁彩蛋的浮动刻意不受「减少动态」约束：它是这个彩蛋的奖励感来源，幅度只有 ±5px / 4.5s，
+     比入场动画温和得多。曾经写 `.01ms !important` 想让它静下来，结果适得其反 —— 循环动画压时长
+     会让每帧落在随机相位，屏幕上就是疯狂抖动。要静就整段不写；要动就按原速跑，绝不压时长。
+     The unlock float deliberately opts out of reduced motion: it is the reward of this easter egg,
+     gentle at ±5px over 4.5s. Shrinking a looping animation to .01ms backfires — every frame lands
+     on a random phase and the text looks like it is shaking itself apart. Never compress, only omit. */
   .login-easter-unlock-cinematic,
   .login-easter-unlock-phrase,
   .login-easter-unlock-phrase span,
@@ -9632,6 +9640,36 @@ body.login-guide-active #login-guide-canvas {
   color: rgba(255, 255, 255, .52);
   font-size: 9.5px;
   font-weight: 700
+}
+
+.spotify-setup-redirect-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 9px
+}
+
+.spotify-setup-redirect-row > span {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, .40);
+  font-size: 10.5px
+}
+
+.spotify-setup-redirect-row code {
+  /* 独占一整行：卡片本身只有 300px 出头，与按钮同行会把地址截成省略号。
+     Own the whole row, or the URI gets clipped to an ellipsis inside a ~300px card. */
+  flex: 1 0 100%;
+  overflow: hidden;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(30, 215, 96, .13);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .20);
+  color: rgba(226, 255, 235, .78);
+  font: 10.5px/1.3 Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap
 }
 
 #spotify-setup-client-id {

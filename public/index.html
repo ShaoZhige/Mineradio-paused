@@ -1654,9 +1654,17 @@
                 <div class="spotify-setup-card-copy">
                   <b data-i18n="login_spotify_setup_step1">客户端 ID</b>
                   <p data-i18n="login_spotify_setup_step1_desc">在 Spotify 开发者后台创建应用后，把 Client ID 粘贴到下方并保存。</p>
+                  <div class="spotify-setup-redirect-row">
+                    <span data-i18n="login_spotify_setup_redirect_label">回调地址</span>
+                    <button type="button" class="spotify-guide-link" onclick="copySpotifyRedirectUri()"
+                      data-i18n="login_spotify_copy_callback">复制</button>
+                    <code id="spotify-setup-redirect-hint">http://127.0.0.1:43879/callback</code>
+                  </div>
                   <label for="spotify-setup-client-id" data-i18n="login_spotify_setup_client_id_label">Client ID</label>
                   <input id="spotify-setup-client-id" type="text" spellcheck="false" autocomplete="off">
                   <div class="spotify-setup-card-actions">
+                    <button type="button" onclick="openSpotifyDeveloperDashboard()"
+                      data-i18n="login_spotify_open_dashboard">打开开发者后台</button>
                     <button id="spotify-setup-save-client" class="primary" type="button" onclick="saveSpotifySetupClientId()"
                       data-i18n="login_spotify_setup_save">保存 Client ID</button>
                   </div>
