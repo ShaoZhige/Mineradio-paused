@@ -356,5 +356,5 @@ test('renderer and Electron wiring restore persistent tracks instead of blob-onl
   assert.match(main, /resolveBuiltInPlaylistLocalTracks\(builtInPlaylistLibrary\.page\(id, options\)\)/, 'built-in playlist pages must re-resolve local tracks against the live library');
   assert.match(main, /localMusicLibrary\.resolveTrack\(track\.localFileId \|\| track\.localKey \|\| track\.id\)/, 'the re-resolution must look the track up by local id');
   assert.match(upload, /Number\(result\.missing\) > 0/, 'the renderer must surface how many local tracks were skipped');
-  assert.equal(packageJson.dependencies['music-metadata'], '11.14.0');
+  assert.equal(packageJson.dependencies['music-metadata'], '11.16.1');
 });
