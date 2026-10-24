@@ -103,6 +103,14 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   clearQQMusicLogin: () => ipcRenderer.invoke('qq-music-clear-login'),
   openKugouMusicLogin: (options) => ipcRenderer.invoke('kugou-music-open-login', options || {}),
   clearKugouMusicLogin: () => ipcRenderer.invoke('kugou-music-clear-login'),
+  // Spotify 走系统浏览器 + PKCE：主进程负责拉起授权页、监听 127.0.0.1:43879 回调并落盘令牌。
+  // 这三个桥必须都暴露，缺任何一个前端都只能报"非桌面环境"。
+  // Spotify uses the system browser + PKCE: the main process opens the authorize page, owns the
+  // 127.0.0.1:43879 loopback listener and persists the token. All three bridges are required —
+  // missing any of them leaves the renderer with nothing but a "no desktop bridge" error.
+  openSpotifyMusicLogin: () => ipcRenderer.invoke('spotify-music-open-login'),
+  verifySpotifyMusicSetup: () => ipcRenderer.invoke('spotify-music-verify-setup'),
+  clearSpotifyMusicLogin: () => ipcRenderer.invoke('spotify-music-clear-login'),
   clearQishuiMusicLogin: () => ipcRenderer.invoke('qishui-music-clear-login'),
   openUpdatePage: (url) => ipcRenderer.invoke('mineradio-open-update-page', String(url || '')),
   restartApp: () => ipcRenderer.invoke('mineradio-restart-app'),

@@ -114,7 +114,30 @@ const {
   getQishuiSignatureBridgeStatus,
 } = require('./qishui-api');
 const qishuiQrLogin = require('./qishui-qr-login');
-const { clearSpotifyToken } = require('./spotify-api');
+// Spotify 路由里用到的每一个函数都必须在这里解构出来。此前只取了一个 clearSpotifyToken，
+// 其余 handleSpotify* / saveSpotifyConfig / getSpotifyConfig 在模块作用域里并不存在，
+// 请求打进来就是 ReferenceError（500），前端只会看到一句英文红字。
+// Every Spotify helper the routes call must be destructured here. Before this, only
+// clearSpotifyToken was imported, so the rest resolved to nothing and every Spotify
+// route threw a ReferenceError.
+const {
+  clearSpotifyToken,
+  getSpotifyConfig,
+  saveSpotifyConfig,
+  handleSpotifyStatus,
+  handleSpotifySetupDiagnostics,
+  handleSpotifySearch,
+  handleSpotifyRecommendations,
+  handleSpotifyUserPlaylists,
+  handleSpotifyPlaylistTracks,
+  handleSpotifyAlbumDetail,
+  handleSpotifyLibraryCheck,
+  handleSpotifyLibrarySet,
+  handleSpotifyPlaylistAddSong,
+  handleSpotifyCreatePlaylist,
+  handleSpotifySongUrl,
+  handleSpotifyLyric,
+} = require('./spotify-api');
 const {
   appendCuefieldFeedback,
   readCuefieldFeedbackStats,

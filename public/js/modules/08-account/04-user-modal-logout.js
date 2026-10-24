@@ -263,6 +263,33 @@ async function logoutAllAccountsAndResetEasterEgg() {
 }
 
 async function logoutActiveAccount() {
+  // Spotify 没有登录窗口，令牌藏在后端文件 + 主进程缓存里：两条都要清，
+  // 否则退出后下一次状态查询还会把旧资料读回来。
+  // Spotify has no login window; the token lives in a backend file plus a main-process cache.
+  // Both must be cleared, or the next status query reads the old profile right back.
+  if (activeAccountProvider === 'spotify') {
+    // 只走 IPC：它会删掉令牌文件并清空主进程缓存，和 /api/spotify/logout 做的是同一件事，
+    // 但不必为一个本地文件发 HTTP 请求。
+    // IPC only: it deletes the token file and clears the main-process cache — exactly what
+    // /api/spotify/logout does, without an HTTP round-trip for a local file.
+    try {
+      if (window.desktopWindow && typeof window.desktopWindow.clearSpotifyMusicLogin === 'function') {
+        await window.desktopWindow.clearSpotifyMusicLogin();
+      }
+    } catch (e) { }
+    spotifyLoginStatus = { provider: 'spotify', loggedIn: false, configured: false, oauthConfigured: false, oauthMissing: [], preview: false, nickname: 'Spotify', userId: '', avatar: '', product: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match', tokenConfigured: false, tokenFileExists: false, credentialsFileExists: false, localConfigMissing: false };
+    spotifyPlaylists = [];
+    userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
+    playlistCatalogRevision += 1;
+    dualAccountMode = false;
+    activeAccountProvider = firstLoggedProvider();
+    renderUserBtn();
+    safeShelfRebuild('spotify-logout');
+    if (hasAnyPlatformLogin()) updateUserModalUi();
+    else closeUserModal();
+    showToast(accountPanelText('logout_spotify_cleared'));
+    return;
+  }
   if (activeAccountProvider === 'qishui') {
     try { await apiJson('/api/qishui/logout'); } catch (e) { }
     try {

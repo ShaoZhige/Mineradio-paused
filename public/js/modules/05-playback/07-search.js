@@ -205,6 +205,7 @@ function updateSearchModeTabs() {
   var qqBtn = document.getElementById('search-mode-qq');
   var kugouBtn = document.getElementById('search-mode-kugou');
   var qishuiBtn = document.getElementById('search-mode-qishui');
+  var spotifyBtn = document.getElementById('search-mode-spotify');
   var podcastBtn = document.getElementById('search-mode-podcast');
   if (songBtn) {
     songBtn.classList.toggle('active', searchMode === 'song');
@@ -226,6 +227,10 @@ function updateSearchModeTabs() {
     qishuiBtn.classList.toggle('active', searchMode === 'qishui');
     qishuiBtn.setAttribute('aria-selected', searchMode === 'qishui' ? 'true' : 'false');
   }
+  if (spotifyBtn) {
+    spotifyBtn.classList.toggle('active', searchMode === 'spotify');
+    spotifyBtn.setAttribute('aria-selected', searchMode === 'spotify' ? 'true' : 'false');
+  }
   if (podcastBtn) {
     podcastBtn.classList.toggle('active', searchMode === 'podcast');
     podcastBtn.setAttribute('aria-selected', searchMode === 'podcast' ? 'true' : 'false');
@@ -239,7 +244,9 @@ function updateSearchModeTabs() {
   requestAnimationFrame(updateSearchPillGlassDisplacementMap);
 }
 function setSearchMode(mode) {
-  mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq' || mode === 'kugou' || mode === 'qishui') ? mode : 'song';
+  // spotify 也要在名单里：搜索页有 SP 页签，漏了它一点就回落到"全部"。
+  // Spotify must be in this list too, otherwise the SP tab silently falls back to "all".
+  mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq' || mode === 'kugou' || mode === 'qishui' || mode === 'spotify') ? mode : 'song';
   if (searchMode === mode) return;
   searchMode = mode;
   updateSearchModeTabs();

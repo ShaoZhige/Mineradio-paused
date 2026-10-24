@@ -2255,19 +2255,44 @@ async function checkSpotifyProviderGuard() {
   if (!/playbackMode:\s*'recommend-match'/.test(spotifyText) || !/provider_limited/.test(spotifyText) || !/handleSpotifySongUrl/.test(spotifyText) || !/handleSpotifyLyric/.test(spotifyText)) {
     fail('Spotify must stay a metadata/search match source, not a fake direct audio provider');
   }
+  // server.js 的路由里直接调用 handleSpotify* / saveSpotifyConfig / getSpotifyConfig，
+  // 这些标识符必须从 './spotify-api' 解构出来。此前只解构了 clearSpotifyToken，
+  // 于是每条 /api/spotify/* 请求都抛 ReferenceError 变成 500，界面只能显示一句英文红字。
+  // Routes in server.js call these helpers directly, so every one of them has to be
+  // destructured from './spotify-api'. Only clearSpotifyToken used to be imported, which
+  // made each /api/spotify/* request throw a ReferenceError and answer 500.
+  const spotifyHelperUses = Array.from(new Set(
+    (serverText.match(/\b(?:handleSpotify[A-Za-z]+|saveSpotifyConfig|getSpotifyConfig|clearSpotifyToken)\b/g) || [])
+  )).filter(name => new RegExp('^\\s*' + name + ',?\\s*$', 'm').test(spotifyText));
+  const spotifyImportBlock = (serverText.match(/const\s*\{([\s\S]*?)\}\s*=\s*require\('\.\/spotify-api'\);/) || [])[1] || '';
+  const missingSpotifyImports = spotifyHelperUses.filter(name => !new RegExp('\\b' + name + '\\b').test(spotifyImportBlock));
+  if (missingSpotifyImports.length) {
+    fail('server.js must destructure every Spotify helper its routes call; missing: ' + missingSpotifyImports.join(', '));
+  }
   if (!/require\('\.\/spotify-api'\)/.test(serverText) || !/\/api\/spotify\/status/.test(serverText) || !/\/api\/spotify\/config/.test(serverText) || !/\/api\/spotify\/setup\/diagnostics/.test(serverText) || !/\/api\/spotify\/search/.test(serverText) || !/\/api\/spotify\/song\/url/.test(serverText) || !/\/api\/spotify\/lyric/.test(serverText)) {
     fail('server.js must route Spotify status/config/setup diagnostics/search/song-url/lyric through the backend bridge');
   }
   if (!/search-mode-spotify/.test(indexText) || !/tag-source\.spotify/.test(cssText) || !/spotify-source/.test(cssText)) {
     fail('Spotify search tab and source badges must be visible in the UI');
   }
-  if (!/PLAYBACK_QUALITY_DEFAULTS[\s\S]*spotify:\s*'standard'/.test(coreStoreText) || !/spotify:\s*\[[\s\S]*Spotify/.test(coreStoreText)) {
+  // 音质文案已全部改走 i18n（quality_spotify_match），源码里不会再出现字面 "Spotify"。
+  // 因此这里断言"必须引用那个文案键"，而不是断言品牌名字面量 —— 语义一样，还更严：
+  // 键名写错或漏翻译都会被抓到。
+  // Quality copy now goes through i18n (quality_spotify_match), so the literal word "Spotify"
+  // no longer appears in source. Assert the copy key instead of the brand string: same intent,
+  // and stricter, because a typo'd or missing key fails here.
+  if (!/PLAYBACK_QUALITY_DEFAULTS[\s\S]*spotify:\s*'standard'/.test(coreStoreText) || !/spotify:\s*\[[^\]]*quality_spotify_match/.test(coreStoreText)) {
     fail('Spotify must be represented as a standard match-source quality option');
   }
-  if (!/provider === 'spotify'/.test(qualityText) || !/Spotify/.test(qualityText) || !/return 'SP'/.test(qualityText)) {
+  if (!/provider === 'spotify'/.test(qualityText) || !/return playbackOutputText\('quality_spotify_match'\)/.test(qualityText) || !/return 'SP'/.test(qualityText)) {
     fail('playback quality UI must label Spotify as a match source');
   }
-  if (!/search-mode-spotify/.test(searchText) || !/songProviderKey\(song\)[\s\S]*spotify/.test(searchText) || !/\/api\/spotify\/search/.test(searchText) || !/mergeSongSearchResults\(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, spotifySongs/.test(searchText)) {
+  // 搜索端点不再硬编码在 07-search.js 里，而是由 provider 注册表给出。
+  // 断言要落在注册表上，否则会误报"搜索没接 Spotify"。
+  // Search endpoints now come from the provider registry instead of being hardcoded in
+  // 07-search.js, so the "Spotify search is wired" assertion has to check the registry.
+  const providerRegistryText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '16-provider-registry.js'), 'utf8');
+  if (!/search-mode-spotify/.test(searchText) || !/songProviderKey\(song\)[\s\S]*spotify/.test(searchText) || !/searchPath:\s*'\/api\/spotify\/search'/.test(providerRegistryText) || !/mergeSongSearchResults\(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, spotifySongs/.test(searchText)) {
     fail('frontend search must include Spotify in tabs, source tags, provider search, and All merge');
   }
   if (!/\/api\/spotify\/song\/url/.test(playbackText) || !/isSpotifyPlayback/.test(playbackText) || !/provider_limited/.test(fallbackText)) {
@@ -8022,6 +8047,9 @@ async function main() {
   checkQishuiProviderGuard();
   checkCustomSourceGuard();
   checkSpotifyProviderSurface();
+  // 这个守卫检查 preload/main 的 Spotify 桥是否接全。它写好之后一直没被调用过，
+  // 结果 preload 缺三个桥、main 缺三个通道都没人发现，用户点"接入 Spotify"直接卡死。
+  await checkSpotifyProviderGuard();
   checkPlaybackControlBadgesGuard();
   await checkProviderFallbackTerminalStateGuard();
   checkSearchGlassEntranceGuard();

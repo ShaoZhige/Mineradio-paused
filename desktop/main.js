@@ -5566,6 +5566,23 @@ ipcMain.handle('qishui-music-clear-login', async () => {
   return clearQishuiMusicLoginSession();
 });
 
+// Spotify 用系统浏览器完成 PKCE 授权：没有登录窗口，所以只需要三个通道 ——
+// 拉起授权、检测本机回调端口、清除已落盘的令牌。
+// Spotify authorizes in the system browser via PKCE. There is no login window, so three
+// channels suffice: start the flow, probe the loopback callback, and clear the stored token.
+ipcMain.handle('spotify-music-open-login', async (event) => {
+  if (!loginEasterEggGate.isUnlocked()) return loginEasterEggLockedResult();
+  return openSpotifyMusicLoginWindow(getSenderWindow(event));
+});
+
+ipcMain.handle('spotify-music-verify-setup', async () => {
+  return verifySpotifyOAuthCallbackEndpoint();
+});
+
+ipcMain.handle('spotify-music-clear-login', async () => {
+  return clearSpotifyToken();
+});
+
 ipcMain.handle('mineradio-open-update-page', async (event, value) => {
   try {
     if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };

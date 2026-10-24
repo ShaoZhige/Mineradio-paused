@@ -146,6 +146,7 @@
           <button id="search-mode-qq" type="button" onclick="setSearchMode('qq')" aria-selected="false">QQ</button>
           <button id="search-mode-kugou" type="button" onclick="setSearchMode('kugou')" aria-selected="false">KG</button>
           <button id="search-mode-qishui" type="button" onclick="setSearchMode('qishui')" aria-selected="false">QS</button>
+          <button id="search-mode-spotify" type="button" onclick="setSearchMode('spotify')" aria-selected="false">SP</button>
           <button id="search-mode-podcast" type="button" onclick="setSearchMode('podcast')"
             aria-selected="false">Podcast</button>
         </div>
@@ -1779,6 +1780,9 @@
           <button id="user-provider-qq" class="qq" type="button" onclick="setActiveAccountProvider('qq')" data-i18n="login_qq">QQ 音乐</button>
           <button id="user-provider-kugou" class="kugou" type="button" onclick="setActiveAccountProvider('kugou')" data-i18n="provider_kugou">酷狗音乐</button>
           <button id="user-provider-qishui" class="qishui" type="button" onclick="setActiveAccountProvider('qishui')" data-i18n="provider_qishui">汽水音乐</button>
+          <!-- Spotify 的 tab 配色早就写在样式里，按钮本身漏了；补回去才能在账号面板里切换和查看 -->
+          <!-- The Spotify tab colours already existed in CSS; only the button itself was missing. -->
+          <button id="user-provider-spotify" class="spotify" type="button" onclick="setActiveAccountProvider('spotify')" data-i18n="login_spotify">Spotify</button>
           <button id="user-provider-both" class="both" type="button" onclick="enableDualAccountView()" data-i18n="login_both">我两个都要</button>
         </div>
         <div class="account-modal-actions">
@@ -1786,6 +1790,7 @@
           <button id="account-add-qq" class="modal-btn" onclick="openProviderLogin('qq')" data-i18n="login_add_qq">补登 QQ 音乐</button>
           <button id="account-add-kugou" class="modal-btn" onclick="openProviderLogin('kugou')" data-i18n="ar_kugou_add">补登酷狗音乐</button>
           <button id="account-add-qishui" class="modal-btn" onclick="openProviderLogin('qishui')" data-i18n="ar_qishui_login">登录汽水音乐</button>
+          <button id="account-add-spotify" class="modal-btn" onclick="openProviderLogin('spotify')" data-i18n="login_add_spotify">登录 Spotify</button>
         </div>
         <div id="account-hint" class="account-hint" data-i18n="login_qq_preview_hint">QQ 音乐真实登录暂未接入，当前先预览双平台账号交互。</div>
         <div class="btn-row">

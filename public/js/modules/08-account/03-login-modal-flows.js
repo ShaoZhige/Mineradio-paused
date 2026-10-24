@@ -851,7 +851,12 @@ async function saveSpotifySetupClientId() {
     var info = await apiJson('/api/spotify/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId: clientId, redirectUri: SPOTIFY_REDIRECT_URI })
+      body: JSON.stringify({ clientId: clientId, redirectUri: SPOTIFY_REDIRECT_URI }),
+      // 后端会顺带刷新一次登录态（有令牌时会回源 Spotify）。必须设超时，
+      // 否则网络半通时按钮会永远停在"检测中"且再也点不动。
+      // The backend re-checks the session (hitting Spotify when a token exists). A timeout is
+      // mandatory: on a half-broken network the button would spin in "checking" forever.
+      timeoutMs: 25000
     });
     if (!info || info.ok === false || info.error) throw new Error(backendText(info, null, loginText('login_client_id_save_failed')));
     spotifyLoginStatus = normalizeSpotifyLoginStatus(info);
@@ -859,12 +864,24 @@ async function saveSpotifySetupClientId() {
     spotifySetupDiagnostics = null;
     setSpotifySetupOverall(loginText('login_client_id_format_ok'), 'success');
   } catch (error) {
-    setSpotifySetupOverall(error && error.message || loginText('login_client_id_save_failed'), 'fail');
+    setSpotifySetupOverall(spotifyCheckTimeoutText(error) || (error && error.message) || loginText('login_client_id_save_failed'), 'fail');
   } finally {
     spotifyConfigBusy = false;
     spotifySetupBusy = false;
+    // 关键：这一步必须显式重绘向导。只调 updateLoginProviderUi() 时，卡片右上角的
+    // 状态字会停留在上一次渲染（趁 busy=true 写的"检测中…"），用户看到的就是卡死。
+    // Redraw the wizard explicitly. Relying on updateLoginProviderUi() alone left the card
+    // badge frozen at the last render — the one written while busy was still true.
+    renderSpotifySetupWizard();
     updateLoginProviderUi();
   }
+}
+
+// 请求超时（AbortController）在 Chromium 里抛的是 AbortError，直接显示原文是英文报错。
+// An aborted fetch surfaces as AbortError; show a localized line instead of the raw English.
+function spotifyCheckTimeoutText(error) {
+  if (!error || (error.name !== 'AbortError' && !/aborted/i.test(String(error.message || '')))) return '';
+  return loginText('login_spotify_check_timeout');
 }
 
 async function verifySpotifySetupCallback(silent) {
@@ -886,7 +903,7 @@ async function verifySpotifySetupCallback(silent) {
     return spotifySetupCallbackReady;
   } catch (error) {
     spotifySetupCallbackReady = false;
-    setSpotifySetupOverall(error && error.message || loginText('login_local_callback_check_failed'), 'fail');
+    setSpotifySetupOverall(spotifyCheckTimeoutText(error) || (error && error.message) || loginText('login_local_callback_check_failed'), 'fail');
     return false;
   } finally {
     spotifySetupBusy = false;
@@ -900,12 +917,15 @@ async function runSpotifySetupDiagnostics(force) {
   setSpotifySetupOverall(loginText('login_spotify_verify_profile'));
   renderSpotifySetupWizard();
   try {
-    spotifySetupDiagnostics = await apiJson('/api/spotify/setup/diagnostics?t=' + Date.now());
+    // 自检要串行跑 profile/scopes/library/playlists 四项，后端每项自己带 9 秒超时，
+    // 这里给整轮留足余量，但绝不允许无限等待。
+    var spotifySetupDiagnosticsResult = await apiJson('/api/spotify/setup/diagnostics?t=' + Date.now(), { timeoutMs: 45000 });
+    spotifySetupDiagnostics = spotifySetupDiagnosticsResult;
     var ready = !!(spotifySetupDiagnostics && spotifySetupDiagnostics.ready);
     setSpotifySetupOverall(spotifySetupDiagnostics && spotifySetupDiagnostics.message || (ready ? loginText('login_spotify_all_apis_ok') : loginText('login_some_apis_failed')), ready ? 'success' : 'fail');
     return spotifySetupDiagnostics;
   } catch (error) {
-    spotifySetupDiagnostics = { ready: false, checks: [], message: error && error.message || loginText('login_spotify_check_failed') };
+    spotifySetupDiagnostics = { ready: false, checks: [], message: spotifyCheckTimeoutText(error) || (error && error.message) || loginText('login_spotify_check_failed') };
     setSpotifySetupOverall(spotifySetupDiagnostics.message, 'fail');
     return spotifySetupDiagnostics;
   } finally {
