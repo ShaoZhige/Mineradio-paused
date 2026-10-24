@@ -2255,20 +2255,25 @@ async function checkSpotifyProviderGuard() {
   if (!/playbackMode:\s*'recommend-match'/.test(spotifyText) || !/provider_limited/.test(spotifyText) || !/handleSpotifySongUrl/.test(spotifyText) || !/handleSpotifyLyric/.test(spotifyText)) {
     fail('Spotify must stay a metadata/search match source, not a fake direct audio provider');
   }
-  // server.js 的路由里直接调用 handleSpotify* / saveSpotifyConfig / getSpotifyConfig，
-  // 这些标识符必须从 './spotify-api' 解构出来。此前只解构了 clearSpotifyToken，
-  // 于是每条 /api/spotify/* 请求都抛 ReferenceError 变成 500，界面只能显示一句英文红字。
-  // Routes in server.js call these helpers directly, so every one of them has to be
-  // destructured from './spotify-api'. Only clearSpotifyToken used to be imported, which
-  // made each /api/spotify/* request throw a ReferenceError and answer 500.
-  const spotifyHelperUses = Array.from(new Set(
-    (serverText.match(/\b(?:handleSpotify[A-Za-z]+|saveSpotifyConfig|getSpotifyConfig|clearSpotifyToken)\b/g) || [])
+  // server.js 的路由和 desktop/main.js 的 PKCE 链路都直接调用 spotify-api 的导出函数，
+  // 这些标识符必须从 require 的解构块里取。两个文件此前都只解构了 clearSpotifyToken，
+  // 于是 /api/spotify/* 全是 500、IPC 「检测回调」抛 ReferenceError。
+  // Both server.js routes and the desktop PKCE flow call spotify-api exports directly, so
+  // each name has to appear in that file's destructuring block. Both files used to import
+  // only clearSpotifyToken, which turned every Spotify path into a ReferenceError.
+  const spotifySpriteNames = Array.from(new Set(
+    (serverText + '\n' + desktopMainText).match(/\b(?:handle|save|get|build|exchange|clear|create)Spotify[A-Za-z]+\b/g) || []
   )).filter(name => new RegExp('^\\s*' + name + ',?\\s*$', 'm').test(spotifyText));
-  const spotifyImportBlock = (serverText.match(/const\s*\{([\s\S]*?)\}\s*=\s*require\('\.\/spotify-api'\);/) || [])[1] || '';
-  const missingSpotifyImports = spotifyHelperUses.filter(name => !new RegExp('\\b' + name + '\\b').test(spotifyImportBlock));
-  if (missingSpotifyImports.length) {
-    fail('server.js must destructure every Spotify helper its routes call; missing: ' + missingSpotifyImports.join(', '));
-  }
+  const assertSpotifyImports = (label, sourceText, blockPattern) => {
+    const uses = spotifySpriteNames.filter(name => new RegExp('\\b' + name + '\\b').test(sourceText));
+    const block = (sourceText.match(blockPattern) || [])[1] || '';
+    const missing = uses.filter(name => !new RegExp('\\b' + name + '\\b').test(block));
+    if (missing.length) {
+      fail(label + ' must destructure every Spotify helper it calls; missing: ' + missing.join(', '));
+    }
+  };
+  assertSpotifyImports('server/server.js', serverText, /const\s*\{([\s\S]*?)\}\s*=\s*require\('\.\/spotify-api'\);/);
+  assertSpotifyImports('desktop/main.js', desktopMainText, /const\s*\{([\s\S]*?)\}\s*=\s*require\('\.\.\/server\/spotify-api'\);/);
   if (!/require\('\.\/spotify-api'\)/.test(serverText) || !/\/api\/spotify\/status/.test(serverText) || !/\/api\/spotify\/config/.test(serverText) || !/\/api\/spotify\/setup\/diagnostics/.test(serverText) || !/\/api\/spotify\/search/.test(serverText) || !/\/api\/spotify\/song\/url/.test(serverText) || !/\/api\/spotify\/lyric/.test(serverText)) {
     fail('server.js must route Spotify status/config/setup diagnostics/search/song-url/lyric through the backend bridge');
   }

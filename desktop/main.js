@@ -25,7 +25,17 @@ const {
 } = require('./login-easter-egg-gate');
 const { extractKugouAuth } = require('../server/kugou-api');
 const { qishuiCookieHasLogin } = require('../server/qishui-api');
-const { clearSpotifyToken } = require('../server/spotify-api');
+// 主进程里 PKCE 授权链路用到四个 Spotify 助手，必须全部解构出来。
+// 此前只取了 clearSpotifyToken，于是「检测回调」「打开授权」一调用就是
+// ReferenceError: getSpotifyOAuthConfig is not defined。
+// The PKCE flow needs four helpers here; only clearSpotifyToken used to be imported,
+// so probing the callback endpoint threw a ReferenceError.
+const {
+  clearSpotifyToken,
+  getSpotifyOAuthConfig,
+  buildSpotifyOAuthAuthorizeUrl,
+  exchangeSpotifyOAuthCode,
+} = require('../server/spotify-api');
 const { CustomSourceManager } = require('./custom-source/manager');
 
 registerWallpaperEngineScheme(protocol);
