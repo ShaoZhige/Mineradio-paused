@@ -402,8 +402,9 @@ function spotifyErrorDetails(err) {
   let apiMessage = '';
   let apiStatus = '';
   let apiReason = '';
+  const rawBody = err.body ? String(err.body) : '';
   try {
-    const body = err.body ? JSON.parse(String(err.body)) : null;
+    const body = rawBody ? JSON.parse(rawBody) : null;
     if (body && body.error) {
       if (typeof body.error === 'string') {
         apiMessage = body.error_description || body.error;
@@ -413,10 +414,17 @@ function spotifyErrorDetails(err) {
         apiReason = body.error.reason || '';
       }
     }
-  } catch (parseErr) { }
+  } catch (parseErr) {
+    // Spotify 的 403 有时回纯文本而不是 JSON，例如
+    // "Active premium subscription required for the owner of the app."
+    // 解析失败时保留原文，否则下面按原因分类的分支全部失效。
+    // Spotify sometimes answers 403 with plain text instead of JSON; keep the raw body so
+    // the reason-specific branches below still work. Truncated to keep messages readable.
+    apiMessage = normalizeText(rawBody).slice(0, 400);
+  }
   const statusCode = Number(err.statusCode || apiStatus || 0) || 0;
   const oauthCode = normalizeText(spotifyTokenErrorBody(err).error);
-  const code = normalizeText(err.code || oauthCode || (statusCode ? ('SPOTIFY_HTTP_' + statusCode) : err.message)) || 'SPOTIFY_ERROR';
+  let code = normalizeText(err.code || oauthCode || (statusCode ? ('SPOTIFY_HTTP_' + statusCode) : err.message)) || 'SPOTIFY_ERROR';
   let message = apiMessage || normalizeText(err.message) || 'Spotify 请求失败';
   const reauthRequired = !!err.reauthRequired || code === 'SPOTIFY_REAUTH_REQUIRED' || oauthCode === 'invalid_grant';
   if (reauthRequired || statusCode === 401 || code === 'SPOTIFY_REFRESH_TOKEN_MISSING') {
@@ -427,7 +435,19 @@ function spotifyErrorDetails(err) {
       ? 'Spotify 开发者账号的共享 API 配额已用完，请稍后再试。'
       : 'Spotify 请求过于频繁，请约 ' + seconds + ' 秒后重试。';
   } else if (statusCode === 403) {
-    message = 'Spotify 拒绝了当前开发应用。请确认 App 所有者是 Premium，并且当前登录账号已加入 Users Management。';
+    // Spotify 2026-02 收紧后，App 所有者的 Premium 变成硬门槛：即使 OAuth 授权成功、
+    // token 完全有效，所有 Web API 调用都会回 403（原文：Active premium subscription
+    // required for the owner of the app）。这类限制发生在 Spotify 服务端，代码侧绕不过去，
+    // 所以单独给一个错误码，界面才能说清"授权已完成，被拒的是账号侧"。
+    // Since Spotify's 2026-02 tightening the app owner's Premium is a hard requirement: even
+    // with a valid OAuth token every Web API call answers 403. Nothing can be fixed in code,
+    // so this gets its own code and the UI can explain that authorization itself succeeded.
+    if (/premium/i.test(apiMessage)) {
+      code = 'SPOTIFY_PREMIUM_REQUIRED';
+      message = 'Spotify 要求开发应用的所有者持有有效的 Premium 订阅，否则接口一律返回 403。开通或续费后，Spotify 侧最多需要等几小时才会放行。';
+    } else {
+      message = 'Spotify 拒绝了当前开发应用。请确认 App 所有者是 Premium，并且当前登录账号已加入 Users Management。';
+    }
   } else if (statusCode === 404) {
     message = 'Spotify 没找到这个歌单，可能已删除、未公开或当前账号无权访问。';
   } else if (statusCode === 500 || statusCode === 502 || statusCode === 503) {
@@ -934,11 +954,15 @@ async function handleSpotifyStatus() {
     }),
     missingWriteScopes,
     accountWriteReady: loggedIn && missingWriteScopes.length === 0,
+    // 有令牌但 profile 校验失败时，绝不能回"已接入"这种乐观文案：前端会把 message
+    // 原样抛给用户，于是"授权成功却提示一切正常、界面仍是未登录"的错位就是这么来的。
+    // When a token exists but the profile check failed, never answer with the optimistic
+    // "already connected" copy: the front end surfaces `message` verbatim.
     message: loggedIn
       ? (missingWriteScopes.length
         ? 'Spotify 已连接；重新授权一次后可写入喜欢和歌单。播放仍会自动换源。'
         : 'Spotify 登录态已保存，可同步会员状态、喜欢和歌单；播放仍会自动换源。')
-      : config.message,
+      : (profileErrorDetail && profileErrorDetail.message ? profileErrorDetail.message : config.message),
   });
 }
 

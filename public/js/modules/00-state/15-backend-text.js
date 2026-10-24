@@ -37,6 +37,7 @@
     SPOTIFY_AUTH_REQUIRED: 'backend_spotify_auth_required',
     SPOTIFY_REAUTH_REQUIRED: 'backend_spotify_reauth_required',
     SPOTIFY_WRITE_SCOPE_REQUIRED: 'backend_spotify_write_scope',
+    SPOTIFY_PREMIUM_REQUIRED: 'backend_spotify_premium_required',
     // ── Spotify OAuth 配置 / Spotify OAuth setup ─────────────
     SPOTIFY_CLIENT_ID_REQUIRED: 'backend_spotify_client_id_required',
     SPOTIFY_CLIENT_ID_INVALID: 'backend_spotify_client_id_invalid',
@@ -110,6 +111,7 @@
     backend_kugou_playback_token_incomplete: '酷狗账号已登录，但播放 token 不完整，请稍后在播放器内重试登录',
     backend_spotify_auth_required: '连接 Spotify 后显示你的常听歌曲。',
     backend_spotify_reauth_required: '请重新连接 Spotify，授予所需权限。',
+    backend_spotify_premium_required: 'Spotify 要求这个开发应用的创建者持有有效 Premium，否则接口一律返回 403。开通后最多需等几小时；授权已保存，届时无需重新授权。',
     backend_spotify_write_scope: '请在账号面板重新连接 Spotify，授予写入权限。',
     backend_spotify_client_id_required: '请先粘贴 Spotify Client ID。',
     backend_spotify_client_id_invalid: 'Client ID 格式不正确，请只复制 Spotify Dashboard 中的 Client ID。',

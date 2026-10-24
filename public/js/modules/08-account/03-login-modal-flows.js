@@ -1370,7 +1370,18 @@ async function openSpotifyWebLogin() {
     }
     setSpotifySetupOverall(loginText('login_spotify_verifying'));
     var info = await refreshSpotifyLoginStatus();
-    if (!info || !info.loggedIn) throw new Error(backendText(info, null, loginText('login_spotify_session_unavailable')));
+    if (!info || !info.loggedIn) {
+      // 授权本身已经完成、token 也落盘时，失败的是 Spotify 侧的接口校验（最典型的是
+      // App 所有者没有 Premium，服务端对一切请求回 403）。这种情况必须明确说"授权已完成"，
+      // 否则用户只会觉得流程卡住，然后反复重新授权——而重新授权并不能解决任何问题。
+      // When authorization succeeded and the token is already stored, what failed is Spotify's
+      // own API check (403 when the app owner has no Premium). Say that authorization is done,
+      // otherwise the user just re-authorizes in a loop with no effect.
+      var reason = backendText(info ? { error: info.error, message: info.errorMessage || info.message } : null, null, '');
+      throw new Error(info && info.tokenConfigured
+        ? loginText('login_spotify_authorized_but_blocked') + (reason || loginText('login_spotify_session_unavailable'))
+        : (reason || loginText('login_spotify_session_unavailable')));
+    }
     activeAccountProvider = 'spotify';
     markLoginWorkflowConnected('spotify');
     renderUserBtn();
