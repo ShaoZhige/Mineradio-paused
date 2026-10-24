@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # zizmor uploads its findings to Code Scanning as SARIF, which needs
     # security-events: write. The workflow-level permissions only grant
@@ -33,7 +33,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # actionlint 保持 advisory（continue-on-error）是**刻意的**，不是忘了摘：
       # 它除了校验 YAML 结构，还会对 `run:` 块跑 shellcheck，而本机没有可复现的运行方式
       # （无 docker、无 actionlint 二进制），因此无法证明"摘掉之后它一定绿"。
