@@ -116,11 +116,25 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   openUpdatePage: (url) => ipcRenderer.invoke('mineradio-open-update-page', String(url || '')),
   restartApp: () => ipcRenderer.invoke('mineradio-restart-app'),
   configureGlobalHotkeys: (bindings) => ipcRenderer.invoke('mineradio-hotkeys-configure-global', bindings || []),
-  copyText: (text) => {
-    clipboard.writeText(String(text || ''));
-    return { ok: true };
+  // Electron 44 起 clipboard.writeText/readText 返回 Promise（重架构对齐 W3C Clipboard API），
+  // 这里必须 await，否则 readText 会把 Promise 对象塞进返回值、writeText 会漏等写入完成。
+  // Since Electron 44 these return Promises; await them or the bridge hands the renderer a
+  // Promise instead of a string.
+  copyText: async (text) => {
+    try {
+      await clipboard.writeText(String(text || ''));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
   },
-  readText: () => ({ ok: true, text: clipboard.readText() || '' }),
+  readText: async () => {
+    try {
+      return { ok: true, text: await clipboard.readText() };
+    } catch (err) {
+      return { ok: false, text: '', error: String((err && err.message) || err) };
+    }
+  },
   exportJsonFile: (payload) => ipcRenderer.invoke('mineradio-export-json-file', payload || {}),
   exportLoginCookie: (provider) => ipcRenderer.invoke('mineradio-export-login-cookie', provider || ''),
   importJsonFile: () => ipcRenderer.invoke('mineradio-import-json-file'),
