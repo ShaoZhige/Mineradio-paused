@@ -59,6 +59,28 @@
   !define MINERADIO_INSTALL_NOTICE ""
 !endif
 
+; 第一步的界面语言选择：安装器把选中的语言码写进 resources/app/userdata/ 里的标记文件，
+; 应用首次启动时读一次就删掉，用作「还没有存过偏好」时的默认语言。
+; The welcome page's language picker drops the chosen code into a marker file under
+; resources/app/userdata/. The app reads it once on first launch and deletes it, using it as
+; the default language while no explicit preference has been saved yet.
+!ifndef MINERADIO_LANG_MARKER
+  !define MINERADIO_LANG_MARKER ".installer-language"
+!endif
+!ifndef MINERADIO_LANG_DEFAULT
+  !define MINERADIO_LANG_DEFAULT "zh_cn"
+!endif
+; 欢迎页纵向空间只有 140 个对话框单位：灰度内测版多一段红色声明，语言行就得整体下移。
+; The welcome page is only 140 dialog units tall; the internal-beta build adds a red notice,
+; so its language row has to sit lower.
+!ifdef MINERADIO_INTERNAL_BETA
+  !define MINERADIO_LANG_CAPTION_Y 112
+  !define MINERADIO_LANG_ROW_Y 124
+!else
+  !define MINERADIO_LANG_CAPTION_Y 104
+  !define MINERADIO_LANG_ROW_Y 118
+!endif
+
 !ifndef BUILD_UNINSTALLER
   Var MineradioWelcomePage
   Var MineradioHeroFont
@@ -67,12 +89,18 @@
   Var MineradioSmallFont
   Var MineradioDirectoryPage
   Var MineradioDirectoryInput
+  Var MineradioLanguage
+  Var MineradioLangRadioZh
+  Var MineradioLangRadioEn
+  Var MineradioLangRadioJa
+  Var MineradioLangRadioRu
 !endif
 
 !macro customInit
   !ifndef BUILD_UNINSTALLER
     Call MineradioUsePreferredInstallDir
     Call MineradioDisableUnsafeOldUninstallers
+    Call MineradioResolveLanguage
     ${If} ${Silent}
       Call MineradioValidateInstallDir
     ${EndIf}
@@ -86,6 +114,18 @@
     FileWrite $0 "appId=${MINERADIO_MARKER_APP_ID}$\r$\n"
     FileClose $0
   ${EndIf}
+
+  ; 只有走过第一步选语言（非静默安装）才写：静默安装/更新时没有界面，不该改写旧选择。
+  ; Only write when the language step actually ran (interactive install): silent installs and
+  ; updates show no page and must not overwrite an earlier choice.
+  ${If} $MineradioLanguage != ""
+    CreateDirectory "$INSTDIR\resources\app\userdata"
+    FileOpen $0 "$INSTDIR\resources\app\userdata\${MINERADIO_LANG_MARKER}" w
+    ${IfNot} ${Errors}
+      FileWrite $0 "$MineradioLanguage$\r$\n"
+      FileClose $0
+    ${EndIf}
+  ${EndIf}
 !macroend
 
 !macro customRemoveFiles
@@ -93,7 +133,7 @@
 !macroend
 
 !macro customWelcomePage
-  Page custom MineradioWelcomeShow
+  Page custom MineradioWelcomeShow MineradioWelcomeLeave
 !macroend
 
 !macro customInstallMode
@@ -752,6 +792,27 @@ Function MineradioValidateInstallDir
 
   valid:
 FunctionEnd
+Function MineradioResolveLanguage
+  ; 默认值 → /APP_LANG= 覆盖 → 静默安装清空（不写标记）。
+  ; Default, then an /APP_LANG= override, then blank for silent installs (no marker written).
+  StrCpy $MineradioLanguage "${MINERADIO_LANG_DEFAULT}"
+
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/APP_LANG=" $R1
+  ${IfNot} ${Errors}
+    ${If} $R1 == "en_us"
+    ${OrIf} $R1 == "ja_jp"
+    ${OrIf} $R1 == "ru_ru"
+      StrCpy $MineradioLanguage "$R1"
+    ${EndIf}
+  ${EndIf}
+
+  ${If} ${Silent}
+    StrCpy $MineradioLanguage ""
+  ${EndIf}
+FunctionEnd
+
 Function MineradioWelcomeShow
   Call MineradioUsePreferredInstallDir
 
@@ -762,43 +823,96 @@ Function MineradioWelcomeShow
   ${EndIf}
 
   SetCtlColors $MineradioWelcomePage "111217" "FFFFFF"
-  CreateFont $MineradioHeroFont "Microsoft YaHei UI" 24 700
-  CreateFont $MineradioTitleFont "Microsoft YaHei UI" 11 700
+  CreateFont $MineradioHeroFont "Microsoft YaHei UI" 20 700
+  CreateFont $MineradioTitleFont "Microsoft YaHei UI" 9 700
   CreateFont $MineradioBodyFont "Microsoft YaHei UI" 9 400
   CreateFont $MineradioSmallFont "Microsoft YaHei UI" 8 400
 
-  ${NSD_CreateLabel} 22u 20u 120u 10u "${MINERADIO_INSTALL_BRAND}"
+  ${NSD_CreateLabel} 22u 14u 120u 10u "${MINERADIO_INSTALL_BRAND}"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 42u 226u 30u "${MINERADIO_INSTALL_TITLE}"
+  ${NSD_CreateLabel} 22u 28u 226u 26u "${MINERADIO_INSTALL_TITLE}"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioHeroFont 1
   SetCtlColors $0 "111217" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 78u 36u 2u ""
+  ${NSD_CreateLabel} 22u 58u 32u 2u ""
   Pop $0
   SetCtlColors $0 "" "3257F7"
 
-  ${NSD_CreateLabel} 22u 96u 238u 24u "为这台电脑安装 ${PRODUCT_NAME}。默认安装到 D:\${MINERADIO_INSTALL_DIR_NAME}，下一步可以自由选择其它位置。"
+  ${NSD_CreateLabel} 22u 66u 238u 24u "为这台电脑安装 ${PRODUCT_NAME}。默认位置：$INSTDIR，下一步可以自由选择其它位置。"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
   SetCtlColors $0 "4B5263" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 130u 238u 12u "默认位置：$INSTDIR"
-  Pop $0
-  SendMessage $0 ${WM_SETFONT} $MineradioTitleFont 1
-  SetCtlColors $0 "3257F7" "FFFFFF"
-
   !ifdef MINERADIO_INTERNAL_BETA
-    ${NSD_CreateLabel} 22u 150u 238u 28u "${MINERADIO_INSTALL_NOTICE}"
+    ${NSD_CreateLabel} 22u 86u 238u 20u "${MINERADIO_INSTALL_NOTICE}"
     Pop $0
     SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
     SetCtlColors $0 "B42318" "FFFFFF"
   !endif
 
+  ${NSD_CreateLabel} 22u ${MINERADIO_LANG_CAPTION_Y}u 238u 10u "语言 / Language"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $MineradioTitleFont 1
+  SetCtlColors $0 "3257F7" "FFFFFF"
+
+  ; 四个语言按钮用各自的自称，任何语言的用户都能一眼认出自己那一项。
+  ; Each option is labelled with its own endonym so any user recognises their own language.
+  ${NSD_CreateRadioButton} 22u ${MINERADIO_LANG_ROW_Y}u 40u 12u "中文"
+  Pop $MineradioLangRadioZh
+  SendMessage $MineradioLangRadioZh ${WM_SETFONT} $MineradioBodyFont 1
+  SetCtlColors $MineradioLangRadioZh "111217" "FFFFFF"
+
+  ${NSD_CreateRadioButton} 66u ${MINERADIO_LANG_ROW_Y}u 52u 12u "English"
+  Pop $MineradioLangRadioEn
+  SendMessage $MineradioLangRadioEn ${WM_SETFONT} $MineradioBodyFont 1
+  SetCtlColors $MineradioLangRadioEn "111217" "FFFFFF"
+
+  ${NSD_CreateRadioButton} 122u ${MINERADIO_LANG_ROW_Y}u 42u 12u "日本語"
+  Pop $MineradioLangRadioJa
+  SendMessage $MineradioLangRadioJa ${WM_SETFONT} $MineradioBodyFont 1
+  SetCtlColors $MineradioLangRadioJa "111217" "FFFFFF"
+
+  ${NSD_CreateRadioButton} 168u ${MINERADIO_LANG_ROW_Y}u 54u 12u "Русский"
+  Pop $MineradioLangRadioRu
+  SendMessage $MineradioLangRadioRu ${WM_SETFONT} $MineradioBodyFont 1
+  SetCtlColors $MineradioLangRadioRu "111217" "FFFFFF"
+
+  ${If} $MineradioLanguage == "en_us"
+    ${NSD_SetState} $MineradioLangRadioEn ${BST_CHECKED}
+  ${ElseIf} $MineradioLanguage == "ja_jp"
+    ${NSD_SetState} $MineradioLangRadioJa ${BST_CHECKED}
+  ${ElseIf} $MineradioLanguage == "ru_ru"
+    ${NSD_SetState} $MineradioLangRadioRu ${BST_CHECKED}
+  ${Else}
+    ${NSD_SetState} $MineradioLangRadioZh ${BST_CHECKED}
+  ${EndIf}
+
   nsDialogs::Show
+FunctionEnd
+
+Function MineradioWelcomeLeave
+  ; 读回选中项而不是靠点击回调：方向键也能换选项，不经过点击。
+  ; Read the state back instead of tracking clicks: arrow keys change the selection too.
+  ${NSD_GetState} $MineradioLangRadioZh $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $MineradioLanguage "zh_cn"
+  ${EndIf}
+  ${NSD_GetState} $MineradioLangRadioEn $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $MineradioLanguage "en_us"
+  ${EndIf}
+  ${NSD_GetState} $MineradioLangRadioJa $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $MineradioLanguage "ja_jp"
+  ${EndIf}
+  ${NSD_GetState} $MineradioLangRadioRu $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $MineradioLanguage "ru_ru"
+  ${EndIf}
 FunctionEnd
 
 Function MineradioDirectoryBrowse

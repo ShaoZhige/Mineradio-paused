@@ -3869,7 +3869,41 @@ function checkInternalBetaPackagingGuard() {
   if (!/Call\s+MineradioFirstFixedDriveLetter/.test(installerCode)) {
     fail('installer drive helpers must share a single fixed-drive enumeration');
   }
+  // 安装器首屏的界面语言：四个选项 → 标记文件 → 主进程读一次即删 → 渲染端当首启默认。
+  // 这条链路任何一环断掉都会静默失效（装完语言没变，且没有任何报错），所以四段一起守。
+  // The installer's first-page language: four options → marker file → read-once in the main
+  // process → used as the renderer's first-run default. A break anywhere in that chain fails
+  // silently (installer choice simply ignored), so guard all four links together.
+  ['MineradioLangRadioZh', 'MineradioLangRadioEn', 'MineradioLangRadioJa', 'MineradioLangRadioRu']
+    .forEach((radio) => {
+      if (!new RegExp(`Var\\s+${radio}\\b`).test(installerCode)) {
+        fail(`installer welcome page must offer the ${radio} language option`);
+      }
+    });
+  if (!/\$\{NSD_GetState\} \$MineradioLangRadioZh/.test(installerCode)) {
+    fail('installer must read the language radios back on page leave (arrow keys change them too)');
+  }
+  if (!/resources\\app\\userdata\\\$\{MINERADIO_LANG_MARKER\}/.test(installerCode)) {
+    fail('installer must write the chosen language next to the portable userdata folder');
+  }
+  if (!/\$\{If\} \$MineradioLanguage != ""/.test(installerCode)) {
+    fail('installer must skip the language marker on silent installs and updates');
+  }
+  const installerPreloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
+  const installerI18nText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '13-i18n.js'), 'utf8');
+  if (!/getInstallerLanguage: \(\) => ipcRenderer\.invoke\('mineradio-installer-language'\)/.test(installerPreloadText)) {
+    fail("preload must expose the installer language bridge as 'mineradio-installer-language'");
+  }
+  if (!/ipcMain\.handle\('mineradio-installer-language'/.test(installerText + fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8'))) {
+    fail('main process must answer the installer language bridge');
+  }
+  if (!/readInstallerLang\(\)\.then\(function \(installerLang\) \{\s*\n\s*return installerLang \|\| detectSystemLang\(\)/.test(installerI18nText)) {
+    fail('renderer must treat the installer language as the first-run default above the system locale');
+  }
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  if (!/function takeInstallerLanguage\(\)/.test(mainText) || !/fs\.unlinkSync\(file\)/.test(mainText)) {
+    fail('the installer language marker must be read once and deleted, or reinstalls would override later choices');
+  }
   if (!/APP_PACKAGE_INFO/.test(mainText) || !/runtimeName/.test(mainText) || !/appUserModelId/.test(mainText)) {
     fail('desktop runtime must read beta name/AppUserModelID from package metadata');
   }

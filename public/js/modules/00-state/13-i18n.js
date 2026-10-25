@@ -97,10 +97,30 @@
     return DEFAULT_LANG;
   }
 
+  // 安装器第一步选的语言：优先级在系统语言之上，但仍然低于用户在界面里的选择。
+  // 主进程读完就删掉标记文件，所以这里只会拿到一次有效值；没有桌面桥（浏览器预览）时返回空串。
+  // The installer's first-page choice beats the system language but still loses to an explicit
+  // in-app selection. The main process deletes its marker on read, so this resolves at most
+  // once with a real value; without the desktop bridge (browser preview) it resolves to "".
+  function readInstallerLang() {
+    try {
+      var bridge = root.desktopWindow;
+      if (!bridge || typeof bridge.getInstallerLanguage !== 'function') return Promise.resolve('');
+      return Promise.resolve(bridge.getInstallerLanguage()).then(function (value) {
+        var code = String(value || '').trim().toLowerCase().replace(/-/g, '_');
+        return SUPPORTED_LANGS.indexOf(code) >= 0 ? code : '';
+      }, function () { return ''; });
+    } catch (e) {
+      return Promise.resolve('');
+    }
+  }
+
   function resolveInitialLang() {
     var stored = readStoredLang();
-    if (stored) return normalizeLang(stored);
-    return detectSystemLang();
+    if (stored) return Promise.resolve(normalizeLang(stored));
+    return readInstallerLang().then(function (installerLang) {
+      return installerLang || detectSystemLang();
+    });
   }
 
   // 词典懒加载：失败也 resolve 成空表，缺键走默认语言回退，界面不会因此空掉。
@@ -210,8 +230,14 @@
   }
 
   function init() {
-    currentLang = resolveInitialLang();
-    return loadChain(currentLang).then(function () {
+    // resolveInitialLang 现在可能是异步的（要问主进程安装器选了哪种语言），
+    // 先定下语言再装词典，否则会先用旧语言渲染一遍再跳变。
+    // resolveInitialLang can be async now (it asks the main process what the installer chose),
+    // so settle the language before loading dictionaries or the UI would flash the wrong one.
+    return resolveInitialLang().then(function (lang) {
+      currentLang = lang;
+      return loadChain(currentLang);
+    }).then(function () {
       scan();
       notify(currentLang, currentLang);
       return currentLang;

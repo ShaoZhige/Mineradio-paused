@@ -4392,6 +4392,35 @@ function applyDesktopLocaleToOpenWindows() {
 
 ipcMain.handle('mineradio-set-locale', (_event, lang) => setDesktopLocale(lang));
 
+// 安装器第一步选的界面语言：只在「还没存过任何偏好」的首次启动里当默认值。
+// 安装器把语言码写进 resources/app/userdata/.installer-language，这里读一次就把文件删掉 ——
+// 否则用户以后在设置里换过语言，某次重新安装又会被安装器的旧选择悄悄改回去。
+// The language picked on the installer's first page is only a first-run default. The installer
+// drops the code into resources/app/userdata/.installer-language; it is read once and deleted
+// right away, so a later reinstall cannot silently override an explicit choice made in the app.
+const INSTALLER_LANGUAGE_FILE = '.installer-language';
+function takeInstallerLanguage() {
+  for (const dir of [STABLE_USER_DATA_PATH, PORTABLE_USER_DATA_PATH]) {
+    if (!dir) continue;
+    const file = path.join(dir, INSTALLER_LANGUAGE_FILE);
+    let raw = '';
+    try {
+      raw = fs.readFileSync(file, 'utf8');
+    } catch (_) {
+      continue;
+    }
+    try { fs.unlinkSync(file); } catch (_) {}
+    const code = String(raw).split(/\r?\n/)[0].trim();
+    return SUPPORTED_LOCALES.includes(code) ? code : '';
+  }
+  return '';
+}
+let installerLanguage = null;
+ipcMain.handle('mineradio-installer-language', () => {
+  if (installerLanguage === null) installerLanguage = takeInstallerLanguage();
+  return installerLanguage;
+});
+
 ipcMain.handle('desktop-window-minimize', async (event) => {
   const win = getSenderWindow(event);
   if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-minimize').enabled === true) {

@@ -12,6 +12,7 @@ function readSystemRelease() {
 contextBridge.exposeInMainWorld('desktopWindow', {
   isDesktop: true,
   setLocale: (lang) => ipcRenderer.invoke('mineradio-set-locale', lang),
+  getInstallerLanguage: () => ipcRenderer.invoke('mineradio-installer-language'),
   systemRelease: readSystemRelease(),
   minimize: () => ipcRenderer.invoke('desktop-window-minimize'),
   restore: () => ipcRenderer.invoke('desktop-window-restore'),
