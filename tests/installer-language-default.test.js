@@ -36,29 +36,61 @@ const mainText = read(path.join('desktop', 'main.js'));
 const preloadText = read(path.join('desktop', 'preload.js'));
 const i18nText = read(path.join('public', 'js', 'modules', '00-state', '13-i18n.js'));
 
-test('installer welcome page offers the four supported languages', () => {
-  const options = {
-    Zh: 'zh_cn',
-    En: 'en_us',
-    Ja: 'ja_jp',
-    Ru: 'ru_ru',
-  };
-  for (const [name, code] of Object.entries(options)) {
-    assert.match(installerCode, new RegExp(`Var\\s+MineradioLangRadio${name}\\b`), `${name} radio must be declared`);
+test('installer welcome page offers the four supported languages in an openable dropdown', () => {
+  // 形态是「点开才展开的列表」，不是一行铺四个单选：收起时只占一行，点箭头才出四项。
+  // The shape is a collapsed dropdown rather than four inline radios: one row until the arrow
+  // is clicked, then the list opens.
+  assert.match(installerCode, /Var\s+MineradioLangCombo\b/, 'the dropdown handle must be declared');
+  assert.match(
+    installerCode,
+    /nsDialogs::CreateControl\s+"COMBOBOX"[\s\S]{0,160}?CBS_DROPDOWNLIST[\s\S]{0,160}?Pop \$MineradioLangCombo/,
+    'the welcome page must build a dropdown list (CBS_DROPDOWNLIST), not radios'
+  );
+  assert.equal(
+    /NSD_CreateRadioButton/.test(installerCode),
+    false,
+    'the four inline radios must be gone — they do not open into a list'
+  );
+
+  // 四项保持各自的自称，顺序必须与 CB_SETCURSEL / CB_GETCURSEL 的索引一一对应。
+  // Each entry keeps its endonym, and the order has to match the index mapping both ways.
+  const options = ['中文', 'English', '日本語', 'Русский'];
+  const added = [...installerCode.matchAll(/CB_ADDSTRING\} 0 "STR:([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(added, options, 'the dropdown must list exactly these four endonyms, in order');
+
+  // 四行都要能被预选（/APP_LANG= 或默认值落到哪一行）；索引与上面的四项顺序绑定。
+  // Every row must be preselectable (/APP_LANG= or the default lands on one of them).
+  for (const index of [0, 1, 2, 3]) {
     assert.match(
       installerCode,
-      new RegExp(`\\$\\{NSD_CreateRadioButton\\}[\\s\\S]{0,120}?Pop \\$MineradioLangRadio${name}`),
-      `${name} radio must be created on the welcome page`
-    );
-    assert.match(
-      installerCode,
-      new RegExp(`StrCpy \\$MineradioLanguage "${code}"`),
-      `${name} radio must map onto the ${code} language code`
+      new RegExp(`CB_SETCURSEL\\} ${index} 0`),
+      `the dropdown must be able to preselect row ${index}`
     );
   }
-  // 方向键也能换选项，不经过点击回调，所以离开页面时必须读回控件状态。
-  // Arrow keys change the selection without a click, so the leave handler has to read state back.
-  assert.match(installerCode, /\$\{NSD_CreateRadioButton\}[\s\S]*?\$\{NSD_GetState\} \$MineradioLangRadioZh/);
+  assert.match(
+    installerCode,
+    new RegExp(`\\$\\{If\\} \\$0 == 1[\\s\\S]{0,120}?StrCpy \\$MineradioLanguage "en_us"`),
+    'index 1 must map onto en_us'
+  );
+  assert.match(
+    installerCode,
+    new RegExp(`\\$\\{ElseIf\\} \\$0 == 2[\\s\\S]{0,120}?StrCpy \\$MineradioLanguage "ja_jp"`),
+    'index 2 must map onto ja_jp'
+  );
+  assert.match(
+    installerCode,
+    new RegExp(`\\$\\{ElseIf\\} \\$0 == 3[\\s\\S]{0,120}?StrCpy \\$MineradioLanguage "ru_ru"`),
+    'index 3 must map onto ru_ru'
+  );
+  assert.match(
+    installerCode,
+    new RegExp(`StrCpy \\$MineradioLanguage "zh_cn"`),
+    'index 0 must map onto zh_cn'
+  );
+
+  // 键盘上下键也能换选项，不经过点击回调，所以离开页面时必须读回当前选中项。
+  // Arrow keys change the selection without a click, so the leave handler reads it back.
+  assert.match(installerCode, /\$\{CB_GETCURSEL\} 0 0[\s\S]{0,80}?Pop \$0/);
   assert.match(installerCode, /Page custom MineradioWelcomeShow MineradioWelcomeLeave/);
 });
 

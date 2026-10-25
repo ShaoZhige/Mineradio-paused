@@ -3869,19 +3869,29 @@ function checkInternalBetaPackagingGuard() {
   if (!/Call\s+MineradioFirstFixedDriveLetter/.test(installerCode)) {
     fail('installer drive helpers must share a single fixed-drive enumeration');
   }
-  // 安装器首屏的界面语言：四个选项 → 标记文件 → 主进程读一次即删 → 渲染端当首启默认。
-  // 这条链路任何一环断掉都会静默失效（装完语言没变，且没有任何报错），所以四段一起守。
-  // The installer's first-page language: four options → marker file → read-once in the main
-  // process → used as the renderer's first-run default. A break anywhere in that chain fails
-  // silently (installer choice simply ignored), so guard all four links together.
-  ['MineradioLangRadioZh', 'MineradioLangRadioEn', 'MineradioLangRadioJa', 'MineradioLangRadioRu']
-    .forEach((radio) => {
-      if (!new RegExp(`Var\\s+${radio}\\b`).test(installerCode)) {
-        fail(`installer welcome page must offer the ${radio} language option`);
-      }
-    });
-  if (!/\$\{NSD_GetState\} \$MineradioLangRadioZh/.test(installerCode)) {
-    fail('installer must read the language radios back on page leave (arrow keys change them too)');
+  // 安装器首屏的界面语言：点开式下拉列表（不是一行铺四个单选）→ 标记文件 → 主进程读一次即删
+  // → 渲染端当首启默认。这条链路任何一环断掉都会静默失效（装完语言没变，且没有任何报错）。
+  // The installer's first-page language: an openable dropdown (not four inline radios) → marker
+  // file → read-once in the main process → used as the renderer's first-run default. A break
+  // anywhere in that chain fails silently (installer choice simply ignored), so guard all links.
+  if (!/Var\s+MineradioLangCombo\b/.test(installerCode)) {
+    fail('installer welcome page must keep a handle for the language dropdown');
+  }
+  if (!/nsDialogs::CreateControl\s+"COMBOBOX"[\s\S]{0,160}?CBS_DROPDOWNLIST[\s\S]{0,160}?Pop \$MineradioLangCombo/.test(installerCode)) {
+    fail('installer welcome page must offer the language as a dropdown list (CBS_DROPDOWNLIST), so it opens on click');
+  }
+  if (/NSD_CreateRadioButton/.test(installerCode)) {
+    fail('installer must not fall back to four inline language radios — they do not open into a list');
+  }
+  const langEntries = [...installerCode.matchAll(/CB_ADDSTRING\} 0 "STR:([^"]+)"/g)].map((m) => m[1]);
+  if (langEntries.join('|') !== '中文|English|日本語|Русский') {
+    fail(`installer language dropdown must list the four endonyms in order, got: ${langEntries.join('|') || '(none)'}`);
+  }
+  if (!/\$\{CB_GETCURSEL\} 0 0[\s\S]{0,80}?Pop \$0/.test(installerCode)) {
+    fail('installer must read the dropdown selection back on page leave (arrow keys change it too)');
+  }
+  if (!/\$\{CB_SETCURSEL\} 1 0/.test(installerCode) || !/\$\{CB_SETCURSEL\} 3 0/.test(installerCode)) {
+    fail('installer must preselect the dropdown row that matches the resolved language');
   }
   if (!/resources\\app\\userdata\\\$\{MINERADIO_LANG_MARKER\}/.test(installerCode)) {
     fail('installer must write the chosen language next to the portable userdata folder');

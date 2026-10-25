@@ -71,14 +71,20 @@
   !define MINERADIO_LANG_DEFAULT "zh_cn"
 !endif
 ; 欢迎页纵向空间只有 140 个对话框单位：灰度内测版多一段红色声明，语言行就得整体下移。
+; 语言选择平时只占一行（收起的下拉列表），点箭头才展开成四项。
 ; The welcome page is only 140 dialog units tall; the internal-beta build adds a red notice,
-; so its language row has to sit lower.
+; so its language row has to sit lower. The picker is a collapsed dropdown that opens on click.
 !ifdef MINERADIO_INTERNAL_BETA
   !define MINERADIO_LANG_CAPTION_Y 112
   !define MINERADIO_LANG_ROW_Y 124
 !else
   !define MINERADIO_LANG_CAPTION_Y 104
   !define MINERADIO_LANG_ROW_Y 118
+!endif
+; 展开高度按「四项各一行」给足，系统会吸附到整数项高度，不会留半行。
+; Enough height for four rows; Windows snaps it to a whole number of items.
+!ifndef MINERADIO_LANG_DROP_HEIGHT
+  !define MINERADIO_LANG_DROP_HEIGHT 62
 !endif
 
 !ifndef BUILD_UNINSTALLER
@@ -90,10 +96,7 @@
   Var MineradioDirectoryPage
   Var MineradioDirectoryInput
   Var MineradioLanguage
-  Var MineradioLangRadioZh
-  Var MineradioLangRadioEn
-  Var MineradioLangRadioJa
-  Var MineradioLangRadioRu
+  Var MineradioLangCombo
 !endif
 
 !macro customInit
@@ -859,59 +862,52 @@ Function MineradioWelcomeShow
   SendMessage $0 ${WM_SETFONT} $MineradioTitleFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ; 四个语言按钮用各自的自称，任何语言的用户都能一眼认出自己那一项。
-  ; Each option is labelled with its own endonym so any user recognises their own language.
-  ${NSD_CreateRadioButton} 22u ${MINERADIO_LANG_ROW_Y}u 40u 12u "中文"
-  Pop $MineradioLangRadioZh
-  SendMessage $MineradioLangRadioZh ${WM_SETFONT} $MineradioBodyFont 1
-  SetCtlColors $MineradioLangRadioZh "111217" "FFFFFF"
-
-  ${NSD_CreateRadioButton} 66u ${MINERADIO_LANG_ROW_Y}u 52u 12u "English"
-  Pop $MineradioLangRadioEn
-  SendMessage $MineradioLangRadioEn ${WM_SETFONT} $MineradioBodyFont 1
-  SetCtlColors $MineradioLangRadioEn "111217" "FFFFFF"
-
-  ${NSD_CreateRadioButton} 122u ${MINERADIO_LANG_ROW_Y}u 42u 12u "日本語"
-  Pop $MineradioLangRadioJa
-  SendMessage $MineradioLangRadioJa ${WM_SETFONT} $MineradioBodyFont 1
-  SetCtlColors $MineradioLangRadioJa "111217" "FFFFFF"
-
-  ${NSD_CreateRadioButton} 168u ${MINERADIO_LANG_ROW_Y}u 54u 12u "Русский"
-  Pop $MineradioLangRadioRu
-  SendMessage $MineradioLangRadioRu ${WM_SETFONT} $MineradioBodyFont 1
-  SetCtlColors $MineradioLangRadioRu "111217" "FFFFFF"
+  ; 点开式下拉列表，不是一行铺四个单选：平时只占一行，点箭头才展开可选的语言。
+  ; 每一项用各自的自称（中文 / English / 日本語 / Русский），任何语言的用户都能认出自己那一项。
+  ; A collapsed dropdown instead of four inline radios: it takes one row until the arrow is
+  ; clicked, then opens the list. Each entry keeps its endonym so anyone recognises their own.
+  nsDialogs::CreateControl "COMBOBOX" \
+      "${DEFAULT_STYLES}|${WS_VSCROLL}|${CBS_DROPDOWNLIST}" \
+      0 22u ${MINERADIO_LANG_ROW_Y}u 120u ${MINERADIO_LANG_DROP_HEIGHT}u ""
+  Pop $MineradioLangCombo
+  ${If} $MineradioLangCombo == error
+    Abort
+  ${EndIf}
+  SendMessage $MineradioLangCombo ${WM_SETFONT} $MineradioBodyFont 1
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:中文"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:English"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:日本語"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:Русский"
 
   ${If} $MineradioLanguage == "en_us"
-    ${NSD_SetState} $MineradioLangRadioEn ${BST_CHECKED}
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 1 0
   ${ElseIf} $MineradioLanguage == "ja_jp"
-    ${NSD_SetState} $MineradioLangRadioJa ${BST_CHECKED}
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 2 0
   ${ElseIf} $MineradioLanguage == "ru_ru"
-    ${NSD_SetState} $MineradioLangRadioRu ${BST_CHECKED}
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 3 0
   ${Else}
-    ${NSD_SetState} $MineradioLangRadioZh ${BST_CHECKED}
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 0 0
   ${EndIf}
 
   nsDialogs::Show
 FunctionEnd
 
 Function MineradioWelcomeLeave
-  ; 读回选中项而不是靠点击回调：方向键也能换选项，不经过点击。
-  ; Read the state back instead of tracking clicks: arrow keys change the selection too.
-  ${NSD_GetState} $MineradioLangRadioZh $0
-  ${If} $0 == ${BST_CHECKED}
-    StrCpy $MineradioLanguage "zh_cn"
-  ${EndIf}
-  ${NSD_GetState} $MineradioLangRadioEn $0
-  ${If} $0 == ${BST_CHECKED}
+  ; 读回下拉列表的选中项而不是靠变更回调：键盘上下键也能换，不经过鼠标事件。
+  ; Read the dropdown selection back instead of tracking change events: the arrow keys change
+  ; it too, and they never fire a click.
+  SendMessage $MineradioLangCombo ${CB_GETCURSEL} 0 0
+  Pop $0
+  ${If} $0 == 1
     StrCpy $MineradioLanguage "en_us"
-  ${EndIf}
-  ${NSD_GetState} $MineradioLangRadioJa $0
-  ${If} $0 == ${BST_CHECKED}
+  ${ElseIf} $0 == 2
     StrCpy $MineradioLanguage "ja_jp"
-  ${EndIf}
-  ${NSD_GetState} $MineradioLangRadioRu $0
-  ${If} $0 == ${BST_CHECKED}
+  ${ElseIf} $0 == 3
     StrCpy $MineradioLanguage "ru_ru"
+  ${Else}
+    ; 0 是中文，-1（没选中）也落回中文，不会把空值写进标记文件。
+    ; 0 is Chinese; -1 (nothing selected) also falls back to it, so no empty code is written.
+    StrCpy $MineradioLanguage "zh_cn"
   ${EndIf}
 FunctionEnd
 
