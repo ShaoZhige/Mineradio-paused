@@ -3843,6 +3843,51 @@ function checkInstallerPackagingGuard() {
   if (requiresGsap) {
     fail("runtime code must not require('gsap') — the package ships it as a global from public/vendor");
   }
+  // 开始菜单磁贴：manifest 必须与 exe 同名同目录，四张 png 必须在 VisualElements/ 下。
+  // 任何一环不对都**不会报错**，只是磁贴退回系统灰底 —— 也就是用户反馈的「图标外面一圈灰蒙蒙」。
+  // Start-menu tiles: the manifest has to carry the executable's name and sit next to it, with the
+  // four PNGs under VisualElements/. Nothing errors when this is wrong; the tile just falls back to
+  // the system grey backdrop, which is exactly the grey halo users reported.
+  const tileManifestPath = path.join('build', 'visual-elements', 'Mineradio.VisualElementsManifest.xml');
+  // package.json 里写的是正斜杠，path.join 在 Windows 上给的是反斜杠 —— 比较前统一。
+  // package.json uses forward slashes while path.join yields backslashes on Windows.
+  const tileManifestRef = tileManifestPath.split(path.sep).join('/');
+  if (!fs.existsSync(path.join(appRoot, tileManifestPath))) {
+    fail('the Start-menu tile manifest is missing: ' + tileManifestPath);
+  }
+  const exeBaseName = (pkg.build && pkg.build.win && pkg.build.win.executableName)
+    || (pkg.build && pkg.build.productName)
+    || 'Mineradio';
+  if (path.basename(tileManifestPath) !== `${exeBaseName}.VisualElementsManifest.xml`) {
+    fail(`the tile manifest must be named after the executable (${exeBaseName}.VisualElementsManifest.xml)`);
+  }
+  const tileXmlText = fs.readFileSync(path.join(appRoot, tileManifestPath), 'utf8');
+  // 必须显式给 BackgroundColor：留空时 Windows 自己垫一层不透明灰，图标四角透明就会透出灰圈。
+  // 值用 transparent（跟随系统半透明磁贴），不要写死成图标的深色 —— 那会让这一个磁贴不透明。
+  // BackgroundColor must be explicit: when omitted Windows paints its own opaque grey, which shows
+  // through the icon's transparent corners. Keep it "transparent" (follows the system's translucent
+  // tiles) rather than pinning the icon's dark colour, which would make this one tile opaque.
+  if (!/BackgroundColor="(transparent|#[0-9A-Fa-f]{6})"/.test(tileXmlText)) {
+    fail('the tile manifest must pin BackgroundColor (use "transparent" to follow the system tiles)');
+  }
+  const tileExtraFiles = (pkg.build && Array.isArray(pkg.build.extraFiles) ? pkg.build.extraFiles : []);
+  const tileCopied = tileExtraFiles.some((entry) => entry && typeof entry === 'object'
+    && String(entry.from || '').split('\\').join('/') === tileManifestRef
+    && entry.to === path.basename(tileManifestPath));
+  if (!tileCopied) {
+    fail('package.json extraFiles must copy the tile manifest next to the executable');
+  }
+  const tilePngsCopied = tileExtraFiles.some((entry) => entry && typeof entry === 'object'
+    && entry.from === 'build/visual-elements/VisualElements' && entry.to === 'VisualElements');
+  if (!tilePngsCopied) {
+    fail('package.json extraFiles must copy build/visual-elements/VisualElements to the app root');
+  }
+  ['Square44x44Logo.png', 'Square71x71Logo.png', 'Square150x150Logo.png', 'Square310x310Logo.png']
+    .forEach((name) => {
+      if (!fs.existsSync(path.join(appRoot, 'build', 'visual-elements', 'VisualElements', name))) {
+        fail(`Start-menu tile asset is missing: VisualElements/${name}`);
+      }
+    });
   // Drive-letter probe: 盘符必须用 GetDriveTypeW 判定是否固定磁盘（#265/#275/#86/#102）。
   // Drive-letter probe must use GetDriveTypeW; IfFileExists "<letter>:\*.*" only proves "the root
   // has entries", so card readers / optical drives / empty removable disks were treated as

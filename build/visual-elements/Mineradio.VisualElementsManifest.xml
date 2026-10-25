@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  开始菜单磁贴（Windows 10）的显示定义。
+  不带这个文件时，Windows 会把 exe 图标缩进方块磁贴，并**自己垫一层不透明的灰底**；图标本身是
+  圆角方块、四角透明（alpha=0），那层灰就从四角透出来 —— 在系统开了「透明效果」的磁贴里特别突兀，
+  看着就是「图标外面一圈灰蒙蒙」。
+  这里把底色设成 transparent，磁贴跟随系统的半透明效果，四角露出的就是同一层半透明背景，
+  跟其它磁贴一致；图标本身不受影响。
+
+  Tile visuals for the Windows 10 Start menu. Without this file Windows scales the exe icon into a
+  square tile over its own OPAQUE grey backdrop; the icon is a rounded square with transparent
+  corners, so that grey leaks through and looks like a halo — very obvious next to the translucent
+  tiles from the system's transparency setting. BackgroundColor="transparent" lets the tile use the
+  same translucent backdrop as every other tile, so the corners simply blend in.
+
+  生效条件：文件必须与 exe 同名同目录（Mineradio.exe → Mineradio.VisualElementsManifest.xml），
+  且磁贴是**首次固定**时读取 —— 改完要取消固定、再重新固定一次。
+-->
+<Application xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <VisualElements
+      BackgroundColor="transparent"
+      ForegroundText="light"
+      ShowNameOnSquare150x150Logo="on"
+      Square44x44Logo="VisualElements\Square44x44Logo.png"
+      Square71x71Logo="VisualElements\Square71x71Logo.png"
+      Square150x150Logo="VisualElements\Square150x150Logo.png"
+      Square310x310Logo="VisualElements\Square310x310Logo.png" />
+</Application>

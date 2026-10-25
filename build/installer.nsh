@@ -1076,6 +1076,15 @@ Function un.MineradioRemoveInstalledFiles
   Delete "$INSTDIR\Uninstall ${PRODUCT_FILENAME}.exe"
   Delete "$INSTDIR\uninstallerIcon.ico"
 
+  ; 开始菜单磁贴的显示定义（exe 同名的 VisualElementsManifest + 四张 png）。
+  ; Tile visuals that ship next to the exe: the same-named manifest plus four PNGs.
+  Delete "$INSTDIR\${PRODUCT_FILENAME}.VisualElementsManifest.xml"
+  Delete "$INSTDIR\VisualElements\Square44x44Logo.png"
+  Delete "$INSTDIR\VisualElements\Square71x71Logo.png"
+  Delete "$INSTDIR\VisualElements\Square150x150Logo.png"
+  Delete "$INSTDIR\VisualElements\Square310x310Logo.png"
+  RMDir "$INSTDIR\VisualElements"
+
   Delete "$INSTDIR\chrome_100_percent.pak"
   Delete "$INSTDIR\chrome_200_percent.pak"
   Delete "$INSTDIR\d3dcompiler_47.dll"

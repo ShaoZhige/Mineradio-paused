@@ -30,6 +30,16 @@
     "toolsets": {
       "winCodeSign": "1.1.0"
     },
+    "extraFiles": [
+      {
+        "from": "build/visual-elements/Mineradio.VisualElementsManifest.xml",
+        "to": "Mineradio.VisualElementsManifest.xml"
+      },
+      {
+        "from": "build/visual-elements/VisualElements",
+        "to": "VisualElements"
+      }
+    ],
     "files": [
       "desktop/**/*",
       "public/**/*",

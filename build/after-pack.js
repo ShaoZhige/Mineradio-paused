@@ -54,11 +54,16 @@ module.exports = async function afterPack(context) {
   if (!fs.existsSync(iconPath)) throw new Error(`Mineradio icon was not found: ${iconPath}`);
 
   const version = context.packager.appInfo.version;
+  // 安装包的「文件说明」取自 package.json 的 description，exe 这份以前写的是 productName，
+  // 两处对不上；统一成 description，属性页里看到的是同一句话。
+  // The installer's FileDescription comes from package.json description; this exe used to be
+  // stamped with productName, so the two disagreed. Both now use the description.
+  const fileDescription = context.packager.appInfo.description || productName;
   console.log(`  • injecting Mineradio resources  rcedit=${rceditPath}`);
   execFileSync(rceditPath, [
     exePath,
     '--set-icon', iconPath,
-    '--set-version-string', 'FileDescription', productName,
+    '--set-version-string', 'FileDescription', fileDescription,
     '--set-version-string', 'ProductName', productName,
     '--set-version-string', 'CompanyName', companyName,
     '--set-version-string', 'OriginalFilename', `${appName}.exe`,
