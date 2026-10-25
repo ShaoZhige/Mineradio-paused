@@ -206,6 +206,20 @@ function lookupRuntime(host, event, payload) {
     : null;
 }
 
+function runBuffer(payload) {
+  const args = Array.isArray(payload.args) ? payload.args : [];
+  switch (payload.operation) {
+    case 'from':
+      return Buffer.from(...args);
+    case 'bufToString': {
+      const [value, format] = args;
+      return Buffer.from(value).toString(format);
+    }
+    default:
+      throw new Error('BUFFER_FAILED: Unsupported operation');
+  }
+}
+
 function runCrypto(payload) {
   const args = Array.isArray(payload.args) ? payload.args : [];
   switch (payload.operation) {
@@ -281,6 +295,7 @@ function installHost(ipcMain) {
   sync('mineradio-lx-bootstrap', runtime => ({
     currentScriptInfo: { ...runtime.currentScriptInfo },
   }));
+  sync('mineradio-lx-buffer', (_runtime, payload) => runBuffer(payload));
   sync('mineradio-lx-crypto', (_runtime, payload) => runCrypto(payload));
   handle('mineradio-lx-zlib', async (_runtime, payload) => runZlib(payload));
   handle('mineradio-lx-http', async (runtime, payload) => {

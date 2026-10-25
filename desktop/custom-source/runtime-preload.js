@@ -22,12 +22,20 @@ let requestHandler = null;
 let initialized = false;
 let updateAlertSent = false;
 
-// AES/RSA/MD5 都必须在主进程里算：沙箱渲染进程里没有 node:crypto，
+// AES/RSA/MD5/Buffer 都必须在主进程里算：沙箱渲染进程里没有 node:crypto，也没有 Buffer 全局
+// （Electron 45 起 sandboxed preload 移除了 Buffer/setImmediate 与 events/timers/url shim）。
 // 而把实现搬进来又等于给脚本开放加密原语之外的运行环境。
-// AES/RSA/MD5 are computed in the main process: node:crypto does not exist inside a
-// sandboxed renderer, and shipping an implementation here would widen the script surface.
+// AES/RSA/MD5/Buffer are computed in the main process: node:crypto and the Buffer global do not
+// exist inside a sandboxed renderer (Electron 45 removed Buffer/setImmediate from sandboxed
+// preloads), and shipping an implementation here would widen the script surface.
 function syncCrypto(operation, args) {
   const result = ipcRenderer.sendSync('mineradio-lx-crypto', { runtimeId, operation, args });
+  if (result && result.error) throw new Error(result.error);
+  return result;
+}
+
+function syncBuffer(operation, args) {
+  const result = ipcRenderer.sendSync('mineradio-lx-buffer', { runtimeId, operation, args });
   if (result && result.error) throw new Error(result.error);
   return result;
 }
@@ -41,8 +49,8 @@ function createLxUtils() {
       randomBytes: size => syncCrypto('randomBytes', [size]),
     },
     buffer: {
-      from: (...args) => Buffer.from(...args),
-      bufToString: (buffer, format) => Buffer.from(buffer).toString(format),
+      from: (...args) => syncBuffer('from', args),
+      bufToString: (buffer, format) => syncBuffer('bufToString', [buffer, format]),
     },
     zlib: {
       inflate: data => ipcRenderer.invoke('mineradio-lx-zlib', { runtimeId, operation: 'inflate', data }),
