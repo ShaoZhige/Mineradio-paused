@@ -7296,6 +7296,22 @@ async function checkLargePlaylistVirtualizationGuard() {
   if (!/#playlist-panel \.pl-inline-detail[\s\S]*?overflow:\s*visible/.test(cssText) || !/#playlist-panel \.pl-card\.expanded::before/.test(cssText)) {
     fail('continuous expanded playlist detail and its highlighted group styling are missing');
   }
+  // overflow:visible 的容器不能有固定高度：高度一旦小于内容，最后几首歌会直接压到下一个歌单卡片上。
+  // 逐条解析声明而不是用正则，避免 `\s*` 回溯把 `height: auto` 误判成固定值。
+  const inlineDetailRules = Array.from(cssText.matchAll(/#playlist-panel\s+\.pl-inline-detail\s*\{([^}]*)\}/g));
+  const inlineDetailCss = inlineDetailRules.length ? inlineDetailRules[inlineDetailRules.length - 1][1] : '';
+  const inlineDetailDecls = {};
+  inlineDetailCss.split(';').forEach((decl) => {
+    const colon = decl.indexOf(':');
+    if (colon < 0) return;
+    inlineDetailDecls[decl.slice(0, colon).trim().toLowerCase()] = decl.slice(colon + 1).trim().toLowerCase();
+  });
+  if (inlineDetailDecls.height !== 'auto') {
+    fail(`expanded playlist detail must size itself from content (height:auto), got: ${inlineDetailDecls.height || '(none)'}`);
+  }
+  if (/pl-inline-detail[\s\S]{0,200}?style="height:/.test(detailText)) {
+    fail('expanded playlist detail must not be pinned to a computed pixel height inline');
+  }
   const detailStickyRules = Array.from(cssText.matchAll(/#playlist-panel\s+\.pl-detail-sticky\s*\{([^}]*)\}/g));
   const detailStickyCss = detailStickyRules.length ? detailStickyRules[detailStickyRules.length - 1][1] : '';
   if (!/\bposition:\s*sticky\b/.test(detailStickyCss) || !/\btop:\s*(?!auto\b)[^;}]+/.test(detailStickyCss) || /\bposition:\s*(?:relative|static)\b|\btop:\s*auto\b/.test(detailStickyCss)) {
@@ -7325,6 +7341,15 @@ async function checkLargePlaylistVirtualizationGuard() {
   const detailRowsStart = detailText.indexOf('function playlistPanelDetailRowsHtml');
   const detailRowsEnd = detailText.indexOf('var PLAYLIST_REORDER_STORE_KEY', detailRowsStart);
   if (detailRowsStart < 0 || detailRowsEnd < 0) fail('playlist detail virtual row helper missing');
+  // 行距常量必须从实现里读，不能在这里另写一份：2026-10-25 的重叠 bug 就是常量（56）
+  // 与真实行距（行 56 + gap 6）脱节造成的，守卫自己硬编码一份会永远看不见这种偏差。
+  const perfStateText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '01-perf-render-state.js'), 'utf8');
+  const rowStepMatch = perfStateText.match(/var PLAYLIST_DETAIL_ROW_STEP = (\d+);/);
+  if (!rowStepMatch) fail('PLAYLIST_DETAIL_ROW_STEP constant missing from perf render state');
+  const detailRowStep = Number(rowStepMatch[1]);
+  if (!(detailRowStep >= 50 && detailRowStep <= 80)) {
+    fail(`playlist detail row step must stay within one rendered row: ${detailRowStep}`);
+  }
   const detailRowsSandbox = {
     playlistPanelDetailState: {
       loading: false,
@@ -7335,7 +7360,7 @@ async function checkLargePlaylistVirtualizationGuard() {
       error: '',
       message: ''
     },
-    PLAYLIST_DETAIL_ROW_STEP: 56,
+    PLAYLIST_DETAIL_ROW_STEP: detailRowStep,
     PLAYLIST_DETAIL_VIRTUAL_OVERSCAN: 7,
     PLAYLIST_DETAIL_INITIAL_RENDER: 96,
     window: { innerHeight: 900 },
@@ -7348,7 +7373,7 @@ async function checkLargePlaylistVirtualizationGuard() {
     String
   };
   vm.runInNewContext(detailText.slice(detailRowsStart, detailRowsEnd), detailRowsSandbox, { filename: 'playlist-detail-rows.js' });
-  const detailRowsHtml = detailRowsSandbox.playlistPanelDetailRowsHtml({ viewport: 620, scrollTop: 56 * 9988 });
+  const detailRowsHtml = detailRowsSandbox.playlistPanelDetailRowsHtml({ viewport: 620, scrollTop: detailRowStep * 9988 });
   const detailRowIndexes = Array.from(detailRowsHtml.matchAll(/data-pl-detail-row="(\d+)"/g), match => Number(match[1]));
   const detailSpacerCount = (detailRowsHtml.match(/class="pl-detail-virtual-spacer"/g) || []).length;
   if (detailRowIndexes.length > 26 || detailRowIndexes[detailRowIndexes.length - 1] !== 9999 || detailSpacerCount !== 2) {

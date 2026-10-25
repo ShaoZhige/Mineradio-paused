@@ -77,9 +77,14 @@ var playlistPanelRenderLimit = PLAYLIST_PANEL_BATCH_SIZE;
 var playlistPanelLazyBound = false;
 var PLAYLIST_DETAIL_INITIAL_RENDER = PLAYLIST_LAZY_BATCH_SIZE;
 var PLAYLIST_DETAIL_BATCH_SIZE = PLAYLIST_LAZY_BATCH_SIZE;
-var PLAYLIST_DETAIL_ROW_STEP = 56;
+// 左侧歌单展开详情的几何参数，必须与 CSS 实测一致：
+// 行 = .pl-detail-row 高 56 + .pl-detail-list 的 gap 6 = 62（与队列行距同值）；
+// 摘要吸顶区实测 197，加上 #playlist-panel .pl-inline-detail 的 padding 10/14。
+// 这两条一旦与样式脱节，虚拟高度就会小于真实内容 —— 详情用 overflow:visible，
+// 缺的高度不会裁切，而是直接压到下一个歌单卡片上（2026-10-25 用户报的重叠 bug）。
+var PLAYLIST_DETAIL_ROW_STEP = 62;
 var PLAYLIST_DETAIL_VIRTUAL_OVERSCAN = 7;
-var PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT = 142;
+var PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT = 221;
 var PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT = 44;
 var PLAYLIST_QUEUE_INITIAL_BATCH_SIZE = 96;
 var PLAYLIST_QUEUE_BACKGROUND_BATCH_SIZE = 160;

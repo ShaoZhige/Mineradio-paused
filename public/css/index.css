@@ -17093,7 +17093,9 @@ body.panel-reordering .mini-queue-item.is-reordering {
 }
 
 /* 左侧歌单详情与整栏共用一条滚动轴：保留虚拟行性能，不再出现内嵌小滚动窗。 */
+/* 高度必须由内容决定：写死高度一旦小于真实内容，overflow:visible 会让最后几首歌压到下一个歌单上。 */
 #playlist-panel .pl-inline-detail {
+  height: auto;
   min-height: 0;
   display: block;
   overflow: visible;

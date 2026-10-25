@@ -341,7 +341,7 @@ function playlistPanelDetailHtml(pl, provider, detailWindow) {
     : '';
   var topButton = provider === 'mineradio' ? '' : playlistDetailText('pl_top_button');
   var multiButton = '<button type="button" class="pl-detail-multi' + (typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('detail', key) ? ' active' : '') + '" data-pl-detail-multi="' + escHtml(key) + '">' + escHtml(playlistDetailText('ms_select', '多选')) + '</button>';
-  return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '" style="height:' + playlistPanelDetailShellHeight() + 'px">' +
+  return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '">' +
     '<div class="pl-detail-sticky">' +
     '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || playlistDetailText('pl_detail')) + '</div><div class="pl-detail-sub">' + escHtml((expectedTotal || tracks.length || 0) + playlistDetailText('pl_tracks_prefix') + (pl.creator || playlistProviderName(provider))) + '</div></div><div class="pl-detail-count">' + (loading && !tracks.length ? playlistDetailText('pl_loading') : (tracks.length + (expectedTotal > tracks.length ? '/' + expectedTotal : ''))) + '</div></div>' +
     '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + topButton + multiButton + '</div>' +
@@ -581,6 +581,25 @@ function resetPlaylistPanelRenderLimit() {
   playlistPanelRenderLimit = PLAYLIST_PANEL_BATCH_SIZE;
 }
 var playlistPanelVirtualCache = { revision: -1, detailKey: '', detailSig: '', entries: [], offsets: [0], totalHeight: 0, raf: 0 };
+// detailSig -> 实测高度。样式或语言变化都会让估算值漂移，实测值优先，
+// 这样 offsets 不必依赖常量永远准确。
+var playlistPanelDetailMeasure = {};
+function playlistPanelMeasuredDetailHeight(sig) {
+  var measured = Number(playlistPanelDetailMeasure[sig]);
+  return measured > 0 ? Math.round(measured) : 0;
+}
+function syncPlaylistPanelMeasuredDetailHeight(sig) {
+  if (!sig) return false;
+  var node = document.querySelector('#pl-list .pl-inline-detail[data-pl-detail]');
+  if (!node) return false;
+  var measured = Math.round(node.getBoundingClientRect().height);
+  if (!(measured > 0)) return false;
+  if (Math.abs(measured - playlistPanelMeasuredDetailHeight(sig)) <= 4) return false;
+  playlistPanelDetailMeasure[sig] = measured;
+  // 让虚拟表在下一次构建时读到新高度（sig 不等就会重建）
+  playlistPanelVirtualCache.detailSig = '';
+  return true;
+}
 function playlistPanelDetailShellHeight() {
   var st = playlistPanelDetailState || {};
   var rows = Math.max(st.loading && !(st.tracks && st.tracks.length) ? 1 : 0, st.tracks && st.tracks.length || 0);
@@ -624,7 +643,7 @@ function playlistPanelBuildVirtualEntries() {
       entries.push({ type: 'card', pl: entry.pl, sourceIndex: entry.sourceIndex, height: 69 });
       var cardKey = playlistPanelKey(normalizePlaylistProvider(entry.pl.provider), entry.pl.id);
       if (playlistPanelDetailState.key === cardKey) {
-        entries.push({ type: 'detail', pl: entry.pl, provider: normalizePlaylistProvider(entry.pl.provider), height: playlistPanelDetailShellHeight() });
+        entries.push({ type: 'detail', pl: entry.pl, provider: normalizePlaylistProvider(entry.pl.provider), height: playlistPanelMeasuredDetailHeight(detailSig) || playlistPanelDetailShellHeight() });
       }
     });
   });
@@ -738,6 +757,10 @@ function renderUserPlaylistsList(opts) {
   html += '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(bottomHeight) + 'px"></div>' + playlistCatalogFooterHtml();
   $pl.innerHTML = html;
   if (panel && opts.preserveScroll) panel.scrollTop = keepTop;
+  // 详情高度最终以实际渲染结果为准：首次估算若与实测差超过 4px，记录后重排一次。
+  if (playlistPanelDetailState.key && syncPlaylistPanelMeasuredDetailHeight(cache.detailSig)) {
+    schedulePlaylistPanelVirtualRender();
+  }
   bindPlaylistPanelDetailScroller();
   if (typeof requestNextPlaylistCatalogPage === 'function' && end >= cache.entries.length - 8) requestNextPlaylistCatalogPage('panel-near-end');
   if (opts.animate && seq === playlistRenderSeq) animateVisiblePanelList($pl, '.pl-card', document.getElementById('playlist-panel'));
