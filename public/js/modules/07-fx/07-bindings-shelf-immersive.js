@@ -634,6 +634,11 @@ function setShelfMode(m, opts) {
   if (m === 'off') fx.shelfPresence = 'auto';
   document.querySelectorAll('#shelf-seg button').forEach(function (b) { b.classList.toggle('active', b.dataset.shelf === m); });
   if (shelfManager) shelfManager.setMode(m);
+  // 切进舞台模式时给歌单架一小段宽限期：指针这会儿通常还停在设置面板上（不在底部热区），
+  // 不给的话刚切过去歌单架立刻收起，看起来像"这个模式坏了"。
+  // Entering stage grants a short grace period: the pointer is usually still up at the settings
+  // panel, outside the bottom hot zone, so without it the shelf would vanish the moment it appeared.
+  if (m === 'stage') stageShelfHoldUntil = performance.now() + 1200;
   // 舞台模式: 顶部搜索、底部控件让位
   var searchArea = document.getElementById('search-area');
   var bottomBar = document.getElementById('bottom-bar');

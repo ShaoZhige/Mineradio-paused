@@ -807,7 +807,19 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         else if (switchGuard && !contentOpen && !shelfPinnedOpen) targetVis = 0;
         else targetVis = (contentOpen || shelfPinnedOpen || shelfAlwaysVisible()) ? 1.0 : (cueVis > 0.01 ? Math.max(0.16, cueVis * 0.88) : 0);
       } else {
-        targetVis = allItems.length ? 1.0 : 0;
+        // 舞台模式：常驻 / 钉住 / 详情打开 / 有选中卡片时保持常显，其余情况跟随「自动隐藏」——
+        // 只在指针进入屏幕底部热区（或刚切进舞台模式的宽限期）才浮出来。
+        // 这里以前是无条件 1.0，于是 fx 面板里的「歌单架显示：自动隐藏」对舞台模式完全无效，
+        // 歌单架永远贴在底部收不回去（issue #2）。
+        // Stage mode used to pin targetVis at 1.0, which silently disabled the "auto hide" option
+        // for this mode: the shelf never went away (issue #2). It now holds at 1.0 only for the
+        // pinned / open / selected cases and otherwise follows the bottom hot zone.
+        var stageContentOpen = !!(contentList && contentList.isOpen());
+        var stageHold = stageContentOpen
+          || shelfPinnedOpen
+          || selectedIdx >= 0
+          || (typeof stageShelfPreviewWanted === 'function' && stageShelfPreviewWanted());
+        targetVis = (allItems.length || stageContentOpen) && stageHold ? 1.0 : 0;
       }
       var summonVis = shelfSummonSettings();
       var visDuration = targetVis > shelfVisibility
@@ -815,7 +827,15 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         : Math.max(0.05, summonVis.closeDuration * 0.65);
       shelfVisibility += (targetVis - shelfVisibility) * durationEaseFactor(visDuration, dt);
       if (shelfVisibility < 0.01 && targetVis === 0) shelfVisibility = 0;
-      group.visible = appRevealed && (mode !== 'side' || shelfVisibility > 0) && (allItems.length > 0 || (contentList && contentList.isOpen()));
+      // 两种模式统一按可见度收尾：舞台模式以前写的是 `mode !== 'side'`，等于永远可见，
+      // 于是卡片淡出后 group 仍在画，舞台专属的连线粒子（下面那行）也跟着留在屏幕上 ——
+      // 这就是 issue #2 里「自动隐藏后还剩一半」的残影。淡到 0.002 以下就整组隐藏。
+      // Both modes now follow the same visibility rule. Stage mode used to read `mode !== 'side'`,
+      // i.e. always visible, so the group — and the stage-only connector particles below — kept
+      // drawing after the cards faded out. That residue is the "still half there" in issue #2.
+      group.visible = appRevealed
+        && shelfVisibility > 0.002
+        && (allItems.length > 0 || (contentList && contentList.isOpen()));
       if (connectorParticles) connectorParticles.visible = group.visible && mode === 'stage';
       if (mode === 'side') {
         var contentOpenForLayer = !!(contentList && contentList.isOpen());

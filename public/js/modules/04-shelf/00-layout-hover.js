@@ -4,7 +4,32 @@ var shelfManager = null;
 var shelfOpenAnimAt = -10;
 var shelfHoverCue = { target: 0, value: 0, x: 0, y: 0, lastAt: 0, enteredAt: 0, zoneActive: false, guide: false };
 var shelfVisibility = 0;  // 0..1, 侧栏自动隐藏的整体透明度系数
-var shelfPlaybackSwitchGuardUntil = 0;
+// 舞台模式的热区在屏幕底部：指针进入下方 55% 才浮出歌单架。这条判定与相机跟拍（focusHover）
+// 解耦 —— 静态相机设置会把 shelf-* 的 focus 直接置空，拿它当可见性依据会让歌单架永远不出现。
+// 切换进舞台模式时给一段宽限期，否则用户刚切过去指针还停在设置面板上，歌单架会立刻消失、
+// 看着像"这个模式坏了"。
+// The stage shelf's hot zone sits at the bottom of the screen, and this state is deliberately kept
+// apart from focusHover: a static camera clears the shelf-* focus, which would make a visibility
+// rule based on it hide the shelf forever. Entering stage keeps a short grace period so the shelf
+// does not vanish before the user has seen it.
+var stageShelfPointerInside = false;
+var stageShelfHoldUntil = 0;
+function stageShelfHoldActive() {
+  return performance.now() < stageShelfHoldUntil;
+}
+function updateStageShelfPointerFromPointer(e) {
+  var stageMode = !!(shelfManager && shelfManager.getMode && shelfManager.getMode() === 'stage');
+  if (!stageMode || !e || document.body.classList.contains('splash-active')) {
+    stageShelfPointerInside = false;
+    return;
+  }
+  stageShelfPointerInside = e.clientY > innerHeight * 0.55;
+}
+function stageShelfPreviewWanted() {
+  if (typeof shelfAlwaysVisible === 'function' && shelfAlwaysVisible()) return true;
+  if (stageShelfHoldActive()) return true;
+  return stageShelfPointerInside;
+}
 var shelfPlaybackSwitchGuardUntil = 0;
 function shelfPlaybackSwitchGuardActive(now) {
   return (now || performance.now()) < shelfPlaybackSwitchGuardUntil;
@@ -160,6 +185,11 @@ function setShelfGuideCueActive(on) {
   }
 }
 function updateShelfHoverCueFromPointer(e) {
+  // 所有 pointermove 路径都会经过这里（含 immersive 分支与各处"清空"调用），
+  // 舞台模式的热区状态就挂在这一个入口上，不用再往调用方加第二套事件。
+  // Every pointermove path funnels through here, including the immersive branch and every
+  // "clear" call, so the stage hot-zone state rides on this single entry point.
+  updateStageShelfPointerFromPointer(e);
   if (shelfPlaybackSwitchGuardActive()) {
     shelfHoverCue.target = 0;
     shelfHoverCue.value = 0;
