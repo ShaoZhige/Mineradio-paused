@@ -3808,6 +3808,41 @@ function checkInstallerPackagingGuard() {
   if (!/MINERADIO_INSTALL_DIR_NAME/.test(installerText)) {
     fail('the installer must keep a configurable install-folder hook');
   }
+  // gsap 只从 public/vendor/gsap.min.js 以全局变量使用，node_modules/gsap 已从打包清单里排除
+  // （省 6MB）。一旦有人在运行时 require('gsap')，装好的应用里没有这个包，启动就崩 —— 这两件事
+  // 必须钉在一起，否则下次谁顺手改成 require 都查不出来。
+  // gsap is used as the vendored global from public/vendor/gsap.min.js and node_modules/gsap is
+  // excluded from the package to save 6MB. A runtime require('gsap') would then crash the installed
+  // app, so the exclusion and the "never require it" rule are pinned together here.
+  if (!(pkg.build && Array.isArray(pkg.build.files) ? pkg.build.files : []).includes('!node_modules/gsap/**')) {
+    fail("node_modules/gsap must stay excluded from the package — the runtime reads public/vendor/gsap.min.js");
+  }
+  const requiresGsap = (function () {
+    const stack = ['public', 'desktop', 'server', 'cuefield'].map((dir) => path.join(appRoot, dir));
+    while (stack.length) {
+      const current = stack.pop();
+      let entries = [];
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch (_) {
+        continue;
+      }
+      for (const entry of entries) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== 'node_modules' && entry.name !== 'vendor') stack.push(full);
+          continue;
+        }
+        if (!/\.(js|mjs|cjs)$/.test(entry.name)) continue;
+        const source = fs.readFileSync(full, 'utf8');
+        if (/require\(\s*['"]gsap['"]\s*\)|from\s+['"]gsap['"]/.test(source)) return true;
+      }
+    }
+    return false;
+  })();
+  if (requiresGsap) {
+    fail("runtime code must not require('gsap') — the package ships it as a global from public/vendor");
+  }
   // Drive-letter probe: 盘符必须用 GetDriveTypeW 判定是否固定磁盘（#265/#275/#86/#102）。
   // Drive-letter probe must use GetDriveTypeW; IfFileExists "<letter>:\*.*" only proves "the root
   // has entries", so card readers / optical drives / empty removable disks were treated as

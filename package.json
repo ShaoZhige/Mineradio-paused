@@ -45,13 +45,27 @@
       "!public/index.*.html",
       "public/index.html",
       "!node_modules/NeteaseCloudMusicApi/public/**",
-      "!node_modules/NeteaseCloudMusicApi/data/**"
+      "!node_modules/NeteaseCloudMusicApi/data/**",
+      "!node_modules/gsap/**",
+      "!node_modules/**/*.map",
+      "!node_modules/**/*.md",
+      "!node_modules/**/*.d.ts",
+      "!node_modules/**/*.d.cts",
+      "!node_modules/**/*.d.mts"
     ],
     "asar": false,
+    "compression": "maximum",
     "win": {
       "executableName": "Mineradio",
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
+      "electronLanguages": [
+        "zh-CN",
+        "en-US",
+        "en-GB",
+        "ja",
+        "ru"
+      ],
       "target": [
         {
           "target": "nsis",
