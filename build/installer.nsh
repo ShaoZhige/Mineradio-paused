@@ -70,21 +70,38 @@
 !ifndef MINERADIO_LANG_DEFAULT
   !define MINERADIO_LANG_DEFAULT "zh_cn"
 !endif
-; 欢迎页纵向空间只有 140 个对话框单位：灰度内测版多一段红色声明，语言行就得整体下移。
-; 语言选择平时只占一行（收起的下拉列表），点箭头才展开成四项。
-; The welcome page is only 140 dialog units tall; the internal-beta build adds a red notice,
-; so its language row has to sit lower. The picker is a collapsed dropdown that opens on click.
+; 欢迎页纵向空间只有 140 个对话框单位，所有控件的底边都得留在里面，
+; 超出的不是报错而是**静默不显示**（内测版红色声明原来在 y=150，从来没出现过）。
+; 经验：nsDialogs 页面的坐标原点比客户区低约 8 个单位，控件底边要按「y + 8 + 高 ≤ 140」算。
+; 灰度内测版多一段两行红字声明，页面放不下正文，所以它不画正文行，语言选择也上移到标题下面。
+; The welcome page is only 140 dialog units tall and anything below that is silently not shown
+; (the internal-beta notice used to sit at y=150 and never appeared). Measured: the nsDialogs
+; origin sits about 8 units below the client area, so a control's bottom is "y + 8 + height".
+; The beta build carries a two-line red notice, so it drops the body line and moves the
+; language row up under the title.
 !ifdef MINERADIO_INTERNAL_BETA
-  !define MINERADIO_LANG_CAPTION_Y 112
-  !define MINERADIO_LANG_ROW_Y 124
+  !define MINERADIO_BRAND_Y 8
+  !define MINERADIO_TITLE_Y 22
+  !define MINERADIO_RULE_Y 52
+  !define MINERADIO_LANG_CAPTION_Y 58
+  !define MINERADIO_LANG_ROW_Y 70
+  !define MINERADIO_NOTICE_Y 98
 !else
-  !define MINERADIO_LANG_CAPTION_Y 104
-  !define MINERADIO_LANG_ROW_Y 118
+  !define MINERADIO_BRAND_Y 14
+  !define MINERADIO_TITLE_Y 28
+  !define MINERADIO_RULE_Y 58
+  !define MINERADIO_BODY_Y 66
+  !define MINERADIO_LANG_CAPTION_Y 88
+  !define MINERADIO_LANG_ROW_Y 100
 !endif
 ; 展开高度按「四项各一行」给足，系统会吸附到整数项高度，不会留半行。
 ; Enough height for four rows; Windows snaps it to a whole number of items.
 !ifndef MINERADIO_LANG_DROP_HEIGHT
   !define MINERADIO_LANG_DROP_HEIGHT 62
+!endif
+; 欢迎页正文只占一行：安装位置下一步就能改，第一页没必要塞满话。
+!ifndef MINERADIO_INSTALL_BODY
+  !define MINERADIO_INSTALL_BODY "为这台电脑安装 ${PRODUCT_NAME}。默认位置：$INSTDIR。"
 !endif
 
 !ifndef BUILD_UNINSTALLER
@@ -831,27 +848,29 @@ Function MineradioWelcomeShow
   CreateFont $MineradioBodyFont "Microsoft YaHei UI" 9 400
   CreateFont $MineradioSmallFont "Microsoft YaHei UI" 8 400
 
-  ${NSD_CreateLabel} 22u 14u 120u 10u "${MINERADIO_INSTALL_BRAND}"
+  ${NSD_CreateLabel} 22u ${MINERADIO_BRAND_Y}u 120u 10u "${MINERADIO_INSTALL_BRAND}"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 28u 226u 26u "${MINERADIO_INSTALL_TITLE}"
+  ${NSD_CreateLabel} 22u ${MINERADIO_TITLE_Y}u 226u 26u "${MINERADIO_INSTALL_TITLE}"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioHeroFont 1
   SetCtlColors $0 "111217" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 58u 32u 2u ""
+  ${NSD_CreateLabel} 22u ${MINERADIO_RULE_Y}u 32u 2u ""
   Pop $0
   SetCtlColors $0 "" "3257F7"
 
-  ${NSD_CreateLabel} 22u 66u 238u 24u "为这台电脑安装 ${PRODUCT_NAME}。默认位置：$INSTDIR，下一步可以自由选择其它位置。"
-  Pop $0
-  SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
-  SetCtlColors $0 "4B5263" "FFFFFF"
+  !ifndef MINERADIO_INTERNAL_BETA
+    ${NSD_CreateLabel} 22u ${MINERADIO_BODY_Y}u 238u 20u "${MINERADIO_INSTALL_BODY}"
+    Pop $0
+    SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
+    SetCtlColors $0 "4B5263" "FFFFFF"
+  !endif
 
   !ifdef MINERADIO_INTERNAL_BETA
-    ${NSD_CreateLabel} 22u 86u 238u 20u "${MINERADIO_INSTALL_NOTICE}"
+    ${NSD_CreateLabel} 22u ${MINERADIO_NOTICE_Y}u 238u 24u "${MINERADIO_INSTALL_NOTICE}"
     Pop $0
     SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
     SetCtlColors $0 "B42318" "FFFFFF"
