@@ -51,7 +51,6 @@ test('app-owned data stays inside the application folder', () => {
   assert.match(shortcutGuardBody, /MINERADIO_CREATE_DESKTOP_SHORTCUT === '1'/);
   assert.doesNotMatch(shortcutGuardBody, /app\.isPackaged/, 'a packaged build must not create a desktop shortcut on its own');
   assert.match(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'), /"createDesktopShortcut":\s*false/);
-  assert.match(fs.readFileSync(path.join(appRoot, 'electron-builder.internal-beta.json'), 'utf8'), /"createDesktopShortcut":\s*false/);
 
   // 数据根落在仓库内，因此必须被 git 忽略：否则一次 git add -A 就会把 cookie 和登录分区推上去。
   // The data root sits inside the working tree, so git has to ignore it; otherwise a single

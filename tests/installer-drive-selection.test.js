@@ -108,13 +108,7 @@ test('the C: install rejection still routes through the fixed-drive probe', () =
   assert.doesNotMatch(callSite, /\$\{If\} \$2 == "0"/);
 });
 
-test('both installers share one definition of the drive helpers', () => {
-  const betaText = read('build/installer-internal-beta.nsh');
-  assert.match(betaText, /!include "\$\{BUILD_RESOURCES_DIR\}\\installer\.nsh"/);
-  assert.doesNotMatch(
-    betaText,
-    /Function Mineradio(DriveLetterIsFixed|FirstFixedDriveLetter|UseFirstAvailableInstallDir|HasPreferredInstallDrive)/
-  );
+test('the installer keeps one shared definition of the drive helpers', () => {
   // LogicLib 提供 ${If}/${Else}，缺了它整个补丁在编译期就会失败。
   assert.match(installerText, /!include LogicLib\.nsh/);
   assert.match(installerText, /!include FileFunc\.nsh/);

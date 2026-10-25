@@ -72,7 +72,7 @@ function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (['node_modules', '.git', 'dist', 'dist-internal-beta', 'vendor'].includes(entry.name)) continue;
+      if (['node_modules', '.git', 'dist', 'vendor'].includes(entry.name)) continue;
       walk(full, out);
     } else {
       out.push(full);
@@ -2247,7 +2247,6 @@ async function checkSpotifyProviderGuard() {
   const desktopPreloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const queueText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '09-queue-snapshot-autoplay.js'), 'utf8');
   const packageText = fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8');
-  const internalBuilderText = fs.readFileSync(path.join(appRoot, 'electron-builder.internal-beta.json'), 'utf8');
   const gitignoreText = fs.readFileSync(path.join(appRoot, '.gitignore'), 'utf8');
   if (!/SPOTIFY_SEARCH_LIMIT_MAX\s*=\s*10/.test(spotifyText) || !/client_credentials/.test(spotifyText) || !/SPOTIFY_CLIENT_ID/.test(spotifyText) || !/SPOTIFY_CLIENT_SECRET/.test(spotifyText) || !/cleanPath/.test(spotifyText)) {
     fail('Spotify bridge must use backend client credentials and keep the official search limit guard');
@@ -2427,8 +2426,8 @@ async function checkSpotifyProviderGuard() {
   // `qishui-*.js` file — that per-name list is exactly how qishui-client-bridge.js went missing from
   // a build. The check now requires both manifests to cover the whole server/ directory, so any new
   // backend module is inside the covered range by construction.
-  if (!/"server\/\*\*\/\*"/.test(packageText) || !/"server\/\*\*\/\*"/.test(internalBuilderText)) {
-    fail('official and internal-beta package file lists must cover server/**/*, or a backend module can be left out of the build');
+  if (!/"server\/\*\*\/\*"/.test(packageText)) {
+    fail('the package file list must cover server/**/*, or a backend module can be left out of the build');
   }
   if (!/\.spotify-credentials\.json/.test(gitignoreText) || !/spotify-credentials\.json/.test(gitignoreText) || !/\.spotify-token\.json/.test(gitignoreText) || !/spotify-token\.json/.test(gitignoreText)) {
     fail('Spotify local credential files must stay ignored by git');
@@ -3614,9 +3613,8 @@ function checkCuefieldAutoMixGuard() {
   const controlsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '14-player-controls.js'), 'utf8');
   const progressText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '04-progress-seek.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
-  const beta = JSON.parse(fs.readFileSync(path.join(appRoot, 'electron-builder.internal-beta.json'), 'utf8'));
-  if (!packageJson.build.files.includes('cuefield/**/*') || !(beta.files || []).includes('cuefield/**/*')) {
-    fail('Cuefield runtime files must be included in regular and internal-beta packages');
+  if (!packageJson.build.files.includes('cuefield/**/*')) {
+    fail('Cuefield runtime files must be included in the package');
   }
   // 开关已从控制栏图标按钮搬进 DIY 面板的"实验功能"分组（与完整桌面模式同处），所以这里钉的是
   // 面板内那个 fx-toggle 的 id，而不是已经不存在的 transport 按钮。
@@ -3797,51 +3795,18 @@ function checkAlbumDetailGaplessGuard() {
   console.log('[OK] Album detail opens from covers, loads provider album tracks, and gapless playback is explicit/preheated/sequential.');
 }
 
-function checkInternalBetaPackagingGuard() {
-  logStep('Internal beta packaging guard');
+function checkInstallerPackagingGuard() {
+  logStep('Installer packaging guard');
   const pkg = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
-  const betaConfigPath = path.join(appRoot, 'electron-builder.internal-beta.json');
-  if (!pkg.scripts || !/electron-builder\.internal-beta\.json/.test(pkg.scripts['build:win:internal-beta'] || '') || !/--publish never/.test(pkg.scripts['build:win:internal-beta'] || '')) {
-    fail('internal beta build must stay on its own electron-builder config and use --publish never');
-  }
-  if (!fs.existsSync(betaConfigPath)) fail('electron-builder.internal-beta.json is required for isolated gray-test packaging');
-  const beta = JSON.parse(fs.readFileSync(betaConfigPath, 'utf8'));
-  const meta = beta.extraMetadata || {};
-  const mineradio = meta.mineradio || {};
-  const update = mineradio.update || {};
-  if (meta.version !== '1.1.2' || beta.productName !== 'Mineradio_Beat' || meta.productName !== 'Mineradio_Beat') {
-    fail('internal beta package metadata must identify v1.1.2 Mineradio_Beat');
-  }
-  if (!/dist-internal-beta/.test(beta.directories && beta.directories.output || '') || beta.publish !== null) {
-    fail('internal beta output must stay in dist-internal-beta and not configure GitHub publishing');
-  }
-  if (beta.asar !== true) {
-    fail('internal beta package must use asar so source files are not installed as plain resources');
-  }
-  if ((beta.appId || '') !== 'com.mineradio.beat.internal' || (mineradio.appUserModelId || '') !== 'com.mineradio.beat.internal') {
-    fail('internal beta must use an isolated app id/AppUserModelID');
-  }
-  if (mineradio.runtimeName !== 'Mineradio_Beat' || update.disabled !== true || update.provider !== 'none') {
-    fail('internal beta runtime name and update-disable metadata must stay isolated');
-  }
-  const requiredRuntimeFiles = ['server/**/*'];
   const packageBuildFiles = pkg.build && Array.isArray(pkg.build.files) ? pkg.build.files : [];
-  const betaBuildFiles = Array.isArray(beta.files) ? beta.files : [];
-  requiredRuntimeFiles.forEach((entry) => {
-    if (!packageBuildFiles.includes(entry) || !betaBuildFiles.includes(entry)) {
+  ['server/**/*'].forEach((entry) => {
+    if (!packageBuildFiles.includes(entry)) {
       fail(`electron-builder files must include runtime dependency ${entry}`);
     }
   });
-  if (!beta.nsis || beta.nsis.include !== 'build/installer-internal-beta.nsh' || !/Mineradio_Beat-v\$\{version\}-灰度内测版/.test(beta.nsis.artifactName || '')) {
-    fail('internal beta NSIS config must use the beta wrapper and beta artifact name');
-  }
-  const wrapperText = fs.readFileSync(path.join(appRoot, 'build', 'installer-internal-beta.nsh'), 'utf8');
-  if (!/MINERADIO_INSTALL_DIR_NAME "Mineradio_Beat"/.test(wrapperText) || !/禁止传播/.test(wrapperText) || !/installer\.nsh/.test(wrapperText)) {
-    fail('internal beta NSIS wrapper must define Mineradio_Beat and the no-redistribution notice');
-  }
   const installerText = fs.readFileSync(path.join(appRoot, 'build', 'installer.nsh'), 'utf8');
-  if (!/MINERADIO_INSTALL_DIR_NAME/.test(installerText) || !/MINERADIO_INSTALL_NOTICE/.test(installerText)) {
-    fail('shared installer must keep configurable install-folder and notice hooks');
+  if (!/MINERADIO_INSTALL_DIR_NAME/.test(installerText)) {
+    fail('the installer must keep a configurable install-folder hook');
   }
   // Drive-letter probe: 盘符必须用 GetDriveTypeW 判定是否固定磁盘（#265/#275/#86/#102）。
   // Drive-letter probe must use GetDriveTypeW; IfFileExists "<letter>:\*.*" only proves "the root
@@ -3915,16 +3880,16 @@ function checkInternalBetaPackagingGuard() {
     fail('the installer language marker must be read once and deleted, or reinstalls would override later choices');
   }
   if (!/APP_PACKAGE_INFO/.test(mainText) || !/runtimeName/.test(mainText) || !/appUserModelId/.test(mainText)) {
-    fail('desktop runtime must read beta name/AppUserModelID from package metadata');
+    fail('desktop runtime must read its display name and AppUserModelID from package metadata');
   }
   const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   if (!/qishui-audio-decryptor\/track-decryptor/.test(serverText)) {
     fail('server qishui decryptor dependency must stay covered by package files');
   }
   if (!/local\.disabled === true/.test(serverText) || !/provider === 'none'/.test(serverText)) {
-    fail('server update config must support disabled internal beta update metadata');
+    fail('server update config must support a disabled local channel');
   }
-  console.log('[OK] Internal beta packaging stays isolated, closed-channel, and non-publishing.');
+  console.log('[OK] Installer packaging keeps one public build with a verifiable file list and language picker.');
 }
 
 function checkSonicTopographyPresetGuard() {
@@ -8176,7 +8141,7 @@ async function main() {
   checkNonCurrentAudioPrefetchGuard();
   checkCuefieldAutoMixGuard();
   checkAlbumDetailGaplessGuard();
-  checkInternalBetaPackagingGuard();
+  checkInstallerPackagingGuard();
   checkSonicTopographyPresetGuard();
   checkLongPressReorderGuard();
   checkPlaylistPanelTriggerGuard();

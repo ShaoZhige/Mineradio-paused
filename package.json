@@ -17,8 +17,7 @@
     "check:package": "node scripts/verify-package.js",
     "audit:prod": "node scripts/audit-prod.js",
     "build:win": "electron-builder --win nsis",
-    "build:win:dir": "electron-builder --win dir",
-    "build:win:internal-beta": "electron-builder --config electron-builder.internal-beta.json --win nsis --publish never"
+    "build:win:dir": "electron-builder --win dir"
   },
   "build": {
     "appId": "com.mineradio.desktop",
