@@ -9821,7 +9821,7 @@ body.login-guide-active #login-guide-canvas {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  margin-top: 10px;
+  margin: 10px 0 12px;
   padding: 9px 11px;
   border-radius: 9px;
   border: 1px solid rgba(244, 210, 138, .22);
