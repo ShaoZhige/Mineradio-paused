@@ -1266,6 +1266,8 @@
   "login_spotify_setup_authorize": "Authorize in browser",
   "login_spotify_setup_diagnose": "Re-run API check",
   "login_spotify_auto_detect_hint": "Continue with the current step; Mineradio detects automatically.",
+  "login_spotify_premium_tip_title": "Premium subscription required",
+  "login_spotify_premium_tip": "The Spotify account that owns this app must have an active Premium subscription, or playlists and account info cannot be read after signing in. This is Spotify's platform policy and Mineradio cannot bypass it.",
   "login_copy_callback_failed": "Copy failed; copy the redirect URI manually",
   "login_callback_copied": "Spotify redirect URI copied",
   "login_spotify_dashboard_opened": "Spotify developer page opened",

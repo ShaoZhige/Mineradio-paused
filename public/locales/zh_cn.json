@@ -1266,6 +1266,8 @@
   "login_spotify_setup_authorize": "打开浏览器授权",
   "login_spotify_setup_diagnose": "重新自检",
   "login_spotify_auto_detect_hint": "按当前步骤继续，Mineradio 会自动检测。",
+  "login_spotify_premium_tip_title": "需要 Premium 订阅",
+  "login_spotify_premium_tip": "创建这个应用的 Spotify 账号必须持有有效 Premium，否则登录后读不到歌单和账号信息。这是 Spotify 的平台政策，Mineradio 无法绕过。",
   "login_copy_callback_failed": "复制失败，请手动复制回调地址",
   "login_callback_copied": "已复制 Spotify 回调地址",
   "login_spotify_dashboard_opened": "已打开 Spotify 开发者网页",

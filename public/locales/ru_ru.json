@@ -1266,6 +1266,8 @@
   "login_spotify_setup_authorize": "Авторизоваться в браузере",
   "login_spotify_setup_diagnose": "Повторная проверка",
   "login_spotify_auto_detect_hint": "Продолжайте текущий шаг; Mineradio определит автоматически.",
+  "login_spotify_premium_tip_title": "Требуется подписка Premium",
+  "login_spotify_premium_tip": "Аккаунт Spotify, которому принадлежит это приложение, должен иметь активную подписку Premium. Иначе после входа плейлисты и данные аккаунта прочитать не удастся. Это политика Spotify, и Mineradio не может её обойти.",
   "login_copy_callback_failed": "Не удалось скопировать; скопируйте URI перенаправления вручную",
   "login_callback_copied": "URI перенаправления Spotify скопирован",
   "login_spotify_dashboard_opened": "Страница разработчика Spotify открыта",

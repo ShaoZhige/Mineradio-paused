@@ -1266,6 +1266,8 @@
   "login_spotify_setup_authorize": "ブラウザで認証",
   "login_spotify_setup_diagnose": "API を再チェック",
   "login_spotify_auto_detect_hint": "現在のステップを進めると、Mineradio が自動で検出します。",
+  "login_spotify_premium_tip_title": "Premium サブスクリプションが必要",
+  "login_spotify_premium_tip": "このアプリを所有する Spotify アカウントに有効な Premium が必要です。ないとログイン後にプレイリストやアカウント情報を読み取れません。これは Spotify のポリシーによる制限で、Mineradio 側で回避する方法はありません。",
   "login_copy_callback_failed": "コピーに失敗しました。コールバック URL を手動でコピーしてください",
   "login_callback_copied": "Spotify コールバック URL をコピーしました",
   "login_spotify_dashboard_opened": "Spotify 開発者ページを開きました",

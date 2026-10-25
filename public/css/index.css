@@ -9454,10 +9454,13 @@ body.login-guide-active #login-guide-canvas {
 }
 
 .login-auth-drawer.spotify-mode.show {
-  max-height: min(650px, calc(100vh - 190px));
+  /* 抽屉本身是弹窗里的第二层滚动容器：用 contain 会让滚轮到顶后不再传给外层弹窗，
+     表现为「滚轮完全没反应，只能拖右侧滚动条」。这里改成 auto 允许滚动链式传递，
+     并把高度放宽，尽量让内容整块交给外层弹窗滚动，避免嵌套滚动。 */
+  max-height: min(880px, calc(100vh - 96px));
   padding: 18px;
   overflow: auto;
-  overscroll-behavior: contain
+  overscroll-behavior: auto
 }
 
 .login-auth-drawer.spotify-mode > .login-auth-copy,
@@ -9812,6 +9815,32 @@ body.login-guide-active #login-guide-canvas {
   content: '!';
   background: rgba(255, 95, 112, .14);
   color: #ff9ca6
+}
+
+.spotify-setup-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(244, 210, 138, .22);
+  background: linear-gradient(135deg, rgba(244, 210, 138, .075), rgba(244, 210, 138, .03));
+  text-align: left
+}
+
+.spotify-setup-notice b {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  color: rgba(244, 210, 138, .92)
+}
+
+.spotify-setup-notice p {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .56)
 }
 
 .spotify-setup-overall {
