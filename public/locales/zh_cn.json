@@ -297,6 +297,8 @@
   "desktop_export_title": "导出 Mineradio 存档",
   "desktop_import_title": "导入 Mineradio 存档",
   "section_language": "语言 / Language",
+  "fx_interface_language": "界面语言",
+  "fx_language_hint": "切换后立即生效",
   "fx_reset_done": "已恢复默认参数",
   "track_count": "首",
   "now_playing": "正在播放",

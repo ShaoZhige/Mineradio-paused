@@ -5421,7 +5421,7 @@ function checkFullscreenToolsRowGuard() {
   const windowButtonCount = childEntries.filter(entry => entry.isWindowButton).length;
   const toolSelectors = childEntries.filter(entry => !entry.isWindowButton).map(entry => entry.selector);
   if (windowButtonCount !== 3 || toolSelectors.length < 4) {
-    fail('the title bar cluster must hold the three window buttons, the .lang-switch wrapper and the tool controls — check the markup or this guard');
+    fail('the title bar cluster must hold the three window buttons and the tool controls — check the markup or this guard');
   }
   const moveListMatch = /var FULLSCREEN_TOOL_SELECTORS = \[([\s\S]*?)\];/.exec(prefsCode);
   if (!moveListMatch) fail('FULLSCREEN_TOOL_SELECTORS is gone: nothing moves the tool buttons into the fullscreen row');
@@ -5452,11 +5452,22 @@ function checkFullscreenToolsRowGuard() {
     || !/function updateFullscreenToolsPeekFromPointer\(x, y\) \{/.test(prefsCode)) {
     fail('syncFullscreenToolsRow / layoutFullscreenToolsZone / updateFullscreenToolsPeekFromPointer must all exist');
   }
-  // 语言菜单是向下展开的下拉层，指针移进菜单项会离开命中框 —— 菜单开着时必须继续算浮现，
-  // 否则鼠标往下一移，整行连菜单一起消失，语言根本切不了。
-  if (!/function fullscreenToolsMenuOpen\(\) \{[\s\S]{0,200}?!menu\.hidden/.test(prefsCode)
-    || !/if \(!active && fullscreenToolsMenuOpen\(\)\) active = true;/.test(prefsCode)) {
-    fail('the tool row must stay revealed while the language menu is open, or the menu cannot be clicked');
+  // 语言切换已从标题栏搬进 DIY 视觉控制台：全屏工具行不再需要「菜单开着就继续浮现」的特例，
+  // 反过来要守住两件事 —— 标题栏别再出现语言按钮，语言行必须待在 #fx-panel 里。
+  // The switcher moved from the title bar into the DIY visual console, so the "keep the row
+  // revealed while the menu is open" special case is gone. Two reverse guards replace it:
+  // no language button back in the title bar, and the language row really inside #fx-panel.
+  if (/fullscreenToolsMenuOpen/.test(prefsCode) || /class="lang-switch"/.test(indexCode) || /id="lang-toggle-btn"/.test(indexCode)) {
+    fail('the language switcher must stay out of the title bar; it now lives in the DIY visual console');
+  }
+  const fxPanelOpen = indexCode.indexOf('<div id="fx-panel">');
+  const fxLangRow = indexCode.indexOf('id="fx-lang-row"');
+  if (fxPanelOpen < 0 || fxLangRow < fxPanelOpen) {
+    fail('#fx-lang-row must sit inside #fx-panel — otherwise the language switcher is unreachable in simple mode');
+  }
+  if (!/data-lang="zh_cn"/.test(indexCode) || !/data-lang="en_us"/.test(indexCode)
+    || !/data-lang="ja_jp"/.test(indexCode) || !/data-lang="ru_ru"/.test(indexCode)) {
+    fail('#fx-lang-row must offer all four languages as data-lang buttons');
   }
 
   // 视觉引导的 DIY 那一步：引导进行中指针浮现被挡着，得靠 .fullscreen-tools-guided 把行亮出来。

@@ -106,6 +106,14 @@ function fxConsoleLayout() {
   {
     key: 'interface',
     groups: [
+      // 语言切换从标题栏搬到这里：主界面那一排控件太挤，而切语言是低频操作。
+      // index.html 提供 #fx-lang-row 作为源节点，14-i18n-switcher.js 负责绑定点击。
+      // The language switcher moved here from the title bar — that row was crowded and switching
+      // language is a low-frequency action. index.html ships #fx-lang-row as the source node and
+      // 14-i18n-switcher.js wires the clicks.
+      { key: 'language', title: consoleWorkspaceText('fx_interface_language', '界面语言'), hint: consoleWorkspaceText('fx_language_hint'), open: true, items: [
+        fxConsoleItem('fx-lang-row', consoleWorkspaceText('fx_interface_language', '界面语言'), '语言 language English 日本語 Русский 中文 zh en ja ru', false)
+      ] },
       { key: 'background', title: consoleWorkspaceText('bg_media', '背景媒体'), hint: consoleWorkspaceText('fx_background_hint'), open: true, items: [
         fxConsoleItem('bg-color-picker', consoleWorkspaceText('bg_color_label', '背景颜色'), '纯色 封面取色'),
         fxConsoleItem('bg-media-preview', consoleWorkspaceText('bg_media', '背景媒体'), '封面 图片 视频 上传 裁切 清除', false),

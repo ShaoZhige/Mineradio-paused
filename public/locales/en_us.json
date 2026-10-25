@@ -297,6 +297,8 @@
   "desktop_export_title": "Export Mineradio Archive",
   "desktop_import_title": "Import Mineradio Archive",
   "section_language": "Language / 言語",
+  "fx_interface_language": "Interface language",
+  "fx_language_hint": "Applies immediately",
   "fx_reset_done": "Reset to default parameters",
   "track_count": "tracks",
   "now_playing": "Now playing",

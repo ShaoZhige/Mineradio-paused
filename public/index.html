@@ -26,19 +26,11 @@
       <div class="desktop-window-controls">
         <button id="visual-guide-btn" class="icon-btn" type="button" onclick="startVisualGuide({ manual: true })"
           title="查看使用引导" aria-label="查看使用引导" data-i18n="btn_guide" data-i18n-attr="aria-label" data-i18n-title="btn_guide">?</button>
-        <!-- 语言切换：从搜索框移出，与右上角控件同级，位于 ? 号右侧、热键左侧；
-             按钮复用 .icon-btn 的 44px 圆形，菜单相对 .lang-switch 绝对定位下拉。
-             Moved out of the search box to sit with the top-right controls, right of "?" and
-             left of the hotkey button; reuses .icon-btn's 44px circle, menu drops below it. -->
-        <div class="lang-switch">
-          <button id="lang-toggle-btn" class="icon-btn" type="button" aria-label="Language" aria-expanded="false">中</button>
-          <div id="lang-menu" role="menu" aria-label="Language" hidden>
-            <button type="button" role="menuitem" data-lang="zh_cn">中文</button>
-            <button type="button" role="menuitem" data-lang="en_us">English</button>
-            <button type="button" role="menuitem" data-lang="ja_jp">日本語</button>
-            <button type="button" role="menuitem" data-lang="ru_ru">Русский</button>
-          </div>
-        </div>
+        <!-- 语言切换已移入 DIY 视觉控制台（#fx-lang-row）：标题栏那一排太挤，主界面只留
+             引导 / 更新 / 热键 / DIY 四个入口。语言是低频设置，藏在设置面板里更合适。
+             The language switcher now lives in the DIY visual console (#fx-lang-row): the
+             title bar row was getting crowded, so the main UI keeps only guide / update /
+             hotkey / DIY. Language is a low-frequency setting and belongs in a panel. -->
         <button id="update-entry" class="update-entry" type="button" onclick="openUpdatePanel()" title="发现新版本"
           aria-label="发现新版本" data-i18n="btn_update" data-i18n-attr="aria-label" data-i18n-title="btn_update">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -383,6 +375,19 @@
            information the category tabs already convey, and .fx-head existed only to host
            #hotkey-settings-btn, which is now declared statically in the title bar between
            "?" and "DIY" and no longer needs a runtime mount. -->
+
+      <!-- 语言切换的源节点：真正渲染时由 09-console-workspace.js 把它搬进「界面」页签的第一个分组
+           （分组标题与提示也由那份登记表给出），所以这里不写 section 标签。
+           四个语言名故意不做 i18n —— 翻译语言自称没有意义。
+           Source node for the language switcher: 09-console-workspace.js moves it into the first
+           group of the Interface tab (that registry also supplies the group title and hint), so
+           no section label is declared here. The four endonyms are deliberately not localized. -->
+      <div class="fx-lang-row" id="fx-lang-row" role="group" aria-label="Language">
+        <button class="fx-mini-btn" type="button" data-lang="zh_cn">中文</button>
+        <button class="fx-mini-btn" type="button" data-lang="en_us">English</button>
+        <button class="fx-mini-btn" type="button" data-lang="ja_jp">日本語</button>
+        <button class="fx-mini-btn" type="button" data-lang="ru_ru">Русский</button>
+      </div>
 
       <div class="fx-section-label" data-i18n="visual_presets">视觉预设</div>
       <div class="preset-grid" id="preset-grid"></div>

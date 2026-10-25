@@ -19008,75 +19008,32 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
 
 /* ============================================================
    语言切换 / Language switcher
-   已移至标题栏 .desktop-window-controls 内（? 号右侧、热键左侧），
-   按钮复用 .icon-btn 的 44px 圆形；菜单相对 .lang-switch 绝对定位下拉。
-   Moved to the titlebar inside .desktop-window-controls (right of "?", left of hotkey);
-   the button reuses .icon-btn's 44px circle; the menu is absolutely positioned
-   below the button via the .lang-switch wrapper.
+   已从标题栏移入 DIY 视觉控制台：@see index.html 的 #fx-lang-row ——
+   四个语言并排一行，选中项高亮，没有下拉菜单，也就不需要「点空白处收起」。
+   Moved from the title bar into the DIY visual console: #fx-lang-row puts the four
+   languages side by side with the active one highlighted. No dropdown, therefore no
+   outside-click dismissal.
    ============================================================ */
-.lang-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center
+.fx-lang-row {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 8px
+}
+
+.fx-lang-row .fx-mini-btn {
+  min-width: 0;
+  letter-spacing: 0;
+  white-space: nowrap
+}
+
+.fx-lang-row .fx-mini-btn.active {
+  border-color: rgba(var(--fc-accent-rgb), .55);
+  background: rgba(var(--fc-accent-rgb), .16);
+  color: #fff
 }
 
 #search-box {
   position: relative
-}
-
-#lang-toggle-btn {
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  margin: 0
-}
-
-#lang-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 136px;
-  padding: 6px;
-  z-index: 560;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border: 1px solid rgba(255, 255, 255, .10);
-  border-radius: 12px;
-  background: rgba(10, 14, 18, .92);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2)
-}
-
-/* hidden 属性必须压过 display:flex，否则菜单永远可见。
-   hidden must win over display:flex, or the menu never closes. */
-#lang-menu[hidden] {
-  display: none
-}
-
-#lang-menu button {
-  height: 30px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(224, 250, 255, .78);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: background .16s, color .16s
-}
-
-#lang-menu button:hover {
-  background: rgba(255, 255, 255, .08);
-  color: #fff
-}
-
-#lang-menu button.active {
-  background: rgba(0, 245, 212, .14);
-  color: #fff
 }
 
 /* 汽水音乐「需 VIP 且本机无签名能力」时试听横幅的文案会变长，允许换行并容纳授权入口。

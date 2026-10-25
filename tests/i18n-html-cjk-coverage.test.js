@@ -24,17 +24,17 @@ const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'i
 const I18N_ATTRS = ['data-i18n', 'data-i18n-title', 'data-i18n-placeholder', 'data-i18n-attr'];
 
 // 故意不带 i18n 声明的显示点 / display points deliberately left without i18n
-//  - 语言菜单里的语言自称（中文 / 日本語）：翻译语言自称没有意义
-//    Language endonyms in the menu — translating a language's own name is pointless.
-//  - 语言按钮的首字「中」：由 14-i18n-switcher.js 按当前语言动态写入
-//    The switcher button's initial, written at runtime by 14-i18n-switcher.js.
+//  - DIY 视觉控制台里 #fx-lang-row 的语言自称（中文 / 日本語）：翻译语言自称没有意义。
+//    原来标题栏按钮上那个「中」已随语言控件一起移走，所以豁免只剩这两条。
+//    Language endonyms in #fx-lang-row inside the DIY visual console — translating a
+//    language's own name is pointless. The title bar button's initial "中" left with the
+//    switcher, so only these two exemptions remain.
 // 登录彩蛋曾在这里占掉十一条豁免（拼字用字格、打字框、成就文案…）。彩蛋改成选择框并接入
-// i18n 之后全部下架，剩下这三条都与彩蛋无关。
+// i18n 之后全部下架，剩下这两条都与彩蛋无关。
 // The login easter egg used to own eleven exemptions here (the spelling cells, the typing
 // field, the achievement copy). Turning it into a select box and wiring i18n retired all of
-// them; the three left have nothing to do with the egg.
+// them; the two left have nothing to do with the egg.
 const EXEMPT = [
-  ['text', '中'],
   ['text', '中文'],
   ['text', '日本語'],
 ];

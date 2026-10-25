@@ -297,6 +297,8 @@
   "desktop_export_title": "Mineradioアーカイブをエクスポート",
   "desktop_import_title": "Mineradioアーカイブをインポート",
   "section_language": "言語 / Language",
+  "fx_interface_language": "表示言語",
+  "fx_language_hint": "すぐに反映されます",
   "fx_reset_done": "デフォルトパラメータにリセットしました",
   "track_count": "曲",
   "now_playing": "再生中",

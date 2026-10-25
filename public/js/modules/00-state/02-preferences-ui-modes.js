@@ -354,11 +354,14 @@ function isFullscreenNow() {
 }
 // 全屏时搬进工具行的按钮，数组顺序 = 行内顺序（与标题栏从左到右一致）。
 // Controls moved into the fullscreen tool row; array order is the on-screen order.
-var FULLSCREEN_TOOL_SELECTORS = ['#visual-guide-btn', '.lang-switch', '#update-entry', '#hotkey-settings-btn', '#diy-mode-btn'];
+var FULLSCREEN_TOOL_SELECTORS = ['#visual-guide-btn', '#update-entry', '#hotkey-settings-btn', '#diy-mode-btn'];
 // 全屏工具行：进入全屏把标题栏这排按钮**搬**进 #fullscreen-tools-zone，退出全屏再搬回去。
-// 为什么搬而不是复制：语言菜单的开合、热键按钮的文案、更新入口的下载/可用状态都长在节点自己身上
+// 为什么搬而不是复制：热键按钮的文案、更新入口的下载/可用状态都长在节点自己身上
 // （更新入口还有个进度环要按 id 取），复制一份就得给每个控件再写一套同步逻辑；搬移顺带保证全局
-// 只有一个实例，不会出现两份状态对不上。
+// 只有一个实例，不会出现两份状态对不上。语言按钮已移出标题栏、进 DIY 视觉控制台，不在名单里。
+// Moving (not cloning) is deliberate: the hotkey label and the update entry's progress live on
+// the nodes themselves, so clones would each need their own syncing. The language switcher has
+// moved out of the title bar into the DIY visual console, so it is not part of this list.
 // 为什么拦在入口而不是给每个按钮各配一个全屏镜像：标题栏以后再加工具按钮时，镜像写法会静默漏掉
 // 新按钮（全屏下直接消失），而这里漏掉的是同一份名单 —— quick-check 有一条守卫专门盯这份名单。
 // 还原点取「控件簇里的第一个窗口按钮」（最小化）：按数组顺序逐个 insertBefore 到它前面，顺序自然
@@ -435,14 +438,11 @@ function setupFullscreenToolsLayoutTracking() {
   }
   scheduleFullscreenToolsLayout();
 }
-// 语言菜单是点开后向下展开的下拉层，指针从按钮移到菜单项时会离开命中框 —— 菜单开着就当作仍在
-// 命中范围内，否则鼠标一往下移，整行连菜单一起消失，菜单根本点不到。
-// The language menu opens downward, so moving the pointer into a menu item leaves the hit box.
-// While it is open the row counts as hovered, or it would vanish mid-click.
-function fullscreenToolsMenuOpen() {
-  var menu = document.getElementById('lang-menu');
-  return !!(menu && !menu.hidden);
-}
+// 语言菜单原来是个开合的下拉层，指针从按钮移到菜单项时会离开命中框，所以全屏工具行要把它开着
+// 当作仍在命中范围内。语言切换已移进 DIY 视觉控制台（常驻面板，不是浮层），这条特例随之作废。
+// The language menu used to be a toggled dropdown whose items sat outside the hit box, so the
+// fullscreen tool row had to treat an open menu as hovered. The switcher now lives inside the
+// DIY visual console as a persistent row, so that special case is gone.
 function shouldSuppressFullscreenToolsPeek() {
   var fxPanel = document.getElementById('fx-panel');
   var hotkeyModal = document.getElementById('hotkey-modal');
@@ -463,7 +463,6 @@ function updateFullscreenToolsPeekFromPointer(x, y) {
   var hitTop = Math.min(rect.top, anchorRect.top) - 18;
   var hitBottom = Math.max(rect.top + rect.height, anchorRect.bottom) + 16;
   var active = x >= hitLeft && x <= hitRight && y >= hitTop && y <= hitBottom;
-  if (!active && fullscreenToolsMenuOpen()) active = true;
   document.body.classList.toggle('fullscreen-tools-peek', active);
 }
 function isDiyMode() {
