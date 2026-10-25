@@ -19014,22 +19014,122 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
    languages side by side with the active one highlighted. No dropdown, therefore no
    outside-click dismissal.
    ============================================================ */
+/* 语言选择：一个显示当前语言的触发器 + 就地展开的选项列表。
+   列表限高可滚 —— 现在只有四门语言，加新语言时不会把面板越撑越长。
+   Language picker: a trigger showing the active language plus an in-place list.
+   The list is height-capped and scrollable so adding languages never stretches the panel. */
 .fx-lang-row {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   margin: 0 0 8px
 }
 
-.fx-lang-row .fx-mini-btn {
+.fx-lang-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .82);
+  font-family: inherit;
+  font-size: 11.5px;
+  letter-spacing: .3px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .16s, border-color .16s, color .16s
+}
+
+.fx-lang-trigger:hover {
+  background: rgba(255, 255, 255, .1);
+  color: #fff
+}
+
+.fx-lang-trigger[aria-expanded="true"] {
+  border-color: rgba(var(--fc-accent-rgb), .55);
+  background: rgba(var(--fc-accent-rgb), .12);
+  color: #fff
+}
+
+.fx-lang-value {
+  flex: 1 1 auto;
   min-width: 0;
-  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap
 }
 
-.fx-lang-row .fx-mini-btn.active {
-  border-color: rgba(var(--fc-accent-rgb), .55);
+.fx-lang-caret {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .18s
+}
+
+.fx-lang-trigger[aria-expanded="true"] .fx-lang-caret {
+  transform: rotate(180deg)
+}
+
+.fx-lang-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  max-height: 146px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 10px;
+  background: rgba(10, 14, 18, .72);
+  overflow-y: auto;
+  overscroll-behavior: contain
+}
+
+/* hidden 必须压过 display:flex，否则列表永远展开。
+   hidden must beat display:flex or the list never closes. */
+.fx-lang-menu[hidden] {
+  display: none
+}
+
+.fx-lang-option {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, .76);
+  font-family: inherit;
+  font-size: 11.5px;
+  letter-spacing: .3px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .16s, color .16s
+}
+
+.fx-lang-option:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #fff
+}
+
+.fx-lang-option.active {
   background: rgba(var(--fc-accent-rgb), .16);
   color: #fff
+}
+
+.fx-lang-option:focus-visible {
+  outline: 1px solid rgba(var(--fc-accent-rgb), .7);
+  outline-offset: -1px
 }
 
 #search-box {

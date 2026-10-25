@@ -5501,7 +5501,29 @@ function checkFullscreenToolsRowGuard() {
   }
   if (!/data-lang="zh_cn"/.test(indexCode) || !/data-lang="en_us"/.test(indexCode)
     || !/data-lang="ja_jp"/.test(indexCode) || !/data-lang="ru_ru"/.test(indexCode)) {
-    fail('#fx-lang-row must offer all four languages as data-lang buttons');
+    fail('#fx-lang-row must offer all four languages as data-lang options');
+  }
+  // 语言选择是一个触发器 + 就地展开的滚动列表。三件事必须同时在：
+  // 触发器（带 aria-expanded）、列表容器（限高可滚）、选项。少一样就退化成「一排按钮撑满一行」，
+  // 或者列表展开后把面板无限拉长 / 加语言后没处滚。
+  // The picker is a trigger plus an in-place scrollable list. All three must exist: the
+  // trigger (with aria-expanded), the height-capped scrollable list, and the options. Missing
+  // any of them either reverts to a row of buttons or lets the list stretch the panel.
+  if (!/id="fx-lang-trigger"/.test(indexCode) || !/aria-expanded="false"/.test(indexCode)
+    || !/id="fx-lang-menu"[^>]*hidden/.test(indexCode)) {
+    fail('#fx-lang-row must be a trigger + collapsed list, not a row of always-visible buttons');
+  }
+  const fxLangMenuCss = (cssCode.match(/\.fx-lang-menu\s*\{[^}]*\}/) || [''])[0];
+  if (!/max-height:\s*\d+px/.test(fxLangMenuCss) || !/overflow-y:\s*auto/.test(fxLangMenuCss)) {
+    fail('.fx-lang-menu must cap its height and scroll (max-height + overflow-y:auto)');
+  }
+  if (!/\.fx-lang-menu\[hidden\]\s*\{[^}]*display:\s*none/.test(cssCode)) {
+    fail('.fx-lang-menu[hidden] must beat display:flex, or the list never collapses');
+  }
+  const langSwitcherText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '14-i18n-switcher.js'), 'utf8');
+  if (!/function setOpen\(open\)/.test(langSwitcherText) || !/\.hidden = !open/.test(langSwitcherText)
+    || !/i18n\.langLabel\(/.test(langSwitcherText)) {
+    fail('the language switcher must toggle the list and label the trigger from the active language');
   }
 
   // 视觉引导的 DIY 那一步：引导进行中指针浮现被挡着，得靠 .fullscreen-tools-guided 把行亮出来。

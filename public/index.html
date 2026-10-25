@@ -382,11 +382,26 @@
            Source node for the language switcher: 09-console-workspace.js moves it into the first
            group of the Interface tab (that registry also supplies the group title and hint), so
            no section label is declared here. The four endonyms are deliberately not localized. -->
-      <div class="fx-lang-row" id="fx-lang-row" role="group" aria-label="Language">
-        <button class="fx-mini-btn" type="button" data-lang="zh_cn">中文</button>
-        <button class="fx-mini-btn" type="button" data-lang="en_us">English</button>
-        <button class="fx-mini-btn" type="button" data-lang="ja_jp">日本語</button>
-        <button class="fx-mini-btn" type="button" data-lang="ru_ru">Русский</button>
+      <div class="fx-lang-row" id="fx-lang-row">
+        <button class="fx-lang-trigger" id="fx-lang-trigger" type="button"
+          aria-haspopup="listbox" aria-expanded="false" aria-controls="fx-lang-menu">
+          <span class="fx-lang-value" id="fx-lang-value"></span>
+          <svg class="fx-lang-caret" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2.6 4.6 6 8l3.4-3.4"></path>
+          </svg>
+        </button>
+        <!-- 列表就在触发器下方就地展开（不是绝对定位的下拉层）：#fx-panel 自身是
+             overflow-x:hidden 的滚动容器，浮层会被横向裁掉、贴底又被滚出视野。
+             就地展开把后面的内容推下去，天然跟着面板滚动。
+             The list expands in place under the trigger instead of floating: #fx-panel is a
+             scroll container with overflow-x:hidden, so a popup would be clipped sideways and
+             scrolled out of view near the bottom. Expanding in place lets the panel scroll it. -->
+        <div class="fx-lang-menu" id="fx-lang-menu" role="listbox" aria-label="Language" hidden>
+          <button class="fx-lang-option" type="button" role="option" aria-selected="false" data-lang="zh_cn">中文</button>
+          <button class="fx-lang-option" type="button" role="option" aria-selected="false" data-lang="en_us">English</button>
+          <button class="fx-lang-option" type="button" role="option" aria-selected="false" data-lang="ja_jp">日本語</button>
+          <button class="fx-lang-option" type="button" role="option" aria-selected="false" data-lang="ru_ru">Русский</button>
+        </div>
       </div>
 
       <div class="fx-section-label" data-i18n="visual_presets">视觉预设</div>
