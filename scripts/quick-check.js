@@ -2277,8 +2277,15 @@ async function checkSpotifyProviderGuard() {
   if (!/require\('\.\/spotify-api'\)/.test(serverText) || !/\/api\/spotify\/status/.test(serverText) || !/\/api\/spotify\/config/.test(serverText) || !/\/api\/spotify\/setup\/diagnostics/.test(serverText) || !/\/api\/spotify\/search/.test(serverText) || !/\/api\/spotify\/song\/url/.test(serverText) || !/\/api\/spotify\/lyric/.test(serverText)) {
     fail('server.js must route Spotify status/config/setup diagnostics/search/song-url/lyric through the backend bridge');
   }
-  if (!/search-mode-spotify/.test(indexText) || !/tag-source\.spotify/.test(cssText) || !/spotify-source/.test(cssText)) {
-    fail('Spotify search tab and source badges must be visible in the UI');
+  if (!/tag-source\.spotify/.test(cssText) || !/spotify-source/.test(cssText)) {
+    fail('Spotify source badges must be visible in the UI');
+  }
+  // 搜索栏的 SP 页签已刻意移除：Spotify 搜索受 Premium 限制，单平台页签只会是空白页。
+  // 结果仍然进「全部」合并，所以这里反向守住「不要再加回来」。
+  // The standalone SP tab was removed on purpose: Premium-gated search makes a per-platform
+  // tab permanently empty. Spotify still merges into "All", so guard against re-adding it.
+  if (/search-mode-spotify/.test(indexText) || /search-mode-spotify/.test(searchText)) {
+    fail('the Spotify search tab must stay removed; Spotify results belong in the All tab');
   }
   // 音质文案已全部改走 i18n（quality_spotify_match），源码里不会再出现字面 "Spotify"。
   // 因此这里断言"必须引用那个文案键"，而不是断言品牌名字面量 —— 语义一样，还更严：
@@ -2297,8 +2304,8 @@ async function checkSpotifyProviderGuard() {
   // Search endpoints now come from the provider registry instead of being hardcoded in
   // 07-search.js, so the "Spotify search is wired" assertion has to check the registry.
   const providerRegistryText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '16-provider-registry.js'), 'utf8');
-  if (!/search-mode-spotify/.test(searchText) || !/songProviderKey\(song\)[\s\S]*spotify/.test(searchText) || !/searchPath:\s*'\/api\/spotify\/search'/.test(providerRegistryText) || !/mergeSongSearchResults\(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, spotifySongs/.test(searchText)) {
-    fail('frontend search must include Spotify in tabs, source tags, provider search, and All merge');
+  if (!/songProviderKey\(song\)[\s\S]*spotify/.test(searchText) || !/searchPath:\s*'\/api\/spotify\/search'/.test(providerRegistryText) || !/mergeSongSearchResults\(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, spotifySongs/.test(searchText)) {
+    fail('frontend search must include Spotify in source tags, provider search, and All merge');
   }
   if (!/\/api\/spotify\/song\/url/.test(playbackText) || !/isSpotifyPlayback/.test(playbackText) || !/provider_limited/.test(fallbackText)) {
     fail('Spotify playback must flow through provider_limited auto source fallback');

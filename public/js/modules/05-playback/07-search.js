@@ -205,7 +205,6 @@ function updateSearchModeTabs() {
   var qqBtn = document.getElementById('search-mode-qq');
   var kugouBtn = document.getElementById('search-mode-kugou');
   var qishuiBtn = document.getElementById('search-mode-qishui');
-  var spotifyBtn = document.getElementById('search-mode-spotify');
   var podcastBtn = document.getElementById('search-mode-podcast');
   if (songBtn) {
     songBtn.classList.toggle('active', searchMode === 'song');
@@ -227,10 +226,6 @@ function updateSearchModeTabs() {
     qishuiBtn.classList.toggle('active', searchMode === 'qishui');
     qishuiBtn.setAttribute('aria-selected', searchMode === 'qishui' ? 'true' : 'false');
   }
-  if (spotifyBtn) {
-    spotifyBtn.classList.toggle('active', searchMode === 'spotify');
-    spotifyBtn.setAttribute('aria-selected', searchMode === 'spotify' ? 'true' : 'false');
-  }
   if (podcastBtn) {
     podcastBtn.classList.toggle('active', searchMode === 'podcast');
     podcastBtn.setAttribute('aria-selected', searchMode === 'podcast' ? 'true' : 'false');
@@ -244,9 +239,12 @@ function updateSearchModeTabs() {
   requestAnimationFrame(updateSearchPillGlassDisplacementMap);
 }
 function setSearchMode(mode) {
-  // spotify 也要在名单里：搜索页有 SP 页签，漏了它一点就回落到"全部"。
-  // Spotify must be in this list too, otherwise the SP tab silently falls back to "all".
-  mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq' || mode === 'kugou' || mode === 'qishui' || mode === 'spotify') ? mode : 'song';
+  // 没有 SP 独立页签：Spotify 搜索受 Premium 限制，单平台页签只会搜出空白。
+  // Spotify 结果仍会在「全部」里合并展示（provider 注册表带 mainSearch 能力时）。
+  // No standalone SP tab: Spotify search is Premium-gated, so a per-platform tab only shows
+  // an empty page. Spotify results still merge into the "All" tab when the provider registry
+  // exposes mainSearch for it.
+  mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq' || mode === 'kugou' || mode === 'qishui') ? mode : 'song';
   if (searchMode === mode) return;
   searchMode = mode;
   updateSearchModeTabs();
