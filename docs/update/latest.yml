@@ -24,5 +24,5 @@
 ## scripts/quick-check.js 有守卫钉住这条一致性（release.yml 的 test 阶段会跑它）。
 ## `version` must match package.json. It was once left at 2.2.0 while the package had reached
 ## 2.4.3, so the fallback path silently reported "up to date". A quick-check guard now pins it.
-version: 2.5.2
-releaseDate: '2026-10-06T18:26:18.227Z'
+version: 2.5.3
+releaseDate: '2026-10-26T14:46:00.000Z'
