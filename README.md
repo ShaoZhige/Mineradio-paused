@@ -18,11 +18,12 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把搜索播放、�
 
 ## 立即下载 Windows 安装包
 
-> 本维护版通过 GitHub Releases 与阿里云盘分发；国内用户推荐用阿里云盘直链（下载不限速）。
+> 本维护版通过 GitHub Releases、阿里云盘与蓝奏云分发；国内用户推荐用阿里云盘直链下载不限速，蓝奏云作为备用线路。
 
 | 下载入口 | 说明 | 链接 |
 | --- | --- | --- |
 | 阿里云盘（国内推荐） | 国内直链、下载不限速 | [点此下载](https://www.alipan.com/s/36YiXCzvuKt) |
+| 蓝奏云（备用） | 需要密码 `9izq` | [点此下载](https://wwars.lanzouq.com/b014xlh7gb) |
 | GitHub Release | 版本说明、源码与安装包 | [查看 Mineradio Releases](https://github.com/ShaoZhige/Mineradio-paused/releases) |
 
 安装时只需要下载并运行 `Mineradio-<版本>-Setup.exe`。不要把 `.blockmap`、`latest.yml` 或 `win-unpacked` 当成正式安装包。
@@ -63,7 +64,7 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把搜索播放、�
 
 ## 使用说明
 
-Windows 用户可以从本仓库的 Release 入口或[阿里云盘直链](https://www.alipan.com/s/36YiXCzvuKt)下载安装包。
+Windows 用户可以从本仓库的 Release 入口、[阿里云盘直链](https://www.alipan.com/s/36YiXCzvuKt)或[蓝奏云](https://wwars.lanzouq.com/b014xlh7gb)下载安装包，蓝奏云需要输入密码 `9izq`。
 
 正式分发以 `Mineradio-<版本>-Setup.exe` 为准，不建议直接使用 `win-unpacked` 目录。安装包会创建桌面快捷方式。
 
