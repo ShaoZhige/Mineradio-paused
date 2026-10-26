@@ -48,6 +48,26 @@ var SEARCH_HISTORY_MODES = ['song'].concat(providerRegistryKeysWith('mainSearch'
 var MUSIC_SEARCH_INITIAL_VISIBLE = 18;
 var MUSIC_SEARCH_APPEND_BATCH = 14;
 var MUSIC_SEARCH_MAX_RESULTS = 180;
+// 搜索结果行的虚拟化参数。行高先用 CSS 推出的 61px 兜底（padding 10×2 + 封图 40 + 下边框 1），
+// 首次渲染后会用相邻两行的 offsetTop 差实测校正 —— 标题和 meta 都是单行省略号，
+// 换行不会发生，所以定高模型成立。
+// Virtualisation parameters for the result rows. 61px is the CSS-derived fallback
+// (10px padding ×2 + 40px cover + 1px border); after the first paint it is corrected with the
+// measured offsetTop delta between two rows. Title and meta both truncate to one line, so the
+// fixed-height model holds.
+var SEARCH_RESULT_ROW_STEP = 61;
+var SEARCH_RESULT_OVERSCAN = 6;
+// 首帧兜底视口：第一次渲染时 #search-area 的 .has-results 由 MutationObserver 异步挂上，
+// 那一刻 clientHeight 还是 0，窗口会塌成「只有 overscan」。用 CSS 的 max-height 当兜底。
+// First-frame fallback viewport: on the first render #search-area only gets .has-results from an
+// asynchronous MutationObserver, so clientHeight is still 0 and the window would collapse to the
+// overscan alone. Fall back to the CSS max-height.
+var SEARCH_RESULT_FALLBACK_VIEWPORT = 360;
+var searchResultRowStep = SEARCH_RESULT_ROW_STEP;
+var searchResultVirtualFrame = 0;
+var searchResultVirtualActive = false;
+var searchResultVirtualBound = false;
+var searchResultVirtualRange = { start: -1, end: -1, key: '' };
 var searchLoadMoreObserver = null;
 var pendingSearchProviderPages = null;
 var searchMusicRenderState = {
@@ -66,6 +86,7 @@ var $results = document.getElementById('search-results');
 var $loading = document.getElementById('loading-overlay');
 function setSearchHistorySurface(on) {
   if ($results) $results.classList.toggle('search-history-surface', !!on);
+  if (on) searchResultVirtualActive = false;
 }
 function syncSearchAreaResultState() {
   var searchArea = document.getElementById('search-area');
@@ -291,6 +312,7 @@ function searchThumbHtml(src) {
 }
 function renderPodcastRadios(items, label) {
   setSearchHistorySurface(false);
+  searchResultVirtualActive = false;
   podcastResults = items || [];
   podcastPrograms = [];
   playlist = [];
@@ -361,6 +383,7 @@ async function openPodcastPrograms(i) {
 }
 function renderPodcastPrograms() {
   setSearchHistorySurface(false);
+  searchResultVirtualActive = false;
   var radio = podcastCurrentRadio || {};
   if (!podcastPrograms.length) {
     $results.innerHTML = '<div class="podcast-result-head"><button class="podcast-back-btn" onclick="event.stopPropagation();renderPodcastRadios(podcastResults)">‹</button><div class="search-result-info"><div class="search-result-title">' + escHtml(radio.name || 'Podcast') + '</div><div class="search-result-meta">No playable episodes</div></div></div>';
@@ -1194,6 +1217,80 @@ function searchSongResultHtml(s, i) {
       '<button class="add-btn" title="' + escHtml(searchPanelText('next_play', '下一首播放')) + '" onclick="event.stopPropagation();queueSearchResult(' + i + ')">+</button>' +
       '</div>';
 }
+// 搜索结果原本是「只增不减」：首屏 18 条，滚到底再追加 14 条，最多累积到 180 行、
+// 约 1600 个元素常驻 DOM，滚过去的行永远不回收。这里改成定高窗口渲染：只渲染当前可见
+// 区间 ± overscan，上下用 spacer 撑出总高度，滚动时按 scrollTop 重算区间。
+// 与歌单那几套虚拟表的区别：搜索结果是自己滚（#search-results 自身 overflow-y:auto），
+// 不需要「外层滚动容器 - 列表容器 BCR」那套偏移换算。
+// Results used to be append-only: 18 on first paint, +14 whenever you hit the bottom, up to 180
+// rows (~1600 elements) that stayed in the DOM forever. This renders a fixed-height window
+// instead — only the visible range ± overscan, with spacers carrying the total height.
+// Unlike the playlist virtual tables, #search-results scrolls itself, so no outer-scroller offset
+// arithmetic is needed.
+function searchResultVirtualWindow() {
+  var total = searchMusicRenderState.visibleCount;
+  var step = searchResultRowStep > 20 ? searchResultRowStep : SEARCH_RESULT_ROW_STEP;
+  var scrollTop = Math.max(0, Number($results && $results.scrollTop) || 0);
+  var measured = Math.max(0, Number($results && $results.clientHeight) || 0);
+  var viewport = measured > 0 ? measured : SEARCH_RESULT_FALLBACK_VIEWPORT;
+  var needed = Math.ceil(viewport / step) + SEARCH_RESULT_OVERSCAN * 2;
+  var start = Math.max(0, Math.floor(scrollTop / step) - SEARCH_RESULT_OVERSCAN);
+  var end = Math.min(total, start + needed);
+  if (end - start < needed) start = Math.max(0, end - needed);
+  return {
+    start: start,
+    end: end,
+    top: start * step,
+    bottom: Math.max(0, (total - end) * step),
+    total: total,
+    step: step
+  };
+}
+function measureSearchResultRowStep() {
+  if (!$results) return;
+  var rows = $results.querySelectorAll('.search-result');
+  if (rows.length >= 2) {
+    var delta = rows[1].offsetTop - rows[0].offsetTop;
+    if (delta > 20 && Math.abs(delta - searchResultRowStep) > 0.5) searchResultRowStep = delta;
+  } else if (rows.length === 1) {
+    var single = rows[0].offsetHeight;
+    if (single > 20 && Math.abs(single - searchResultRowStep) > 0.5) searchResultRowStep = single;
+  }
+}
+function renderSearchResultWindow(force) {
+  if (!searchResultVirtualActive || !$results) return;
+  var win = searchResultVirtualWindow();
+  var key = searchMusicRenderState.key;
+  if (!force
+    && searchResultVirtualRange.key === key
+    && searchResultVirtualRange.start === win.start
+    && searchResultVirtualRange.end === win.end) {
+    return;
+  }
+  searchResultVirtualRange = { start: win.start, end: win.end, key: key };
+  var songs = searchMusicRenderState.songs;
+  var html = '';
+  if (win.top > 0) html += '<div class="search-result-virtual-spacer" style="height:' + win.top + 'px"></div>';
+  for (var i = win.start; i < win.end; i++) html += searchSongResultHtml(songs[i], i);
+  if (win.bottom > 0) html += '<div class="search-result-virtual-spacer" style="height:' + win.bottom + 'px"></div>';
+  html += searchLoadMoreSentinelHtml();
+  $results.innerHTML = html;
+  syncLikeStatusForSongs(songs.slice(win.start, win.end));
+  observeSearchLoadMoreSentinel();
+  measureSearchResultRowStep();
+}
+function bindSearchResultVirtualScroll() {
+  if (searchResultVirtualBound || !$results) return;
+  searchResultVirtualBound = true;
+  $results.addEventListener('scroll', function () {
+    if (!searchResultVirtualActive) return;
+    if (searchResultVirtualFrame) return;
+    searchResultVirtualFrame = requestAnimationFrame(function () {
+      searchResultVirtualFrame = 0;
+      renderSearchResultWindow(false);
+    });
+  }, { passive: true });
+}
 function searchLoadMoreSentinelHtml() {
   var remaining = Math.max(0, searchMusicRenderState.songs.length - searchMusicRenderState.visibleCount);
   if (!remaining && !searchMusicRenderState.remoteHasMore && !searchMusicRenderState.loadingMore) return '';
@@ -1278,14 +1375,20 @@ function appendNextSearchResults(expectedKey) {
     }
     var start = searchMusicRenderState.visibleCount;
     var end = Math.min(searchMusicRenderState.songs.length, start + MUSIC_SEARCH_APPEND_BATCH);
+    searchMusicRenderState.visibleCount = end;
+    searchMusicRenderState.appending = false;
+    if (searchResultVirtualActive) {
+      // 虚拟化之后不再往 DOM 里插行：只抬高可见上限，再按当前滚动位置重算窗口。
+      // Nothing is inserted into the DOM any more; raise the ceiling and re-window in place.
+      renderSearchResultWindow(true);
+      return;
+    }
     var html = '';
     for (var i = start; i < end; i++) html += searchSongResultHtml(searchMusicRenderState.songs[i], i);
-    searchMusicRenderState.visibleCount = end;
     var sentinel = $results.querySelector('[data-search-load-more]');
     if (sentinel) sentinel.insertAdjacentHTML('beforebegin', html);
     else $results.insertAdjacentHTML('beforeend', html);
     syncLikeStatusForSongs(searchMusicRenderState.songs.slice(start, end));
-    searchMusicRenderState.appending = false;
     refreshSearchLoadMoreSentinel();
   });
   return true;
@@ -1302,13 +1405,25 @@ function renderSongSearchResults(songs) {
   searchMusicRenderState.remoteHasMore = !!plan.hasMore;
   searchMusicRenderState.songs = playlist;
   searchMusicRenderState.visibleCount = Math.min(playlist.length, MUSIC_SEARCH_INITIAL_VISIBLE);
-  var html = '';
-  for (var i = 0; i < searchMusicRenderState.visibleCount; i++) html += searchSongResultHtml(playlist[i], i);
-  $results.innerHTML = html + searchLoadMoreSentinelHtml();
+  searchResultVirtualActive = true;
+  searchResultRowStep = SEARCH_RESULT_ROW_STEP;
+  searchResultVirtualRange = { start: -1, end: -1, key: '' };
+  bindSearchResultVirtualScroll();
+  // 先挂 .show：#search-results 的高度来自 .show 规则，没它 clientHeight 为 0，窗口就只算 overscan。
+  // Show first: the height comes from the .show rule, without it clientHeight is 0 and the window
+  // would collapse to the overscan rows only.
   $results.classList.add('show');
-  syncLikeStatusForSongs(playlist.slice(0, searchMusicRenderState.visibleCount));
+  if ($results.scrollTop) $results.scrollTop = 0;
+  renderSearchResultWindow(true);
+  // 布局稳定后再按真实视口算一次窗口（首帧 clientHeight 是 0，用的是兜底视口）。
+  // Re-window once the layout has settled; the first pass ran on the fallback viewport because
+  // clientHeight was still 0.
+  var settledKey = searchMusicRenderState.key;
+  requestAnimationFrame(function () {
+    if (!searchResultVirtualActive || searchMusicRenderState.key !== settledKey) return;
+    renderSearchResultWindow(true);
+  });
   if (window.gsap) animateListItems($results, '.search-result', { x: 0, y: 6, stagger: 0.012, duration: 0.18, limit: 18 });
-  observeSearchLoadMoreSentinel();
 }
 
 async function doSearch(q, opts) {

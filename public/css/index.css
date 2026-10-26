@@ -14684,7 +14684,8 @@ html:fullscreen body.desktop-shell #playlist-panel {
 
 .queue-virtual-spacer,
 .playlist-virtual-spacer,
-.pl-detail-virtual-spacer {
+.pl-detail-virtual-spacer,
+.search-result-virtual-spacer {
   flex: 0 0 auto;
   width: 100%;
   min-height: 0;

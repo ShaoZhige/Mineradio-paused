@@ -374,6 +374,45 @@ function prepareSearchGlassBeforePeek() {
   if (document.documentElement.classList.contains('search-glass-ready')) return true;
   return syncSearchGlassReadyState(true, false);
 }
+// 玻璃几何的单帧合并器。以前一次 resize 会排 4~5 个并列 rAF、ResizeObserver 再排 5 个，
+// 每个回调各自 getBoundingClientRect() + getComputedStyle() 再写 CSS 变量 —— 读写交错会
+// 反复触发同步布局。这里合并成一帧：先把所有几何读完再统一写，且同一帧内多次请求只跑一次。
+// Single-frame coalescer for the glass geometry. A single resize used to queue 4-5 parallel rAFs
+// and a ResizeObserver another 5, each doing getBoundingClientRect() + getComputedStyle() then
+// writing CSS vars — interleaved reads and writes force repeated synchronous layout. This
+// coalesces them into one frame: read every geometry first, then write, once per frame.
+var controlGlassRefreshFrame = 0;
+var controlGlassRefreshPending = null;
+function createControlGlassRefreshTicket() {
+  return { displacement: false, searchBox: false, searchPill: false, accountPill: false, dwm: false, dwmDuration: 0 };
+}
+function scheduleControlGlassRefresh(ticket) {
+  var pending = controlGlassRefreshPending || (controlGlassRefreshPending = createControlGlassRefreshTicket());
+  if (ticket) {
+    if (ticket.displacement) pending.displacement = true;
+    if (ticket.searchBox) pending.searchBox = true;
+    if (ticket.searchPill) pending.searchPill = true;
+    if (ticket.accountPill) pending.accountPill = true;
+    if (ticket.dwm) {
+      pending.dwm = true;
+      pending.dwmDuration = Math.max(pending.dwmDuration || 0, ticket.dwmDuration || 0);
+    }
+  }
+  if (controlGlassRefreshFrame) return;
+  controlGlassRefreshFrame = requestAnimationFrame(function () {
+    controlGlassRefreshFrame = 0;
+    var run = controlGlassRefreshPending || createControlGlassRefreshTicket();
+    controlGlassRefreshPending = createControlGlassRefreshTicket();
+    if (run.displacement) updateControlGlassDisplacementMap();
+    if (run.searchBox) updateSearchBoxGlassDisplacementMap();
+    if (run.searchPill) updateSearchPillGlassDisplacementMap();
+    if (run.accountPill) updateAccountPillGlassDisplacementMap();
+    if (run.dwm) {
+      if (run.dwmDuration > 0) animateWallpaperEngineControlGlassSurface(run.dwmDuration);
+      else syncWallpaperEngineControlGlassSurface();
+    }
+  });
+}
 function initControlGlassSurface() {
   if (supportsControlGlassSvgFilter()) document.documentElement.classList.add('control-glass-svg-ok');
   applyControlGlassChromaticOffset();
@@ -389,11 +428,7 @@ function initControlGlassSurface() {
   var userBtn = document.getElementById('user-btn');
   if (window.ResizeObserver && (bar || searchBox || searchTabs || searchResults || userBtn)) {
     var ro = new ResizeObserver(function () {
-      requestAnimationFrame(updateControlGlassDisplacementMap);
-      requestAnimationFrame(syncWallpaperEngineControlGlassSurface);
-      requestAnimationFrame(updateSearchBoxGlassDisplacementMap);
-      requestAnimationFrame(updateSearchPillGlassDisplacementMap);
-      requestAnimationFrame(updateAccountPillGlassDisplacementMap);
+      scheduleControlGlassRefresh({ displacement: true, dwm: true, searchBox: true, searchPill: true, accountPill: true });
     });
     if (bar) ro.observe(bar);
     if (searchBox) ro.observe(searchBox);
@@ -409,19 +444,14 @@ function initControlGlassSurface() {
   }
   if (window.MutationObserver && (searchTabs || searchResults || userBtn)) {
     var mo = new MutationObserver(function () {
-      requestAnimationFrame(updateSearchPillGlassDisplacementMap);
-      requestAnimationFrame(updateAccountPillGlassDisplacementMap);
+      scheduleControlGlassRefresh({ searchPill: true, accountPill: true });
     });
     if (searchTabs) mo.observe(searchTabs, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     if (searchResults) mo.observe(searchResults, { childList: true, subtree: true });
     if (userBtn) mo.observe(userBtn, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   }
   window.addEventListener('resize', function () {
-    requestAnimationFrame(updateControlGlassDisplacementMap);
-    animateWallpaperEngineControlGlassSurface(520);
-    requestAnimationFrame(updateSearchBoxGlassDisplacementMap);
-    requestAnimationFrame(updateSearchPillGlassDisplacementMap);
-    requestAnimationFrame(updateAccountPillGlassDisplacementMap);
+    scheduleControlGlassRefresh({ displacement: true, dwm: true, dwmDuration: 520, searchBox: true, searchPill: true, accountPill: true });
   });
   if (bar) {
     bar.addEventListener('transitionrun', function () {

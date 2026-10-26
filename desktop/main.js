@@ -179,7 +179,19 @@ const STARTUP_QA_USER_DATA_PATH = (() => {
 // partitions, temp scripts) stays under <app dir>/userdata instead of the user profile or a
 // drive root.
 const APP_ROOT_PATH = path.join(__dirname, '..');
-const PORTABLE_USER_DATA_PATH = path.join(APP_ROOT_PATH, 'userdata');
+// 🔴 asar 打包后 __dirname 落在 app.asar 内部，那里**只读**：把 userdata 建在里面的
+// mkdirSync 会抛错，然后被下面的 catch 静默退回 %APPDATA% —— 用户看到的现象就是
+// 「登录态全没了」，而且一条错误都没有。所以 asar 模式下便携数据根必须挪到 exe 同级的
+// userdata/，同时把旧位置 resources/app/userdata 当作迁移来源复制过来。
+// Packed into app.asar, __dirname lives inside a read-only archive: mkdirSync throws and the
+// catch below silently falls back to %APPDATA%, which the user experiences as "all my logins are
+// gone" with no error at all. So in asar mode the portable root must move next to the exe, and the
+// previous resources/app/userdata becomes a migration source.
+const APP_ROOT_IN_ASAR = APP_ROOT_PATH.includes('app.asar');
+const ASAR_LEGACY_USER_DATA_PATH = APP_ROOT_IN_ASAR ? path.join(process.resourcesPath, 'app', 'userdata') : '';
+const PORTABLE_USER_DATA_PATH = APP_ROOT_IN_ASAR
+  ? path.join(path.dirname(process.execPath), 'userdata')
+  : path.join(APP_ROOT_PATH, 'userdata');
 const LEGACY_USER_DATA_PATH = path.join(app.getPath('appData'), APP_NAME);
 function resolveStableUserDataPath() {
   if (STARTUP_QA_USER_DATA_PATH) return STARTUP_QA_USER_DATA_PATH;
@@ -285,6 +297,17 @@ function migratePortableUserData() {
     if (path.resolve(LEGACY_USER_DATA_PATH) !== path.resolve(STABLE_USER_DATA_PATH) && fs.existsSync(LEGACY_USER_DATA_PATH)) {
       const count = copyPortableTree(LEGACY_USER_DATA_PATH, STABLE_USER_DATA_PATH);
       if (count) actions.push(`userdata:${count}`);
+    }
+    // asar 之前安装的版本把数据放在 resources/app/userdata；换到 exe 同级后要先搬过来，
+    // 否则升级一次就等于「重置」。新位置的 marker 不存在，所以这段只会在升级后首启跑一次。
+    // Installs from before asar kept data in resources/app/userdata; moving the root next to the
+    // exe would otherwise read as a reset on upgrade. The new location has no marker, so this runs
+    // exactly once, on the first launch after upgrading.
+    if (ASAR_LEGACY_USER_DATA_PATH
+      && path.resolve(ASAR_LEGACY_USER_DATA_PATH) !== path.resolve(STABLE_USER_DATA_PATH)
+      && fs.existsSync(ASAR_LEGACY_USER_DATA_PATH)) {
+      const count = copyPortableTree(ASAR_LEGACY_USER_DATA_PATH, STABLE_USER_DATA_PATH);
+      if (count) actions.push(`packed-userdata:${count}`);
     }
     const targetCacheRoot = defaultCacheRootPath();
     for (const legacyRoot of legacyCacheRootCandidates()) {
@@ -2184,6 +2207,45 @@ function collectAppTrimPids() {
     });
   } catch (e) {}
   return Array.from(pids);
+}
+
+// 应用级内存口径：systemMemory.getMemorySnapshot().process 只有主进程自己的 RSS，
+// 而渲染进程（Three.js 纹理、DOM、canvas 后备存储）才是真正的内存大头。这里用
+// app.getAppMetrics() 把浏览器 / 渲染 / GPU / 工具进程的工作集合计起来，
+// 渲染层据此判断「应用整体越过了水位」。
+// App-level memory: getMemorySnapshot().process only covers the main process RSS, while the
+// renderer (Three.js textures, DOM, canvas backstores) is where the memory actually goes.
+// getAppMetrics() aggregates the working set of browser / renderer / GPU / utility processes so
+// the renderer can tell when the app as a whole crossed a waterline.
+function collectAppMemoryMetrics() {
+  const totals = { browserMB: 0, rendererMB: 0, gpuMB: 0, utilityMB: 0, otherMB: 0, totalMB: 0 };
+  let rows = [];
+  try {
+    rows = app.getAppMetrics() || [];
+  } catch (e) {
+    rows = [];
+  }
+  const processes = [];
+  rows.forEach((row) => {
+    const memory = (row && row.memory) || {};
+    const workingSetKB = Number(memory.workingSetSize) || 0;
+    const mb = Math.round(workingSetKB / 1024);
+    const type = String((row && row.type) || '').toLowerCase();
+    if (type === 'tab' || type === 'renderer' || type === 'webview') totals.rendererMB += mb;
+    else if (type === 'gpu') totals.gpuMB += mb;
+    else if (type === 'utility') totals.utilityMB += mb;
+    else if (type === 'browser') totals.browserMB += mb;
+    else totals.otherMB += mb;
+    totals.totalMB += mb;
+    processes.push({
+      pid: Number(row && row.pid) || 0,
+      type: type || 'unknown',
+      name: String((row && row.name) || ''),
+      workingSetMB: mb,
+      peakWorkingSetMB: Math.round((Number(memory.peakWorkingSetSize) || 0) / 1024),
+    });
+  });
+  return Object.assign({ ok: true, sampledAt: Date.now(), processCount: processes.length, processes }, totals);
 }
 
 function isMainWindowForegroundVisible() {
@@ -4574,6 +4636,8 @@ ipcMain.handle('mineradio-memory-get-snapshot', async () => {
     return { ok: false, error: e.message || 'MEMORY_SNAPSHOT_FAILED', snapshot: systemMemory.getMemorySnapshot(), auto: memoryAutoState };
   }
 });
+
+ipcMain.handle('mineradio-app-memory-metrics', async () => collectAppMemoryMetrics());
 
 ipcMain.handle('mineradio-memory-configure-auto', async (_event, payload = {}) => {
   memoryAutoState = normalizeMemoryAutoState(payload);

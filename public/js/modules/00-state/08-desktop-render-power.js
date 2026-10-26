@@ -33,6 +33,16 @@ var runtimePerfState = {
   lastCacheTrimReason: '',
   lastHeapSampleAt: 0,
   heapMB: 0,
+  heapLimitMB: 0,
+  heapPercent: 0,
+  appTotalMB: 0,
+  rendererMB: 0,
+  gpuMB: 0,
+  memoryPressureLevel: '',
+  memoryPressureReason: '',
+  memoryPressureTrimCount: 0,
+  lastMemoryPressureTrimAt: 0,
+  lastProcessMemorySampleAt: 0,
   cacheCounts: {}
 };
 var runtimeGpuDiagnostics = null;
@@ -422,9 +432,92 @@ function scheduleBackgroundCacheTrim() {
     trimVisualCachesForBackground();
   }, 900);
 }
+// ---------------------------------------------------------------- 内存水位自降
+// performance.memory 只覆盖 JS 堆（对象 / 数组 / 字符串），不包含 DOM 节点、canvas 后备
+// 存储、GPU 纹理和媒体缓冲 —— 而后者才是这个应用真正的内存大头。所以堆水位只能当
+// 「JS 侧在漏对象」的辅助信号，主信号取桌面进程上报的 RSS（app trim 的真实目标）。
+// performance.memory covers only the JS heap (objects / arrays / strings), not DOM nodes,
+// canvas backstores, GPU textures or media buffers — which are the real consumers here. So the
+// heap ratio is only a secondary signal for "something is leaking on the JS side"; the primary
+// one is the RSS reported by the desktop process.
+//
+// 这里不尝试手动触发 GC：JavaScript 语言层面没有这个 API，--expose-gc / v8.setFlagsFromString
+// 都是非标准调试手段，不该出现在生产代码里。而且 GC 只清扫不可达对象，对「仍然被引用的」
+// 纹理、缓存、离屏 DOM 一点办法都没有 —— 能确定释放的东西必须由我们显式放掉。
+// No attempt to trigger GC manually: there is no such API in JavaScript, and both --expose-gc
+// and v8.setFlagsFromString are non-standard debug hooks that do not belong in production code.
+// GC only sweeps unreachable objects anyway; referenced textures, caches and offscreen DOM stay
+// put until we release them explicitly, which is what this does.
+var MEMORY_PRESSURE_HEAP_WARN_RATIO = 0.62;
+var MEMORY_PRESSURE_HEAP_CRITICAL_RATIO = 0.78;
+var MEMORY_PRESSURE_RSS_WARN_MB = 1200;
+var MEMORY_PRESSURE_RSS_CRITICAL_MB = 1800;
+var MEMORY_PRESSURE_SAMPLE_MS = 20000;
+var MEMORY_PRESSURE_TRIM_COOLDOWN_MS = 45000;
+
+function sampleJsHeapPressure() {
+  var mem = (typeof performance !== 'undefined' && performance) ? performance.memory : null;
+  if (!mem) return 0;
+  var used = Number(mem.usedJSHeapSize) || 0;
+  var limit = Number(mem.jsHeapSizeLimit) || 0;
+  runtimePerfState.heapMB = Math.round(used / 1048576);
+  runtimePerfState.heapLimitMB = Math.round(limit / 1048576);
+  runtimePerfState.heapPercent = limit > 0 ? Math.round((used / limit) * 100) : 0;
+  runtimePerfState.lastHeapSampleAt = performance.now();
+  return limit > 0 ? used / limit : 0;
+}
+function classifyMemoryPressure(heapRatio, rssMB) {
+  if (heapRatio >= MEMORY_PRESSURE_HEAP_CRITICAL_RATIO || rssMB >= MEMORY_PRESSURE_RSS_CRITICAL_MB) return 'critical';
+  if (heapRatio >= MEMORY_PRESSURE_HEAP_WARN_RATIO || rssMB >= MEMORY_PRESSURE_RSS_WARN_MB) return 'warn';
+  return '';
+}
+function applyMemoryPressureTrim(level, reason) {
+  if (!level) return;
+  if (fx && fx.memoryAutoTrimApp === false) return;
+  var now = performance.now();
+  if (runtimePerfState.lastMemoryPressureTrimAt && now - runtimePerfState.lastMemoryPressureTrimAt < MEMORY_PRESSURE_TRIM_COOLDOWN_MS) return;
+  runtimePerfState.lastMemoryPressureTrimAt = now;
+  runtimePerfState.memoryPressureLevel = level;
+  runtimePerfState.memoryPressureReason = reason || '';
+  runtimePerfState.memoryPressureTrimCount += 1;
+  runtimePerfState.lastCacheTrimReason = 'memory-pressure:' + (reason || '') + ':' + level;
+  trimRuntimeCaches('memory-pressure-' + (reason || 'heap') + '-' + level, level === 'critical');
+  // 深后台再走一次主进程级修剪；前台时主进程会主动跳过（避免 CPU 尖峰），所以不在这里排队。
+  // Deep background also asks the desktop process to trim; in the foreground it deliberately
+  // skips to avoid a CPU spike, so there is nothing to queue here.
+  if (level === 'critical' && isDeepBackgroundMode()) {
+    requestBackgroundAppMemoryTrim('memory-pressure', 600);
+  }
+}
+function maybeSampleProcessMemoryPressure(now, deep) {
+  // 深后台有独立的激进修剪通道（trimVisualCachesForBackground + app trim），不重复采样。
+  // Deep background already has its own aggressive trim path, so skip sampling there.
+  if (deep) return;
+  if (now - runtimePerfState.lastProcessMemorySampleAt < MEMORY_PRESSURE_SAMPLE_MS) return;
+  runtimePerfState.lastProcessMemorySampleAt = now;
+  var heapRatio = sampleJsHeapPressure();
+  var level = classifyMemoryPressure(heapRatio, runtimePerfState.appTotalMB);
+  runtimePerfState.memoryPressureLevel = level;
+  if (level) applyMemoryPressureTrim(level, 'heap');
+  if (!window.desktopWindow || typeof window.desktopWindow.getAppMemoryMetrics !== 'function') return;
+  window.desktopWindow.getAppMemoryMetrics().then(function (payload) {
+    if (!payload || payload.ok === false) return;
+    runtimePerfState.appTotalMB = Math.round(Number(payload.totalMB) || 0);
+    runtimePerfState.rendererMB = Math.round(Number(payload.rendererMB) || 0);
+    runtimePerfState.gpuMB = Math.round(Number(payload.gpuMB) || 0);
+    var rssLevel = classifyMemoryPressure(0, runtimePerfState.appTotalMB);
+    if (rssLevel) {
+      runtimePerfState.memoryPressureLevel = rssLevel;
+      applyMemoryPressureTrim(rssLevel, 'process-rss');
+    }
+  }).catch(function () {
+    // 读不到进程内存不影响渲染，静默跳过这一轮采样。
+  });
+}
 function maybeTrimRuntimeCaches(now) {
   now = now || performance.now();
   var deep = isDeepBackgroundMode();
+  maybeSampleProcessMemoryPressure(now, deep);
   var gap = deep ? (isBackgroundReleaseMode() ? 3600 : 7000) : 45000;
   if (!deep && now < 30000) return;
   if (now - runtimePerfState.lastCacheTrimAt < gap) return;
