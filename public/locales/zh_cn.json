@@ -2430,7 +2430,7 @@
   "fx_replay_all": "重播整首",
   "fx_output": "输出接口",
   "fx_panel": "面板",
-  "fx_fps_cap_title": "控制可见状态下的渲染像素预算，重启后保留",
+  "fx_fps_cap_title": "控制可见状态下的渲染像素预算与毛玻璃强度，重启后保留",
   "fx_fps_cap": "前台帧率上限",
   "fx_fps_sync_title": "默认跟随屏幕垂直同步；固定档位用于节能或降低负载",
   "fx_follow_screen": "跟随屏幕",

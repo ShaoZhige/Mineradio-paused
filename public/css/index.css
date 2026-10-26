@@ -63,8 +63,8 @@ body.desktop-wallpaper-mode.desktop-wallpaper-interactive.desktop-mode-controls-
   background: rgba(8, 12, 16, .56);
   color: rgba(240, 247, 251, .76);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .09);
-  backdrop-filter: blur(14px) saturate(1.18);
-  -webkit-backdrop-filter: blur(14px) saturate(1.18);
+  backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.18);
   cursor: pointer;
   transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease;
 }
@@ -106,8 +106,8 @@ body.desktop-software-locked #desktop-mode-control-handle {
   background: rgba(8, 12, 16, .76);
   color: rgba(242, 247, 250, .88);
   box-shadow: 0 20px 52px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .09);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.2);
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.2);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -408,12 +408,12 @@ html.desktop-shell-root body {
 
 :root {
   --saved-panel-glass-bg: rgba(0, 0, 0, .10);
-  --saved-panel-glass-filter: blur(12px) saturate(1.8) brightness(1.16);
+  --saved-panel-glass-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.8) brightness(1.16);
   --saved-panel-glass-svg-filter: url(#mineradio-control-glass-filter) saturate(1);
   --saved-panel-glass-shadow: inset 0 0 2px 1px rgba(255, 255, 255, .35), inset 0 0 10px 4px rgba(255, 255, 255, .15), 0 4px 16px rgba(17, 17, 26, .05), 0 8px 24px rgba(17, 17, 26, .05), 0 16px 56px rgba(17, 17, 26, .05), inset 0 4px 16px rgba(17, 17, 26, .05), inset 0 8px 24px rgba(17, 17, 26, .05), inset 0 16px 56px rgba(17, 17, 26, .05);
   --saved-panel-glass-radius: 50px;
   --saved-button-glass-bg: rgba(0, 0, 0, .10);
-  --saved-button-glass-filter: blur(12px) saturate(1.8) brightness(1.16);
+  --saved-button-glass-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.8) brightness(1.16);
   --saved-button-glass-svg-filter: url(#mineradio-control-glass-filter) saturate(1);
   --saved-button-glass-shadow: inset 0 0 2px 1px rgba(255, 255, 255, .34), inset 0 0 10px 4px rgba(255, 255, 255, .13), 0 10px 30px rgba(0, 0, 0, .18);
   --saved-button-glass-hover-bg: rgba(255, 255, 255, .055);
@@ -775,8 +775,8 @@ body.desktop-shell #toast {
   background: rgba(6, 9, 12, .46);
   border: 1px solid rgba(255, 255, 255, .07);
   box-shadow: 0 14px 34px rgba(0, 0, 0, .34);
-  backdrop-filter: blur(16px) saturate(1.1);
-  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+  backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.1);
+  -webkit-backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.1);
   /* 未浮现时用 visibility 兜底，不能只靠 opacity：opacity:0 的按钮仍然可被 Tab 聚焦、
      仍然会被读屏念出来，而这排按钮在浮现前不该可达。隐藏态的 transition 把 visibility
      延后到淡出结束，可见态（见下面那组）不延迟 —— 方向不同，取的是各自那一侧的列表。
@@ -1255,8 +1255,8 @@ body.idle-guide-dragging #canvas-container {
   border: 1px solid rgba(255, 255, 255, .10);
   background: rgba(5, 6, 8, .78);
   box-shadow: 0 18px 52px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .08);
-  backdrop-filter: blur(18px) saturate(1.08);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1))) saturate(1.08);
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1))) saturate(1.08);
   color: rgba(255, 255, 255, .72);
   font-size: 11px;
   line-height: 1.45;
@@ -1852,8 +1852,8 @@ body.startup-fast-skip-revealing #bottom-bar {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(34px) saturate(1.34);
-  -webkit-backdrop-filter: blur(34px) saturate(1.34);
+  backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34);
+  -webkit-backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34);
   transition: border-color .28s, background .28s, box-shadow .28s, transform .28s;
   cursor: text
 }
@@ -1899,8 +1899,8 @@ body.startup-fast-skip-revealing #bottom-bar {
   border-radius: 999px;
   background: rgba(255, 255, 255, .045);
   border: 1px solid rgba(var(--fc-accent-rgb), .12);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px)
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)))
 }
 
 .search-mode-tabs button {
@@ -1940,8 +1940,8 @@ body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs
   max-height: 360px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  backdrop-filter: blur(40px) saturate(1.4);
-  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
   display: none
 }
 
@@ -2399,8 +2399,8 @@ body.home-wallpaper-preview #canvas-container {
   border: 1px solid color-mix(in srgb, var(--home-accent) 22%, rgba(255, 255, 255, .085));
   background: linear-gradient(145deg, rgba(33, 29, 34, .64), rgba(9, 10, 14, .76) 48%, rgba(17, 20, 25, .70));
   box-shadow: 0 28px 90px rgba(0, 0, 0, .34), 0 0 0 1px color-mix(in srgb, var(--home-accent) 7%, transparent), inset 0 1px 0 rgba(255, 255, 255, .065);
-  backdrop-filter: blur(30px) saturate(1.16);
-  -webkit-backdrop-filter: blur(30px) saturate(1.16);
+  backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.16);
+  -webkit-backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.16);
   overflow: hidden
 }
 
@@ -2782,8 +2782,8 @@ body.home-wallpaper-preview #canvas-container {
   border-radius: 22px;
   background: linear-gradient(142deg, rgba(18, 21, 26, .66), rgba(8, 9, 13, .76));
   box-shadow: 0 20px 64px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .060);
-  backdrop-filter: blur(24px) saturate(1.12);
-  -webkit-backdrop-filter: blur(24px) saturate(1.12);
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
   padding: 17px;
   overflow: hidden;
   color: #fff;
@@ -2988,8 +2988,8 @@ body.empty-home-active .home-visual {
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(255, 255, 255, .060), rgba(255, 255, 255, .025));
   box-shadow: 0 16px 50px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .052);
-  backdrop-filter: blur(20px) saturate(1.10);
-  -webkit-backdrop-filter: blur(20px) saturate(1.10);
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.10);
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.10);
   padding: 10px;
   color: #fff;
   text-align: left;
@@ -3545,8 +3545,8 @@ body.empty-home-active.controls-visible #empty-home {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.035);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
   color: rgba(255, 255, 255, 0.55);
   cursor: pointer;
   display: flex;
@@ -3627,8 +3627,8 @@ body.desktop-shell.desktop-fullscreen #upload-actions {
   border: 1px solid rgba(255, 255, 255, .10);
   background: linear-gradient(150deg, rgba(20, 22, 27, .92), rgba(8, 9, 13, .88));
   box-shadow: 0 22px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .07);
-  backdrop-filter: blur(26px) saturate(1.12);
-  -webkit-backdrop-filter: blur(26px) saturate(1.12);
+  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.12);
   display: grid;
   gap: 7px;
   opacity: 0;
@@ -4601,8 +4601,8 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(22px) saturate(1.25);
-  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.25);
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.25);
   box-shadow: 0 14px 38px rgba(0, 0, 0, .30), 0 0 22px rgba(244, 210, 138, .08), 0 0 0 1px rgba(255, 255, 255, .026), inset 0 1px 0 rgba(255, 255, 255, .09);
   transition: border-color .22s, background .22s, color .22s, box-shadow .22s, transform .22s;
   overflow: visible
@@ -4701,8 +4701,8 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home {
 
 #update-modal.modal-mask {
   background: rgba(0, 0, 0, .74);
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08)
+  backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.08);
+  -webkit-backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.08)
 }
 
 .modal.update-modal {
@@ -5168,8 +5168,8 @@ html.control-glass-svg-ok #bottom-bar {
   transform: translateX(-50%) translateY(0) scale(1);
   filter: blur(0);
   background: rgba(0, 0, 0, .10);
-  backdrop-filter: blur(12px) saturate(1.8) brightness(1.16);
-  -webkit-backdrop-filter: blur(12px) saturate(1.8) brightness(1.16);
+  backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.8) brightness(1.16);
+  -webkit-backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.8) brightness(1.16);
   box-shadow: inset 0 0 2px 1px rgba(255, 255, 255, .35), inset 0 0 10px 4px rgba(255, 255, 255, .15), 0 4px 16px rgba(17, 17, 26, .05), 0 8px 24px rgba(17, 17, 26, .05), 0 16px 56px rgba(17, 17, 26, .05), inset 0 4px 16px rgba(17, 17, 26, .05), inset 0 8px 24px rgba(17, 17, 26, .05), inset 0 16px 56px rgba(17, 17, 26, .05)
 }
 
@@ -5491,8 +5491,8 @@ body.home-controls-locked #bottom-bar {
   border: 1px solid rgba(255, 255, 255, .08);
   background: linear-gradient(145deg, rgba(16, 17, 22, .86), rgba(7, 8, 12, .90));
   color: rgba(255, 255, 255, .86);
-  backdrop-filter: blur(28px) saturate(1.18);
-  -webkit-backdrop-filter: blur(28px) saturate(1.18);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
   box-shadow: 0 20px 58px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .08);
   opacity: 0;
   pointer-events: none;
@@ -5831,8 +5831,8 @@ body.home-controls-locked #bottom-bar {
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, .09);
   background: rgba(12, 12, 16, .78);
-  backdrop-filter: blur(24px) saturate(1.12);
-  -webkit-backdrop-filter: blur(24px) saturate(1.12);
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
   box-shadow: 0 18px 48px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .07);
   display: grid;
   grid-template-columns: 1fr;
@@ -5880,8 +5880,8 @@ body.home-controls-locked #bottom-bar {
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, .10);
   background: rgba(10, 10, 14, .82);
-  backdrop-filter: blur(24px) saturate(1.16);
-  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.16);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.16);
   box-shadow: 0 18px 48px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .08);
   display: grid;
   grid-template-columns: 1fr;
@@ -6017,8 +6017,8 @@ body:not(.controls-visible) .lyric-timing-control::before,
   border-radius: 14px;
   border: 1px solid rgba(157, 184, 207, .24);
   background: rgba(10, 11, 14, .82);
-  backdrop-filter: blur(24px) saturate(1.25);
-  -webkit-backdrop-filter: blur(24px) saturate(1.25);
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.25);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.25);
   box-shadow: 0 18px 48px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .08);
   display: grid;
   grid-template-columns: 1fr;
@@ -6847,8 +6847,8 @@ body:not(.controls-visible) .lyric-timing-control::before,
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, .075);
   background: linear-gradient(145deg, rgba(18, 18, 23, .82), rgba(8, 8, 12, .88));
-  backdrop-filter: blur(30px) saturate(1.08);
-  -webkit-backdrop-filter: blur(30px) saturate(1.08);
+  backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.08);
+  -webkit-backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.08);
   box-shadow: 0 22px 70px rgba(0, 0, 0, .46), inset 0 1px 0 rgba(255, 255, 255, .065);
   opacity: 0;
   pointer-events: none;
@@ -7032,13 +7032,13 @@ body:not(.controls-visible) .lyric-timing-control::before,
   background: rgba(0, 0, 0, .10);
   transition: transform .20s cubic-bezier(.16, 1, .3, 1), background .20s, box-shadow .20s, filter .20s;
   box-shadow: inset 0 0 2px 1px rgba(255, 255, 255, .34), inset 0 0 10px 4px rgba(255, 255, 255, .13), 0 10px 30px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(12px) saturate(1.8) brightness(1.16);
-  -webkit-backdrop-filter: blur(12px) saturate(1.8) brightness(1.16)
+  backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.8) brightness(1.16);
+  -webkit-backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1))) saturate(1.8) brightness(1.16)
 }
 
 html.control-glass-svg-ok #play-btn {
-  backdrop-filter: blur(24px) saturate(1) brightness(1);
-  -webkit-backdrop-filter: blur(24px) saturate(1) brightness(1)
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1) brightness(1);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1) brightness(1)
 }
 
 #play-btn svg {
@@ -7415,8 +7415,8 @@ body.immersive-mode #bottom-bar.visible {
   background: radial-gradient(circle at 20% 0%, rgba(255, 255, 255, .13), transparent 35%), linear-gradient(112deg, rgba(255, 255, 255, .060), rgba(12, 15, 18, .45) 52%, rgba(2, 4, 7, .58));
   border-color: rgba(255, 255, 255, .060);
   box-shadow: 0 20px 70px rgba(0, 0, 0, .32), 0 0 42px rgba(152, 221, 255, .055), inset 0 1px 0 rgba(255, 255, 255, .15), inset 0 -22px 58px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(46px) saturate(1.36);
-  -webkit-backdrop-filter: blur(46px) saturate(1.36)
+  backdrop-filter: blur(calc(46px * var(--glass-blur-scale, 1))) saturate(1.36);
+  -webkit-backdrop-filter: blur(calc(46px * var(--glass-blur-scale, 1))) saturate(1.36)
 }
 
 body.immersive-mode #bottom-bar.soft-hidden {
@@ -7592,8 +7592,8 @@ body.immersive-mode::after {
   border-radius: 12px;
   font-size: 12px;
   letter-spacing: .3px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
   display: flex;
   align-items: center;
   gap: 10px;
@@ -7727,8 +7727,8 @@ body.login-guide-active #login-guide-canvas {
   border-color: rgba(255, 255, 255, .060);
   border-radius: 24px;
   box-shadow: 0 26px 84px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .060);
-  backdrop-filter: blur(28px) saturate(1.18);
-  -webkit-backdrop-filter: blur(28px) saturate(1.18);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
   transition: min-width .46s cubic-bezier(.16, 1, .3, 1), box-shadow .46s ease, background .46s ease
 }
 
@@ -8279,8 +8279,8 @@ body.login-guide-active #login-guide-canvas {
   border-color: rgba(255, 255, 255, .060);
   border-radius: 24px;
   box-shadow: 0 26px 84px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .060);
-  backdrop-filter: blur(28px) saturate(1.18);
-  -webkit-backdrop-filter: blur(28px) saturate(1.18)
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18)
 }
 
 .audio-output-workflow-title {
@@ -11053,7 +11053,7 @@ body.login-guide-active #login-guide-canvas {
   display: none;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(10px)
+  backdrop-filter: blur(calc(10px * var(--glass-blur-scale, 1)))
 }
 
 #drop-overlay.show {
@@ -11086,8 +11086,8 @@ body.login-guide-active #login-guide-canvas {
   display: none;
   align-items: center;
   gap: 8px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px)
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)))
 }
 
 #ai-depth-chip.show {
@@ -11118,8 +11118,8 @@ body.login-guide-active #login-guide-canvas {
   display: none;
   align-items: center;
   gap: 8px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px)
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)))
 }
 
 #beat-chip.show {
@@ -11153,8 +11153,8 @@ body.login-guide-active #login-guide-canvas {
   pointer-events: none;
   transition: opacity .3s, transform .3s;
   box-shadow: 0 18px 48px rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .13);
-  backdrop-filter: blur(28px) saturate(1.45);
-  -webkit-backdrop-filter: blur(28px) saturate(1.45)
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.45);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.45)
 }
 
 #toast.show {
@@ -11253,8 +11253,8 @@ body.login-guide-active #login-guide-canvas {
   background: rgba(15, 17, 23, .48);
   color: rgba(255, 255, 255, .86);
   box-shadow: 0 24px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .13);
-  backdrop-filter: blur(30px) saturate(1.45);
-  -webkit-backdrop-filter: blur(30px) saturate(1.45);
+  backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
+  -webkit-backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
   transform: translateY(8px) scale(.98);
   opacity: 0;
   transition: opacity .22s ease, transform .22s ease
@@ -11331,8 +11331,8 @@ body.login-guide-active #login-guide-canvas {
   background: rgba(12, 13, 18, .46);
   color: rgba(255, 255, 255, .86);
   box-shadow: 0 20px 54px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .12);
-  backdrop-filter: blur(30px) saturate(1.45);
-  -webkit-backdrop-filter: blur(30px) saturate(1.45);
+  backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
+  -webkit-backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
   pointer-events: auto;
   opacity: 0;
   transform: translateX(16px) translateY(-8px);
@@ -11361,8 +11361,8 @@ body.login-guide-active #login-guide-canvas {
   background: rgba(12, 13, 18, .86);
   color: rgba(255, 255, 255, .86);
   box-shadow: 0 20px 54px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .08);
-  backdrop-filter: blur(26px) saturate(1.25);
-  -webkit-backdrop-filter: blur(26px) saturate(1.25);
+  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.25);
+  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.25);
   opacity: 0;
   pointer-events: none;
   transform: translateY(-8px);
@@ -11448,8 +11448,8 @@ body.login-guide-active #login-guide-canvas {
   border: 1px solid rgba(244, 210, 138, .18);
   background: linear-gradient(145deg, rgba(28, 27, 32, .94), rgba(9, 10, 14, .95));
   box-shadow: 0 28px 86px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 83, 103, .10), inset 0 1px 0 rgba(255, 255, 255, .10);
-  backdrop-filter: blur(28px) saturate(1.16);
-  -webkit-backdrop-filter: blur(28px) saturate(1.16);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.16);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.16);
   pointer-events: auto;
   cursor: default;
   opacity: 0;
@@ -11576,8 +11576,8 @@ body.login-guide-active #login-guide-canvas {
   border: 1px solid rgba(0, 245, 212, 0.16);
   border-radius: 20px;
   padding: 18px 18px 32px;
-  backdrop-filter: blur(44px) saturate(1.34);
-  -webkit-backdrop-filter: blur(44px) saturate(1.34);
+  backdrop-filter: blur(calc(44px * var(--glass-blur-scale, 1))) saturate(1.34);
+  -webkit-backdrop-filter: blur(calc(44px * var(--glass-blur-scale, 1))) saturate(1.34);
   box-shadow: var(--glass-shadow);
   opacity: 0;
   transition: right .55s cubic-bezier(.16, 1, .3, 1), opacity .45s cubic-bezier(.16, 1, .3, 1), transform .55s cubic-bezier(.16, 1, .3, 1);
@@ -11629,8 +11629,8 @@ body.login-guide-active #login-guide-canvas {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(26px) saturate(1.34);
-  -webkit-backdrop-filter: blur(26px) saturate(1.34);
+  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.34);
+  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.34);
   box-shadow: 0 14px 40px rgba(0, 0, 0, .34), 0 0 24px rgba(0, 245, 212, .07), inset 0 1px 0 rgba(255, 255, 255, .18);
   transition: bottom .38s cubic-bezier(.16, 1, .3, 1), transform .28s cubic-bezier(.16, 1, .3, 1), background .28s, border-color .28s, color .28s, box-shadow .28s
 }
@@ -13024,7 +13024,7 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   background: rgba(4, 6, 9, .72);
   color: rgba(255, 255, 255, .72);
   cursor: pointer;
-  backdrop-filter: blur(8px)
+  backdrop-filter: blur(calc(8px * var(--glass-blur-scale, 1)))
 }
 
 .wallpaper-engine-card-star { left: 7px; font-size: 16px }
@@ -13042,7 +13042,7 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   justify-content: flex-end;
   border-radius: inherit;
   background: rgba(2, 4, 8, .58);
-  backdrop-filter: blur(7px);
+  backdrop-filter: blur(calc(7px * var(--glass-blur-scale, 1)));
   opacity: 0;
   pointer-events: none;
   transition: opacity .2s ease
@@ -13310,8 +13310,8 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   border: 1px solid rgba(var(--fc-accent-rgb), .18);
   background: linear-gradient(145deg, rgba(12, 13, 18, .94), rgba(2, 3, 5, .90));
   box-shadow: 0 28px 90px rgba(0, 0, 0, .58), 0 0 0 1px rgba(255, 255, 255, .05), inset 0 1px 0 rgba(255, 255, 255, .08);
-  backdrop-filter: blur(22px) saturate(1.14);
-  -webkit-backdrop-filter: blur(22px) saturate(1.14);
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.14);
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.14);
   transform: translate(-50%, -50%)
 }
 
@@ -14240,8 +14240,8 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   justify-content: center;
   padding: 22px;
   background: rgba(0, 0, 0, .48);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px)
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)))
 }
 
 .hotkey-modal.show {
@@ -14504,8 +14504,8 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   padding: 18px;
-  backdrop-filter: blur(40px) saturate(1.4);
-  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
   opacity: 0;
   transition: opacity var(--playlist-panel-motion-ms) cubic-bezier(.16, 1, .3, 1), transform var(--playlist-panel-motion-ms) cubic-bezier(.16, 1, .3, 1);
@@ -14996,8 +14996,8 @@ html:fullscreen body.desktop-shell #playlist-panel {
   padding: 8px 2px 10px;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(14, 17, 24, .92), rgba(14, 17, 24, .76) 68%, rgba(14, 17, 24, 0));
-  backdrop-filter: blur(20px) saturate(1.18);
-  -webkit-backdrop-filter: blur(20px) saturate(1.18)
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.18)
 }
 
 .pl-detail-head {
@@ -15563,8 +15563,8 @@ html.control-glass-svg-ok .mini-queue-remove {
   background: rgba(12, 12, 18, 0.42) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45) !important;
-  backdrop-filter: blur(40px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(1.4) !important
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important
 }
 
 #playlist-panel * {
@@ -15841,7 +15841,7 @@ html.control-glass-svg-ok .home-mosaic-cell {
 
 /* Stable panel glass: do not reuse the player bar SVG displacement on tall panels. */
 :root {
-  --panel-glass-filter: blur(22px) saturate(1.22) brightness(1.04);
+  --panel-glass-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.22) brightness(1.04);
   --panel-glass-bg: radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .10), transparent 34%), radial-gradient(circle at 88% 8%, rgba(var(--home-accent-rgb), .12), transparent 36%), linear-gradient(145deg, rgba(var(--home-accent-rgb), .115), rgba(12, 13, 18, .70) 42%, rgba(2, 3, 5, .66));
   --panel-glass-shadow: 0 24px 78px rgba(0, 0, 0, .44), 0 0 0 1px rgba(255, 255, 255, .045), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 -18px 42px rgba(0, 0, 0, .16);
   --panel-button-bg: linear-gradient(145deg, rgba(255, 255, 255, .075), rgba(var(--home-accent-rgb), .060) 46%, rgba(0, 0, 0, .14));
@@ -15929,8 +15929,8 @@ html.control-glass-svg-ok #drop-overlay .drop-text {
 .song-action-btn {
   background: var(--panel-button-bg) !important;
   border-color: rgba(255, 255, 255, .070) !important;
-  backdrop-filter: blur(16px) saturate(1.18) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.18) !important;
+  backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
 }
 
 html.control-glass-svg-ok .icon-btn:not(.ctrl-btn),
@@ -15952,16 +15952,16 @@ html.control-glass-svg-ok .local-beat-tab,
 html.control-glass-svg-ok .search-history-chip,
 html.control-glass-svg-ok .search-result .add-btn,
 html.control-glass-svg-ok .song-action-btn {
-  backdrop-filter: blur(16px) saturate(1.18) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.18) !important;
+  backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
 }
 
 html.control-glass-svg-ok #playlist-panel {
   background: rgba(12, 12, 18, .42) !important;
   border-color: rgba(255, 255, 255, .08) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, .45) !important;
-  backdrop-filter: blur(40px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(1.4) !important;
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
 }
 
 .home-hero,
@@ -15969,8 +15969,8 @@ html.control-glass-svg-ok #playlist-panel {
 .home-tile,
 .home-mosaic-cell {
   background: linear-gradient(145deg, rgba(var(--home-accent-rgb), .14), rgba(14, 14, 19, .74) 44%, rgba(2, 3, 5, .72)) !important;
-  backdrop-filter: blur(26px) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(26px) saturate(1.16) !important;
+  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
 }
 
 .home-hero::before,
@@ -16034,15 +16034,15 @@ html.control-glass-svg-ok #top-right .icon-btn {
   background: rgba(0, 0, 0, .90) !important;
   border: 1px solid rgba(255, 255, 255, .095) !important;
   box-shadow: 0 22px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .10) !important;
-  backdrop-filter: blur(22px) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.16) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
 }
 
 html.control-glass-svg-ok #search-results,
 html.control-glass-svg-ok #playlist-panel,
 html.control-glass-svg-ok #fx-panel {
-  backdrop-filter: blur(22px) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.16) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
 }
 
 #search-box {
@@ -16064,13 +16064,13 @@ html.control-glass-svg-ok #fx-panel {
   background: rgba(0, 0, 0, .90) !important;
   border: 1px solid rgba(255, 255, 255, .095) !important;
   box-shadow: 0 22px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .10) !important;
-  backdrop-filter: blur(22px) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.16) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
 }
 
 html.control-glass-svg-ok #search-results {
-  backdrop-filter: blur(22px) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.16) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
 }
 
 .fx-mini-btn,
@@ -16206,8 +16206,8 @@ html.control-glass-svg-ok .quality-popover,
 html.control-glass-svg-ok .lyric-timing-popover,
 html.control-glass-svg-ok .mini-queue-popover,
 html.control-glass-svg-ok .pl-inline-detail {
-  backdrop-filter: blur(22px) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.16) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
 }
 
 html.control-glass-svg-ok #home-btn,
@@ -16326,8 +16326,8 @@ html.control-glass-svg-ok #search-results.show:not(.search-history-surface) {
   border-top-color: rgba(255, 255, 255, .22) !important;
   background: linear-gradient(145deg, rgba(255, 255, 255, .11), rgba(18, 20, 26, .28) 42%, rgba(0, 0, 0, .18)) !important;
   box-shadow: 0 18px 54px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 0 34px rgba(255, 255, 255, .045) !important;
-  backdrop-filter: blur(34px) saturate(1.34) brightness(1.08) !important;
-  -webkit-backdrop-filter: blur(34px) saturate(1.34) brightness(1.08) !important;
+  backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -16366,8 +16366,8 @@ html.control-glass-svg-ok #search-results.search-history-surface {
   border-top-color: rgba(255, 255, 255, .22) !important;
   background: linear-gradient(145deg, rgba(255, 255, 255, .11), rgba(18, 20, 26, .28) 42%, rgba(0, 0, 0, .18)) !important;
   box-shadow: 0 18px 54px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 0 34px rgba(255, 255, 255, .045) !important;
-  backdrop-filter: blur(34px) saturate(1.34) brightness(1.08) !important;
-  -webkit-backdrop-filter: blur(34px) saturate(1.34) brightness(1.08) !important;
+  backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -16508,8 +16508,8 @@ html.control-glass-svg-ok #visual-guide-btn:hover {
   background: rgba(0, 0, 0, .50);
   border: 1px solid rgba(255, 255, 255, .075);
   box-shadow: 0 10px 34px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .07);
-  backdrop-filter: blur(18px) saturate(1.12);
-  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1))) saturate(1.12);
 }
 
 .fx-panel-tabs button {
@@ -16809,8 +16809,8 @@ html.control-glass-svg-ok #visual-guide-btn:hover {
   border-radius: 16px;
   background: rgba(10, 10, 16, .42);
   border: 1px solid rgba(255, 255, 255, .10);
-  backdrop-filter: blur(28px) saturate(1.4);
-  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.4);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.4);
   font-size: 12px;
   color: rgba(255, 255, 255, .80);
   opacity: 0;
@@ -17116,8 +17116,8 @@ body.panel-reordering .mini-queue-item.is-reordering {
   margin: 0 0 8px;
   padding: 8px 2px 8px;
   background: linear-gradient(180deg, rgba(12, 17, 27, .92), rgba(12, 17, 27, .72));
-  backdrop-filter: blur(14px) saturate(1.12);
-  -webkit-backdrop-filter: blur(14px) saturate(1.12)
+  backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.12)
 }
 
 #playlist-panel .pl-detail-list {
@@ -17167,8 +17167,8 @@ body.panel-reordering .mini-queue-item.is-reordering {
   border-radius: 15px;
   background: rgba(0, 0, 0, .54);
   box-shadow: 0 12px 36px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .07);
-  backdrop-filter: blur(20px) saturate(1.14);
-  -webkit-backdrop-filter: blur(20px) saturate(1.14)
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.14);
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.14)
 }
 
 .fx-console-search-row {
@@ -17289,8 +17289,8 @@ body.panel-reordering .mini-queue-item.is-reordering {
   border-radius: 12px;
   background: rgba(7, 9, 13, .96);
   box-shadow: 0 22px 58px rgba(0, 0, 0, .52), inset 0 1px 0 rgba(255, 255, 255, .07);
-  backdrop-filter: blur(24px) saturate(1.12);
-  -webkit-backdrop-filter: blur(24px) saturate(1.12)
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12)
 }
 
 .fx-console-search-result {
@@ -17749,7 +17749,7 @@ body.panel-reordering .mini-queue-item.is-reordering {
   color: rgba(255, 255, 255, .78);
   font: 700 11px inherit;
   cursor: pointer;
-  backdrop-filter: blur(12px)
+  backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1)))
 }
 
 #empty-home .daily-review-actions button:hover {
@@ -17966,7 +17966,7 @@ body.panel-reordering .mini-queue-item.is-reordering {
   background: linear-gradient(142deg, rgba(20, 24, 31, .62), rgba(7, 9, 13, .72));
   box-shadow: 0 20px 62px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .075);
   color: #fff;
-  backdrop-filter: blur(25px) saturate(1.18)
+  backdrop-filter: blur(calc(25px * var(--glass-blur-scale, 1))) saturate(1.18)
 }
 
 #empty-home .home-insight-card::before {
@@ -18269,8 +18269,8 @@ body.panel-reordering .mini-queue-item.is-reordering {
   background: linear-gradient(120deg, rgba(16, 20, 27, .55), rgba(7, 9, 13, .66));
   box-shadow: 0 14px 38px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .06);
   color: #fff;
-  backdrop-filter: blur(25px) saturate(1.18);
-  -webkit-backdrop-filter: blur(25px) saturate(1.18);
+  backdrop-filter: blur(calc(25px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(25px * var(--glass-blur-scale, 1))) saturate(1.18);
   contain: layout paint style;
   transition: transform .22s, border-color .22s, background .22s, box-shadow .22s
 }
@@ -19183,8 +19183,8 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
 #custom-source-modal {
   z-index: 1460;
   background: rgba(0, 0, 0, .52);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)));
   padding: 22px
 }
 
@@ -19464,8 +19464,8 @@ body.playlist-multiselect #pl-pane {
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(11, 13, 18, .90), rgba(8, 10, 14, .86)), linear-gradient(135deg, rgba(255, 255, 255, .058), rgba(var(--fc-accent-rgb), .05));
   border: 1px solid rgba(255, 255, 255, .09);
-  backdrop-filter: blur(28px) saturate(1.25);
-  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.25);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.25);
   box-shadow: 0 13px 30px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .08)
 }
 
@@ -19523,4 +19523,36 @@ body.playlist-multiselect #pl-pane {
 .collect-list.busy {
   opacity: .6;
   pointer-events: none
+}
+
+/* ── 画质档位 · 毛玻璃降级链 ────────────────────────────────────────────────
+   背景：整个界面有 60 多处 backdrop-filter，每处都要在合成阶段把背后的内容
+   实时重新模糊一次。这是这份样式表里唯一「持续每帧都在算」的开销 —— 静态
+   box-shadow 会被光栅化缓存，一次性 transition 只在那 0.2s 里有成本，都不在此列。
+
+   做法：把所有字面量 blur(Npx) 改写成 blur(calc(Npx * var(--glass-blur-scale)))，
+   由 html[data-perf-quality] 决定这个倍率。只动半径、不动 saturate/brightness，
+   也不改成 none —— 保持「玻璃」的观感，只是没那么磨砂，不会出现面板透到看不清字。
+
+   🔴 最高档 ultra 的倍率必须是 1：那是现在的完整效果，任何视觉改动都算回归。
+      新增毛玻璃时照旧写 blur(Npx)，会被上面的改写规则自动纳入档位体系；
+      只有需要用户自己调半径的那几处（--custom-bg-glass-blur 等）保持 var 原样不动。
+
+   ── Blur-radius downgrade chain ──────────────────────────────────────────
+   Every literal blur(Npx) now multiplies by --glass-blur-scale. The top tier
+   (ultra) must stay at 1 so its look is byte-for-byte what shipped before;
+   the other tiers trade frost for GPU time. Radius only — never `none`,
+   never saturate/brightness — so panels can't become unreadable. */
+:root,
+html[data-perf-quality="ultra"] {
+  --glass-blur-scale: 1;
+}
+html[data-perf-quality="high"] {
+  --glass-blur-scale: .85;
+}
+html[data-perf-quality="balanced"] {
+  --glass-blur-scale: .65;
+}
+html[data-perf-quality="eco"] {
+  --glass-blur-scale: .32;
 }

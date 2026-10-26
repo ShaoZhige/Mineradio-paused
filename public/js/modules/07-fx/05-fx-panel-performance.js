@@ -168,11 +168,25 @@ function setLyricTextureClarity(value, silent) {
   saveLyricLayout({ user: true, reason: 'lyricTextureClarity' });
   if (!silent) showToast(fxPanelPerformanceText('fx_lyric_res_prefix') + lyricTextureClarityLabel(next));
 }
+// 画质档位要同时管到样式表：把档位镜像到 <html data-perf-quality>，CSS 侧的
+// 毛玻璃降级链（index.css 末尾的 --glass-blur-scale）才会生效。在这之前档位只驱动
+// 渲染像素比和粒子预算，样式表一处都没接 —— 用户把档位调到「低」，几十处
+// backdrop-filter 依然是满血模糊，档位等于只管了一半。
+// The quality tier now also reaches the stylesheet through <html data-perf-quality>;
+// before this it only drove render pixel ratio and particle budget.
+var PERF_QUALITY_ATTR = 'data-perf-quality';
+function syncPerfQualityAttribute() {
+  var root = document.documentElement;
+  if (!root || typeof root.setAttribute !== 'function') return;
+  var quality = normalizePerformanceQuality(fx && fx.performanceQuality);
+  if (root.getAttribute(PERF_QUALITY_ATTR) !== quality) root.setAttribute(PERF_QUALITY_ATTR, quality);
+}
 function updatePerformanceControls() {
   fx.performanceBackground = normalizePerformanceBackgroundMode(fx.performanceBackground, fx.liveBackgroundKeep === true);
   fx.liveBackgroundKeep = fx.performanceBackground === 'keep';
   fx.performanceQuality = normalizePerformanceQuality(fx.performanceQuality);
   fx.foregroundFpsMode = normalizeForegroundFpsMode(fx.foregroundFpsMode);
+  syncPerfQualityAttribute();
   document.querySelectorAll('#performance-background-seg [data-performance-background]').forEach(function (btn) {
     btn.classList.toggle('active', btn.getAttribute('data-performance-background') === fx.performanceBackground);
   });

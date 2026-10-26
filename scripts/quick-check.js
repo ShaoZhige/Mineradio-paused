@@ -2961,10 +2961,10 @@ function checkSearchGlassEntranceGuard() {
     /function setSearchHistorySurface\(on\)\s*\{[\s\S]{0,120}classList\.toggle\('search-history-surface',\s*!!on\)/.test(searchText) &&
     /function renderSearchHistory\(\)\s*\{[\s\S]{0,900}setSearchHistorySurface\(true\)/.test(searchText) &&
     /function renderSongSearchResults\(songs\)\s*\{[\s\S]{0,120}setSearchHistorySurface\(false\)/.test(searchText) &&
-    /#search-results\.search-history-surface,[ \t]*\r?\nhtml\.control-glass-svg-ok\s+#search-results\.search-history-surface\s*\{[\s\S]{0,320}background:\s*linear-gradient\([\s\S]{0,180}!important[\s\S]{0,220}backdrop-filter:\s*blur\(34px\)\s+saturate\(1\.34\)\s+brightness\(1\.08\)\s*!important/.test(cssText) &&
+    /#search-results\.search-history-surface,[ \t]*\r?\nhtml\.control-glass-svg-ok\s+#search-results\.search-history-surface\s*\{[\s\S]{0,320}background:\s*linear-gradient\([\s\S]{0,180}!important[\s\S]{0,220}backdrop-filter:\s*blur\(calc\(34px \* var\(--glass-blur-scale, 1\)\)\)\s+saturate\(1\.34\)\s+brightness\(1\.08\)\s*!important/.test(cssText) &&
     !/#search-results\.search-history-surface[\s\S]{0,260}background:\s*rgba\(0,\s*0,\s*0,\s*\.90\)/.test(cssText);
   const searchResultsFrostedSurfaceOk =
-    /#search-results\.show:not\(\.search-history-surface\),[ \t]*\r?\nhtml\.control-glass-svg-ok\s+#search-results\.show:not\(\.search-history-surface\)\s*\{[\s\S]{0,320}background:\s*linear-gradient\([\s\S]{0,180}!important[\s\S]{0,220}backdrop-filter:\s*blur\(34px\)\s+saturate\(1\.34\)\s+brightness\(1\.08\)\s*!important/.test(cssText) &&
+    /#search-results\.show:not\(\.search-history-surface\),[ \t]*\r?\nhtml\.control-glass-svg-ok\s+#search-results\.show:not\(\.search-history-surface\)\s*\{[\s\S]{0,320}background:\s*linear-gradient\([\s\S]{0,180}!important[\s\S]{0,220}backdrop-filter:\s*blur\(calc\(34px \* var\(--glass-blur-scale, 1\)\)\)\s+saturate\(1\.34\)\s+brightness\(1\.08\)\s*!important/.test(cssText) &&
     /#search-results\.show:not\(\.search-history-surface\)\s+\.search-result\s*\{[\s\S]{0,180}background:\s*rgba\(255,\s*255,\s*255,\s*\.026\)\s*!important/.test(cssText);
   const searchProviderCapabilityFilterOk =
     /function searchProviderCanSearch\(provider\)/.test(searchText) &&

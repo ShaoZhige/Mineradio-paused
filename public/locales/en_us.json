@@ -2430,7 +2430,7 @@
   "fx_replay_all": "Replay whole track",
   "fx_output": "Output",
   "fx_panel": "Panel",
-  "fx_fps_cap_title": "Controls the render pixel budget when visible; kept after restart",
+  "fx_fps_cap_title": "Controls the render pixel budget and glass blur strength when visible; kept after restart",
   "fx_fps_cap": "Foreground FPS cap",
   "fx_fps_sync_title": "Follows the display vertical sync by default; fixed tiers save power or reduce load",
   "fx_follow_screen": "Follow screen",
