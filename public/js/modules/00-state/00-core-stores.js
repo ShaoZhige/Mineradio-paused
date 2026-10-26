@@ -250,7 +250,11 @@ var currentLocalSong = null;
 var persistentLocalLibraryTracks = [];
 var lyricSourceMode = 'original';
 var originalLyricsState = { lines: [], hasNativeKaraoke: false, timingSource: 'none', translationLines: [], translationSource: 'none' };
-var localBeatAnalysis = { song: null, audioUrl: '', mode: 'mr', active: false, token: 0 };
+// batch 非空表示「队列内批量分析」正在跑；它和单曲分析共用 active/token 两个通道，
+// 所以取消、切歌、Esc 这些现成守卫对整批同样有效。
+// A non-null batch means the queue-wide run is in flight. It shares `active`/`token` with the
+// single-track flow, so cancel, track switch and Esc already apply to the whole batch.
+var localBeatAnalysis = { song: null, audioUrl: '', mode: 'mr', active: false, token: 0, batch: null };
 var likedSongMap = {}, likeBusyMap = {}, likeStatusToken = 0;
 var collectTargetSong = null, collectBusy = false;
 var uploadTipTimer = null, uploadTipAttempts = 0;

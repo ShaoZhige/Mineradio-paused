@@ -101,6 +101,14 @@ function restoredLocalTrackIndex(tracks, snapshot) {
   var fallback = Number(snapshot && snapshot.currentIdx);
   return isFinite(fallback) && fallback >= 0 && fallback < tracks.length ? Math.round(fallback) : 0;
 }
+// 「我的歌单」里的本地音乐是虚拟歌单，内容永远等于本地库本身，所以库变了只需要重排一次目录，
+// 不需要另存一份清单。放在这里是因为本地库的三个写入点都在本模块。
+// The local playlist is virtual: it always equals the library, so a library change only needs a
+// re-catalog rather than a second copy of the list. All three library write points live here.
+function syncLocalLibraryPlaylistNode(reason) {
+  if (typeof rebuildUserPlaylistsFromCatalog !== 'function') return;
+  rebuildUserPlaylistsFromCatalog({ preserveScroll: true, reason: reason || 'local-library' });
+}
 // 监视到曲库增删后的轻量刷新：只更新列表并重绘，不碰播放状态。
 // 启动恢复那条路会顺手恢复播放快照，监视触发时不能走它——那会把正在放的歌打断。
 // A light refresh after a watched change: update the list and repaint, nothing else. The startup
@@ -118,6 +126,7 @@ async function refreshPersistentLocalLibraryTracks() {
   }).filter(function (song) { return song && song.localUrl && song.localKey; });
   persistentLocalLibraryTracks = tracks.map(cloneSong);
   safeRenderQueuePanel('local-library-watch');
+  syncLocalLibraryPlaylistNode('local-library-watch');
   return tracks.length;
 }
 
@@ -156,6 +165,7 @@ async function restorePersistedLocalLibrary() {
     showToast(uploadDragdropText('upload_has_prefix') + Number(result.missing) + uploadDragdropText('upload_skipped_unavailable'));
   }
   persistentLocalLibraryTracks = tracks.map(cloneSong);
+  syncLocalLibraryPlaylistNode('local-library-restore');
   var snapshot = snapshotAtRequest;
   if (snapshot && !isLocalPlaybackSnapshot(snapshot)) return false;
   if (
@@ -365,6 +375,7 @@ async function handleFiles(files, opts) {
         songs = persisted && persisted.tracks;
         if (!songs || !songs.length) throw new Error('LOCAL_LIBRARY_IMPORT_EMPTY');
         persistentLocalLibraryTracks = songs.map(cloneSong);
+        syncLocalLibraryPlaylistNode('local-library-import');
         if (persisted && Array.isArray(persisted.failures) && persisted.failures.length) {
           setTimeout(function () { showToast(uploadDragdropText('upload_has_prefix') + persisted.failures.length + uploadDragdropText('upload_files_unreadable')); }, 900);
         }

@@ -1970,6 +1970,15 @@
         </div>
         <div id="local-beat-desc" class="local-beat-desc"></div>
         <div id="local-beat-status" class="local-beat-status"></div>
+        <!-- 批量分析：范围是「当前队列里的本地歌曲」，已缓存的一律跳过。
+             计数单独一个 <em>，因为不同语言的括号和量词都不一样。
+             Batch scope is the local songs in the current queue; cached ones are skipped. The count
+             lives in its own <em> because bracket and measure-word differ per language. -->
+        <button id="local-beat-batch-btn" class="local-beat-batch" type="button"
+          onclick="startLocalBeatBatchAnalysis()" style="display:none">
+          <span data-i18n="beatcache_batch_btn">分析队列内全部本地歌曲</span>
+          <em id="local-beat-batch-count"></em>
+        </button>
         <div class="btn-row">
           <button id="local-beat-later-btn" class="modal-btn" onclick="closeLocalBeatModal()" data-i18n="ba_skip">暂不分析</button>
           <button id="local-beat-cancel-btn" class="modal-btn" onclick="cancelLocalBeatAnalysis()"

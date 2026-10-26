@@ -1384,6 +1384,12 @@ if (typeof window !== 'undefined' && window.MineradioI18n
     // 这一条不受可见性闸门限制：它只重写那段空态 HTML，不做整页重绘。
     // Not gated on visibility: it only rewrites that empty-state HTML, not the whole dashboard.
     relabelHomeDashboardDiscovery();
+    // 首次初始化也会走这里（notify 传的是同一个语言）。首屏渲染可能早于语言包到位，而卡片里的
+    // 引文与「每日热评」是 JS 写入的、不是 data-i18n 节点，DOM 扫描够不到，于是会一直显示
+    // dash_quote_* / dash_daily_reviews 这类字面 key 直到 15 秒刷新定时器才自愈。这里补一次重绘。
+    // init() notifies with the same language, and the first paint can precede the dictionary: the
+    // quote and source are JS-written, so the DOM scan cannot fix them. Repaint once here.
+    renderHomeDashboardHero();
     if (typeof emptyHomeActive !== 'undefined' && !document.hidden && emptyHomeActive) {
       renderHomeDashboard();
     }

@@ -38,7 +38,11 @@ function localBeatCacheModalText(key, fallback, params) {
 function showBeatChip(text) {
   document.getElementById('beat-text').textContent = text || localBeatCacheModalText('beat_analyzing', '分析节奏…');
   document.getElementById('beat-chip').classList.add('show');
-  if (localBeatAnalysis && localBeatAnalysis.active) setLocalBeatStatus(text || localBeatCacheModalText('beatcache_analyzing'), 'warn');
+  // 批量跑的时候状态行归进度用，别被「分析节奏…」这类瞬时文案顶掉。
+  // During a batch the status line belongs to the progress readout, not to transient chip copy.
+  if (localBeatAnalysis && localBeatAnalysis.active && !localBeatAnalysis.batch) {
+    setLocalBeatStatus(text || localBeatCacheModalText('beatcache_analyzing'), 'warn');
+  }
 }
 function hideBeatChip() {
   document.getElementById('beat-chip').classList.remove('show');
@@ -197,7 +201,12 @@ function storeLocalBeatEntry(localKey, mode, map, song, opts) {
   localBeatMapCache[localKey] = entry;
   localBeatMapPrefs[localKey] = mode;
   saveLocalBeatPrefs();
-  saveLocalBeatMapCache();
+  // 批量分析时先不落 localStorage：那一步要把 12 份地图整个序列化，逐首跑会卡出可见的顿挫。
+  // 内存里已经攒全，收尾时一次写完就行。
+  // During a batch the localStorage write is deferred: it serialises a dozen maps per call, which
+  // shows up as visible jank when repeated per track. The in-memory copy is complete, so one
+  // write at the end is enough.
+  if (!opts.skipLocal) saveLocalBeatMapCache();
   if (!opts.skipDisk) writeBeatDiskCache(localBeatDiskKey(localKey, mode), map, song || { type: 'local', localKey: localKey }, mode);
 }
 function setLocalBeatStatus(text, tone) {
@@ -271,11 +280,17 @@ function prepareLocalBeatAnalysis(song, audioUrl) {
 }
 function openLocalBeatModal(song, audioUrl) {
   if (immersiveMode) setImmersiveMode(false);
-  localBeatAnalysis.song = song || currentLocalSong;
-  localBeatAnalysis.audioUrl = audioUrl || (audio && audio.src) || '';
-  localBeatAnalysis.mode = (localBeatAnalysis.song && localBeatMapPrefs[localBeatAnalysis.song.localKey] === 'dj') ? 'dj' : 'mr';
-  localBeatAnalysis.active = false;
-  setLocalBeatStatus('', '');
+  // 批量分析进行中切到下一首未缓存的本地歌也会走到这里。这时不能重置会话：把 active 置 false
+  // 会把整批踢掉，进度也会被抹成空白。只刷新一次界面，让弹窗继续显示批量进度。
+  // An uncached local track switched to mid-batch also lands here. Resetting the session would
+  // knock the batch out (active=false) and blank the progress, so it only repaints.
+  if (!localBeatAnalysis.batch) {
+    localBeatAnalysis.song = song || currentLocalSong;
+    localBeatAnalysis.audioUrl = audioUrl || (audio && audio.src) || '';
+    localBeatAnalysis.mode = (localBeatAnalysis.song && localBeatMapPrefs[localBeatAnalysis.song.localKey] === 'dj') ? 'dj' : 'mr';
+    localBeatAnalysis.active = false;
+    setLocalBeatStatus('', '');
+  }
   updateLocalBeatModal();
   openGsapModal(document.getElementById('local-beat-modal'));
 }
@@ -319,6 +334,7 @@ function updateLocalBeatModal() {
   }
   if (cancel) cancel.style.display = localBeatAnalysis.active ? '' : 'none';
   if (later) later.style.display = localBeatAnalysis.active ? 'none' : '';
+  refreshLocalBeatBatchEntry();
 }
 function cancelLocalBeatAnalysis() {
   if (!localBeatAnalysis.active) {
@@ -326,6 +342,7 @@ function cancelLocalBeatAnalysis() {
     return;
   }
   localBeatAnalysis.active = false;
+  localBeatAnalysis.batch = null;
   localBeatAnalysis.token++;
   beatMapToken++;
   djBeatMapToken++;
@@ -397,5 +414,156 @@ async function startLocalBeatAnalysis(mode) {
     updateLocalBeatModal();
     showToast(localBeatCacheModalText('beatcache_failed'));
   }
+}
+
+// ── 队列内批量分析 ────────────────────────────────────────────────────────────
+// 范围就是当前队列里的本地歌曲：用户要么从「本地音乐」歌单整单播下来（那就是整个本地库），
+// 要么是刚拖进来的一批。两种情况下队列都已经是他此刻想处理的那批歌，不必再猜一遍。
+// The scope is the local songs already in the queue: either the whole local library (started from
+// the local playlist) or the batch just dropped in. The queue is the user's intent in both cases.
+function localBeatBatchQueueSongs() {
+  var seen = Object.create(null);
+  var out = [];
+  (playQueue || []).forEach(function (song) {
+    if (!song || !song.localKey || !song.localUrl) return;
+    if (!(song.type === 'local' || song.source === 'local' || song.provider === 'local')) return;
+    if (seen[song.localKey]) return;
+    seen[song.localKey] = 1;
+    out.push(song);
+  });
+  return out;
+}
+function localBeatBatchActive(token) {
+  return !!(localBeatAnalysis.batch && localBeatAnalysis.active && localBeatAnalysis.token === token);
+}
+function localBeatBatchDuration(song) {
+  var d = Number(song && song.duration) || 0;
+  if (d > 10000) d /= 1000;
+  return isFinite(d) && d > 0 && d < 36000 ? d : 0;
+}
+function refreshLocalBeatBatchEntry() {
+  var btn = document.getElementById('local-beat-batch-btn');
+  if (!btn) return;
+  var total = localBeatBatchQueueSongs().length;
+  // DJ 模式下不提供批量：DJ 分析每一步都以「djMode.active 为真」为前置条件，整批预热会把
+  // 播放硬拽进 DJ 视觉驱动。批量只做 MR，所以切到 DJ 页签时这个入口直接收起。
+  // No batch under DJ: every step of the DJ analysis requires an active DJ session, so a bulk
+  // pre-warm would drag playback into DJ visual driving. The batch is MR-only, hence hidden
+  // while the DJ tab is selected.
+  var visible = !localBeatAnalysis.batch && localBeatAnalysis.mode !== 'dj' && total > 0;
+  btn.style.display = visible ? '' : 'none';
+  btn.disabled = !!localBeatAnalysis.active;
+  var count = document.getElementById('local-beat-batch-count');
+  // 显示的是「队列里有几首本地歌」，不是「还差几首没分析」：后者要逐首查磁盘缓存，
+  // 而弹窗每次重绘都跑一遍查询并不划算，显示一个不准的缺口更糟。
+  // The number is how many local songs the queue holds, not how many are still missing: the
+  // latter needs a disk probe per song on every repaint, and a wrong gap is worse than none.
+  if (count) count.textContent = visible ? String(total) : '';
+}
+// 单首分析：途中换歌会让 beatMapToken 变化并中止这一次，此时换新 token 重试一次即可，
+// 不要因为用户切了一首歌就把整批丢掉。
+// One track: a mid-flight track change bumps beatMapToken and aborts this attempt. Retry once with
+// the new token instead of throwing the whole batch away because the user skipped a song.
+async function localBeatBatchAnalyzeSong(song, token) {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    if (!localBeatBatchActive(token)) return null;
+    while (beatMapBusy && localBeatBatchActive(token)) await yieldToIdle(80);
+    if (!localBeatBatchActive(token)) return null;
+    var startedWith = beatMapToken;
+    var map = await analyzeAudioBeats(song.localUrl, localBeatBatchDuration(song), startedWith, { background: true, song: song });
+    if (!localBeatBatchActive(token)) return null;
+    if (map) return map;
+    if (beatMapToken === startedWith) return null;
+  }
+  return null;
+}
+async function runLocalBeatBatch(songs, mode, token) {
+  var batch = localBeatAnalysis.batch;
+  try {
+    for (var i = 0; i < songs.length; i++) {
+      if (!localBeatBatchActive(token)) return;
+      var song = songs[i];
+      batch.index = i + 1;
+      // 已缓存就跳过：内存优先，其次磁盘。磁盘命中的顺手回填内存，省掉播放时那一次 IPC。
+      if (getLocalBeatEntry(song.localKey, mode)) {
+        batch.skipped++;
+        continue;
+      }
+      var diskMap = await readBeatDiskCache(localBeatDiskKey(song.localKey, mode));
+      if (!localBeatBatchActive(token)) return;
+      if (diskMap) {
+        storeLocalBeatEntry(song.localKey, mode, diskMap, song, { skipDisk: true });
+        batch.skipped++;
+        continue;
+      }
+      setLocalBeatStatus(localBeatCacheModalText('beatcache_batch_progress', '正在分析 {i}/{n} · {name}', { i: batch.index, n: batch.total, name: song.name || song.localKey }), 'warn');
+      var map = await localBeatBatchAnalyzeSong(song, token);
+      if (!localBeatBatchActive(token)) return;
+      if (map) {
+        storeLocalBeatEntry(song.localKey, mode, map, song, { skipLocal: true });
+        batch.done++;
+      } else {
+        batch.failed++;
+      }
+      // 让出一口气：前台的节奏分析按固定间隔重排，批量一首接一首会一直抢着 busy 标志把它饿死。
+      // Let the foreground breathe: its scheduler retries on a timer, and a back-to-back batch
+      // would keep re-taking the busy flag and starve it.
+      await yieldToIdle(isHiddenForBackgroundOptimization() ? 80 : 780);
+    }
+  } catch (err) {
+    console.warn('local beat batch analysis failed:', err);
+    batch.failed++;
+  } finally {
+    if (localBeatAnalysis.token === token) {
+      saveLocalBeatMapCache();
+      localBeatAnalysis.batch = null;
+      localBeatAnalysis.active = false;
+      hideBeatChip();
+      var tail = batch.failed > 0 ? localBeatCacheModalText('beatcache_batch_failed_tail', '，{fail} 首失败', { fail: batch.failed }) : '';
+      setLocalBeatStatus(
+        localBeatCacheModalText('beatcache_batch_done', '已完成 {done} 首，跳过 {skip} 首', { done: batch.done, skip: batch.skipped }) + tail,
+        batch.failed > 0 ? 'warn' : ''
+      );
+      // 批量结束后回到单曲界面：当前这首如果仍然没有缓存，用户可以就地开始分析它。
+      // Back to the single-track view when done: if the current song is still uncached the user can
+      // start on it right here.
+      var focusSong = currentLocalSong || songs[0];
+      if (focusSong) localBeatAnalysis.song = focusSong;
+      updateLocalBeatModal();
+      showToast(localBeatCacheModalText('beatcache_batch_toast', '批量分析结束'));
+    }
+  }
+}
+async function startLocalBeatBatchAnalysis() {
+  if (localBeatAnalysis.active) return;
+  // 入口在 DJ 页签下已经收起，这里是兜底：批量恒按 MR 存，绝不能把 MR 结果标成 DJ 地图。
+  // The entry is hidden on the DJ tab; this is the backstop. The batch always stores MR maps and
+  // must never label one as a DJ map.
+  if (localBeatAnalysis.mode === 'dj') return;
+  var songs = localBeatBatchQueueSongs();
+  if (!songs.length) {
+    setLocalBeatStatus(localBeatCacheModalText('beatcache_batch_empty', '队列里没有可分析的本地歌曲'), 'fail');
+    return;
+  }
+  var mode = 'mr';
+  setLocalBeatStatus(localBeatCacheModalText('beatcache_batch_preparing', '正在检查节奏缓存…'), 'warn');
+  // 整库结果只有磁盘缓存存得住：localStorage 那份按最近 12 首截断。磁盘不可用时先说清楚，
+  // 否则跑完 30 首只有 12 首留下，等于骗人。
+  // Only the disk cache can hold a whole library; the localStorage copy keeps the newest twelve.
+  // Say so up front instead of finishing thirty tracks and silently keeping twelve.
+  var disk = await ensureBeatDiskCacheStatus();
+  if (!disk.enabled) {
+    setLocalBeatStatus(localBeatCacheModalText('beatcache_batch_need_disk', '批量分析需要磁盘节奏缓存，当前不可用'), 'fail');
+    return;
+  }
+  if (localBeatAnalysis.active) return;
+  var token = ++localBeatAnalysis.token;
+  // 不碰 beatMapToken：整批是后台预热，不该把正在播放那首已经生效的节奏图作废。
+  // beatMapToken is left alone: the batch is background warming, and the map already applied to
+  // the current track must survive it.
+  localBeatAnalysis.batch = { mode: mode, total: songs.length, index: 0, done: 0, skipped: 0, failed: 0 };
+  localBeatAnalysis.active = true;
+  updateLocalBeatModal();
+  runLocalBeatBatch(songs, mode, token);
 }
 

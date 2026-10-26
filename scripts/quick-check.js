@@ -7588,6 +7588,9 @@ async function checkLargePlaylistVirtualizationGuard() {
     playlistPanelDetailState: { key: '', loading: false, tracks: [], total: 0, error: '' },
     normalizePlaylistProvider: provider => ['qq', 'kugou', 'qishui', 'spotify'].includes(provider) ? provider : 'netease',
     playlistCardPriority: () => 1,
+    // 折叠状态是 localStorage 里读出来的用户选择，跟虚拟窗口的算法无关；这里恒为「全部展开」。
+    // Collapse state is a persisted user choice and irrelevant to the window math; pin it expanded.
+    playlistPanelGroupCollapsed: () => false,
     playlistPanelKey: (provider, id) => provider + ':' + id,
     playlistDetailText: playlistDetailTextStub,
     window: { innerHeight: 900 },

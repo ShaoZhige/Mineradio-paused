@@ -223,6 +223,7 @@ function playlistPanelDetailRowsHtml(options) {
     var thumb = songCoverSrc(song, 60);
     var imgTag = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.06);flex:0 0 auto"></div>';
     var removeButton = !msDetailActive && normalizePlaylistProvider((st.key || '').split(':')[0]) === 'mineradio'
+      && !(st.playlist && st.playlist.virtual)
       ? '<button type="button" class="pl-detail-remove" data-pl-detail-remove="' + i + playlistDetailText('pl_remove_button_suffix')
       : '';
     var msCheck = msDetailActive && typeof playlistMultiCheckboxHtml === 'function' ? playlistMultiCheckboxHtml(i) : '';
@@ -319,7 +320,11 @@ function playlistTracksEndpoint(provider, id, params) {
 }
 function fetchPlaylistTracksPage(provider, id, params, requestOptions) {
   provider = normalizePlaylistProvider(provider);
-  if (provider === 'mineradio') return builtInPlaylistTracksPage(id, params || {});
+  if (provider === 'mineradio') {
+    // 虚拟本地歌单的曲目直接从内存里的本地库分页，不走内置歌单的 IPC 与磁盘索引。
+    if (isLocalLibraryPlaylist(provider, id)) return localLibraryTracksPage(params || {});
+    return builtInPlaylistTracksPage(id, params || {});
+  }
   return apiJson(playlistTracksEndpoint(provider, id, params), requestOptions || {});
 }
 function playlistPanelDetailHtml(pl, provider, detailWindow) {
@@ -336,7 +341,9 @@ function playlistPanelDetailHtml(pl, provider, detailWindow) {
   var collectionButton = canUncollect
     ? playlistDetailText('pl_uncollect_button')
     : '';
-  var builtInActions = provider === 'mineradio'
+  // 虚拟本地歌单不能改名也不能删除——它就是本地库本身，所以不给这两个按钮。
+  // The virtual local playlist cannot be renamed or deleted; it is the library itself.
+  var builtInActions = provider === 'mineradio' && !(pl && pl.virtual)
     ? playlistDetailText('pl_rename_delete_buttons')
     : '';
   var topButton = provider === 'mineradio' ? '' : playlistDetailText('pl_top_button');
@@ -504,7 +511,23 @@ function playPlaylistPanelDetail() {
   var parts = st.key.split(':');
   var provider = normalizePlaylistProvider(parts[0]);
   var pid = parts.slice(1).join(':');
-  loadPlaylistIntoQueueById(playlistPanelProviderId(provider, pid), true, st.playlist && st.playlist.name || '');
+  var title = st.playlist && st.playlist.name || '';
+  // 虚拟本地歌单的曲目只在内存里，没有可查的内置歌单记录：把已加载的当种子传进去，
+  // 否则整单播放会去问内置歌单 IPC 并失败。后续分页仍由本地库那一路继续补。
+  // The virtual local playlist has no stored record: seed the queue with what is loaded, or the
+  // whole-playlist path would ask the built-in playlist IPC and come back empty.
+  if (isLocalLibraryPlaylist(provider, pid)) {
+    loadPlaylistIntoQueueById(playlistPanelProviderId(provider, pid), true, title, {
+      seedTracks: st.tracks,
+      total: st.total,
+      nextOffset: st.nextOffset,
+      hasMore: st.hasMore,
+      playlist: st.playlist,
+      preserveHomeState: true
+    });
+    return;
+  }
+  loadPlaylistIntoQueueById(playlistPanelProviderId(provider, pid), true, title);
 }
 async function togglePlaylistPanelCollection(collected) {
   var state = playlistPanelDetailState;
@@ -580,6 +603,35 @@ function maybeGrowPlaylistPanelDetailRenderLimit() {
 function resetPlaylistPanelRenderLimit() {
   playlistPanelRenderLimit = PLAYLIST_PANEL_BATCH_SIZE;
 }
+// 平台分组折叠状态（#462）：按 provider 记，持久化在本地，避免每次重开面板都要重新收一遍。
+// Per-provider collapse state (#462), persisted locally so a reopened panel keeps the layout.
+var PLAYLIST_COLLAPSED_GROUPS_KEY = 'mineradio-playlist-collapsed-groups-v1';
+var playlistPanelCollapsedGroups = (function () {
+  try {
+    var raw = window.localStorage && window.localStorage.getItem(PLAYLIST_COLLAPSED_GROUPS_KEY);
+    var parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+})();
+function playlistPanelGroupCollapsed(key) {
+  return !!(key && playlistPanelCollapsedGroups && playlistPanelCollapsedGroups[key]);
+}
+function setPlaylistPanelGroupCollapsed(key, collapsed) {
+  if (!key) return;
+  if (collapsed) playlistPanelCollapsedGroups[key] = 1;
+  else delete playlistPanelCollapsedGroups[key];
+  try {
+    if (window.localStorage) window.localStorage.setItem(PLAYLIST_COLLAPSED_GROUPS_KEY, JSON.stringify(playlistPanelCollapsedGroups));
+  } catch (e) {}
+  // 折叠改变条目台账（卡片条目不再生成），必须让虚拟列表缓存失效后重排。
+  playlistPanelVirtualCache.revision = -1;
+  schedulePlaylistPanelVirtualRender();
+}
+function togglePlaylistPanelGroup(key) {
+  setPlaylistPanelGroupCollapsed(key, !playlistPanelGroupCollapsed(key));
+}
 var playlistPanelVirtualCache = { revision: -1, detailKey: '', detailSig: '', entries: [], offsets: [0], totalHeight: 0, raf: 0 };
 // detailSig -> 实测高度。样式或语言变化都会让估算值漂移，实测值优先，
 // 这样 offsets 不必依赖常量永远准确。
@@ -606,6 +658,59 @@ function playlistPanelDetailShellHeight() {
   var noticeHeight = rows ? 0 : 74;
   var footerHeight = st.error || st.hasMore || st.loadingMore || rows > PLAYLIST_DETAIL_INITIAL_RENDER ? PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT : 12;
   return PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT + rows * PLAYLIST_DETAIL_ROW_STEP + noticeHeight + footerHeight;
+}
+// 本地曲库在「我的歌单」里以一个虚拟歌单出现（#462）：不落存储、不占内置歌单名额与曲目上限，
+// 内容永远等于本地库本身——导入、删除、重新扫描都不需要再同步一份。原来的「本地库」入口保持不变。
+// The local library shows up as one virtual playlist: nothing is persisted, so it can never drift
+// from the library itself and no sync pass is needed after import or delete.
+var LOCAL_LIBRARY_PLAYLIST_ID = '__local-library__';
+function isLocalLibraryPlaylist(provider, id) {
+  return normalizePlaylistProvider(provider) === 'mineradio' && String(id || '') === LOCAL_LIBRARY_PLAYLIST_ID;
+}
+function localLibraryPlaylistEntry() {
+  var tracks = (typeof persistentLocalLibraryTracks !== 'undefined' && Array.isArray(persistentLocalLibraryTracks)) ? persistentLocalLibraryTracks : [];
+  if (!tracks.length) return null;
+  var first = tracks[0] || {};
+  return {
+    provider: 'mineradio',
+    source: 'mineradio',
+    id: LOCAL_LIBRARY_PLAYLIST_ID,
+    name: playlistDetailText('discover_local_music', '本地音乐'),
+    cover: first.cover || first.picUrl || '',
+    trackCount: tracks.length,
+    creator: 'Mineradio',
+    builtin: true,
+    virtual: true,
+    shelfPane: 'mine',
+    subscribed: false
+  };
+}
+function localLibraryTracksPage(params) {
+  var all = (typeof persistentLocalLibraryTracks !== 'undefined' && Array.isArray(persistentLocalLibraryTracks)) ? persistentLocalLibraryTracks : [];
+  var offset = Math.max(0, Number(params && params.offset) || 0);
+  var limit = Math.max(1, Number(params && params.limit) || all.length || 1);
+  var slice = all.slice(offset, offset + limit).map(cloneSong);
+  return {
+    ok: true,
+    playlist: localLibraryPlaylistEntry() || {},
+    tracks: slice,
+    total: all.length,
+    nextOffset: offset + slice.length,
+    hasMore: offset + slice.length < all.length
+  };
+}
+// 任何重建 userPlaylists 的地方都要过这一道：登录/退出/强制刷新都会用 builtInPlaylists 重置整个
+// 数组，直接赋值会把虚拟本地歌单冲掉，于是「本地音乐」时隐时现。统一走这里就不会漏。
+// Every place that rebuilds userPlaylists goes through this: login/logout/force-refresh reset the
+// array from builtInPlaylists, and a plain assignment silently drops the virtual local playlist.
+function withLocalLibraryPlaylist(list) {
+  var rows = Array.isArray(list) ? list : [];
+  var out = rows.filter(function (pl) {
+    return !(pl && String(pl.id || '') === LOCAL_LIBRARY_PLAYLIST_ID);
+  });
+  var localEntry = localLibraryPlaylistEntry();
+  if (localEntry) out.unshift(localEntry);
+  return out;
 }
 function playlistPanelGroupKey(pl) {
   return normalizePlaylistProvider(pl && pl.provider);
@@ -638,7 +743,12 @@ function playlistPanelBuildVirtualEntries() {
       return priority || (a.sourceIndex - b.sourceIndex);
     });
     if (!items.length) return;
-    entries.push({ type: 'label', key: key, label: labels[key] || key, height: 31 });
+    // 折叠的组只留标题行：卡片条目根本不进台账，虚拟表高度随之收缩（#462）。
+    // A collapsed group emits its label only; its cards never enter the ledger, so the
+    // virtual total shrinks with it.
+    var collapsed = playlistPanelGroupCollapsed(key);
+    entries.push({ type: 'label', key: key, label: labels[key] || key, count: items.length, collapsed: collapsed, height: 31 });
+    if (collapsed) return;
     items.forEach(function (entry) {
       entries.push({ type: 'card', pl: entry.pl, sourceIndex: entry.sourceIndex, height: 69 });
       var cardKey = playlistPanelKey(normalizePlaylistProvider(entry.pl.provider), entry.pl.id);
@@ -746,7 +856,17 @@ function renderUserPlaylistsList(opts) {
   var html = '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(topHeight) + 'px"></div>';
   for (var entryIndex = start; entryIndex < end; entryIndex++) {
     var entry = cache.entries[entryIndex];
-    if (entry.type === 'label') html += '<div class="pl-section-label">' + entry.label + '</div>';
+    if (entry.type === 'label') {
+      // 分组标题兼作折叠开关：带箭头、歌单数与 aria-expanded（#462）。
+      // The group header doubles as the collapse toggle, with caret, count and aria-expanded.
+      html += '<div class="pl-section-label' + (entry.collapsed ? ' is-collapsed' : '') + '"'
+        + ' role="button" tabindex="0" aria-expanded="' + (entry.collapsed ? 'false' : 'true') + '"'
+        + ' data-pl-group="' + escHtml(entry.key || '') + '">'
+        + '<span class="pl-section-caret" aria-hidden="true"></span>'
+        + '<span class="pl-section-text">' + entry.label + '</span>'
+        + '<span class="pl-section-count">' + (entry.count || 0) + '</span>'
+        + '</div>';
+    }
     else if (entry.type === 'card') html += playlistCardHtml(entry.pl, entry.sourceIndex);
     else if (entry.type === 'detail') {
       var entryTop = cache.offsets[entryIndex] || 0;
@@ -789,6 +909,14 @@ function renderMyPodcastCollections(opts) {
   if (opts.animate) animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
 }
 document.getElementById('pl-list').addEventListener('click', function (e) {
+  // 分组标题的折叠开关最先判断：它没有 .pl-card，下面的分支都不会命中（#462）。
+  // The group header is matched first; it carries no .pl-card so no branch below would catch it.
+  var groupToggle = e.target && e.target.closest ? e.target.closest('[data-pl-group]') : null;
+  if (groupToggle) {
+    e.preventDefault();
+    togglePlaylistPanelGroup(groupToggle.getAttribute('data-pl-group'));
+    return;
+  }
   var loadMore = e.target && e.target.closest ? e.target.closest('[data-pl-load-more]') : null;
   if (loadMore) {
     e.preventDefault();
@@ -865,4 +993,15 @@ document.getElementById('pl-list').addEventListener('click', function (e) {
   var provider = card.getAttribute('data-playlist-provider') || 'netease';
   var pid = card.getAttribute('data-playlist-id') || '';
   openPlaylistPanelDetail(provider, pid, card.getAttribute('data-playlist-title') || '');
+});
+// 分组标题是 tabindex=0 的 role=button，键盘用 Enter/Space 折叠，和点击等价（#462）。
+// The header is a tabindex=0 role=button, so Enter/Space must collapse it like a click.
+document.getElementById('pl-list').addEventListener('keydown', function (e) {
+  if (!e.target || !e.target.closest) return;
+  var groupToggle = e.target.closest('[data-pl-group]');
+  if (!groupToggle) return;
+  var key = e.key;
+  if (key !== 'Enter' && key !== ' ' && key !== 'Spacebar') return;
+  e.preventDefault();
+  togglePlaylistPanelGroup(groupToggle.getAttribute('data-pl-group'));
 });

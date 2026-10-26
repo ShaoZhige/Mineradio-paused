@@ -573,7 +573,10 @@ function mergePlaylistCatalogRows(existing, incoming, provider) {
 }
 function rebuildUserPlaylistsFromCatalog(opts) {
   opts = opts || {};
-  userPlaylists = builtInPlaylists.concat(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists);
+  // 本地曲库以虚拟歌单插在最前（#462）；本地库为空时它返回 null，不占位置。
+  // The local library rides along as one virtual playlist; it returns null when the library is empty.
+  var merged = builtInPlaylists.concat(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists);
+  userPlaylists = typeof withLocalLibraryPlaylist === 'function' ? withLocalLibraryPlaylist(merged) : merged;
   if (typeof applyUserPlaylistOrder === 'function') applyUserPlaylistOrder();
   playlistCatalogRevision += 1;
   renderUserPlaylistsList({ animate: !!opts.animate, reset: !!opts.reset, preserveScroll: opts.preserveScroll !== false });
@@ -670,7 +673,7 @@ async function refreshUserPlaylists(force) {
   if (typeof refreshBuiltInPlaylists === 'function') await refreshBuiltInPlaylists(!!force);
   if (!loginStatus.loggedIn && !qqLoginStatus.loggedIn && !kugouLoginStatus.loggedIn && !qishuiLoginStatus.loggedIn && !spotifyLoginStatus.loggedIn) {
     resetPlaylistPanelRenderLimit();
-    userPlaylists = builtInPlaylists.slice();
+    userPlaylists = withLocalLibraryPlaylist(builtInPlaylists);
     playlistCatalogRevision += 1;
     renderUserPlaylistsList({ animate: isPlaylistPanelVisibleForRender(), preserveScroll: true });
     var podcastListLoggedOut = document.getElementById('podcast-list');
@@ -714,7 +717,7 @@ async function refreshUserPlaylists(force) {
     };
   });
   if (force) {
-    userPlaylists = builtInPlaylists.slice();
+    userPlaylists = withLocalLibraryPlaylist(builtInPlaylists);
     playlistCatalogRevision += 1;
   }
   var firstPageTasks = Object.keys(playlistCatalogSyncState.providers).filter(playlistCatalogProviderLoggedIn).map(function (provider) {

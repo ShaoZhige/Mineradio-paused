@@ -152,7 +152,7 @@ async function refreshLoginStatus(force) {
       syncLikeStatusForSongs(playQueue.concat(playlist || []));
     } else {
       neteasePlaylists = [];
-      userPlaylists = (builtInPlaylists || []).concat(qqPlaylists || [], kugouPlaylists || [], qishuiPlaylists || [], spotifyPlaylists || []);
+      userPlaylists = withLocalLibraryPlaylist((builtInPlaylists || []).concat(qqPlaylists || [], kugouPlaylists || [], qishuiPlaylists || [], spotifyPlaylists || []));
       playlistCatalogRevision += 1;
       myPodcastCollections = [];
       myPodcastItems = {};

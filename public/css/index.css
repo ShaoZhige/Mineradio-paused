@@ -10923,6 +10923,45 @@ body.login-guide-active #login-guide-canvas {
   color: #ff8f9d
 }
 
+/* 批量分析入口：整行宽的次级按钮，未分析首数靠右。它是一块实心条，不做毛玻璃，
+   所以不需要 control-glass-svg-ok 那一套变体。
+   The batch entry is a full-width secondary button with the pending count on the right. It is a
+   solid strip with no glass, so it needs none of the control-glass-svg-ok variants. */
+.local-beat-batch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .78);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease
+}
+
+.local-beat-batch:hover,
+.local-beat-batch:focus-visible {
+  background: rgba(var(--fc-accent-rgb), .10);
+  border-color: rgba(var(--fc-accent-rgb), .28);
+  color: #fff;
+  outline: none
+}
+
+.local-beat-batch em {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: rgba(var(--fc-accent-rgb), .82)
+}
+
 .local-beat-modal.analyzing .local-beat-tab {
   pointer-events: none;
   opacity: .64
@@ -14968,13 +15007,70 @@ html:fullscreen body.desktop-shell #playlist-panel {
   text-overflow: ellipsis
 }
 
+/* 分组标题兼作折叠开关（#462）：箭头 + 名称 + 歌单数。
+   行高与 margin 保持改造前不变，JS 台账里这一行按 31px 记账，改了会错位。
+   注意：主题段有两条 `#playlist-panel .pl-section-label{color:…!important}`，所以 hover
+   不改颜色，只给背景反馈，否则会被 !important 压死。
+   The header doubles as the collapse toggle. Line box and margins are left untouched because the
+   virtual ledger books this row at 31px; two theme rules pin the colour with !important, so hover
+   feedback uses a background tint instead of a colour change. */
 .pl-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 14px 2px 7px;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .18em;
   text-transform: uppercase;
-  color: rgba(0, 245, 212, .50)
+  color: rgba(0, 245, 212, .50);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color .18s ease
+}
+
+.pl-section-label:hover,
+.pl-section-label:focus-visible {
+  background-color: rgba(0, 245, 212, .07);
+  outline: none
+}
+
+.pl-section-caret {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: rotate(90deg);
+  transition: transform .18s ease
+}
+
+.pl-section-label.is-collapsed .pl-section-caret {
+  transform: rotate(0)
+}
+
+.pl-section-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+/* 歌单数只在折叠时露出来：展开时它和卡片上的数字重复，反而添乱。 */
+.pl-section-count {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: rgba(255, 255, 255, .30);
+  opacity: 0;
+  transition: opacity .18s ease
+}
+
+.pl-section-label.is-collapsed .pl-section-count {
+  opacity: 1
 }
 
 .pl-inline-detail {
@@ -17738,7 +17834,33 @@ body.panel-reordering .mini-queue-item.is-reordering {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 24px
+  margin-top: 24px;
+  /* #462：功能按钮默认收起，鼠标经过卡片（或键盘 Tab 进来）才浮现，让 home 页干净。
+     The action row stays hidden until the card is hovered or focused, keeping the home page clean. */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity .22s ease, transform .22s ease
+}
+
+/* 用 opacity 而不是 visibility：按钮在隐藏态仍可被 Tab 聚焦，聚焦即触发 :focus-within 浮现，
+   键盘用户不会摸不到。opacity + pointer-events 组合只挡住鼠标误点。 */
+@media (hover: hover) {
+  #empty-home .daily-review-card:hover .daily-review-actions,
+  #empty-home .daily-review-card:focus-within .daily-review-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none
+  }
+}
+
+/* 触屏/无 hover 设备保持常显，否则这些按钮永远点不到。 */
+@media (hover: none) {
+  #empty-home .daily-review-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none
+  }
 }
 
 #empty-home .daily-review-actions button {

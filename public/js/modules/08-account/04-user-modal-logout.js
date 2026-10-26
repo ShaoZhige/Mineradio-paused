@@ -191,7 +191,7 @@ function resetAllProviderRendererLoginState() {
   kugouPlaylists = [];
   qishuiPlaylists = [];
   spotifyPlaylists = [];
-  userPlaylists = (builtInPlaylists || []).slice();
+  userPlaylists = withLocalLibraryPlaylist(builtInPlaylists);
   myPodcastCollections = [];
   myPodcastItems = {};
   likedSongMap = {};
@@ -362,7 +362,7 @@ async function doLogout() {
   neteasePlaylists = [];
   if (!hasPlatformLogin('netease') || loggedProviderCount() < 2) dualAccountMode = false;
   activeAccountProvider = firstLoggedProvider();
-  userPlaylists = qqPlaylists.concat(kugouPlaylists || [], qishuiPlaylists || []);
+  userPlaylists = withLocalLibraryPlaylist(qqPlaylists.concat(kugouPlaylists || [], qishuiPlaylists || []));
   playlistCatalogRevision += 1;
   myPodcastCollections = [];
   myPodcastItems = {};
