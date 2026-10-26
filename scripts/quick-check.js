@@ -2249,10 +2249,14 @@ function checkQishuiProviderGuard() {
   if (!/qishuiPlaylists/.test(coreStoreText) || !/if \(provider === 'qishui'\) return '\/api\/qishui\/user\/playlists'/.test(playlistShellText) || !/builtInPlaylists\.concat\(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists\)/.test(playlistShellText)) {
     fail('playlist panel refresh must merge Qishui playlists with the other providers');
   }
-  if (!/normalizePlaylistProvider/.test(playlistDetailText) || !/\/api\/qishui\/playlist\/tracks/.test(playlistDetailText) || !/qishui:' \+ id/.test(playlistDetailText) || !/pl_qishui_playlist/.test(playlistDetailText)) {
+  // 平台切换器取代分组标题后，原来的 pl_qishui_playlist 词条不再被引用（已删除）。
+  // 这里改为检查更直接的证据：汽水必须出现在切换器的平台顺序表里，否则它在面板里根本没有入口。
+  // With the group headings gone that copy key no longer exists; assert the stronger fact instead —
+  // qishui must appear in the switcher's provider order, or it has no entry in the panel at all.
+  if (!/normalizePlaylistProvider/.test(playlistDetailText) || !/\/api\/qishui\/playlist\/tracks/.test(playlistDetailText) || !/qishui:' \+ id/.test(playlistDetailText) || !/PLAYLIST_PROVIDER_ORDER = \['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'\]/.test(playlistDetailText)) {
     fail('playlist panel detail must open and play Qishui playlists via the Qishui endpoint');
   }
-  requireLocaleKeys('pl_qishui_playlist');
+  requireLocaleKeys('pl_page_prev', 'pl_page_next');
   if (!/function playlistQueueSource/.test(playlistLoadText) || !/raw\.indexOf\('qishui:'\)/.test(playlistLoadText) || !/playlistTracksEndpoint\(source\.provider/.test(playlistLoadText)) {
     fail('whole-playlist queue loading must support qishui: playlist ids');
   }
@@ -2455,7 +2459,7 @@ async function checkSpotifyProviderGuard() {
   if (!/loginRefreshRequestSeq/.test(loginFlowText) || !/isLoginRefreshCurrent/.test(loginFlowText)) {
     fail('login modal provider switching must guard stale async status and QR writes');
   }
-  if (!/\/api\/spotify\/user\/playlists/.test(playlistShellText) || !/spotifyPlaylists/.test(playlistShellText) || !/\/api\/spotify\/playlist\/tracks/.test(playlistDetailText) || !/spotify:' \+ id/.test(playlistDetailText) || !/pl_spotify_playlist/.test(playlistDetailText)) {
+  if (!/\/api\/spotify\/user\/playlists/.test(playlistShellText) || !/spotifyPlaylists/.test(playlistShellText) || !/\/api\/spotify\/playlist\/tracks/.test(playlistDetailText) || !/spotify:' \+ id/.test(playlistDetailText) || !/PLAYLIST_PROVIDER_ORDER = \['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'\]/.test(playlistDetailText)) {
     fail('playlist panel must merge and open Spotify playlists');
   }
   if (!/spotifyErrorDetails/.test(spotifyText) || !/playlistPanelNoticeHtml/.test(playlistDetailText) || !/playlistCardPriority/.test(playlistDetailText) || !/spotify-liked/.test(playlistDetailText) || !/prioritizePlaylistGroupItems/.test(playlistDetailText) || !/showToast\(r && \(r\.message \|\| r\.error\) \|\| podcastPlaylistLoadersText\('pod_empty'\)\)/.test(playlistLoadText)) {
@@ -7511,10 +7515,16 @@ async function checkLargePlaylistVirtualizationGuard() {
   if (/pl-inline-detail[\s\S]{0,200}?style="height:/.test(detailText)) {
     fail('expanded playlist detail must not be pinned to a computed pixel height inline');
   }
-  const detailStickyRules = Array.from(cssText.matchAll(/#playlist-panel\s+\.pl-detail-sticky\s*\{([^}]*)\}/g));
-  const detailStickyCss = detailStickyRules.length ? detailStickyRules[detailStickyRules.length - 1][1] : '';
-  if (!/\bposition:\s*sticky\b/.test(detailStickyCss) || !/\btop:\s*(?!auto\b)[^;}]+/.test(detailStickyCss) || /\bposition:\s*(?:relative|static)\b|\btop:\s*auto\b/.test(detailStickyCss)) {
-    fail('expanded playlist summary must stay sticky on the outer playlist-panel scroll axis');
+  // 2026-10-26：展开详情的摘要头整块删掉了（未展开的卡片上已经有封面、歌名和曲目数，
+  // 再显示一遍等于同一个信息说两次），改由按钮行打头、分页条收尾。
+  // 所以这里从「摘要必须 sticky」改成反向断言：摘要头不许回来，分页条必须在。
+  // The summary header is gone by design — the collapsed card already carries that information —
+  // so this asserts it stays gone and that the pager exists instead.
+  if (/#playlist-panel\s+\.pl-detail-head\s*,?\s*\{/.test(cssText) || /\.pl-detail-sticky\s*\{/.test(cssText)) {
+    fail('expanded playlist detail must not bring back the duplicated summary header');
+  }
+  if (!/\.pl-detail-pager\s*\{/.test(cssText) || !/\.pl-pager-btn\s*\{/.test(cssText)) {
+    fail('expanded playlist detail must render a pager instead of an inner scroll');
   }
   const detailListRules = Array.from(cssText.matchAll(/#playlist-panel\s+\.pl-detail-list\s*\{([^}]*)\}/g));
   const detailListCss = detailListRules.length ? detailListRules[detailListRules.length - 1][1] : '';
@@ -7537,10 +7547,10 @@ async function checkLargePlaylistVirtualizationGuard() {
     fail(`10k queue virtual window is too large or cannot reach the tail: ${JSON.stringify(queueWindow)}`);
   }
 
-  const detailRowsStart = detailText.indexOf('function playlistPanelDetailRowsHtml');
+  const detailRowsStart = detailText.indexOf('function playlistPanelDetailPageOf');
   const detailRowsEnd = detailText.indexOf('var PLAYLIST_REORDER_STORE_KEY', detailRowsStart);
-  if (detailRowsStart < 0 || detailRowsEnd < 0) fail('playlist detail virtual row helper missing');
-  // 行距常量必须从实现里读，不能在这里另写一份：2026-10-25 的重叠 bug 就是常量（56）
+  if (detailRowsStart < 0 || detailRowsEnd < 0) fail('playlist detail page helper missing');
+  // 行距与页容量都必须从实现里读，不能在这里另写一份：2026-10-25 的重叠 bug 就是常量（56）
   // 与真实行距（行 56 + gap 6）脱节造成的，守卫自己硬编码一份会永远看不见这种偏差。
   const perfStateText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '01-perf-render-state.js'), 'utf8');
   const rowStepMatch = perfStateText.match(/var PLAYLIST_DETAIL_ROW_STEP = (\d+);/);
@@ -7549,6 +7559,12 @@ async function checkLargePlaylistVirtualizationGuard() {
   if (!(detailRowStep >= 50 && detailRowStep <= 80)) {
     fail(`playlist detail row step must stay within one rendered row: ${detailRowStep}`);
   }
+  const pageSizeMatch = perfStateText.match(/var PLAYLIST_DETAIL_PAGE_SIZE = (\d+);/);
+  if (!pageSizeMatch) fail('PLAYLIST_DETAIL_PAGE_SIZE constant missing from perf render state');
+  const detailPageSize = Number(pageSizeMatch[1]);
+  if (!(detailPageSize >= 3 && detailPageSize <= 12)) {
+    fail(`playlist detail page size must stay readable and fit the panel: ${detailPageSize}`);
+  }
   const detailRowsSandbox = {
     playlistPanelDetailState: {
       loading: false,
@@ -7556,12 +7572,14 @@ async function checkLargePlaylistVirtualizationGuard() {
       tracks: Array.from({ length: 10000 }, (_, index) => ({ id: index, name: 'Track ' + index, artist: 'Artist' })),
       total: 10000,
       hasMore: false,
+      page: 0,
       error: '',
       message: ''
     },
     PLAYLIST_DETAIL_ROW_STEP: detailRowStep,
     PLAYLIST_DETAIL_VIRTUAL_OVERSCAN: 7,
     PLAYLIST_DETAIL_INITIAL_RENDER: 96,
+    PLAYLIST_DETAIL_PAGE_SIZE: detailPageSize,
     window: { innerHeight: 900 },
     songCoverSrc: () => '',
     playlistDetailText: playlistDetailTextStub,
@@ -7572,25 +7590,49 @@ async function checkLargePlaylistVirtualizationGuard() {
     String
   };
   vm.runInNewContext(detailText.slice(detailRowsStart, detailRowsEnd), detailRowsSandbox, { filename: 'playlist-detail-rows.js' });
-  const detailRowsHtml = detailRowsSandbox.playlistPanelDetailRowsHtml({ viewport: 620, scrollTop: detailRowStep * 9988 });
-  const detailRowIndexes = Array.from(detailRowsHtml.matchAll(/data-pl-detail-row="(\d+)"/g), match => Number(match[1]));
-  const detailSpacerCount = (detailRowsHtml.match(/class="pl-detail-virtual-spacer"/g) || []).length;
-  if (detailRowIndexes.length > 26 || detailRowIndexes[detailRowIndexes.length - 1] !== 9999 || detailSpacerCount !== 2) {
-    fail(`10k playlist detail virtual window regressed: ${JSON.stringify({ rows: detailRowIndexes.length, last: detailRowIndexes[detailRowIndexes.length - 1], spacers: detailSpacerCount })}`);
+  // 分页取代了滚动虚拟窗口：10k 条的列表也只在 DOM 里放一页，翻页由页码而不是滚动位置驱动。
+  // Paging replaced the scroll window: even a 10k-track playlist keeps exactly one page in the DOM.
+  const pageOne = detailRowsSandbox.playlistPanelDetailRowsHtml({});
+  const pageOneRows = Array.from(pageOne.matchAll(/data-pl-detail-row="(\d+)"/g), match => Number(match[1]));
+  if (pageOneRows.length !== detailPageSize || pageOneRows[0] !== 0 || pageOneRows[pageOneRows.length - 1] !== detailPageSize - 1) {
+    fail(`playlist detail page 1 must hold exactly ${detailPageSize} rows: ${JSON.stringify(pageOneRows.slice(0, 3))}…${pageOneRows[pageOneRows.length - 1]}`);
+  }
+  detailRowsSandbox.playlistPanelDetailState.page = 1;
+  const pageTwoRows = Array.from(detailRowsSandbox.playlistPanelDetailRowsHtml({}).matchAll(/data-pl-detail-row="(\d+)"/g), match => Number(match[1]));
+  if (pageTwoRows[0] !== detailPageSize || pageTwoRows.length !== detailPageSize) {
+    fail(`playlist detail page 2 must start at row ${detailPageSize}: ${JSON.stringify(pageTwoRows.slice(0, 3))}`);
+  }
+  // 最后一页不足一整页时不能凭空补行，也不能越过 total。
+  detailRowsSandbox.playlistPanelDetailState.tracks = detailRowsSandbox.playlistPanelDetailState.tracks.slice(0, detailPageSize + 2);
+  detailRowsSandbox.playlistPanelDetailState.total = detailPageSize + 2;
+  detailRowsSandbox.playlistPanelDetailState.page = 1;
+  const tailRows = Array.from(detailRowsSandbox.playlistPanelDetailRowsHtml({}).matchAll(/data-pl-detail-row="(\d+)"/g), match => Number(match[1]));
+  if (tailRows.length !== 2 || tailRows[0] !== detailPageSize) {
+    fail(`playlist detail tail page must render only its remainder: ${JSON.stringify(tailRows)}`);
+  }
+  if (/pl-detail-virtual-spacer/.test(pageOne + pageTwoRows.join('') + tailRows.join(''))) {
+    fail('playlist detail must not emit virtual spacers once it pages');
   }
 
-  const catalogStart = detailText.indexOf('var playlistPanelVirtualCache');
+  // 切片起点前移到平台切换器的状态声明：entries 构建现在要先分桶再取选中平台，
+  // 那两个函数就在这段里。
+  // The slice now starts at the provider-switcher state: entry building buckets by provider first.
+  const catalogStart = detailText.indexOf('var PLAYLIST_ACTIVE_PROVIDER_KEY');
   const catalogEnd = detailText.indexOf('function playlistCatalogFooterHtml', catalogStart);
   if (catalogStart < 0 || catalogEnd < 0) fail('playlist catalog virtual entry helper missing');
   const catalogSandbox = {
     playlistCatalogRevision: 1,
     userPlaylists: Array.from({ length: 5000 }, (_, index) => ({ provider: 'netease', id: String(index + 1), name: 'Playlist ' + index })),
-    playlistPanelDetailState: { key: '', loading: false, tracks: [], total: 0, error: '' },
-    normalizePlaylistProvider: provider => ['qq', 'kugou', 'qishui', 'spotify'].includes(provider) ? provider : 'netease',
+    playlistPanelDetailState: { key: '', loading: false, tracks: [], total: 0, page: 0, error: '' },
+    normalizePlaylistProvider: provider => ['qq', 'kugou', 'qishui', 'spotify', 'mineradio'].includes(provider) ? provider : 'netease',
     playlistCardPriority: () => 1,
-    // 折叠状态是 localStorage 里读出来的用户选择，跟虚拟窗口的算法无关；这里恒为「全部展开」。
-    // Collapse state is a persisted user choice and irrelevant to the window math; pin it expanded.
-    playlistPanelGroupCollapsed: () => false,
+    // 详情高度估算走这里，catalog 场景下没有展开项，给一个纯函数的页信息即可。
+    // Detail height estimation reaches for this; with nothing expanded a constant page is enough.
+    playlistPanelDetailPageOf: () => ({ page: 0, pages: 1, total: 0 }),
+    PLAYLIST_DETAIL_PAGE_SIZE: detailPageSize,
+    PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT: 78,
+    PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT: 34,
+    PLAYLIST_DETAIL_ROW_STEP: detailRowStep,
     playlistPanelKey: (provider, id) => provider + ':' + id,
     playlistDetailText: playlistDetailTextStub,
     window: { innerHeight: 900 },
@@ -7604,8 +7646,31 @@ async function checkLargePlaylistVirtualizationGuard() {
   const visibleTop = Math.max(0, catalog.totalHeight - 620);
   const catalogWindowStart = catalogSandbox.playlistPanelOffsetIndex(catalog.offsets, Math.max(0, visibleTop - 760));
   const catalogWindowEnd = Math.min(catalog.entries.length, catalogSandbox.playlistPanelOffsetIndex(catalog.offsets, visibleTop + 620 + 760) + 1);
-  if (catalog.entries.length !== 5001 || catalogWindowEnd - catalogWindowStart > 72 || catalogWindowEnd !== catalog.entries.length || catalogMs > 120) {
-    fail(`5k playlist catalog virtualization missed its scale budget: ${JSON.stringify({ entries: catalog.entries.length, window: catalogWindowEnd - catalogWindowStart, end: catalogWindowEnd, ms: catalogMs })}`);
+  // 平台切换器取代分组标题之后，台账里只剩卡片（原来每组多一条 31px 的标题行）。
+  // With the switcher replacing group headers the ledger holds cards only — no 31px title rows.
+  const labelEntries = catalog.entries.filter(entry => entry.type !== 'card').length;
+  if (catalog.entries.length !== 5000 || labelEntries !== 0) {
+    fail(`5k playlist catalog must page out as cards only: ${JSON.stringify({ entries: catalog.entries.length, extra: labelEntries })}`);
+  }
+  if (catalog.activeProvider !== 'netease' || !(catalog.availableProviders || []).length) {
+    fail(`playlist catalog must resolve an active provider: ${JSON.stringify({ active: catalog.activeProvider, available: catalog.availableProviders })}`);
+  }
+  if (catalogWindowEnd - catalogWindowStart > 72 || catalogWindowEnd !== catalog.entries.length || catalogMs > 120) {
+    fail(`5k playlist catalog virtualization missed its scale budget: ${JSON.stringify({ window: catalogWindowEnd - catalogWindowStart, end: catalogWindowEnd, ms: catalogMs })}`);
+  }
+  // 平台切换必须真的换掉台账：切到另一个平台后卡片来源全部改变，不能只是 UI 层高亮。
+  // 走真实 setter（而不是给 sandbox 赋值），否则 var 初始化会把外部值覆盖掉，测了个假的。
+  // Switching providers must really rebuild the ledger; going through the real setter matters
+  // because the sandbox's `var` initialisation would overwrite an externally assigned value.
+  catalogSandbox.schedulePlaylistPanelVirtualRender = () => {};
+  catalogSandbox.userPlaylists = catalogSandbox.userPlaylists.concat(
+    Array.from({ length: 3 }, (_, index) => ({ provider: 'qq', id: 'q' + index, name: 'QQ ' + index }))
+  );
+  catalogSandbox.playlistCatalogRevision = 2;
+  catalogSandbox.setPlaylistPanelActiveProvider('qq');
+  const switched = catalogSandbox.playlistPanelBuildVirtualEntries();
+  if (switched.entries.length !== 3 || switched.entries.some(entry => entry.pl.provider !== 'qq') || switched.activeProvider !== 'qq') {
+    fail(`switching provider must rebuild the catalog entries: ${JSON.stringify({ entries: switched.entries.length, active: switched.activeProvider })}`);
   }
 
   const hydrateStart = loaderText.indexOf('function playlistQueueSource');

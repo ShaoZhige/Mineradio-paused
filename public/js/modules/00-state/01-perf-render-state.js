@@ -78,14 +78,25 @@ var playlistPanelLazyBound = false;
 var PLAYLIST_DETAIL_INITIAL_RENDER = PLAYLIST_LAZY_BATCH_SIZE;
 var PLAYLIST_DETAIL_BATCH_SIZE = PLAYLIST_LAZY_BATCH_SIZE;
 // 左侧歌单展开详情的几何参数，必须与 CSS 实测一致：
-// 行 = .pl-detail-row 高 56 + .pl-detail-list 的 gap 6 = 62（与队列行距同值）；
-// 摘要吸顶区实测 197，加上 #playlist-panel .pl-inline-detail 的 padding 10/14。
-// 这两条一旦与样式脱节，虚拟高度就会小于真实内容 —— 详情用 overflow:visible，
+// 行 = .pl-detail-row 高 56 + .pl-detail-list 的 gap 6 = 62（与队列行距同值）。
+// 展开详情 2026-10-26 改成分页：摘要头整块删除（卡片上已有歌名/封面/曲目数），
+// 所以「外壳」只剩按钮行与容器内边距，高度也从「视口推算」变成可精确预估的
+// 「一页行数 × 行距 + 按钮行 + 分页条」。
+// 这些值一旦与样式脱节，虚拟高度就会小于真实内容 —— 详情是 overflow:visible，
 // 缺的高度不会裁切，而是直接压到下一个歌单卡片上（2026-10-25 用户报的重叠 bug）。
+// The detail now pages, and its summary header is gone, so the outer chrome is just the action
+// row plus container padding and the rows are a fixed page size.
+// 实测（2026-10-26，810px 高的窗口）：面板上限 690，吸顶区 141，卡片 69，容器内边距 36，
+// 留给详情的可用高度是 442。一页 5 行时详情 = 59 + 5×62 + 34 = 403，连分页条一起正好落在
+// 可视区内；6 行是 465，分页条会被顶出面板底部 25px，等于又逼用户滚一下——那正是分页要省掉的。
+// Measured at an 810px-tall window: 442px is available for the detail. Five rows fit together with
+// the pager; six rows push the pager 25px past the panel bottom, which is the scroll the pager was
+// meant to remove.
 var PLAYLIST_DETAIL_ROW_STEP = 62;
 var PLAYLIST_DETAIL_VIRTUAL_OVERSCAN = 7;
-var PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT = 221;
-var PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT = 44;
+var PLAYLIST_DETAIL_PAGE_SIZE = 5;
+var PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT = 59;
+var PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT = 34;
 var PLAYLIST_QUEUE_INITIAL_BATCH_SIZE = 96;
 var PLAYLIST_QUEUE_BACKGROUND_BATCH_SIZE = 160;
 var PLAYLIST_QUEUE_PLAYBACK_AHEAD_THRESHOLD = 96;

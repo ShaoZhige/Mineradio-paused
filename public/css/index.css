@@ -332,7 +332,7 @@ body.desktop-mode-controls-open.desktop-shell.desktop-wallpaper-mode.desktop-wal
 }
 
 .pl-detail-remove:hover,
-.pl-detail-top-btn.danger:hover {
+.pl-detail-aux-btn.danger:hover {
   border-color: rgba(255, 118, 118, .32);
   background: rgba(255, 92, 92, .10);
   color: rgba(255, 210, 210, .94);
@@ -15007,154 +15007,85 @@ html:fullscreen body.desktop-shell #playlist-panel {
   text-overflow: ellipsis
 }
 
-/* 分组标题兼作折叠开关（#462）：箭头 + 名称 + 歌单数。
-   行高与 margin 保持改造前不变，JS 台账里这一行按 31px 记账，改了会错位。
-   注意：主题段有两条 `#playlist-panel .pl-section-label{color:…!important}`，所以 hover
-   不改颜色，只给背景反馈，否则会被 !important 压死。
-   The header doubles as the collapse toggle. Line box and margins are left untouched because the
-   virtual ledger books this row at 31px; two theme rules pin the colour with !important, so hover
-   feedback uses a background tint instead of a colour change. */
+/* 播客分栏的内联标题仍然用这个类（见 03-podcast-playlist-loaders.js 拼出的 HTML）。
+   它以前兼作歌单分组的折叠开关，2026-10-26 换成平台切换器之后，这里只剩「小号大写标题」
+   这一个职责，所以 cursor / hover 背景这类可点线索一并去掉，免得看着像能点。
+   The podcast pane still uses this class for its inline heading. It used to double as the group
+   collapse toggle; with the switcher in place it is only a micro heading, so the clickable cues
+   are gone. */
 .pl-section-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 14px 2px 7px;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .18em;
   text-transform: uppercase;
-  color: rgba(0, 245, 212, .50);
-  border-radius: 6px;
-  cursor: pointer;
-  user-select: none;
-  transition: background-color .18s ease
+  color: rgba(0, 245, 212, .50)
 }
 
-.pl-section-label:hover,
-.pl-section-label:focus-visible {
-  background-color: rgba(0, 245, 212, .07);
+/* 平台切换器（2026-10-26）：一次只看一个平台的歌单，横向胶囊取代了原来纵向堆叠的分组标题。
+   按钮用缩写（MR/NE/QQ/KG/QS/SP）是因为面板只有 302px 可用宽，六个全名一行放不下；
+   全名挂在 title / aria-label 上，悬停与读屏都能拿到完整名称。
+   Provider switcher: one provider at a time. The pills carry abbreviations because six full names
+   do not fit the 302px the panel offers; the full name rides on title and aria-label. */
+.pl-provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 8px
+}
+
+.pl-provider-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .03);
+  color: rgba(255, 255, 255, .55);
+  cursor: pointer;
+  font: 800 9.5px var(--font-sans);
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease
+}
+
+.pl-provider-tab:hover,
+.pl-provider-tab:focus-visible {
+  background: rgba(255, 255, 255, .07);
+  color: rgba(255, 255, 255, .80);
   outline: none
 }
 
-.pl-section-caret {
-  flex: 0 0 auto;
-  width: 0;
-  height: 0;
-  border-left: 5px solid currentColor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  transform: rotate(90deg);
-  transition: transform .18s ease
+.pl-provider-tab.active {
+  background: rgba(0, 245, 212, .13);
+  border-color: rgba(0, 245, 212, .40);
+  color: #eafffb
 }
 
-.pl-section-label.is-collapsed .pl-section-caret {
-  transform: rotate(0)
-}
-
-.pl-section-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap
-}
-
-/* 歌单数只在折叠时露出来：展开时它和卡片上的数字重复，反而添乱。 */
-.pl-section-count {
-  margin-left: auto;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  color: rgba(255, 255, 255, .30);
-  opacity: 0;
-  transition: opacity .18s ease
-}
-
-.pl-section-label.is-collapsed .pl-section-count {
-  opacity: 1
-}
-
+/* 展开详情原来是「摘要头 + 操作行 + 内部滚动列表」，现在摘要头整块删掉（卡片上已有歌名、
+   封面和曲目数，重复一遍只是把按钮往下挤），列表改成分页不再内部滚动，
+   因此基础段只留一个自然高度的容器，几何由主题段与内容共同决定。
+   The summary header is gone and the list pages instead of scrolling, so the base rule only
+   keeps a content-sized container. */
 .pl-inline-detail {
   position: relative;
   margin: -1px 0 14px;
   padding: 0 0 12px;
-  scroll-margin-top: 16px;
-  height: min(55vh, 520px);
-  min-height: 330px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden
-}
-
-.pl-detail-sticky {
-  position: sticky;
-  top: -10px;
-  z-index: 4;
-  margin: 0 -2px 10px;
-  padding: 8px 2px 10px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(14, 17, 24, .92), rgba(14, 17, 24, .76) 68%, rgba(14, 17, 24, 0));
-  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.18);
-  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.18)
-}
-
-.pl-detail-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 2px 0 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, .06)
-}
-
-.pl-detail-sticky .pl-detail-head {
-  margin: 0 0 8px;
-  padding-bottom: 8px
-}
-
-.pl-detail-cover {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
-  object-fit: cover;
-  background: rgba(255, 255, 255, .06);
-  flex: 0 0 auto
-}
-
-.pl-detail-title {
-  font-size: 13px;
-  font-weight: 780;
-  color: rgba(255, 255, 255, .94);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis
-}
-
-.pl-detail-sub {
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, .42);
-  margin-top: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis
+  scroll-margin-top: 16px
 }
 
 /* 操作行在卡片内只有 280px 可用，而按钮是不收缩的胶囊：中文「播放歌单/重命名/删除」已占满，
    再加一个「多选」实测需要 388px → 溢出 108px，后两个按钮被面板边缘直接裁掉（点不到、也看不见）。
    俄文/日文仅「播放歌单/重命名/删除」三项就需要 315px，本来就已经溢出。
-   这里让整行换行 + 按钮不被压窄：`.pl-detail-list` 是 flex:1 1 auto / min-height:0，
-   头部变高只会让列表变矮，不会裁掉任何内容，所以换行是安全的。
-   The action row has only 280px inside the card while its buttons are non-shrinking pills: the
-   Chinese 「播放歌单/重命名/删除」 already fills it, and adding 「多选」 needs 388px — a 108px
-   overflow that the panel edge clips away entirely (invisible and unclickable). In Russian/Japanese
-   even the original three need 315px, so the row was already overflowing before. Wrapping the row
-   and keeping buttons at full width is safe because `.pl-detail-list` is flex:1 1 auto with
-   min-height:0: a taller header only makes the list shorter, it never clips anything. */
+   所以整行换行 + 按钮不被压窄，换行只是让详情变高，不会裁掉任何内容。
+   The action row has only 280px while its buttons are non-shrinking pills: Chinese already fills
+   it and adding one more needs 388px, a 108px overflow the panel edge clips away entirely. So the
+   row wraps and buttons keep their width — a taller row never clips anything. */
 .pl-detail-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 8px 0 10px
+  margin: 0 0 10px
 }
 
 .pl-detail-actions > button {
@@ -15184,32 +15115,60 @@ html:fullscreen body.desktop-shell #playlist-panel {
   fill: currentColor
 }
 
-.pl-detail-top-btn {
-  height: 30px;
-  min-width: 82px;
-  flex: 0 0 auto;
-  padding: 0 12px
-}
-
 .pl-detail-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scroll-behavior: smooth
+  overflow: visible
 }
 
-.pl-detail-list::-webkit-scrollbar {
-  width: 3px
+/* 分页条取代了「继续滚动加载」：一页固定几首，左右各一个箭头，中间是页码。
+   只有一页时整条不渲染（JS 判断），所以它的高度也要参与虚拟台账的估算。
+   Paging replaces "keep scrolling": fixed page size, two arrows and an indicator. The whole bar is
+   omitted for a single page, so its height is part of the ledger estimate. */
+.pl-detail-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 24px;
+  margin-top: 10px
 }
 
-.pl-detail-list::-webkit-scrollbar-thumb {
-  background: rgba(var(--fc-accent-rgb), .22);
-  border-radius: 3px
+.pl-pager-btn {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .035);
+  color: rgba(255, 255, 255, .72);
+  font: 700 13px/1 var(--font-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease
+}
+
+.pl-pager-btn:hover:not(:disabled) {
+  background: rgba(0, 245, 212, .12);
+  border-color: rgba(0, 245, 212, .34);
+  color: #eafffb
+}
+
+.pl-pager-btn:disabled {
+  opacity: .26;
+  cursor: default
+}
+
+.pl-pager-indicator {
+  min-width: 46px;
+  text-align: center;
+  font: 700 10.5px var(--font-sans);
+  letter-spacing: .08em;
+  color: rgba(255, 255, 255, .46)
 }
 
 .pl-detail-loading-row {
@@ -15232,11 +15191,14 @@ html:fullscreen body.desktop-shell #playlist-panel {
   background: rgba(255, 255, 255, .055)
 }
 
-.pl-detail-count {
-  margin-left: auto;
-  color: rgba(255, 255, 255, .38);
-  font-size: 10.5px;
-  white-space: nowrap
+/* 「重命名 / 删除 / 取消收藏」这一排跟「播放歌单」等高，外观走 fx-mini-btn 的玻璃底。
+   原来叫 pl-detail-top-btn（跟着已删除的「回到顶部」命名），现在只是辅助操作，
+   所以改成中性名字。 */
+.pl-detail-aux-btn {
+  height: 30px;
+  min-width: 82px;
+  flex: 0 0 auto;
+  padding: 0 12px
 }
 
 .pl-detail-progress {
@@ -15246,17 +15208,6 @@ html:fullscreen body.desktop-shell #playlist-panel {
   justify-content: center;
   color: rgba(255, 255, 255, .34);
   font-size: 10.5px
-}
-
-.pl-detail-load-more {
-  width: 100%;
-  height: 42px;
-  margin: 10px 0 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 760
 }
 
 .pl-detail-row img {
@@ -15761,15 +15712,6 @@ html.control-glass-svg-ok .mini-queue-remove {
   background: rgba(255, 255, 255, .03) !important
 }
 
-#playlist-panel .pl-section-label {
-  color: rgba(0, 245, 212, .50) !important;
-  text-shadow: none !important
-}
-
-#playlist-panel .pl-detail-head {
-  border-bottom: 1px solid rgba(255, 255, 255, .06) !important
-}
-
 #playlist-panel .pl-detail-play {
   background: rgba(var(--fc-accent-rgb), .10) !important;
   border: 1px solid rgba(var(--fc-accent-rgb), .32) !important;
@@ -16225,7 +16167,6 @@ html.control-glass-svg-ok .mini-queue-remove {
   -webkit-backdrop-filter: none !important;
 }
 
-#playlist-panel .pl-section-label,
 .search-artist-link,
 .queue-artist-link,
 .pl-detail-row-artist,
@@ -17204,17 +17145,6 @@ body.panel-reordering .mini-queue-item.is-reordering {
   border-radius: 0 0 15px 15px;
   background: linear-gradient(180deg, rgba(var(--fc-accent-rgb), .105), rgba(8, 12, 20, .76) 24%, rgba(4, 7, 12, .56));
   box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05), 0 16px 34px rgba(0, 0, 0, .18)
-}
-
-#playlist-panel .pl-detail-sticky {
-  position: sticky;
-  top: 126px;
-  z-index: 8;
-  margin: 0 0 8px;
-  padding: 8px 2px 8px;
-  background: linear-gradient(180deg, rgba(12, 17, 27, .92), rgba(12, 17, 27, .72));
-  backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.12);
-  -webkit-backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.12)
 }
 
 #playlist-panel .pl-detail-list {

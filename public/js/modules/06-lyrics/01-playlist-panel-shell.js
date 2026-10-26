@@ -268,6 +268,11 @@ function switchPlaylistTab(tab, opts) {
   if (playlistPane) playlistPane.style.display = tab === 'playlists' ? '' : 'none';
   var podcastPane = document.getElementById('podcast-pane');
   if (podcastPane) podcastPane.style.display = tab === 'podcasts' ? '' : 'none';
+  // 平台切换器只属于「我的歌单」页签：它挂在 sticky 区里，不会被上面那几行 display 一起切掉，
+  // 所以离开这个页签时要自己收起来。
+  // The provider switcher belongs to the playlists tab; it sits in the sticky block, which the
+  // display toggles above do not cover, so it has to be hidden on its own.
+  if (typeof renderPlaylistProviderTabs === 'function') renderPlaylistProviderTabs(null);
   if ((tab === 'playlists' || tab === 'podcasts') && opts.refresh !== false) refreshUserPlaylists();
   if (opts.animate !== false) animatePlaylistPanelCurrentTab(document.getElementById('playlist-panel'));
 }
@@ -364,7 +369,7 @@ function cancelPanelReorder(markSuppress) {
   panelReorderState.pointerId = null;
 }
 function panelReorderBlockedTarget(target) {
-  return !!(target && target.closest && target.closest('button,a,input,textarea,select,[data-pl-load-more],[data-pl-detail-load-more],[data-pl-detail-top],[data-pl-detail-play],[data-pl-detail-artist],[data-pl-detail-row],.pl-inline-detail'));
+  return !!(target && target.closest && target.closest('button,a,input,textarea,select,[data-pl-page],[data-pl-provider],[data-pl-detail-play],[data-pl-detail-artist],[data-pl-detail-row],.pl-inline-detail'));
 }
 function panelReorderHitFromTarget(target) {
   if (!target || !target.closest || panelReorderBlockedTarget(target)) return null;

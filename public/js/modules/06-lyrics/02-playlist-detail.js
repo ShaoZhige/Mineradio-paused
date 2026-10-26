@@ -35,7 +35,7 @@ function playlistDetailText(key, fallback, params) {
   }
   return out;
 }
-var playlistPanelDetailState = { key: '', loading: false, loadingMore: false, playlist: null, tracks: [], token: 0, total: 0, nextOffset: 0, hasMore: false, scrollTop: 0, controller: null, warmTimer: 0, renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER, error: '', message: '' };
+var playlistPanelDetailState = { key: '', loading: false, loadingMore: false, playlist: null, tracks: [], token: 0, total: 0, nextOffset: 0, hasMore: false, page: 0, scrollTop: 0, controller: null, warmTimer: 0, renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER, error: '', message: '' };
 function queueVirtualSpacerHtml(height) {
   height = Math.max(0, Math.round(Number(height) || 0));
   return height ? '<div class="queue-virtual-spacer" aria-hidden="true" style="height:' + height + 'px"></div>' : '';
@@ -198,6 +198,17 @@ function playlistPanelNoticeHtml(text, isError) {
   if (!text) text = playlistDetailText('pl_no_playable');
   return '<div style="text-align:center;padding:14px 10px;color:' + (isError ? 'rgba(255,180,160,.82)' : 'rgba(255,255,255,.30)') + ';font-size:11.5px;line-height:1.55">' + escHtml(text) + '</div>';
 }
+// 分页取代了原来的内部滚动：一页固定 PLAYLIST_DETAIL_PAGE_SIZE 首，左右翻页（2026-10-26）。
+// 页数按 total 算而不是按已加载条数算——列表是流式拉的，用已加载条数会让页数在拉取过程中跳变。
+// Paging replaces the old inner scroll: a fixed page size and left/right paging. The page count
+// follows total, not the loaded rows, or it would shift while batches stream in.
+function playlistPanelDetailPageOf(st) {
+  st = st || playlistPanelDetailState;
+  var total = Math.max(0, Number(st.total) || 0, (st.tracks || []).length);
+  var pages = Math.max(1, Math.ceil(total / PLAYLIST_DETAIL_PAGE_SIZE));
+  var page = Math.min(Math.max(0, Number(st.page) || 0), pages - 1);
+  return { page: page, pages: pages, total: total };
+}
 function playlistPanelDetailRowsHtml(options) {
   options = options || {};
   var st = playlistPanelDetailState;
@@ -206,20 +217,22 @@ function playlistPanelDetailRowsHtml(options) {
     return playlistDetailText('pl_first_batch_html');
   }
   if (!tracks.length) return playlistPanelNoticeHtml(st.message || st.error || '', !!st.error);
-  var viewport = Math.max(280, Number(options.viewport) || Math.min(620, Math.round((window.innerHeight || 800) * 0.72)));
-  var localScrollTop = Math.max(0, Number(options.scrollTop) || 0);
-  var start = Math.max(0, Math.floor(localScrollTop / PLAYLIST_DETAIL_ROW_STEP) - PLAYLIST_DETAIL_VIRTUAL_OVERSCAN);
-  var maxRows = Math.ceil(viewport / PLAYLIST_DETAIL_ROW_STEP) + PLAYLIST_DETAIL_VIRTUAL_OVERSCAN * 2;
-  var end = Math.min(tracks.length, start + maxRows);
-  start = Math.max(0, Math.min(start, Math.max(0, tracks.length - maxRows)));
-  end = Math.min(tracks.length, Math.max(end, start + maxRows));
+  var pageInfo = playlistPanelDetailPageOf(st);
+  var pageStart = pageInfo.page * PLAYLIST_DETAIL_PAGE_SIZE;
+  var pageTracks = tracks.slice(pageStart, pageStart + PLAYLIST_DETAIL_PAGE_SIZE);
+  // 翻到一页还没拉回来的位置：先给占位，补齐后由 loadMore 重绘。不做成空白，
+  // 否则用户会以为这个歌单到这儿就没了。
+  // A page whose rows are not fetched yet gets a placeholder rather than an empty box.
+  if (!pageTracks.length && st.hasMore) {
+    return '<div class="pl-detail-row pl-detail-loading-row"><span class="queue-hydration-spinner spinning"></span><div style="flex:1;min-width:0"><div class="pl-detail-row-title">' +
+      escHtml(playlistDetailText('pl_preloading_more')) + '</div></div></div>';
+  }
   // 多选态：行首插勾选框，并隐藏逐行移除按钮（此时点行只切换勾选，留着移除按钮是误导）。
   // In multi-select a checkbox is prefixed and the per-row remove button is hidden: a click then
   // only toggles the tick, so a visible remove button would be misleading.
   var msDetailActive = typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('detail', st.key);
-  var rows = '<div class="pl-detail-virtual-spacer" aria-hidden="true" style="height:' + (start * PLAYLIST_DETAIL_ROW_STEP) + 'px"></div>';
-  rows += tracks.slice(start, end).map(function (song, localIndex) {
-    var i = start + localIndex;
+  var rows = pageTracks.map(function (song, localIndex) {
+    var i = pageStart + localIndex;
     var thumb = songCoverSrc(song, 60);
     var imgTag = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.06);flex:0 0 auto"></div>';
     var removeButton = !msDetailActive && normalizePlaylistProvider((st.key || '').split(':')[0]) === 'mineradio'
@@ -234,15 +247,7 @@ function playlistPanelDetailRowsHtml(options) {
       '<button type="button" class="pl-detail-row-artist" data-pl-detail-artist="' + i + '">' + escHtml(song.artist || playlistDetailText('track_unknown_artist')) + '</button></div>' + removeButton +
       '</div>';
   }).join('');
-  rows += '<div class="pl-detail-virtual-spacer" aria-hidden="true" style="height:' + (Math.max(0, tracks.length - end) * PLAYLIST_DETAIL_ROW_STEP) + 'px"></div>';
-  if (st.error) {
-    rows += playlistDetailText('pl_more_failed_html');
-  } else if (st.hasMore || st.loadingMore) {
-    rows += '<div class="pl-detail-progress"><span class="queue-hydration-spinner' + (st.loadingMore ? ' spinning' : '') + '"></span><span>' +
-      (st.loadingMore ? playlistDetailText('pl_preloading_more') : playlistDetailText('pl_scroll_more')) + tracks.length + (st.total ? '/' + st.total : '') + '</span></div>';
-  } else if (tracks.length > PLAYLIST_DETAIL_INITIAL_RENDER) {
-    rows += playlistDetailText('pl_loaded_all_prefix') + tracks.length + playlistDetailText('pl_tracks_suffix_html');
-  }
+  if (st.error) rows += playlistDetailText('pl_more_failed_html');
   return rows;
 }
 var PLAYLIST_REORDER_STORE_KEY = 'mineradio-playlist-reorder-v1';
@@ -327,15 +332,26 @@ function fetchPlaylistTracksPage(provider, id, params, requestOptions) {
   }
   return apiJson(playlistTracksEndpoint(provider, id, params), requestOptions || {});
 }
+// 分页条：只有一页时整条不渲染，因此它的高度也要参与台账估算（见 playlistPanelDetailShellHeight）。
+// The pager is omitted entirely when a single page holds everything, so its height is part of the
+// ledger estimate.
+function playlistPanelDetailPagerHtml() {
+  var info = playlistPanelDetailPageOf();
+  if (info.pages <= 1) return '';
+  var prevOff = info.page <= 0;
+  var nextOff = info.page >= info.pages - 1;
+  return '<div class="pl-detail-pager">' +
+    '<button type="button" class="pl-pager-btn"' + (prevOff ? ' disabled' : '') + ' data-pl-page="prev" aria-label="' +
+    escHtml(playlistDetailText('pl_page_prev')) + '" title="' + escHtml(playlistDetailText('pl_page_prev')) + '">‹</button>' +
+    '<span class="pl-pager-indicator">' + (info.page + 1) + ' / ' + info.pages + '</span>' +
+    '<button type="button" class="pl-pager-btn"' + (nextOff ? ' disabled' : '') + ' data-pl-page="next" aria-label="' +
+    escHtml(playlistDetailText('pl_page_next')) + '" title="' + escHtml(playlistDetailText('pl_page_next')) + '">›</button>' +
+    '</div>';
+}
 function playlistPanelDetailHtml(pl, provider, detailWindow) {
   provider = normalizePlaylistProvider(provider);
   var key = playlistPanelKey(provider, pl && pl.id);
   if (playlistPanelDetailState.key !== key) return '';
-  var tracks = playlistPanelDetailState.tracks || [];
-  var loading = playlistPanelDetailState.loading;
-  var cover = pl && pl.cover ? (provider === 'netease' ? (pl.cover + '?param=96y96') : pl.cover) : '';
-  var img = cover ? '<img class="pl-detail-cover" src="' + escHtml(cover) + '" alt="" decoding="async" onerror="this.style.opacity=0.2">' : '<div class="pl-detail-cover"></div>';
-  var expectedTotal = Math.max(tracks.length, Number(playlistPanelDetailState.total) || Number(pl.trackCount) || 0);
   var rows = playlistPanelDetailRowsHtml(detailWindow);
   var canUncollect = !!(pl && pl.subscribed && !pl.virtual && (provider === 'netease' || provider === 'qishui' || provider === 'spotify'));
   var collectionButton = canUncollect
@@ -346,24 +362,20 @@ function playlistPanelDetailHtml(pl, provider, detailWindow) {
   var builtInActions = provider === 'mineradio' && !(pl && pl.virtual)
     ? playlistDetailText('pl_rename_delete_buttons')
     : '';
-  var topButton = provider === 'mineradio' ? '' : playlistDetailText('pl_top_button');
   var multiButton = '<button type="button" class="pl-detail-multi' + (typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('detail', key) ? ' active' : '') + '" data-pl-detail-multi="' + escHtml(key) + '">' + escHtml(playlistDetailText('ms_select', '多选')) + '</button>';
+  // 摘要头（封面 / 歌单名 / 曲目数 / 已载入计数）整块去掉：这些在未展开的卡片上已经有了，
+  // 展开后再重复一遍等于同一个信息说两次，还把「播放歌单」按钮挤到下面。
+  // 现在详情从卡片下沿直接接按钮行，再跟曲目和分页条。
+  // The summary block is gone: the collapsed card already carries cover, name and track count, so
+  // repeating it pushed the actions down for nothing. The detail now starts with the action row.
   return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '">' +
-    '<div class="pl-detail-sticky">' +
-    '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || playlistDetailText('pl_detail')) + '</div><div class="pl-detail-sub">' + escHtml((expectedTotal || tracks.length || 0) + playlistDetailText('pl_tracks_prefix') + (pl.creator || playlistProviderName(provider))) + '</div></div><div class="pl-detail-count">' + (loading && !tracks.length ? playlistDetailText('pl_loading') : (tracks.length + (expectedTotal > tracks.length ? '/' + expectedTotal : ''))) + '</div></div>' +
-    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + topButton + multiButton + '</div>' +
-    '</div>' +
+    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + multiButton + '</div>' +
     '<div class="pl-detail-list" data-pl-detail-scroll="' + escHtml(key) + '">' + rows + '</div>' +
+    playlistPanelDetailPagerHtml() +
     '</div>';
 }
 function renderPlaylistPanelDetailState() {
   renderUserPlaylistsList();
-}
-function scrollPlaylistPanelToTop() {
-  var panel = document.getElementById('playlist-panel');
-  if (!panel) return;
-  try { panel.scrollTo({ top: 0, behavior: 'smooth' }); }
-  catch (e) { panel.scrollTop = 0; }
 }
 function scrollPlaylistPanelDetailIntoView(key) {
   var panel = document.getElementById('playlist-panel');
@@ -500,10 +512,32 @@ async function openPlaylistPanelDetail(provider, pid, title) {
   }
   cancelPlaylistPanelDetailRequest();
   var token = ++playlistPanelDetailState.token;
-  playlistPanelDetailState = { key: key, loading: true, loadingMore: false, playlist: pl, tracks: [], token: token, total: Number(pl.trackCount) || 0, nextOffset: 0, hasMore: true, scrollTop: 0, controller: null, warmTimer: 0, renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER, error: '', message: '' };
+  playlistPanelDetailState = { key: key, loading: true, loadingMore: false, playlist: pl, tracks: [], token: token, total: Number(pl.trackCount) || 0, nextOffset: 0, hasMore: true, page: 0, scrollTop: 0, controller: null, warmTimer: 0, renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER, error: '', message: '' };
   renderPlaylistPanelDetailState();
   scrollPlaylistPanelDetailIntoView(key);
   await loadMorePlaylistPanelDetailTracks('initial');
+}
+// 翻页：页内数据没拉回来时先把这一页补够再重绘，避免翻过去看到一行占位。
+// Flipping to a page whose rows are still missing fetches them first, so the page never shows a
+// placeholder that the user would read as "the playlist ends here".
+async function gotoPlaylistPanelDetailPage(delta) {
+  var st = playlistPanelDetailState;
+  if (!st || !st.key) return false;
+  var info = playlistPanelDetailPageOf(st);
+  var next = Math.min(Math.max(0, info.page + (Number(delta) || 0)), info.pages - 1);
+  if (next === info.page) return false;
+  st.page = next;
+  renderPlaylistPanelDetailRows();
+  var need = Math.min(info.total, (next + 1) * PLAYLIST_DETAIL_PAGE_SIZE);
+  var guard = 0;
+  while (st.key && st.tracks.length < need && st.hasMore && !st.loadingMore && guard < 40) {
+    guard += 1;
+    var before = st.tracks.length;
+    var grown = await loadMorePlaylistPanelDetailTracks('page');
+    if (!grown || st.tracks.length <= before) break;
+  }
+  if (st.key) renderPlaylistPanelDetailRows();
+  return true;
 }
 function playPlaylistPanelDetail() {
   var st = playlistPanelDetailState;
@@ -589,48 +623,76 @@ function openPlaylistPanelDetailArtist(index) {
   var song = playlistPanelDetailState.tracks && playlistPanelDetailState.tracks[index];
   if (song) openArtistDetailForSong(song);
 }
-function growPlaylistPanelDetailRenderLimit(amount) {
-  return loadMorePlaylistPanelDetailTracks('manual');
-}
-function maybeGrowPlaylistPanelDetailRenderLimit() {
-  var panel = document.getElementById('playlist-panel');
-  var detail = panel && panel.querySelector('.pl-inline-detail[data-pl-detail]');
-  if (!panel || !detail || !playlistPanelDetailState.hasMore || playlistPanelDetailState.loadingMore) return;
-  var panelRect = panel.getBoundingClientRect();
-  var detailRect = detail.getBoundingClientRect();
-  if (detailRect.bottom <= panelRect.bottom + PLAYLIST_DETAIL_ROW_STEP * 8) loadMorePlaylistPanelDetailTracks('scroll');
-}
 function resetPlaylistPanelRenderLimit() {
   playlistPanelRenderLimit = PLAYLIST_PANEL_BATCH_SIZE;
 }
-// 平台分组折叠状态（#462）：按 provider 记，持久化在本地，避免每次重开面板都要重新收一遍。
-// Per-provider collapse state (#462), persisted locally so a reopened panel keeps the layout.
-var PLAYLIST_COLLAPSED_GROUPS_KEY = 'mineradio-playlist-collapsed-groups-v1';
-var playlistPanelCollapsedGroups = (function () {
+// 平台切换器（2026-10-26）：不同平台的歌单不再纵向堆叠成多组，而是由顶部一行胶囊切换，
+// 一次只渲染选中的那个平台。原先的「分组折叠」随之删除——切到某个平台只剩一组，折叠等于清空。
+// 选中项持久化，重开面板保持上次看的平台。
+// Providers are no longer stacked as vertical groups: a pill row at the top switches between them
+// and only the selected provider is rendered. The old per-group collapse is gone with it.
+var PLAYLIST_ACTIVE_PROVIDER_KEY = 'mineradio-playlist-active-provider-v1';
+var playlistPanelActiveProvider = (function () {
   try {
-    var raw = window.localStorage && window.localStorage.getItem(PLAYLIST_COLLAPSED_GROUPS_KEY);
-    var parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return (window.localStorage && window.localStorage.getItem(PLAYLIST_ACTIVE_PROVIDER_KEY)) || '';
   } catch (e) {
-    return {};
+    return '';
   }
 })();
-function playlistPanelGroupCollapsed(key) {
-  return !!(key && playlistPanelCollapsedGroups && playlistPanelCollapsedGroups[key]);
+// 平台展示顺序固定，不随登录状态变化，避免同一平台的位置跳来跳去。
+// The order is fixed so a provider never jumps around as accounts log in and out.
+var PLAYLIST_PROVIDER_ORDER = ['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'];
+function playlistPanelProviderBuckets() {
+  var groups = {};
+  PLAYLIST_PROVIDER_ORDER.forEach(function (key) { groups[key] = []; });
+  var rows = Array.isArray(userPlaylists) ? userPlaylists : [];
+  rows.forEach(function (pl, sourceIndex) {
+    var key = normalizePlaylistProvider(pl && pl.provider);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({ pl: pl, sourceIndex: sourceIndex });
+  });
+  PLAYLIST_PROVIDER_ORDER.forEach(function (key) {
+    groups[key].sort(function (a, b) {
+      var priority = playlistCardPriority(a.pl) - playlistCardPriority(b.pl);
+      return priority || (a.sourceIndex - b.sourceIndex);
+    });
+  });
+  return groups;
 }
-function setPlaylistPanelGroupCollapsed(key, collapsed) {
-  if (!key) return;
-  if (collapsed) playlistPanelCollapsedGroups[key] = 1;
-  else delete playlistPanelCollapsedGroups[key];
+// 只列出当前真有歌单的平台：空平台不占位置，也不给一个点了没反应的按钮。
+// Only providers that actually hold playlists get a pill; an empty tab would just be a dead click.
+function playlistPanelAvailableProviders(buckets) {
+  buckets = buckets || playlistPanelProviderBuckets();
+  return PLAYLIST_PROVIDER_ORDER.filter(function (key) {
+    return (buckets[key] || []).length > 0;
+  });
+}
+// 选中项一旦失效（退出登录、该平台歌单被清空）就落回第一个有内容的平台，
+// 否则列表会整片空白。
+// A stale selection falls back to the first non-empty provider, so the list is never blank.
+function resolvePlaylistPanelActiveProvider(buckets, available) {
+  buckets = buckets || playlistPanelProviderBuckets();
+  available = available || playlistPanelAvailableProviders(buckets);
+  if (!available.length) return '';
+  if (available.indexOf(playlistPanelActiveProvider) >= 0) return playlistPanelActiveProvider;
+  // 落回第一个非空平台时把结果写回内存态（不落盘）：否则全局值一直是空串，
+  // 切换器高亮的其实是推算值，而点那个平台会被 setPlaylistPanelActiveProvider 当成
+  // 「换了一个平台」再整表重绘一次。
+  // Falling back also writes the result back in memory (not to storage): otherwise the global
+  // stays empty while the switcher highlights a computed value, and clicking that very pill would
+  // be treated as a switch and rebuild the whole ledger for nothing.
+  playlistPanelActiveProvider = available[0];
+  return playlistPanelActiveProvider;
+}
+function setPlaylistPanelActiveProvider(key) {
+  if (!key || key === playlistPanelActiveProvider) return;
+  playlistPanelActiveProvider = key;
   try {
-    if (window.localStorage) window.localStorage.setItem(PLAYLIST_COLLAPSED_GROUPS_KEY, JSON.stringify(playlistPanelCollapsedGroups));
-  } catch (e) {}
-  // 折叠改变条目台账（卡片条目不再生成），必须让虚拟列表缓存失效后重排。
+    if (window.localStorage) window.localStorage.setItem(PLAYLIST_ACTIVE_PROVIDER_KEY, key);
+  } catch (e) { }
+  // 换平台等于换掉整份条目台账，必须让缓存失效后重排。
   playlistPanelVirtualCache.revision = -1;
   schedulePlaylistPanelVirtualRender();
-}
-function togglePlaylistPanelGroup(key) {
-  setPlaylistPanelGroupCollapsed(key, !playlistPanelGroupCollapsed(key));
 }
 var playlistPanelVirtualCache = { revision: -1, detailKey: '', detailSig: '', entries: [], offsets: [0], totalHeight: 0, raf: 0 };
 // detailSig -> 实测高度。样式或语言变化都会让估算值漂移，实测值优先，
@@ -652,12 +714,18 @@ function syncPlaylistPanelMeasuredDetailHeight(sig) {
   playlistPanelVirtualCache.detailSig = '';
   return true;
 }
+// 详情高度 = 按钮行（外壳）+ 当前页行数 × 行距 + 提示块 + 分页条。
+// 分页之后高度变成可精确预估的量（一页最多 6 行），不再依赖「一屏多少行」这种视口推算；
+// 实测值仍然优先，用于兜住最后一页行数不足时的收缩。
+// The height is now computable: chrome + one page of rows + notice + pager.
 function playlistPanelDetailShellHeight() {
   var st = playlistPanelDetailState || {};
-  var rows = Math.max(st.loading && !(st.tracks && st.tracks.length) ? 1 : 0, st.tracks && st.tracks.length || 0);
-  var noticeHeight = rows ? 0 : 74;
-  var footerHeight = st.error || st.hasMore || st.loadingMore || rows > PLAYLIST_DETAIL_INITIAL_RENDER ? PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT : 12;
-  return PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT + rows * PLAYLIST_DETAIL_ROW_STEP + noticeHeight + footerHeight;
+  var info = playlistPanelDetailPageOf(st);
+  var loaded = (st.tracks && st.tracks.length) || 0;
+  var rows = st.loading && !loaded ? 1 : Math.min(PLAYLIST_DETAIL_PAGE_SIZE, Math.max(0, loaded - info.page * PLAYLIST_DETAIL_PAGE_SIZE));
+  var noticeHeight = st.loading && !loaded ? 0 : (loaded ? 0 : 74);
+  var pagerHeight = info.pages > 1 ? PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT : 0;
+  return PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT + rows * PLAYLIST_DETAIL_ROW_STEP + noticeHeight + pagerHeight;
 }
 // 本地曲库在「我的歌单」里以一个虚拟歌单出现（#462）：不落存储、不占内置歌单名额与曲目上限，
 // 内容永远等于本地库本身——导入、删除、重新扫描都不需要再同步一份。原来的「本地库」入口保持不变。
@@ -723,39 +791,26 @@ function playlistPanelBuildVirtualEntries() {
     playlistPanelDetailState.tracks && playlistPanelDetailState.tracks.length || 0,
     playlistPanelDetailState.total || 0,
     playlistPanelDetailState.hasMore ? 1 : 0,
-    playlistPanelDetailState.error || ''
+    playlistPanelDetailState.error || '',
+    playlistPanelDetailState.page || 0
   ].join('|');
   if (playlistPanelVirtualCache.revision === playlistCatalogRevision &&
       playlistPanelVirtualCache.detailKey === playlistPanelDetailState.key &&
       playlistPanelVirtualCache.detailSig === detailSig) return playlistPanelVirtualCache;
-  var labels = { mineradio: playlistDetailText('pl_builtin'), netease: playlistDetailText('pl_netease_playlist'), qq: playlistDetailText('pl_qq_playlist'), kugou: playlistDetailText('pl_kugou_playlist'), qishui: playlistDetailText('pl_qishui_playlist'), spotify: playlistDetailText('pl_spotify_playlist') };
-  var order = ['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'];
-  var groups = { mineradio: [], netease: [], qq: [], kugou: [], qishui: [], spotify: [] };
-  userPlaylists.forEach(function (pl, sourceIndex) {
-    var key = playlistPanelGroupKey(pl);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push({ pl: pl, sourceIndex: sourceIndex });
-  });
+  var buckets = playlistPanelProviderBuckets();
+  var available = playlistPanelAvailableProviders(buckets);
+  var activeProvider = resolvePlaylistPanelActiveProvider(buckets, available);
+  var items = buckets[activeProvider] || [];
+  // 平台切换器已经表明当前看的是哪个平台，列表里不再需要分组标题，条目台账从
+  // 「标题 + 卡片」简化为只有卡片（详情仍插在它自己那张卡片后面）。
+  // The switcher already names the provider, so no group header enters the ledger anymore.
   var entries = [];
-  order.forEach(function (key) {
-    var items = (groups[key] || []).sort(function (a, b) {
-      var priority = playlistCardPriority(a.pl) - playlistCardPriority(b.pl);
-      return priority || (a.sourceIndex - b.sourceIndex);
-    });
-    if (!items.length) return;
-    // 折叠的组只留标题行：卡片条目根本不进台账，虚拟表高度随之收缩（#462）。
-    // A collapsed group emits its label only; its cards never enter the ledger, so the
-    // virtual total shrinks with it.
-    var collapsed = playlistPanelGroupCollapsed(key);
-    entries.push({ type: 'label', key: key, label: labels[key] || key, count: items.length, collapsed: collapsed, height: 31 });
-    if (collapsed) return;
-    items.forEach(function (entry) {
-      entries.push({ type: 'card', pl: entry.pl, sourceIndex: entry.sourceIndex, height: 69 });
-      var cardKey = playlistPanelKey(normalizePlaylistProvider(entry.pl.provider), entry.pl.id);
-      if (playlistPanelDetailState.key === cardKey) {
-        entries.push({ type: 'detail', pl: entry.pl, provider: normalizePlaylistProvider(entry.pl.provider), height: playlistPanelMeasuredDetailHeight(detailSig) || playlistPanelDetailShellHeight() });
-      }
-    });
+  items.forEach(function (entry) {
+    entries.push({ type: 'card', pl: entry.pl, sourceIndex: entry.sourceIndex, height: 69 });
+    var cardKey = playlistPanelKey(normalizePlaylistProvider(entry.pl.provider), entry.pl.id);
+    if (playlistPanelDetailState.key === cardKey) {
+      entries.push({ type: 'detail', pl: entry.pl, provider: normalizePlaylistProvider(entry.pl.provider), height: playlistPanelMeasuredDetailHeight(detailSig) || playlistPanelDetailShellHeight() });
+    }
   });
   var offsets = [0];
   entries.forEach(function (entry) { offsets.push(offsets[offsets.length - 1] + entry.height); });
@@ -766,6 +821,8 @@ function playlistPanelBuildVirtualEntries() {
     entries: entries,
     offsets: offsets,
     totalHeight: offsets[offsets.length - 1] || 0,
+    activeProvider: activeProvider,
+    availableProviders: available,
     raf: playlistPanelVirtualCache.raf || 0
   };
   return playlistPanelVirtualCache;
@@ -815,15 +872,67 @@ function bindPlaylistPanelLazyRender() {
     }
     if (queueViewTab === 'playlists') {
       schedulePlaylistPanelVirtualRender();
-      maybeGrowPlaylistPanelDetailRenderLimit();
     }
   }, { passive: true });
+}
+// 平台切换器只在真有两个以上平台有歌单时才出现：只有一个平台时它点了也不会有任何变化，
+// 纯粹占掉面板本就紧张的高度。
+// The switcher only shows with two or more non-empty providers; a single pill would do nothing but
+// eat height the panel barely has.
+// 切换器在 sticky 区里，不在 #pl-list 内部，所以 #pl-list 的事件委托收不到它，得单独绑一次。
+// 每次重绘只换 innerHTML，宿主节点不变，绑定一次就够。
+// The switcher lives in the sticky block, outside #pl-list, so the list delegation never sees it.
+// Only the innerHTML is rebuilt, so one binding on the host is enough.
+function bindPlaylistProviderTabs() {
+  var host = document.getElementById('pl-provider-tabs');
+  if (!host || host.getAttribute('data-pl-bound') === '1') return;
+  host.setAttribute('data-pl-bound', '1');
+  host.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-pl-provider]') : null;
+    if (!btn) return;
+    e.preventDefault();
+    setPlaylistPanelActiveProvider(btn.getAttribute('data-pl-provider'));
+  });
+}
+function renderPlaylistProviderTabs(cache) {
+  var host = document.getElementById('pl-provider-tabs');
+  if (!host) return;
+  bindPlaylistProviderTabs();
+  var onPlaylists = typeof queueViewTab === 'undefined' || queueViewTab === 'playlists';
+  // 离开「我的歌单」页签时直接收起；回到这个页签时调用方可能没带 cache（switchPlaylistTab
+  // 就是这种情况），现算一份即可。
+  // Leaving the playlists tab hides it outright; coming back may arrive without a cache, in which
+  // case one is built here.
+  if (!onPlaylists) {
+    host.innerHTML = '';
+    host.style.display = 'none';
+    return;
+  }
+  if (!cache) cache = playlistPanelBuildVirtualEntries();
+  var available = cache.availableProviders || [];
+  if (available.length < 2) {
+    host.innerHTML = '';
+    host.style.display = 'none';
+    return;
+  }
+  var active = (cache && cache.activeProvider) || '';
+  host.style.display = '';
+  host.innerHTML = available.map(function (key) {
+    var full = playlistProviderName(key);
+    var isActive = key === active;
+    return '<button type="button" class="pl-provider-tab' + (isActive ? ' active' : '') + '"'
+      + ' data-pl-provider="' + escHtml(key) + '"'
+      + ' aria-pressed="' + (isActive ? 'true' : 'false') + '"'
+      + ' title="' + escHtml(full) + '" aria-label="' + escHtml(full) + '">'
+      + escHtml(playlistProviderLabel(key)) + '</button>';
+  }).join('');
 }
 function renderUserPlaylistsList(opts) {
   opts = opts || {};
   var $pl = document.getElementById('pl-list');
   var seq = ++playlistRenderSeq;
   if (!userPlaylists.length) {
+    renderPlaylistProviderTabs(null);
     $pl.innerHTML = playlistCatalogSyncState && playlistCatalogSyncState.loading
       ? miniQueueSkeleton() + playlistCatalogFooterHtml()
       : playlistDetailText('pl_not_found_html');
@@ -845,6 +954,7 @@ function renderUserPlaylistsList(opts) {
       '</div>';
   }
   var cache = playlistPanelBuildVirtualEntries();
+  renderPlaylistProviderTabs(cache);
   var listRect = $pl.getBoundingClientRect();
   var panelRect = panel && panel.getBoundingClientRect ? panel.getBoundingClientRect() : { top: 0 };
   var visibleTop = panel ? Math.max(0, panelRect.top - listRect.top) : 0;
@@ -856,22 +966,9 @@ function renderUserPlaylistsList(opts) {
   var html = '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(topHeight) + 'px"></div>';
   for (var entryIndex = start; entryIndex < end; entryIndex++) {
     var entry = cache.entries[entryIndex];
-    if (entry.type === 'label') {
-      // 分组标题兼作折叠开关：带箭头、歌单数与 aria-expanded（#462）。
-      // The group header doubles as the collapse toggle, with caret, count and aria-expanded.
-      html += '<div class="pl-section-label' + (entry.collapsed ? ' is-collapsed' : '') + '"'
-        + ' role="button" tabindex="0" aria-expanded="' + (entry.collapsed ? 'false' : 'true') + '"'
-        + ' data-pl-group="' + escHtml(entry.key || '') + '">'
-        + '<span class="pl-section-caret" aria-hidden="true"></span>'
-        + '<span class="pl-section-text">' + entry.label + '</span>'
-        + '<span class="pl-section-count">' + (entry.count || 0) + '</span>'
-        + '</div>';
-    }
-    else if (entry.type === 'card') html += playlistCardHtml(entry.pl, entry.sourceIndex);
+    if (entry.type === 'card') html += playlistCardHtml(entry.pl, entry.sourceIndex);
     else if (entry.type === 'detail') {
-      var entryTop = cache.offsets[entryIndex] || 0;
-      var detailRowScrollTop = Math.max(0, visibleTop - entryTop - PLAYLIST_DETAIL_OUTER_CHROME_HEIGHT);
-      html += playlistPanelDetailHtml(entry.pl, entry.provider, { scrollTop: detailRowScrollTop, viewport: viewport });
+      html += playlistPanelDetailHtml(entry.pl, entry.provider);
     }
   }
   html += '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(bottomHeight) + 'px"></div>' + playlistCatalogFooterHtml();
@@ -909,33 +1006,11 @@ function renderMyPodcastCollections(opts) {
   if (opts.animate) animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
 }
 document.getElementById('pl-list').addEventListener('click', function (e) {
-  // 分组标题的折叠开关最先判断：它没有 .pl-card，下面的分支都不会命中（#462）。
-  // The group header is matched first; it carries no .pl-card so no branch below would catch it.
-  var groupToggle = e.target && e.target.closest ? e.target.closest('[data-pl-group]') : null;
-  if (groupToggle) {
-    e.preventDefault();
-    togglePlaylistPanelGroup(groupToggle.getAttribute('data-pl-group'));
-    return;
-  }
-  var loadMore = e.target && e.target.closest ? e.target.closest('[data-pl-load-more]') : null;
-  if (loadMore) {
+  var pagerBtn = e.target && e.target.closest ? e.target.closest('[data-pl-page]') : null;
+  if (pagerBtn) {
     e.preventDefault();
     e.stopPropagation();
-    growPlaylistPanelDetailRenderLimit('manual');
-    return;
-  }
-  var detailLoadMore = e.target && e.target.closest ? e.target.closest('[data-pl-detail-load-more]') : null;
-  if (detailLoadMore) {
-    e.preventDefault();
-    e.stopPropagation();
-    growPlaylistPanelDetailRenderLimit();
-    return;
-  }
-  var detailTop = e.target && e.target.closest ? e.target.closest('[data-pl-detail-top]') : null;
-  if (detailTop) {
-    e.preventDefault();
-    e.stopPropagation();
-    scrollPlaylistPanelToTop();
+    if (!pagerBtn.disabled) gotoPlaylistPanelDetailPage(pagerBtn.getAttribute('data-pl-page') === 'next' ? 1 : -1);
     return;
   }
   var playDetail = e.target && e.target.closest ? e.target.closest('[data-pl-detail-play]') : null;
@@ -993,15 +1068,4 @@ document.getElementById('pl-list').addEventListener('click', function (e) {
   var provider = card.getAttribute('data-playlist-provider') || 'netease';
   var pid = card.getAttribute('data-playlist-id') || '';
   openPlaylistPanelDetail(provider, pid, card.getAttribute('data-playlist-title') || '');
-});
-// 分组标题是 tabindex=0 的 role=button，键盘用 Enter/Space 折叠，和点击等价（#462）。
-// The header is a tabindex=0 role=button, so Enter/Space must collapse it like a click.
-document.getElementById('pl-list').addEventListener('keydown', function (e) {
-  if (!e.target || !e.target.closest) return;
-  var groupToggle = e.target.closest('[data-pl-group]');
-  if (!groupToggle) return;
-  var key = e.key;
-  if (key !== 'Enter' && key !== ' ' && key !== 'Spacebar') return;
-  e.preventDefault();
-  togglePlaylistPanelGroup(groupToggle.getAttribute('data-pl-group'));
 });
