@@ -28,15 +28,36 @@ jobs:
       # 覆盖率在这里是**报告**，不是门禁：这条步骤的产物是上传的 coverage-report 工件，
       # 没有覆盖率门槛（仓库里也没有覆盖率阈值配置）。步骤名写明 report only，
       # 免得有人看到 "Coverage ✓" 以为存在一条覆盖率红线。
+      #
+      # 为什么这里不用 test:ci 的 scripts/run-ci-tests.js：它是一个个 spawn 子进程跑测试文件的，
+      # `--experimental-test-coverage` 挂在父进程上量不到子进程，表格一行都不会输出。所以覆盖率
+      # 这一份改用 Node 自带的 test runner，只有它会把各子进程的 V8 覆盖数据合并成表格。
+      # 它只是报告，门禁仍然是 `npm run test:ci` 那一份，两者互不替代。
+      # 串行跑（--test-concurrency=1）是为了不和测试里的临时目录抢资源。
+      #
+      # 表格只打到终端，不落盘，所以用 tee 写成 coverage-report.txt 再上传；早先直接上传
+      # `.coverage` 目录是错的，那个目录从来不存在，上传步骤每次只安静警告一句就跳过。
       # Coverage here is a REPORT, not a gate: the step's product is the uploaded coverage-report
       # artifact and there is no threshold configured anywhere. The step name says so, so a green
       # "Coverage" is not mistaken for a coverage floor being enforced.
+      # scripts/run-ci-tests.js spawns one child process per test file, so hanging
+      # `--experimental-test-coverage` on the parent measures nothing and prints no tables. This job
+      # therefore uses Node's own test runner, which merges the V8 data of every child. The gate
+      # stays `npm run test:ci`; the two are not substitutes. Serial for temp-dir determinism.
       - name: Run tests with coverage (report only)
-        run: node --experimental-test-coverage scripts/run-ci-tests.js
         continue-on-error: true
+        env:
+          QISHUI_CLIENT_BRIDGE: '0'
+          QISHUI_NATIVE_CACHE_DIR: ${{ runner.temp }}/mineradio-tests-qishui-native
+          QISHUI_CLIENT_DIR: ${{ runner.temp }}/mineradio-tests-qishui-empty-client
+        run: |
+          set -o pipefail
+          node --test --experimental-test-coverage --test-concurrency=1 \
+            tests/*.test.js 2>&1 | tee coverage-report.txt
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report
-          path: .coverage
+          path: coverage-report.txt
+          if-no-files-found: error
           retention-days: 7
