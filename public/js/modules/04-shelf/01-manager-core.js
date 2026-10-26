@@ -55,6 +55,8 @@ function makeShelfManager() {
   var cardBuildQueue = null;
   var selectedIdx = -1;
   var coverBindResumeUntil = -10;
+  // 全屏接管类视觉预设（无尽公路 / 牛来）会自己铺地面与相机，架体必须整体让位。
+  var visualSuppressed = false;
 
   function shelfPointerSelectionForegroundActive() {
     return selectedIdx >= 0 && !document.body.classList.contains('cursor-hidden');
@@ -788,6 +790,11 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       rebuild(asyncCards);
     },
     getMode: function () { return mode; },
+    setVisualSuppressed: function (suppressed) {
+      visualSuppressed = !!suppressed;
+      if (group && visualSuppressed) group.visible = false;
+      if (connectorParticles && visualSuppressed) connectorParticles.visible = false;
+    },
     update: function (dt) {
       if (!group) return;
       // PSP 滚动平滑
@@ -833,7 +840,8 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       // Both modes now follow the same visibility rule. Stage mode used to read `mode !== 'side'`,
       // i.e. always visible, so the group — and the stage-only connector particles below — kept
       // drawing after the cards faded out. That residue is the "still half there" in issue #2.
-      group.visible = appRevealed
+      group.visible = !visualSuppressed
+        && appRevealed
         && shelfVisibility > 0.002
         && (allItems.length > 0 || (contentList && contentList.isOpen()));
       if (connectorParticles) connectorParticles.visible = group.visible && mode === 'stage';

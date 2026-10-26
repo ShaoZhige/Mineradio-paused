@@ -4074,6 +4074,9 @@ function checkSonicTopographyPresetGuard() {
   const mainLoopText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '11-main-loop.js'), 'utf8');
   const sonicText = fs.readFileSync(path.join(appRoot, 'public', 'sonic-topography-preset.js'), 'utf8');
   const sonicWorkshopText = fs.readFileSync(path.join(appRoot, 'public', 'sonic-workshop-preset.js'), 'utf8');
+  const highwayText = fs.readFileSync(path.join(appRoot, 'public', 'highway-drive-preset.js'), 'utf8');
+  const niulaiText = fs.readFileSync(path.join(appRoot, 'public', 'niulai-dream-preset.js'), 'utf8');
+  const shelfCoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '01-manager-core.js'), 'utf8');
   const sonicWorkshopBridgeText = fs.readFileSync(path.join(appRoot, 'public', 'vendor', 'sonic-workshop', 'mineradio-bridge.html'), 'utf8');
   const paletteText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '07-lyrics-palette-text-utils.js'), 'utf8');
   const accentControlText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '02-accent-background-controls.js'), 'utf8');
@@ -4185,10 +4188,10 @@ function checkSonicTopographyPresetGuard() {
   if (!/function deriveGroundLayoutSettings/.test(sonicText) || !/sonicGroundRange/.test(sonicText) || !/state\.root\.rotation\.x\s*=\s*state\.boundRotX/.test(sonicText) || !/state\.root\.position\.set\(0,\s*layout\.y,\s*layout\.z\)/.test(sonicText) || !/state\.root\.scale\.setScalar\(layout\.scale\)/.test(sonicText)) {
     fail('Sonic Topography must expose a wide, lyric-safe horizontal platter layout inside Mineradio camera space');
   }
-  if (!/MAX_VISUAL_PRESET_INDEX = 12/.test(coreText) || !/SONIC_PRESET_INDEX = 7/.test(coreText) || !/SONIC_WORKSHOP_PRESET_INDEX = 8/.test(coreText) || !/MAX_VISUAL_PRESET_INDEX/.test(runtimeText + persistenceText)) {
-    fail('Sonic preset 7 and Workshop derivative preset 8 must survive autosave and startup restore clamps');
+  if (!/MAX_VISUAL_PRESET_INDEX = 14/.test(coreText) || !/SONIC_PRESET_INDEX = 7/.test(coreText) || !/SONIC_WORKSHOP_PRESET_INDEX = 8/.test(coreText) || !/HIGHWAY_PRESET_INDEX = 13/.test(coreText) || !/NIULAI_PRESET_INDEX = 14/.test(coreText) || !/MAX_VISUAL_PRESET_INDEX/.test(runtimeText + persistenceText)) {
+    fail('Sonic presets 7/8, Highway Drive preset 13, and Niu Lai preset 14 must survive autosave and startup restore clamps');
   }
-  if (!/音域回响/.test(archiveText) || !/presetDisplayOrder = \[0, 9, 10, 11, 12, 6, 7, 8/.test(archiveText) || /音域回响[\s\S]{0,120}disabled:\s*true/.test(archiveText)) {
+  if (!/音域回响/.test(archiveText) || !/presetDisplayOrder = \[0, 9, 10, 11, 12, 6, 7, 8, 13, 14/.test(archiveText) || /音域回响[\s\S]{0,120}disabled:\s*true/.test(archiveText)) {
     fail('Sonic Topography must be exposed as the selectable 音域回响 preset');
   }
   if (!archiveText.includes('音域回响 <span class="pc-name-en">Sonic-Topography</span>')
@@ -4214,6 +4217,30 @@ function checkSonicTopographyPresetGuard() {
   if (!/canvasAnchor\.parentNode\.insertBefore\(layer,\s*canvasAnchor\)/.test(sonicWorkshopText) || !/layer\.setAttribute\('inert'/.test(sonicWorkshopText) || !/iframe\.setAttribute\('inert'/.test(sonicWorkshopText) || !/iframe\.style\.pointerEvents\s*=\s*'none'/.test(sonicWorkshopText) || !/#sonic-workshop-layer,\s*#sonic-workshop-layer \*[\s\S]{0,120}pointer-events:\s*none !important/.test(fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8'))) {
     fail('Sonic Workshop iframe layer must remain fully pointer-transparent so player buttons and window controls stay clickable');
   }
+  // 13/14 是自绘场景预设：模块自带 INDEX，核心状态里另存一份常量用于夹取。
+  // 两边编号必须一致，写偏一位老存档的 preset 就会落到别的画面上，而 UI 看起来完全正常。
+  if (!/var INDEX = 13;/.test(highwayText) || !/var INDEX = 14;/.test(niulaiText)) {
+    fail('Highway Drive and Niu Lai presets must keep INDEX 13 and 14 in sync with HIGHWAY_PRESET_INDEX / NIULAI_PRESET_INDEX');
+  }
+  if (!/highway-drive-preset\.js/.test(loaderText) || !/niulai-dream-preset\.js/.test(loaderText)) {
+    fail('Highway Drive and Niu Lai presets must be registered in index-loader');
+  }
+  if (!/MineradioHighwayDrive\.update/.test(mainLoopText) || !/visual\.highway-drive/.test(mainLoopText) || !/highwayPresetActiveEarly/.test(mainLoopText) || !/MineradioHighwayDrive\.onPresetChange/.test(presetGridText)) {
+    fail('Highway Drive preset must load, hide base particles, and update from the main loop');
+  }
+  if (!/MineradioNiuLaiDream\.update/.test(mainLoopText) || !/visual\.niulai-dream/.test(mainLoopText) || !/niulaiPresetActiveEarly/.test(mainLoopText) || !/MineradioNiuLaiDream\.onPresetChange/.test(presetGridText)) {
+    fail('Niu Lai preset must load, hide base particles, and update from the main loop');
+  }
+  if (!/setVisualSuppressed: function/.test(shelfCoreText) || !/!visualSuppressed/.test(shelfCoreText) || !/setVisualSuppressed\(highwayPresetActiveEarly \|\| niulaiPresetActiveEarly\)/.test(mainLoopText)) {
+    fail('Highway Drive and Niu Lai must suppress the 3D shelf, otherwise the shelf body floats over the road');
+  }
+  if (!/CELESTIAL_TEXTURE_PATH = 'assets\/highway-planets\/'/.test(highwayText)) {
+    fail('Highway Drive celestial textures must stay on the packaged assets/highway-planets path');
+  }
+  ['moon.jpg', 'mars.jpg', 'jupiter.jpg', 'saturn.jpg', 'neptune.jpg', 'venus.jpg', 'mercury.jpg', 'saturn-ring.png', 'LICENSE.txt'].forEach((assetName) => {
+    const assetPath = path.join(appRoot, 'public', 'assets', 'highway-planets', assetName);
+    if (!fs.existsSync(assetPath)) fail('Highway Drive preset is missing packaged planet asset: ' + assetName);
+  });
   if (!/wallpaperRegisterAudioListener/.test(sonicWorkshopBridgeText) || !/__mineradioApplyAudio/.test(sonicWorkshopBridgeText) || !/__mineradioApplyMedia/.test(sonicWorkshopBridgeText) || !/theme:\s*'coral-mirage'/.test(sonicWorkshopBridgeText) || !/themeCycleInterval:\s*50/.test(sonicWorkshopBridgeText) || !/gridSize:\s*320/.test(sonicWorkshopBridgeText) || !/audioIntensity:\s*1\.15/.test(sonicWorkshopBridgeText) || !/responseRange:\s*1\.3/.test(sonicWorkshopBridgeText) || !/peakColorIntensity:\s*0\.62/.test(sonicWorkshopBridgeText) || !/pulseSensitivity:\s*0\.05/.test(sonicWorkshopBridgeText) || !/pulseCooldown:\s*0/.test(sonicWorkshopBridgeText) || !/meteorSensitivity:\s*0\.3/.test(sonicWorkshopBridgeText) || !/cameraDistance:\s*80/.test(sonicWorkshopBridgeText) || !/autoRotateEnabled:\s*true/.test(sonicWorkshopBridgeText) || !/autoRotateSpeed:\s*7/.test(sonicWorkshopBridgeText) || !/cameraAngleX:\s*150/.test(sonicWorkshopBridgeText) || !/cameraAngleY:\s*30/.test(sonicWorkshopBridgeText) || !/showPlayerController:\s*false/.test(sonicWorkshopBridgeText)) {
     fail('Sonic Workshop bridge must preserve the requested Wallpaper Engine default parameters and receive Mineradio audio/media');
   }

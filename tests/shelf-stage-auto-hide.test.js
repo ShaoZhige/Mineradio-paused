@@ -145,10 +145,12 @@ test('the group is hidden once it has faded out, so no stage residue is left beh
     /group\.visible = [^;]*mode !== 'side'/,
     'stage mode must not keep the whole group visible after the cards faded out'
   );
+  // 可见性仍然由淡出值驱动，只是在最前面多了一道「视觉预设接管全屏时必须整体让位」的开关。
+  // 顺序不能变：先让位判定，再 appRevealed，再淡出值 —— 把让位放到最后会让残影重新出现。
   assert.match(
     managerText,
-    /group\.visible = appRevealed\s*\n\s*&& shelfVisibility > 0\.002/,
-    'visibility must be driven by the fade value in both modes'
+    /group\.visible = !visualSuppressed\s*\n\s*&& appRevealed\s*\n\s*&& shelfVisibility > 0\.002/,
+    'visibility must be driven by the fade value in both modes, after the visual-preset suppression gate'
   );
   // 连线粒子跟着 group 走，否则卡片没了它还在底部画线。
   assert.match(managerText, /connectorParticles\.visible = group\.visible && mode === 'stage'/);

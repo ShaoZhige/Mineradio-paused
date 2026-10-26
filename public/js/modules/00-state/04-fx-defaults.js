@@ -27,7 +27,7 @@ function wallpaperEngineBorderlessCaptureSupported() {
 }
 
 var fxDefaults = {
-  preset: 0,            // 0..8 legacy series; 9=halo, 10=neon rain, 11=prism flock, 12=abyssal bloom
+  preset: 0,            // 0..8 legacy series; 9=halo, 10=neon rain, 11=prism flock, 12=abyssal bloom, 13=highway drive, 14=niu lai dream
   intensity: 0.85,
   cinemaShake: 0.5,
   depth: 0.2,

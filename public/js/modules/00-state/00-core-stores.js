@@ -143,9 +143,15 @@ var LYRIC_LAYOUT_STORE_KEY = 'mineradio-lyric-layout-v1';
 var CURRENT_FX_AUTOSAVE_STORE_KEY = 'mineradio-current-fx-autosave-v1';
 var CURRENT_FX_AUTOSAVE_SCHEMA = 'current-fx-autosave-v2';
 var VISUAL_PRESET_SCHEMA = 'skull-preset-v2';
-var MAX_VISUAL_PRESET_INDEX = 12;
+// 预设编号上限：0~8 为内置画面，9~12 为 premium 视觉，13=无尽公路，14=牛来。
+// 改这个值前先确认 presetMeta 与 presetIcons 同步，否则存档里的 preset 会被夹到错的档位。
+var MAX_VISUAL_PRESET_INDEX = 14;
 var SONIC_PRESET_INDEX = 7;
 var SONIC_WORKSHOP_PRESET_INDEX = 8;
+// 自绘场景预设的编号必须与各自模块里的 INDEX 一致，故意在这里留第二份：
+// 两份同时写错才会一起漂，只写错一份时守卫能抓出来。
+var HIGHWAY_PRESET_INDEX = 13;
+var NIULAI_PRESET_INDEX = 14;
 var PLAYBACK_QUALITY_STORE_KEY = 'mineradio-playback-quality-v1';
 var AUDIO_OUTPUT_DEVICE_STORE_KEY = 'mineradio-audio-output-device-v1';
 var AUDIO_OUTPUT_MIRROR_STORE_KEY = 'mineradio-audio-output-mirror-v1';

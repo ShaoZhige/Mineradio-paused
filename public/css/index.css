@@ -12070,6 +12070,11 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   font-weight: 650
 }
 
+.preset-card .pc-author-cyberforker {
+  color: #e55a4f;
+  font-weight: 700
+}
+
 .preset-card.active .pc-name {
   color: #fff
 }

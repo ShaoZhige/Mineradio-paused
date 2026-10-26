@@ -113,3 +113,25 @@ Adaptations to this project:
 
 No third-party source script ships with this project. Imported scripts live under the
 user's Electron `userData` directory and are excluded from Git and the installer.
+
+## Highway Drive and Niu Lai Dream visual presets
+
+- Upstream: `XxHuberrr/Mineradio-paused` pull request #434, author `CyberFork` / Cyberforker
+- Merged-in revision: not merged upstream; taken from the PR head as-is
+- License: GNU GPL v3 (`GPL-3.0`), same as the project this repository forks
+- Planetary textures: Solar System Scope / INOVE, CC BY 4.0, resampled to 1024 px;
+  attribution ships as `public/assets/highway-planets/LICENSE.txt`
+- Port date: 2026-10-27
+
+Both presets are self-contained IIFE modules living at `public/` root next to the existing
+`sonic-*-preset.js` files, registered through `index-loader.js`, and driven from the main
+render loop. They draw their own bounded Three.js scenery instead of extending the shader
+preset series, so they do not take part in the `9..12` authored-particle branches.
+
+Only the visual half of PR #434 was taken. That PR also threads a third-party music API
+provider through the login, search, playback, quality and backend layers; none of it is
+included here.
+
+Preset indices follow this repository's own numbering, which already reaches 12: the
+upstream PR assumed the series stopped at 8 and used 9 and 10, which would have silently
+reinterpreted existing saved presets. Highway Drive is 13 and Niu Lai Dream is 14.
