@@ -179,6 +179,17 @@
         return new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open(request.method || 'GET', request.url, true);
+          // 必须带凭据：本页跑在 127.0.0.1 上，请求 api.qishui.com 属于跨站。
+          // XHR 默认 credentials 是 same-origin，跨站请求**一个 cookie 都不会带**——
+          // 实测（2026-10-26，CDP 抓包）withCredentials=false 时 check_qrconnect 的
+          // associatedCookies 为空；改 true 后 passport_csrf_token 正常带上。
+          // 不带 cookie 的轮询与扫码时的会话对不上，手机点了确认这边也只会一直「等待」。
+          // Credentials are mandatory: this page is served from 127.0.0.1 while the API lives on
+          // api.qishui.com, and XHR defaults to same-origin credentials, which sends no cookie at
+          // all across sites. Measured with CDP: with withCredentials=false the check_qrconnect
+          // request carries zero associated cookies; with true it carries passport_csrf_token.
+          // A cookieless poll cannot see the session the phone just confirmed.
+          xhr.withCredentials = true;
           for (const [name, value] of Object.entries(request.headers || {})) {
             xhr.setRequestHeader(name, String(value));
           }

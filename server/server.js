@@ -5412,8 +5412,14 @@ const server = http.createServer(async (req, res) => {
       let status = String(data.status || '').trim();
       if (errorCode === 2) status = 'expired';
       else if (errorCode === 7) status = 'rate_limited';
-      else if (status === '2') status = 'scanned';
-      else if (!status || status === '1') status = 'waiting';
+      else if (status === '2' || status === 'scanned') status = 'scanned';
+      // 服务端已经确认，但会话 cookie 还没落到本地（Set-Cookie 被丢、或用户信息接口还没回过）。
+      // 这时必须说「已确认、正在验证」，否则前端只会一直显示「等待扫码确认」，看着像码没扫上。
+      // The server has confirmed the scan but the session cookie has not landed locally yet. Saying
+      // "verifying" is honest here; otherwise the UI keeps showing "waiting", which looks like the
+      // scan never registered.
+      else if (status === '3' || status === 'confirmed') status = 'verifying';
+      else if (!status || status === '1' || status === 'new') status = 'waiting';
       sendJSON(res, {
         provider: 'qishui',
         loggedIn: false,

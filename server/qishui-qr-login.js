@@ -44,8 +44,12 @@ function writeConfig(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
 }
 
+// 与 qishui-api.js 的 qishuiCookieHasLogin 保持完全一致：那边用这 6 个字段判断会话是否有效，
+// 这边少认 uid_tt / uid_tt_ss 就会出现「这边说没登录、那边说已登录」，登录卡在等待确认。
+// Kept in lockstep with qishuiCookieHasLogin in qishui-api.js: missing uid_tt / uid_tt_ss here
+// makes this layer report "not logged in" while the API layer reports the opposite.
 function hasLoginCookie(cookie) {
-  return /(?:^|;\s*)(?:sessionid|sessionid_ss|sid_guard|sid_tt)=[^;\s]+/i.test(String(cookie || ''));
+  return /(?:^|;\s*)(?:sessionid|sessionid_ss|sid_guard|sid_tt|uid_tt|uid_tt_ss)=[^;\s]+/i.test(String(cookie || ''));
 }
 
 function createQishuiQrLoginBridge(options) {

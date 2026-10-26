@@ -205,11 +205,17 @@ class QishuiAuthRuntime {
       { urls: ['https://api.qishui.com/*', 'https://verify.zijieapi.com/*', 'https://auth.zijieapi.com/*'] },
       (details, callback) => {
         const headers = { ...(details.responseHeaders || {}) };
+        // 这个窗口是 webSecurity:false，CORS 本来就不生效，所以这里不需要为「带凭据」做
+        // 回显式改写；保持通配即可，上游自己也是这么回的。
+        // The window runs with webSecurity:false, so CORS is not enforced here: its wildcard can
+        // stay as-is instead of echoing the request origin for credentialed responses.
         headers['Access-Control-Allow-Origin'] = ['*'];
         headers['Access-Control-Expose-Headers'] = ['*'];
         callback({ responseHeaders: headers });
       },
     );
+    // 记录最后一次 passport 请求，用于校验 a_bogus / msToken 签名是否真的注入了。
+    // Captures the last passport request so the a_bogus / msToken injection can be verified.
     authSession.webRequest.onBeforeSendHeaders(
       { urls: ['https://api.qishui.com/passport/*'] },
       (details, callback) => {
@@ -491,6 +497,14 @@ class QishuiAuthRuntime {
         throw new Error('二次验证已通过，但服务端仍返回 2046；请重新刷新二维码');
       }
     }
+    // 扫码链路只能靠日志定位：只记状态与字段有无，绝不打印 cookie 值。轮询每 2s 一次，
+    // 状态还是「等待」(1/空) 且没拿到会话 cookie 时不写，免得把日志刷掉。
+    // The scan handshake is only diagnosable through this line; status and field presence only,
+    // cookie values are never logged. Plain "waiting" polls are skipped so the log stays readable.
+    if (data.session_cookie || Number(data.error_code) !== 0 || (String(data.status) && String(data.status) !== '1')) {
+      console.log('[QishuiQr] check code=%s status=%s session_cookie=%s gen=%s/%s',
+        data.error_code, data.status, data.session_cookie ? 'present' : 'absent', generation, this.qrGeneration);
+    }
     if (generation === this.qrGeneration && Number(data.error_code) === 0 && (String(data.status) === '3' || String(data.status) === 'confirmed' || data.session_cookie)) {
       await this.persistSessionCookies(data.session_cookie || '', generation);
     }
@@ -506,7 +520,15 @@ class QishuiAuthRuntime {
         current[cookie.name] = cookie.value;
       }
     }
+    const jarNames = Object.keys(current);
+    const fromResponse = Object.keys(parseCookieString(sessionCookie));
     Object.assign(current, parseCookieString(sessionCookie));
+    // 只记名字不记值：会话字段到底是从浏览器 cookie jar 落进来的，还是响应体 session_cookie
+    // 给的，决定了以后该往哪条路修。
+    // Names only, never values: whether the session field came from the browser jar or from the
+    // response body decides which path future fixes belong to.
+    console.log('[QishuiQr] persist jar=[%s] response=[%s] stored=[%s]',
+      jarNames.join(',') || 'none', fromResponse.join(',') || 'none', Object.keys(current).join(',') || 'none');
     if (generation !== this.qrGeneration) return;
     updateConfig({ cookie: buildCookieString(current), msToken: this.msToken });
   }
