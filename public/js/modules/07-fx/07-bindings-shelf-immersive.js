@@ -535,7 +535,7 @@ function toggleFx(key) {
       showToast(glassBorderless
         ? bindingsShelfImmersiveText('bind_we_glass_on')
         : bindingsShelfImmersiveText('bind_glass_sampling_on'));
-      if (wallpaperEngineCaptureMode === 'dwm-thumbnail' && typeof scheduleWallpaperEngineGlassSamplerCapture === 'function') {
+      if (typeof wallpaperEngineCaptureMode !== 'undefined' && wallpaperEngineCaptureMode === 'dwm-thumbnail' && typeof scheduleWallpaperEngineGlassSamplerCapture === 'function') {
         scheduleWallpaperEngineGlassSamplerCapture(String(wallpaperEngineNativeSessionId || ''), wallpaperEngineLayerToken, 0);
       }
     }

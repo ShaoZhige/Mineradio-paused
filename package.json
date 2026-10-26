@@ -63,7 +63,10 @@
       "!node_modules/**/*.d.cts",
       "!node_modules/**/*.d.mts"
     ],
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "build/**/*"
+    ],
     "compression": "maximum",
     "win": {
       "executableName": "Mineradio",

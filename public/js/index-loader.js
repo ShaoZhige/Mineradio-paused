@@ -120,7 +120,6 @@
     'js/modules/07-fx/00-preset-archive-data.js',
     'js/modules/07-fx/01-lyric-color-controls.js',
     'js/modules/07-fx/02-accent-background-controls.js',
-    'js/modules/07-fx/03-wallpaper-engine-library.js',
     'js/modules/07-fx/03-cover-picker-fonts.js',
     'js/modules/07-fx/04-preset-grid-uniforms.js',
     'js/modules/07-fx/05-fx-panel-performance.js',
@@ -148,6 +147,21 @@
     'js/modules/11-main-loop.js',
   ];
 
+  // ── 惰性模块清单 ────────────────────────────────────────────────────────────
+  // 壁纸引擎是单块最重的功能（2705 行，109 个顶层函数），而且一加载就注册 capture 阶段的
+  // pointermove / mousemove 监听，并在上次启用过壁纸时立刻发起一次跨进程扫盘。没在用壁纸的
+  // 用户不该为它付启动成本，所以改成首次真正需要时注入 <script src>。
+  // 它仍然**必须登记**，只是登记在这份清单里：quick-check 的登记守卫会把两个清单合并，
+  // 再与磁盘上的模块树做集合比对，所以「忘了登记」和「登记了却永不加载」都会被拦住。
+  // The wallpaper engine is the heaviest single feature (2705 lines, 109 top-level functions) and
+  // loading it registers capture-phase pointermove/mousemove listeners and may immediately start a
+  // cross-process disk scan. Users who never touch wallpapers should not pay that on startup, so it
+  // is injected on first use. It still has to be registered — in this list — and quick-check merges
+  // both lists before comparing against the module tree, so a missing entry is still caught.
+  const lazyModulePaths = [
+    'js/modules/07-fx/03-wallpaper-engine-library.js',
+  ];
+
   function readModule(path) {
     const request = new XMLHttpRequest();
     request.open('GET', path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + moduleCacheBust, false);
@@ -160,7 +174,103 @@
     return request.responseText;
   }
 
+  // 惰性加载运行时：注入到拼接脚本尾部，与模块共享同一个全局作用域。
+  // 它做三件事：
+  //   1. 提供 __mineradioEnsureLazyModule()，用 <script src> 按需注入惰性模块并去重；
+  //   2. 给 index.html 的内联 on* 入口放「转发桩」——第一次点击先加载，再由真函数接手
+  //      （真模块的顶层 function 声明会覆盖同名全局，桩内部会重新读 window[name]）；
+  //   3. 上次启用过壁纸的话立刻补加载一次，别让壁纸在启动后不显示。
+  // Lazy runtime, appended to the concatenated script so it shares the same global scope:
+  //  1. __mineradioEnsureLazyModule() injects a lazy module via <script src> with de-duplication;
+  //  2. index.html's inline on* handlers get forwarding stubs — the first click loads the module,
+  //     then the real top-level function (which overwrites the global name) takes over;
+  //  3. if a wallpaper was active last session, load immediately so it does not go missing.
+  const lazyRuntimeSource = `
+(function () {
+  'use strict';
+  var lazyFiles = ${JSON.stringify(lazyModulePaths)};
+  var lazyCacheBust = ${JSON.stringify(moduleCacheBust)};
+  var lazyLoaded = Object.create(null);
+  var lazyLoading = Object.create(null);
+  function isLazyFile(path) { return lazyFiles.indexOf(path) >= 0; }
+  window.__mineradioLazyModuleLoaded = function (path) {
+    return !!lazyLoaded[String(path || '')];
+  };
+  window.__mineradioEnsureLazyModule = function (path, reason) {
+    path = String(path || '');
+    if (!isLazyFile(path)) return Promise.resolve(false);
+    if (lazyLoaded[path]) return Promise.resolve(true);
+    if (lazyLoading[path]) return lazyLoading[path];
+    lazyLoading[path] = new Promise(function (resolve, reject) {
+      var el = document.createElement('script');
+      el.src = path + '?v=' + encodeURIComponent(lazyCacheBust);
+      el.async = true;
+      el.onload = function () {
+        lazyLoaded[path] = true;
+        lazyLoading[path] = null;
+        resolve(true);
+      };
+      el.onerror = function () {
+        lazyLoading[path] = null;
+        if (window.console && typeof console.error === 'function') {
+          console.error('[LazyModule] failed to load ' + path + ' (triggered by ' + (reason || 'unknown') + ')');
+        }
+        reject(new Error('LAZY_MODULE_LOAD_FAILED'));
+      };
+      document.body.appendChild(el);
+    });
+    return lazyLoading[path];
+  };
+
+  var WALLPAPER_ENGINE_MODULE = ${JSON.stringify(lazyModulePaths[0] || '')};
+  var WALLPAPER_ENGINE_SELECTION_KEY = 'mineradio-wallpaper-engine-selection-v1';
+  // 与 wallpapers 模块里 normalizeWallpaperEngineSelection 的 active 判据保持一致：
+  // active 必须为 true，且 id 归一化后正好 24 位 hex。
+  // Mirrors the module's own active test: active === true and a 24-char hex id after normalising.
+  function wallpaperEngineLooksActive() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(WALLPAPER_ENGINE_SELECTION_KEY) || '{}');
+      var id = String((raw && raw.id) || '').replace(/[^a-f0-9]/gi, '').slice(0, 24);
+      return !!(raw && raw.active === true && id.length === 24);
+    } catch (e) {
+      return false;
+    }
+  }
+  var wallpaperEntries = ${JSON.stringify([
+    'chooseWallpaperEngineDirectory',
+    'chooseWallpaperEngineProjectFile',
+    'closeWallpaperEngineLibrary',
+    'closeWallpaperEngineProjectDetails',
+    'deactivateWallpaperEngineBackground',
+    'launchWallpaperEngineProjectDetails',
+    'openWallpaperEngineLibrary',
+    'refreshWallpaperEngineLibrary',
+    'restoreHiddenWallpaperEngineItems',
+    'retryWallpaperEngineNativeRun',
+    'scheduleWallpaperEngineLibraryRender',
+    'setWallpaperEngineVisualSetting'
+  ])};
+  wallpaperEntries.forEach(function (name) {
+    if (typeof window[name] === 'function') return;
+    var stub = function () {
+      var self = this;
+      var args = arguments;
+      return window.__mineradioEnsureLazyModule(WALLPAPER_ENGINE_MODULE, name).then(function () {
+        var fn = window[name];
+        if (typeof fn === 'function' && !fn.__mineradioLazyStub) return fn.apply(self, args);
+        return undefined;
+      }).catch(function () { return undefined; });
+    };
+    stub.__mineradioLazyStub = true;
+    window[name] = stub;
+  });
+  if (WALLPAPER_ENGINE_MODULE && wallpaperEngineLooksActive()) {
+    window.__mineradioEnsureLazyModule(WALLPAPER_ENGINE_MODULE, 'restore-active-selection').catch(function () { });
+  }
+})();
+`;
+
   const script = document.createElement('script');
-  script.text = modulePaths.map(readModule).join('') + '\n//# sourceURL=mineradio-index-modules.js\n';
+  script.text = modulePaths.map(readModule).join('') + lazyRuntimeSource + '\n//# sourceURL=mineradio-index-modules.js\n';
   document.currentScript.parentNode.insertBefore(script, document.currentScript.nextSibling);
 })();

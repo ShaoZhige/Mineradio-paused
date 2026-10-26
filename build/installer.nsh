@@ -123,9 +123,13 @@
   ; 只有走过第一步选语言（非静默安装）才写：静默安装/更新时没有界面，不该改写旧选择。
   ; Only write when the language step actually ran (interactive install): silent installs and
   ; updates show no page and must not overwrite an earlier choice.
+  ; 路径必须与主进程的 PORTABLE_USER_DATA_PATH 一致：打包启用 asar 之后便携数据根是
+  ; <安装目录>\userdata（app.asar 内部只读，写在里面会被静默忽略）。
+  ; This path must match PORTABLE_USER_DATA_PATH in the main process: with asar enabled the
+  ; portable root is <install dir>\userdata, because the inside of app.asar is read-only.
   ${If} $MineradioLanguage != ""
-    CreateDirectory "$INSTDIR\resources\app\userdata"
-    FileOpen $0 "$INSTDIR\resources\app\userdata\${MINERADIO_LANG_MARKER}" w
+    CreateDirectory "$INSTDIR\userdata"
+    FileOpen $0 "$INSTDIR\userdata\${MINERADIO_LANG_MARKER}" w
     ${IfNot} ${Errors}
       FileWrite $0 "$MineradioLanguage$\r$\n"
       FileClose $0

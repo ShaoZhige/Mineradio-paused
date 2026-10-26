@@ -497,12 +497,22 @@ function readIndexModulePaths() {
   const loader = fs.readFileSync(loaderPath, 'utf8');
   const match = loader.match(/const modulePaths = \[([\s\S]*?)\];/);
   if (!match) fail('modulePaths not found in public/js/index-loader.js');
-  return { publicDir, loader, modulePaths: [...match[1].matchAll(/'([^']+)'/g)].map(m => m[1]) };
+  // 惰性清单可选：存在时合并进来，不存在的 loader 就是「全部立即加载」的老样子。
+  // The lazy list is optional; when present it joins the eager list, when absent the loader simply
+  // loads everything up front as before.
+  const lazyMatch = loader.match(/const lazyModulePaths = \[([\s\S]*?)\];/);
+  const lazyModulePaths = lazyMatch ? [...lazyMatch[1].matchAll(/'([^']+)'/g)].map(m => m[1]) : [];
+  return {
+    publicDir,
+    loader,
+    modulePaths: [...match[1].matchAll(/'([^']+)'/g)].map(m => m[1]),
+    lazyModulePaths,
+  };
 }
 
 function checkIndexModuleRegistrationGuard() {
   logStep('Index module registration guard');
-  const { publicDir, loader, modulePaths } = readIndexModulePaths();
+  const { publicDir, loader, modulePaths, lazyModulePaths } = readIndexModulePaths();
   // 漏登记不会报错、不会红测试、控制台也不提醒 —— 那个文件就是不会被加载，
   // 所以这条判据要盯的就是"模块目录里的每个 .js 都在 modulePaths 里"。
   // An unregistered module never loads and never complains, so the judgement is set equality
@@ -528,18 +538,40 @@ function checkIndexModuleRegistrationGuard() {
         }
       });
   })(modulesRoot);
-  const registered = new Set(modulePaths);
+  const eager = new Set(modulePaths);
+  const lazy = new Set(lazyModulePaths);
+  // 同一个模块不能既立即加载又惰性加载 —— 那会执行两次，顶层 var/function 静默互相覆盖。
+  // A module may not be both eager and lazy; it would execute twice and silently re-declare names.
+  const bothLists = lazyModulePaths.filter((rel) => eager.has(rel));
+  if (bothLists.length) {
+    fail(`modules registered in both modulePaths and lazyModulePaths: ${bothLists.join(', ')}`);
+  }
+  // 惰性清单不是"可以不登记"的后门：只要有惰性模块，加载器就必须真的提供注入机制和入口转发桩，
+  // 否则那些模块要么永不加载，要么被 index.html 的内联处理器按名字调用时直接 ReferenceError。
+  // The lazy list is not an "unregistered is fine" backdoor: if it is used, the loader must really
+  // provide the injection helper and the entry stubs, or the modules never load / the inline
+  // handlers in index.html throw ReferenceError on the missing global.
+  if (lazyModulePaths.length) {
+    if (!/__mineradioEnsureLazyModule/.test(loader)) {
+      fail('lazyModulePaths is populated but the loader defines no __mineradioEnsureLazyModule injector');
+    }
+    if (!/__mineradioLazyStub/.test(loader)) {
+      fail('lazyModulePaths is populated but the loader installs no entry stubs for inline handlers');
+    }
+  }
+  const registered = new Set(modulePaths.concat(lazyModulePaths));
   const unregistered = onDisk.filter((rel) => !registered.has(rel));
   if (unregistered.length) {
     fail(`module files missing from modulePaths (they would never load): ${unregistered.join(', ')}`);
   }
-  const missingFiles = modulePaths.filter((rel) => !fs.existsSync(path.join(publicDir, rel)));
+  const allPaths = modulePaths.concat(lazyModulePaths);
+  const missingFiles = allPaths.filter((rel) => !fs.existsSync(path.join(publicDir, rel)));
   if (missingFiles.length) {
     fail(`modulePaths entries without a file on disk: ${missingFiles.join(', ')}`);
   }
   // 重复登记会让同一个模块执行两次，顶层 var/function 被重复声明（后者静默覆盖前者）。
   // A duplicate registration executes the module twice and silently re-declares its top-level names.
-  const duplicates = modulePaths.filter((rel, i) => modulePaths.indexOf(rel) !== i);
+  const duplicates = allPaths.filter((rel, i) => allPaths.indexOf(rel) !== i);
   if (duplicates.length) {
     fail(`modulePaths contains duplicates: ${[...new Set(duplicates)].join(', ')}`);
   }

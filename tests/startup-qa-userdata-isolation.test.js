@@ -25,9 +25,15 @@ test('startup QA isolates its disposable userData away from the real profile', (
 test('app-owned data stays inside the application folder', () => {
   // 便携数据根固定在软件目录内；只读安装目录才退回用户配置目录。
   // The portable data root is fixed inside the app folder; only a read-only install folder
-  // falls back to the user profile.
-  assert.match(mainText, /const PORTABLE_USER_DATA_PATH = path\.join\(APP_ROOT_PATH, 'userdata'\)/);
+  // falls back to the user profile. With asar the archive itself is read-only, so the root moves
+  // next to the exe — still the app folder, never the user profile.
   assert.match(mainText, /const APP_ROOT_PATH = path\.join\(__dirname, '\.\.'\)/);
+  assert.match(mainText, /const APP_ROOT_IN_ASAR = APP_ROOT_PATH\.includes\('app\.asar'\)/);
+  assert.match(
+    mainText,
+    /const PORTABLE_USER_DATA_PATH = APP_ROOT_IN_ASAR\s*\?\s*path\.join\(path\.dirname\(process\.execPath\), 'userdata'\)\s*:\s*path\.join\(APP_ROOT_PATH, 'userdata'\)/,
+    'the portable root must be the app folder in both modes (asar root next to the exe)'
+  );
   assert.match(mainText, /\[PortableData\] app folder is not writable/);
 
   const cacheRootBody = (mainText.match(/function defaultCacheRootPath\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];

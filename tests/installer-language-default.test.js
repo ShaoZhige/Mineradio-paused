@@ -4,7 +4,7 @@
 //
 // 链路共四段，缺一段就会静默失效（用户选了语言，装完界面还是老样子，且没有任何报错）：
 //   1. build/installer.nsh 在欢迎页放四个语言单选按钮，离开页面时读回选中项；
-//   2. 安装结束把语言码写进 <安装目录>\resources\app\userdata\.installer-language；
+//   2. 安装结束把语言码写进 <安装目录>\userdata\.installer-language；
 //   3. desktop/main.js 通过 IPC 读一次就删掉标记（避免以后重装覆盖用户在应用里的选择）；
 //   4. public/js/modules/00-state/13-i18n.js 把安装器的选择排在系统语言之前、用户选择之后。
 //
@@ -95,10 +95,13 @@ test('installer welcome page offers the four supported languages in an openable 
 });
 
 test('installer writes the picked language where the app looks for it', () => {
-  // 应用自己的数据根是 <安装目录>\resources\app\userdata（见 desktop/main.js 的
-  // PORTABLE_USER_DATA_PATH），标记必须落在同一个地方，主进程才读得到。
-  // The app's data root is <install dir>\resources\app\userdata; the marker has to land there.
-  assert.match(installerCode, /resources\\app\\userdata\\\$\{MINERADIO_LANG_MARKER\}/);
+  // 打包启用 asar 之后，应用的数据根是 <安装目录>\userdata：app.asar 内部只读，主进程的
+  // PORTABLE_USER_DATA_PATH 会挪到 exe 同级。标记必须落在同一处，主进程才读得到。
+  // With asar packaging the data root is <install dir>\userdata: the inside of app.asar is
+  // read-only, so PORTABLE_USER_DATA_PATH in the main process moves next to the exe. The marker has
+  // to land in the same place for the main process to find it.
+  assert.match(installerCode, /\$INSTDIR\\userdata\\\$\{MINERADIO_LANG_MARKER\}/);
+  assert.doesNotMatch(installerCode, /resources\\app\\userdata/, 'the language marker must not be written inside the asar payload');
   assert.match(installerCode, /!define MINERADIO_LANG_MARKER "\.installer-language"/);
   // 静默安装 / 更新没有界面，不能覆盖用户早已选好的语言。
   // Silent installs and updates show no page and must not overwrite an earlier choice.
