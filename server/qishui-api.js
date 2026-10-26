@@ -632,8 +632,8 @@ function getQishuiStatus(cookieText) {
       : tokenConfigured
       ? '已有旧版开放平台目录授权；账号功能仍需完成官方扫码登录。'
       : (QISHUI_PUBLIC_ENABLED
-        ? '请使用抖音 App 扫描 Mineradio 中的汽水官方二维码；未登录时仅保留公开搜索匹配。'
-        : '请使用抖音 App 扫描 Mineradio 中的汽水官方二维码完成登录。'),
+        ? '请用汽水音乐 App 扫描 Mineradio 中的汽水官方二维码；未登录时仅保留公开搜索匹配。'
+        : '请用汽水音乐 App 扫描 Mineradio 中的汽水官方二维码完成登录。'),
   };
 }
 

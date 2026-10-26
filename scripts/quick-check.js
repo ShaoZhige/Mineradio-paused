@@ -2128,8 +2128,14 @@ function checkQishuiProviderGuard() {
   if (/vsaa\.cn|QISHUI_VIP_PROXY|music\.qishui\.vip/.test(qishuiText)) {
     fail('Qishui playback must not depend on third-party VIP/proxy endpoints');
   }
-  if (!/search: tokenConfigured \|\| webSession \|\| QISHUI_PUBLIC_ENABLED/.test(qishuiText) || !/loggedIn: webSession/.test(qishuiText) || !/请使用抖音 App 扫描 Mineradio 中的汽水官方二维码/.test(qishuiText)) {
+  if (!/search: tokenConfigured \|\| webSession \|\| QISHUI_PUBLIC_ENABLED/.test(qishuiText) || !/loggedIn: webSession/.test(qishuiText) || !/请用汽水音乐 App 扫描 Mineradio 中的汽水官方二维码/.test(qishuiText)) {
     fail('Qishui status must keep public catalogue readiness separate from an authenticated Passport Web session');
+  }
+  // 扫码提示必须指向汽水音乐 App：实测用抖音扫码会被引导「去汽水音乐 App 扫码」，照原文案做只会绕一圈。
+  // The prompt must name the Qishui Music app: Douyin sends users to Qishui, so naming Douyin just
+  // makes them take a detour.
+  if (/抖音 App 扫描|抖音 App 扫码/.test(qishuiText)) {
+    fail('Qishui prompts must not tell users to scan with the Douyin app');
   }
   const oldQishuiCredentialPrompt = new RegExp('当前版本还没有内置' + '抖音开放平台应用凭证');
   if (!/function qishuiPublicSearchReady/.test(qishuiLoginText) || !/function openQishuiPublicSearch/.test(qishuiLoginText) || !/refreshBtn\.onclick = isQishui \? openQishuiWebLogin :/.test(qishuiLoginText) || oldQishuiCredentialPrompt.test(qishuiLoginText)) {
@@ -2155,7 +2161,7 @@ function checkQishuiProviderGuard() {
     fail('Qishui account status must describe the official QR session without exposing legacy import modes');
   }
   requireLocaleKeys('logout_qishui_logged', 'logout_qishui_sync', 'logout_qishui_not_logged', 'logout_scan_douyin');
-  if (!/官方扫码 \/ 抖音确认/.test(indexText) || /本地会话 \/ PC 客户端/.test(indexText)) {
+  if (!/官方扫码 \/ 汽水音乐确认/.test(indexText) || /本地会话 \/ PC 客户端/.test(indexText)) {
     fail('Qishui login node must identify the official QR flow');
   }
   if (!/\/luna\/pc\/me/.test(qishuiText) || !/\/luna\/pc\/user\/playlist/.test(qishuiText) || !/\/luna\/pc\/playlist\/detail/.test(qishuiText) || !/function qishuiPcAppParams/.test(qishuiText) || !/pcApp: true/.test(qishuiText) || !/count: Math\.min\(100/.test(qishuiText) || /\/luna\/pc\/playlist\/detail[\s\S]{0,260}cnt:/.test(qishuiText)) {
