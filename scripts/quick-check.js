@@ -1733,8 +1733,24 @@ function checkPersistentCacheStorageGuard() {
   // 便携化守卫：数据根必须落在软件目录内，缓存根不得再指向盘符根目录。
   // Portability guard: the data root must sit inside the app folder and the cache root must
   // never point at a drive root again.
+  //
+  // 打包进 asar 后 __dirname 落在只读归档里，mkdir 会失败并静默退回 %APPDATA%（用户看到的是
+  // 「登录态全丢」），所以数据根必须挪到 exe 同级 —— 这是唯一允许的例外。两个分支都得在：
+  // 少了 exe 分支 = 打包版丢数据，少了 APP_ROOT 分支 = 源码运行把数据写到仓库外。
+  // Inside app.asar __dirname is read-only: mkdir fails and the code silently falls back to
+  // %APPDATA%, which users experience as "all my logins are gone". The root therefore has to move
+  // next to the exe — the only allowed exception. Both branches must stay: without the exe branch
+  // the packaged app loses data, without the APP_ROOT branch a source run writes outside the repo.
   const cacheRootBody = (mainText.match(/function defaultCacheRootPath\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
-  if (!/const PORTABLE_USER_DATA_PATH = path\.join\(APP_ROOT_PATH, 'userdata'\)/.test(mainText)
+  const portableRootDecl = (mainText.match(/const PORTABLE_USER_DATA_PATH =[\s\S]{0,260}?;\n/) || [''])[0];
+  if (!/const APP_ROOT_IN_ASAR = APP_ROOT_PATH\.includes\('app\.asar'\)/.test(mainText)
+    || !/const PORTABLE_USER_DATA_PATH = APP_ROOT_IN_ASAR/.test(portableRootDecl)
+    || !/path\.join\(path\.dirname\(process\.execPath\), 'userdata'\)/.test(portableRootDecl)
+    || !/path\.join\(APP_ROOT_PATH, 'userdata'\)/.test(portableRootDecl)
+    // 旧的 <安装目录>\resources\app\userdata 必须留作迁移来源，否则升级后老用户登录态搬不过来。
+    // The old <install>\resources\app\userdata has to stay as the migration source, or upgrades
+    // would strand an existing user's login state.
+    || !/process\.resourcesPath, 'app', 'userdata'/.test(mainText)
     || !/if \(STARTUP_QA_USER_DATA_PATH\) return STARTUP_QA_USER_DATA_PATH/.test(mainText)
     || !/path\.join\(app\.getPath\('userData'\), 'cache'\)/.test(cacheRootBody)
     || /[A-Za-z]:\\/.test(cacheRootBody)
@@ -3875,6 +3891,24 @@ function checkInstallerPackagingGuard() {
   if (requiresGsap) {
     fail("runtime code must not require('gsap') — the package ships it as a global from public/vendor");
   }
+  // 差分更新包会强制把 payload 换成「1MB 字典 + 非固实 + 低压缩等级」，实测代价是安装包大 10.4MB
+  // （109.6MB → 99.2MB，约 10%）。本项目不做自动更新：release.yml 用极简 latest.yml 顶掉了
+  // electron-updater 的更新源，也不发 blockmap，所以这份代价换不到任何东西。改回 true 会让安装包
+  // 立刻胖回去，而且没有任何报错。
+  // Differential packaging forces the payload to a 1MB dictionary, non-solid, low compression level.
+  // Measured cost here: +10.4MB (109.6MB vs 99.2MB, ~10%). This project ships no auto-update —
+  // release.yml replaces latest.yml with a minimal manifest and publishes no blockmap — so the trade
+  // buys nothing. Flipping this back to true silently re-adds the 10MB.
+  if (!pkg.build || !pkg.build.nsis || pkg.build.nsis.differentialPackage !== false) {
+    fail('build.nsis.differentialPackage must stay false — it costs ~10MB of installer size and no diff feed is published');
+  }
+  // xml2js 自带 lib/xml2js.bc.js 是 3.3MB 的 browserify 打包产物，Node 侧只走 package.json 的
+  // main（lib/xml2js），这个文件永远不会被加载 —— 从打包清单里排除，省 3.3MB 原始体积。
+  // xml2js ships lib/xml2js.bc.js, a 3.3MB browserify bundle; the Node entry (main: lib/xml2js)
+  // never touches it, so it is excluded from the package.
+  if (!packageBuildFiles.includes('!node_modules/xml2js/lib/xml2js.bc.js')) {
+    fail('node_modules/xml2js/lib/xml2js.bc.js must stay excluded — nothing loads that browser bundle');
+  }
   // 开始菜单磁贴：manifest 必须与 exe 同名同目录，四张 png 必须在 VisualElements/ 下。
   // 任何一环不对都**不会报错**，只是磁贴退回系统灰底 —— 也就是用户反馈的「图标外面一圈灰蒙蒙」。
   // Start-menu tiles: the manifest has to carry the executable's name and sit next to it, with the
@@ -3970,7 +4004,11 @@ function checkInstallerPackagingGuard() {
   if (!/\$\{CB_SETCURSEL\} 1 0/.test(installerCode) || !/\$\{CB_SETCURSEL\} 3 0/.test(installerCode)) {
     fail('installer must preselect the dropdown row that matches the resolved language');
   }
-  if (!/resources\\app\\userdata\\\$\{MINERADIO_LANG_MARKER\}/.test(installerCode)) {
+  // 标记必须落在 <安装目录>\userdata\，也就是应用在 asar 模式下认的便携数据根
+  // （<exe 同级>\userdata）。写回 resources\app\userdata\ 的话，主进程读不到，语言选择静默失效。
+  // The marker has to land in <install dir>\userdata\ — the portable root the app resolves to in
+  // asar mode (<exe dir>\userdata). Writing back to resources\app\userdata\ is silently ignored.
+  if (!/\$INSTDIR\\userdata\\\$\{MINERADIO_LANG_MARKER\}/.test(installerCode)) {
     fail('installer must write the chosen language next to the portable userdata folder');
   }
   if (!/\$\{If\} \$MineradioLanguage != ""/.test(installerCode)) {

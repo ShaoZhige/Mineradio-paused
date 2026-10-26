@@ -56,10 +56,10 @@
   !define MINERADIO_INSTALL_TITLE "Mineradio 安装"
 !endif
 
-; 第一步的界面语言选择：安装器把选中的语言码写进 resources/app/userdata/ 里的标记文件，
+; 第一步的界面语言选择：安装器把选中的语言码写进 <安装目录>\userdata\ 里的标记文件，
 ; 应用首次启动时读一次就删掉，用作「还没有存过偏好」时的默认语言。
 ; The welcome page's language picker drops the chosen code into a marker file under
-; resources/app/userdata/. The app reads it once on first launch and deletes it, using it as
+; <install dir>\userdata\. The app reads it once on first launch and deletes it, using it as
 ; the default language while no explicit preference has been saved yet.
 !ifndef MINERADIO_LANG_MARKER
   !define MINERADIO_LANG_MARKER ".installer-language"
