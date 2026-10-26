@@ -275,7 +275,9 @@ test('零引用的同文本键不会残留（死键该删而不是留着）', ()
   const sources = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.workbuddy') continue;
+      // userdata 是运行时数据（登录态/缓存/native-helper 临时目录），不是源码：
+      // 里面的临时目录可能被壁纸引擎的助手进程锁成 EPERM，全仓扫描一碰就炸（2026-10-26）。
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.workbuddy' || entry.name === 'userdata') continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (/\.(js|html|md)$/.test(entry.name)) sources.push(full);

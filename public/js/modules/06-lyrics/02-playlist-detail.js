@@ -391,13 +391,20 @@ function scrollPlaylistPanelDetailIntoView(key) {
     });
     if (!detail) return;
     var anchor = detail.previousElementSibling || detail;
-    var toolbar = panel.querySelector('.queue-toolbar');
-    var safeOffset = 126;
-    if (toolbar) {
-      var toolbarTop = 82;
-      try { toolbarTop = parseFloat(getComputedStyle(toolbar).top) || toolbarTop; } catch (e) { }
-      safeOffset = Math.max(safeOffset, toolbarTop + toolbar.offsetHeight + 12);
+    // 展开后卡片顶部停在吸顶区下沿再往下约一行，而不是紧贴吸顶区：贴顶时卡片、按钮行和曲目
+    // 全挤在面板最上方，用户手动把滚轮往上拨一格才是看着舒服的位置（2026-10-26 反馈），
+    // 所以这里把那段空白预先留出来。吸顶区自带 top:-18，它实际盖住「高度 - 18」这么多。
+    // The card now stops about one row below the sticky header instead of hugging it: that is where
+    // the user ends up after nudging the wheel up once, so the gap is reserved upfront. The sticky
+    // header sits at top:-18, so it really covers (height - 18).
+    var sticky = panel.querySelector('.playlist-panel-sticky');
+    var stickyCover = 96;
+    if (sticky) {
+      var stickyTop = 0;
+      try { stickyTop = parseFloat(getComputedStyle(sticky).top) || 0; } catch (e) { }
+      stickyCover = Math.max(0, sticky.offsetHeight + stickyTop);
     }
+    var safeOffset = Math.max(160, stickyCover + 100);
     var top = Math.max(0, anchor.offsetTop - safeOffset);
     try { panel.scrollTo({ top: top, behavior: 'smooth' }); }
     catch (e) { panel.scrollTop = top; }
@@ -899,15 +906,11 @@ function renderPlaylistProviderTabs(cache) {
   if (!host) return;
   bindPlaylistProviderTabs();
   var onPlaylists = typeof queueViewTab === 'undefined' || queueViewTab === 'playlists';
-  // 离开「我的歌单」页签时直接收起；回到这个页签时调用方可能没带 cache（switchPlaylistTab
-  // 就是这种情况），现算一份即可。
-  // Leaving the playlists tab hides it outright; coming back may arrive without a cache, in which
-  // case one is built here.
-  if (!onPlaylists) {
-    host.innerHTML = '';
-    host.style.display = 'none';
-    return;
-  }
+  // 切换器现在住在 #pl-pane 里，页签离开「我的歌单」时整个 pane 就是 display:none，
+  // 不需要再清空内容 —— 清了反而会在 `switchPlaylistTab(..., {refresh:false})` 时留下空壳。
+  // The switcher now lives inside #pl-pane, which the tab switch hides outright; clearing its
+  // markup here would leave an empty shell for callers that pass {refresh:false}.
+  if (!onPlaylists) return;
   if (!cache) cache = playlistPanelBuildVirtualEntries();
   var available = cache.availableProviders || [];
   if (available.length < 2) {

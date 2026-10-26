@@ -1223,9 +1223,6 @@
           <button id="tab-pl" class="panel-tab" onclick="switchPlaylistTab('playlists')" data-i18n="tab_playlists">我的歌单</button>
           <button id="tab-podcast" class="panel-tab" onclick="switchPlaylistTab('podcasts')" data-i18n="tab_podcasts">我的播客</button>
         </div>
-        <!-- 平台切换器：不同平台的歌单不再纵向堆叠，由这一行胶囊切换（2026-10-26）。
-             内容与显隐由 renderPlaylistProviderTabs() 决定，默认隐藏以免留下一条空行。 -->
-        <div id="pl-provider-tabs" class="pl-provider-tabs" style="display:none"></div>
       </div>
       <div id="queue-pane">
         <div class="queue-toolbar">
@@ -1242,6 +1239,10 @@
         <div id="queue-list" class="queue-list"></div>
       </div>
       <div id="pl-pane" style="display:none">
+        <!-- 平台切换器：不同平台的歌单不再纵向堆叠，由这一行按钮切换（2026-10-26）。
+             它是「我的歌单」内容区里的第一块卡片，不跟上方页签挤在一起。
+             内容与显隐由 renderPlaylistProviderTabs() 决定，默认隐藏以免留下一条空行。 -->
+        <div id="pl-provider-tabs" class="pl-provider-tabs" style="display:none"></div>
         <div class="queue-toolbar">
           <div class="queue-chip" data-i18n="fx_mixable_all">内置歌单可混合全部平台</div>
           <div style="display:flex;gap:6px">
