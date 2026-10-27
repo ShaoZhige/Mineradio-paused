@@ -29,9 +29,24 @@
   var LIGHT_SPACING = 6.4;
   var MAX_CAMERA_ROLL = 0.012;
   var CAMERA_ROLL_RESPONSE = 1.15;
-  var SCENERY_INSTANCE_COUNT = 28;
-  var SCENERY_SPACING = 5.4;
-  var SCENERY_PASS_DISTANCE = 6;
+  // 场景里不再有锥体、立方体这些低模实体：地形、植被、路灯、路标全部是点。
+  // 每种粒子自带一条固定的「槽位」属性，每帧只按 travel 求 ahead，再写回世界坐标。
+  var TERRAIN_SLOT_COUNT = 256;
+  var TERRAIN_ROW_POINTS = 14;
+  var TERRAIN_LAYER_COUNT = 2;
+  var TERRAIN_LAYER_CONFIG = [
+    { lateral: 6, spread: 13, height: 5, tint: 0.20, size: 1.4 },
+    { lateral: 9, spread: 19, height: 9, tint: 0.86, size: 1.3 }
+  ];
+  // 每个槽位每侧每层多留一个「脊点」，它负责把山脊轮廓画清楚。
+  var TERRAIN_POINT_COUNT = TERRAIN_SLOT_COUNT * TERRAIN_ROW_POINTS * 2 * TERRAIN_LAYER_COUNT;
+  var FLORA_SLOT_COUNT = 54;
+  var FLORA_BEADS = 5;
+  var FLORA_POINT_COUNT = FLORA_SLOT_COUNT * 2 * FLORA_BEADS;
+  var GROUND_DUST_COUNT = 7000;
+  var MOTE_COUNT = 260;
+  var GATE_POINT_COUNT = 236;
+  var GATE_SPACING = 132;
   var BIOME_ZONE_LENGTH = 420;
   var WEATHER_TRANSITION_START = 0.72;
   var PRECIPITATION_COUNT = 384;
@@ -85,12 +100,7 @@
     shoulderMaterial: null,
     leftRail: null,
     rightRail: null,
-    poleMesh: null,
-    leftLights: null,
-    rightLights: null,
     poleMaterial: null,
-    leftLightMaterial: null,
-    rightLightMaterial: null,
     sky: null,
     skyMaterial: null,
     precipitation: null,
@@ -100,19 +110,16 @@
     celestialMaterial: null,
     celestialRing: null,
     celestialRingMaterial: null,
-    sceneryRoot: null,
-    sceneryMaterials: null,
-    mountainMesh: null,
-    moundMesh: null,
-    treeTrunkMesh: null,
-    treeCrownMesh: null,
-    cactusStemMesh: null,
-    cactusArmMesh: null,
-    leftWater: null,
-    rightWater: null,
-    landmarkRoot: null,
-    landmarks: [],
-    landmarkMaterials: null,
+    terrainCloud: null,
+    groundDustCloud: null,
+    floraCloud: null,
+    lampCloud: null,
+    moteCloud: null,
+    gateMaterial: null,
+    gateClouds: [],
+    lampBeams: null,
+    lampBeamPositions: null,
+    pixelRatio: 1,
     roadPositions: null,
     roadEnergy: null,
     roadPulse: null,
@@ -469,22 +476,22 @@
       '  float side=abs(vUv.x*2.0-1.0);',
       '  float fog=1.0-smoothstep(54.0,98.0,vDepth);',
       '  float laneDist=min(abs(side-0.34),side);',
-      '  float dash=step(0.48,fract((vDepth+uTravel)*0.115));',
-      '  float lane=(1.0-smoothstep(0.010,0.030,laneDist))*dash;',
+      '  float dash=step(0.42,fract((vDepth+uTravel)*0.10));',
+      '  float lane=(1.0-smoothstep(0.008,0.028,laneDist))*dash;',
       '  float edge=1.0-smoothstep(0.010,0.040,abs(side-0.955));',
-      '  float crossGrid=1.0-smoothstep(0.025,0.105,abs(fract((vDepth+uTravel)*0.185)-0.5));',
-      '  float trackCell=smoothstep(0.022,0.080,laneDist);',
+      '  float flow=0.5+0.5*sin((vDepth+uTravel)*0.26-uTime*1.9);',
+      '  float laneBand=smoothstep(0.020,0.320,laneDist);',
       '  vec3 bandColor=mix(uPrimary,uSecondary,smoothstep(0.08,0.92,side));',
-      '  vec3 asphalt=mix(vec3(0.010,0.015,0.026),bandColor,0.048+vBandEnergy*0.090);',
-      '  float spectrum=(0.14+vBandEnergy*0.92)*(0.28+crossGrid*0.72);',
-      '  float waveGlow=pow(max(vBandPulse,0.0),1.16)*(0.30+crossGrid*0.70);',
-      '  float trackGlow=pow(max(vTrackPulse,0.0),1.08)*trackCell;',
-      '  vec3 color=asphalt+bandColor*spectrum*0.48;',
-      '  color+=uAccent*lane*(0.82+uBoost*0.58+uBeat*0.12);',
+      '  vec3 asphalt=mix(vec3(0.008,0.012,0.022),bandColor,0.040+vBandEnergy*0.075);',
+      '  float spectrum=(0.12+vBandEnergy*0.88)*(0.44+flow*0.56);',
+      '  float waveGlow=pow(max(vBandPulse,0.0),1.16)*(0.34+flow*0.66);',
+      '  float trackGlow=pow(max(vTrackPulse,0.0),1.06)*laneBand;',
+      '  vec3 color=asphalt+bandColor*spectrum*0.46;',
+      '  color+=uAccent*lane*(0.86+uBoost*0.58+uBeat*0.12);',
       '  color+=mix(uPrimary,uSecondary,step(0.5,vUv.x))*edge*(0.96+vBandEnergy*0.72);',
-      '  color+=bandColor*pow(max(vBandEnergy,0.0),1.22)*0.62;',
-      '  color+=mix(bandColor,uAccent,0.30)*waveGlow*0.82;',
-      '  color+=mix(bandColor,uAccent,0.72)*trackGlow*1.46;',
+      '  color+=bandColor*pow(max(vBandEnergy,0.0),1.22)*0.58;',
+      '  color+=mix(bandColor,uAccent,0.30)*waveGlow*0.86;',
+      '  color+=mix(bandColor,uAccent,0.72)*trackGlow*1.32;',
       '  float alpha=uOpacity*fog*(0.94+min(0.05,spectrum*0.03));',
       '  gl_FragColor=vec4(color,alpha);',
       '}'
@@ -934,189 +941,499 @@
     return line;
   }
 
-  function makeWorldMaterial(color, depthWrite) {
-    return new THREE.MeshBasicMaterial({
-      color: color,
+  // 粒子统一走这一套：圆形柔光点 + 深度雾衰减 + 逐点闪烁。
+  // 之前的地形和路边景物是锥体、立方体、圆柱拼的，低模方块感太重，全部换成点。
+  function particleVertexShader() {
+    return [
+      'precision highp float;',
+      'attribute float aScale;',
+      'attribute float aSeed;',
+      'attribute float aTint;',
+      'uniform float uTime;',
+      'uniform float uBeat;',
+      'uniform float uEnergy;',
+      'uniform float uPixelRatio;',
+      'uniform vec3 uColorA;',
+      'uniform vec3 uColorB;',
+      'uniform float uFogNear;',
+      'uniform float uFogFar;',
+      'uniform float uGlow;',
+      'uniform float uSizeK;',
+      'varying vec3 vColor;',
+      'varying float vAlpha;',
+      'void main(){',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  float depth = max(0.6, -mv.z);',
+      '  float flicker = 0.68 + 0.32 * sin(uTime * (0.9 + aSeed * 2.6) + aSeed * 37.0);',
+      '  float size = aScale * (0.82 + uBeat * 0.46 + uEnergy * 0.30) * flicker;',
+      '  gl_PointSize = clamp(size * uPixelRatio * (uSizeK / depth), 1.0, 46.0);',
+      '  float fog = 1.0 - smoothstep(uFogNear, uFogFar, depth);',
+      '  vAlpha = fog * (0.42 + flicker * 0.58);',
+      '  vColor = mix(uColorA, uColorB, clamp(aTint, 0.0, 1.0)) * uGlow * (0.80 + uBeat * 0.34 + uEnergy * 0.26);',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n');
+  }
+
+  function particleFragmentShader() {
+    return [
+      'precision highp float;',
+      'uniform float uOpacity;',
+      'varying vec3 vColor;',
+      'varying float vAlpha;',
+      'void main(){',
+      '  vec2 offset = gl_PointCoord - vec2(0.5);',
+      '  float radius = length(offset);',
+      '  if (radius > 0.5) discard;',
+      '  float core = pow(1.0 - smoothstep(0.0, 0.5, radius), 1.9);',
+      '  gl_FragColor = vec4(vColor * core, vAlpha * core * uOpacity);',
+      '}'
+    ].join('\n');
+  }
+
+  function createParticleMaterial(options) {
+    options = options || {};
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: 0 },
+        uBeat: { value: 0 },
+        uEnergy: { value: 0 },
+        uPixelRatio: { value: 1 },
+        uColorA: { value: new THREE.Color(options.colorA == null ? 0x1d8fb0 : options.colorA) },
+        uColorB: { value: new THREE.Color(options.colorB == null ? 0x2f4f7a : options.colorB) },
+        uFogNear: { value: options.fogNear == null ? 26 : options.fogNear },
+        uFogFar: { value: options.fogFar == null ? 96 : options.fogFar },
+        uGlow: { value: options.glow == null ? 1 : options.glow },
+        uSizeK: { value: options.sizeK == null ? 80 : options.sizeK }
+      },
+      vertexShader: particleVertexShader(),
+      fragmentShader: particleFragmentShader(),
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      blending: THREE.AdditiveBlending
+    });
+  }
+
+  function createParticleCloud(count, name, options) {
+    var positions = new Float32Array(count * 3);
+    var scales = new Float32Array(count);
+    var seeds = new Float32Array(count);
+    var tints = new Float32Array(count);
+    var geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    geometry.setAttribute('aTint', new THREE.BufferAttribute(tints, 1));
+    geometry.computeBoundingSphere();
+    var material = createParticleMaterial(options);
+    var points = new THREE.Points(geometry, material);
+    points.name = name;
+    points.renderOrder = options && options.renderOrder != null ? options.renderOrder : 0;
+    points.frustumCulled = false;
+    return {
+      points: points,
+      geometry: geometry,
+      material: material,
+      positions: positions,
+      scales: scales,
+      seeds: seeds,
+      tints: tints,
+      count: count,
+      layerPeaks: null
+    };
+  }
+
+  // 地形是全场点数最多的一层，位置全在顶点着色器里算：
+  // CPU 每帧只更新几个 uniform，两万点也不会拖慢主循环。
+  function terrainVertexShader() {
+    return [
+      'precision highp float;',
+      'attribute float aSlot;',
+      'attribute float aSide;',
+      'attribute float aLateral;',
+      'attribute float aRise;',
+      'attribute float aLayer;',
+      'attribute float aTint;',
+      'attribute float aScale;',
+      'attribute float aSeed;',
+      'uniform float uTime;',
+      'uniform float uTravel;',
+      'uniform float uBeat;',
+      'uniform float uEnergy;',
+      'uniform float uPixelRatio;',
+      'uniform float uSizeK;',
+      'uniform float uGlow;',
+      'uniform float uFogNear;',
+      'uniform float uFogFar;',
+      'uniform float uSlotCount;',
+      'uniform float uRoadLength;',
+      'uniform float uBandLow;',
+      'uniform float uBandHigh;',
+      'uniform float uBaseY;',
+      'uniform float uNearNear;',
+      'uniform float uNearFar;',
+      'uniform vec3 uColorA;',
+      'uniform vec3 uColorB;',
+      'varying vec3 vColor;',
+      'varying float vAlpha;',
+      'void main(){',
+      '  float spacing = uRoadLength / max(uSlotCount, 1.0);',
+      '  float ahead = mod(aSlot * spacing - uTravel * 0.22, uRoadLength);',
+      '  float bandEnergy = mix(uBandLow, uBandHigh, aLayer);',
+      '  vec3 local;',
+      '  local.x = aSide * aLateral;',
+      '  local.y = uBaseY + aRise * (0.80 + bandEnergy * 0.55);',
+      '  local.z = -ahead;',
+      '  vec4 mv = modelViewMatrix * vec4(local, 1.0);',
+      '  float depth = max(0.6, -mv.z);',
+      '  float flicker = 0.62 + 0.38 * sin(uTime * (1.1 + aSeed * 2.4) + aSeed * 41.0);',
+      '  float size = aScale * (0.78 + uBeat * 0.42 + uEnergy * 0.26) * flicker;',
+      '  gl_PointSize = clamp(size * uPixelRatio * (uSizeK / depth), 1.0, 40.0);',
+      '  float fog = 1.0 - smoothstep(uFogNear, uFogFar, depth);',
+      '  float nearFade = smoothstep(uNearNear, uNearFar, ahead);',
+      '  vAlpha = fog * nearFade * (0.34 + flicker * 0.66);',
+      '  vColor = mix(uColorA, uColorB, clamp(aTint, 0.0, 1.0)) * uGlow * (0.78 + uBeat * 0.30 + uEnergy * 0.24);',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n');
+  }
+
+  function createTerrainMaterial(options) {
+    options = options || {};
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: 0 },
+        uBeat: { value: 0 },
+        uEnergy: { value: 0 },
+        uPixelRatio: { value: 1 },
+        uSizeK: { value: options.sizeK == null ? 320 : options.sizeK },
+        uGlow: { value: options.glow == null ? 2.2 : options.glow },
+        uFogNear: { value: options.fogNear == null ? 40 : options.fogNear },
+        uFogFar: { value: options.fogFar == null ? 118 : options.fogFar },
+        uSlotCount: { value: TERRAIN_SLOT_COUNT },
+        uRoadLength: { value: ROAD_LENGTH },
+        uBandLow: { value: 0 },
+        uBandHigh: { value: 0 },
+        uBaseY: { value: ROAD_BASE_Y },
+        uNearNear: { value: options.nearNear == null ? 2 : options.nearNear },
+        uNearFar: { value: options.nearFar == null ? 18 : options.nearFar },
+        uTravel: { value: 0 },
+        uColorA: { value: new THREE.Color(0x1d8fb0) },
+        uColorB: { value: new THREE.Color(0x2f4f7a) }
+      },
+      vertexShader: terrainVertexShader(),
+      fragmentShader: particleFragmentShader(),
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      blending: THREE.AdditiveBlending
+    });
+  }
+
+  function createTerrainCloud() {
+    var count = TERRAIN_POINT_COUNT;
+    var positions = new Float32Array(count * 3);
+    var slots = new Float32Array(count);
+    var sides = new Float32Array(count);
+    var laterals = new Float32Array(count);
+    var rises = new Float32Array(count);
+    var layers = new Float32Array(count);
+    var tints = new Float32Array(count);
+    var scales = new Float32Array(count);
+    var seeds = new Float32Array(count);
+    var cursor = 0;
+    for (var slot = 0; slot < TERRAIN_SLOT_COUNT; slot++) {
+      for (var layer = 0; layer < TERRAIN_LAYER_COUNT; layer++) {
+        var config = TERRAIN_LAYER_CONFIG[layer];
+        // 山脊的高低与横向位置都沿路缓慢变化，逐槽随机只会散成一团雾。
+        var peakNoise = Math.abs(valueNoise1D(slot * 0.021 + layer * 23.1, state.seed + 401));
+        var peak = 0.30 + peakNoise * 1.10;
+        var contourCenter = 0.44 + valueNoise1D(slot * 0.018 + layer * 11.3, state.seed + 571) * 0.26;
+        var ridgeLateral = config.lateral + config.spread * contourCenter;
+        var ridgeHeight = config.height * peak;
+        for (var sideIndex = 0; sideIndex < 2; sideIndex++) {
+          for (var row = 0; row < TERRAIN_ROW_POINTS; row++) {
+            // 点集中在山脊附近，下方留一小段当坡脚，剪影才立得住。
+            var t = 0.46 + 0.54 * (row / (TERRAIN_ROW_POINTS - 1));
+            var wobble = 0.94 + 0.12 * Math.sin(t * 6.1 + slot * 0.37 + layer * 1.9);
+            slots[cursor] = slot;
+            sides[cursor] = sideIndex ? 1 : -1;
+            laterals[cursor] = ridgeLateral + t * config.spread * 0.30;
+            rises[cursor] = ridgeHeight * t * wobble;
+            layers[cursor] = layer;
+            tints[cursor] = clamp01(config.tint + t * 0.30 + hash1(slot * 31 + row + layer * 7, state.seed + 137) * 0.06);
+            scales[cursor] = config.size * (1.06 - t * 0.30) * (0.9 + (hash1(slot * 17 + row + layer * 5, state.seed + 251) + 1) * 0.16);
+            seeds[cursor] = (hash1(slot * 13 + row + layer * 97, state.seed + 311) + 1) * 0.5;
+            cursor += 1;
+          }
+        }
+      }
+    }
+    var geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aSlot', new THREE.BufferAttribute(slots, 1));
+    geometry.setAttribute('aSide', new THREE.BufferAttribute(sides, 1));
+    geometry.setAttribute('aLateral', new THREE.BufferAttribute(laterals, 1));
+    geometry.setAttribute('aRise', new THREE.BufferAttribute(rises, 1));
+    geometry.setAttribute('aLayer', new THREE.BufferAttribute(layers, 1));
+    geometry.setAttribute('aTint', new THREE.BufferAttribute(tints, 1));
+    geometry.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    geometry.computeBoundingSphere();
+    var material = createTerrainMaterial();
+    var points = new THREE.Points(geometry, material);
+    points.name = 'highway-particles-terrain';
+    points.frustumCulled = false;
+    // 必须排在 shoulder 之后：那层地坪是半透明实色，先画就会被它整片盖掉。
+    points.renderOrder = 1;
+    state.terrainCloud = {
+      points: points,
+      geometry: geometry,
+      material: material,
+      count: count,
+      positions: positions
+    };
+    state.root.add(points);
+  }
+
+  function updateTerrainCloud() {
+    var cloud = state.terrainCloud;
+    if (!cloud) return;
+    var uniforms = cloud.material.uniforms;
+    uniforms.uTravel.value = state.travel;
+    uniforms.uBandLow.value = state.bands[2] * 0.72 + state.bands[3] * 0.28;
+    uniforms.uBandHigh.value = state.bands[5] * 0.64 + state.bands[6] * 0.36;
+    var dustUniforms = state.groundDustCloud && state.groundDustCloud.material.uniforms;
+    if (dustUniforms) {
+      dustUniforms.uTravel.value = state.travel;
+      dustUniforms.uBandLow.value = state.bands[1] * 0.6;
+      dustUniforms.uBandHigh.value = state.bands[4] * 0.6;
+    }
+  }
+
+  // 路肩外的地面散一层细尘，否则那层纯色地坪会像一块贴在画面上的色板。
+  function createGroundDustCloud() {
+    var count = GROUND_DUST_COUNT;
+    var positions = new Float32Array(count * 3);
+    var slots = new Float32Array(count);
+    var sides = new Float32Array(count);
+    var laterals = new Float32Array(count);
+    var rises = new Float32Array(count);
+    var layers = new Float32Array(count);
+    var tints = new Float32Array(count);
+    var scales = new Float32Array(count);
+    var seeds = new Float32Array(count);
+    for (var index = 0; index < count; index++) {
+      slots[index] = (hash1(index, 1103) + 1) * 0.5 * TERRAIN_SLOT_COUNT;
+      sides[index] = hash1(index, 1129) >= 0 ? 1 : -1;
+      laterals[index] = 5.5 + (hash1(index, 1151) + 1) * 0.5 * 54;
+      rises[index] = 0.15 + (hash1(index, 1171) + 1) * 0.5 * 3.0;
+      layers[index] = 0;
+      tints[index] = clamp01(0.10 + (hash1(index, 1193) + 1) * 0.28);
+      scales[index] = 0.55 + (hash1(index, 1217) + 1) * 0.5 * 0.5;
+      seeds[index] = (hash1(index, 1237) + 1) * 0.5;
+    }
+    var geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aSlot', new THREE.BufferAttribute(slots, 1));
+    geometry.setAttribute('aSide', new THREE.BufferAttribute(sides, 1));
+    geometry.setAttribute('aLateral', new THREE.BufferAttribute(laterals, 1));
+    geometry.setAttribute('aRise', new THREE.BufferAttribute(rises, 1));
+    geometry.setAttribute('aLayer', new THREE.BufferAttribute(layers, 1));
+    geometry.setAttribute('aTint', new THREE.BufferAttribute(tints, 1));
+    geometry.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    geometry.computeBoundingSphere();
+    var material = createTerrainMaterial({ sizeK: 280, glow: 1.6, fogNear: 18, fogFar: 88, nearNear: 0.4, nearFar: 5 });
+    var points = new THREE.Points(geometry, material);
+    points.name = 'highway-particles-ground-dust';
+    points.frustumCulled = false;
+    points.renderOrder = 1;
+    state.groundDustCloud = { points: points, geometry: geometry, material: material, count: count };
+    state.root.add(points);
+  }
+
+  function createFloraCloud() {
+    var cloud = createParticleCloud(FLORA_POINT_COUNT, 'highway-particles-flora', {
+      fogNear: 26,
+      fogFar: 92,
+      glow: 1.9,
+      sizeK: 180,
+      renderOrder: 2
+    });
+    var cursor = 0;
+    for (var slot = 0; slot < FLORA_SLOT_COUNT; slot++) {
+      for (var sideIndex = 0; sideIndex < 2; sideIndex++) {
+        for (var bead = 0; bead < FLORA_BEADS; bead++) {
+          cloud.tints[cursor] = clamp01(0.22 + bead * 0.13 + hash1(slot * 7 + bead, state.seed + 187) * 0.12);
+          cloud.scales[cursor] = 1.05 + bead * 0.10;
+          cloud.seeds[cursor] = (hash1(slot * 29 + bead + sideIndex * 53, state.seed + 233) + 1) * 0.5;
+          cursor += 1;
+        }
+      }
+    }
+    state.floraCloud = cloud;
+    state.root.add(cloud.points);
+  }
+
+  function updateFloraCloud() {
+    var cloud = state.floraCloud;
+    if (!cloud) return;
+    var positions = cloud.positions;
+    var cursor = 0;
+    var spacing = ROAD_LENGTH / FLORA_SLOT_COUNT;
+    for (var slot = 0; slot < FLORA_SLOT_COUNT; slot++) {
+      var ahead = positiveModulo(slot * spacing - state.travel * 0.72, ROAD_LENGTH);
+      var sample = localRoadSample(ahead);
+      var distanceFade = 1 - smoothstep(ahead / ROAD_LENGTH);
+      for (var sideIndex = 0; sideIndex < 2; sideIndex++) {
+        var side = sideIndex ? 1 : -1;
+        var jitter = hash1(slot * 19 + sideIndex * 71, state.seed + 353);
+        var lateral = 7.4 + (hash1(slot * 23 + sideIndex * 61, state.seed + 419) + 1) * 3.4;
+        var trunkHeight = 1.15 + (hash1(slot * 41 + sideIndex * 89, state.seed + 467) + 1) * 1.25;
+        var baseY = ROAD_BASE_Y + sample.y - 0.05;
+        var sway = Math.sin(state.time * 1.1 + slot * 0.7 + jitter * 2.0) * 0.06 * trunkHeight;
+        for (var bead = 0; bead < FLORA_BEADS; bead++) {
+          var t = (bead + 1) / FLORA_BEADS;
+          var offset = cursor * 3;
+          positions[offset] = sample.x + side * lateral + sway * t;
+          positions[offset + 1] = baseY + trunkHeight * t * (0.82 + state.bands[4] * 0.30) * (0.6 + distanceFade * 0.4);
+          positions[offset + 2] = -ahead - jitter * 1.6;
+          cursor += 1;
+        }
+      }
+    }
+    cloud.geometry.attributes.position.needsUpdate = true;
+  }
+
+  function createMoteCloud() {
+    var cloud = createParticleCloud(MOTE_COUNT, 'highway-particles-motes', {
+      fogNear: 12,
+      fogFar: 74,
+      glow: 0.92,
+      sizeK: 84,
+      renderOrder: 6
+    });
+    for (var index = 0; index < MOTE_COUNT; index++) {
+      cloud.scales[index] = 0.5 + (hash1(index, 617) + 1) * 0.62;
+      cloud.seeds[index] = (hash1(index, 653) + 1) * 0.5;
+      cloud.tints[index] = clamp01(0.5 + (hash1(index, 691) + 1) * 0.4);
+      cloud.positions[index * 3] = hash1(index, 727) * 34;
+      cloud.positions[index * 3 + 1] = -1.2 + (hash1(index, 761) + 1) * 7.4;
+      cloud.positions[index * 3 + 2] = -2 - (hash1(index, 797) + 1) * 46;
+    }
+    cloud.geometry.attributes.position.needsUpdate = true;
+    state.moteCloud = cloud;
+    state.root.add(cloud.points);
+  }
+
+  function updateMoteCloud(dt) {
+    var cloud = state.moteCloud;
+    if (!cloud) return;
+    var positions = cloud.positions;
+    var span = 46;
+    var drift = state.speed * dt * 1.35;
+    for (var index = 0; index < MOTE_COUNT; index++) {
+      var offset = index * 3;
+      var depth = -(positions[offset + 2] || 1) - drift;
+      if (depth < 1.5) depth += span;
+      positions[offset + 2] = -depth;
+      positions[offset] += Math.sin(state.time * 0.7 + index) * 0.004;
+    }
+    cloud.geometry.attributes.position.needsUpdate = true;
+  }
+
+  function createLampCloud() {
+    var cloud = createParticleCloud(LIGHT_PAIR_COUNT * 2, 'highway-particles-lamps', {
+      fogNear: 20,
+      fogFar: 92,
+      glow: 1.6,
+      sizeK: 110,
+      renderOrder: 4
+    });
+    for (var index = 0; index < LIGHT_PAIR_COUNT * 2; index++) {
+      cloud.scales[index] = 1.7 + (index % 2 ? 0.1 : 0);
+      cloud.seeds[index] = (hash1(index, 811) + 1) * 0.5;
+      cloud.tints[index] = index % 2 ? 1 : 0;
+    }
+    state.lampCloud = cloud;
+    state.root.add(cloud.points);
+
+    var beamPositions = new Float32Array(LIGHT_PAIR_COUNT * 2 * 2 * 3);
+    var beamGeometry = new THREE.BufferGeometry();
+    beamGeometry.setAttribute('position', new THREE.BufferAttribute(beamPositions, 3));
+    beamGeometry.computeBoundingSphere();
+    state.poleMaterial = new THREE.LineBasicMaterial({
+      color: 0x6f7f92,
       transparent: true,
       opacity: 0,
-      depthWrite: depthWrite !== false,
-      side: THREE.DoubleSide
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
     });
+    state.lampBeams = new THREE.LineSegments(beamGeometry, state.poleMaterial);
+    state.lampBeams.name = 'highway-lamp-beams';
+    state.lampBeams.frustumCulled = false;
+    state.lampBeams.renderOrder = 3;
+    state.lampBeamPositions = beamPositions;
+    state.root.add(state.lampBeams);
   }
 
-  function createInstancedWorldMesh(geometry, material, count, name) {
-    var mesh = new THREE.InstancedMesh(geometry, material, count);
-    mesh.name = name;
-    mesh.count = 0;
-    mesh.frustumCulled = false;
-    state.sceneryRoot.add(mesh);
-    return mesh;
-  }
-
-  function createLandscapeLayer() {
-    state.sceneryRoot = new THREE.Group();
-    state.sceneryRoot.name = 'highway-landscape-root';
-    state.sceneryMaterials = {
-      mountain: makeWorldMaterial(0x29424a, true),
-      mound: makeWorldMaterial(0x18382e, true),
-      trunk: makeWorldMaterial(0x26362f, true),
-      crown: makeWorldMaterial(0x315b49, true),
-      cactus: makeWorldMaterial(0x39704d, true),
-      waterLeft: makeWorldMaterial(0x1688a5, false),
-      waterRight: makeWorldMaterial(0x1688a5, false)
-    };
-    state.mountainMesh = createInstancedWorldMesh(
-      new THREE.ConeGeometry(1, 1, 6),
-      state.sceneryMaterials.mountain,
-      SCENERY_INSTANCE_COUNT,
-      'highway-mountains'
-    );
-    state.moundMesh = createInstancedWorldMesh(
-      new THREE.SphereGeometry(1, 8, 5),
-      state.sceneryMaterials.mound,
-      SCENERY_INSTANCE_COUNT,
-      'highway-mounds'
-    );
-    state.treeTrunkMesh = createInstancedWorldMesh(
-      new THREE.CylinderGeometry(0.16, 0.23, 1, 6),
-      state.sceneryMaterials.trunk,
-      SCENERY_INSTANCE_COUNT,
-      'highway-tree-trunks'
-    );
-    state.treeCrownMesh = createInstancedWorldMesh(
-      new THREE.ConeGeometry(0.82, 1.5, 7),
-      state.sceneryMaterials.crown,
-      SCENERY_INSTANCE_COUNT,
-      'highway-tree-crowns'
-    );
-    state.cactusStemMesh = createInstancedWorldMesh(
-      new THREE.CylinderGeometry(0.16, 0.2, 1, 7),
-      state.sceneryMaterials.cactus,
-      SCENERY_INSTANCE_COUNT,
-      'highway-cactus-stems'
-    );
-    state.cactusArmMesh = createInstancedWorldMesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      state.sceneryMaterials.cactus,
-      SCENERY_INSTANCE_COUNT * 2,
-      'highway-cactus-arms'
-    );
-
-    var waterGeometry = new THREE.PlaneGeometry(1, 1, 1, 1);
-    state.leftWater = new THREE.Mesh(waterGeometry, state.sceneryMaterials.waterLeft);
-    state.rightWater = new THREE.Mesh(waterGeometry, state.sceneryMaterials.waterRight);
-    state.leftWater.name = 'highway-water-left';
-    state.rightWater.name = 'highway-water-right';
-    state.leftWater.rotation.x = -Math.PI / 2;
-    state.rightWater.rotation.x = -Math.PI / 2;
-    state.leftWater.renderOrder = -1;
-    state.rightWater.renderOrder = -1;
-    state.leftWater.visible = false;
-    state.rightWater.visible = false;
-    state.sceneryRoot.add(state.leftWater);
-    state.sceneryRoot.add(state.rightWater);
-    state.root.add(state.sceneryRoot);
-  }
-
-  function addLandmarkPart(group, geometries, materials, geometryKey, materialKey, position, scale, rotation) {
-    var mesh = new THREE.Mesh(geometries[geometryKey], materials[materialKey]);
-    mesh.position.set(position[0], position[1], position[2]);
-    mesh.scale.set(scale[0], scale[1], scale[2]);
-    if (rotation) mesh.rotation.set(rotation[0] || 0, rotation[1] || 0, rotation[2] || 0);
-    group.add(mesh);
-    return mesh;
-  }
-
-  function createLandmarkLayer() {
-    state.landmarkRoot = new THREE.Group();
-    state.landmarkRoot.name = 'highway-landmark-root';
-    var geometries = {
-      box: new THREE.BoxGeometry(1, 1, 1),
-      cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 10),
-      cone: new THREE.ConeGeometry(0.5, 1, 10),
-      pyramid: new THREE.ConeGeometry(0.5, 1, 4),
-      sphere: new THREE.SphereGeometry(0.5, 12, 8)
-    };
-    state.landmarkMaterials = {
-      body: makeWorldMaterial(0xaeb8b7, true),
-      shadow: makeWorldMaterial(0x44535a, true),
-      glass: makeWorldMaterial(0x2c8da5, true),
-      light: makeWorldMaterial(0xf4d28a, false)
-    };
-    var materials = state.landmarkMaterials;
-    function part(group, geometryKey, materialKey, x, y, z, sx, sy, sz, rx, ry, rz) {
-      return addLandmarkPart(
-        group,
-        geometries,
-        materials,
-        geometryKey,
-        materialKey,
-        [x, y, z],
-        [sx, sy, sz],
-        [rx || 0, ry || 0, rz || 0]
-      );
-    }
-
-    state.landmarks = LANDMARK_NAMES.map(function (name, index) {
-      var group = new THREE.Group();
-      group.name = 'highway-landmark-' + index;
-      group.userData.landmarkName = name;
-      if (index === 0) {
-        part(group, 'box', 'body', -0.55, 0.95, 0, 0.17, 1.9, 0.22, 0, 0, 0.18);
-        part(group, 'box', 'body', 0.55, 0.95, 0, 0.17, 1.9, 0.22, 0, 0, -0.18);
-        part(group, 'box', 'shadow', 0, 1.45, 0, 1.35, 0.12, 0.62);
-        part(group, 'box', 'body', 0, 2.65, 0, 0.34, 2.4, 0.30);
-        part(group, 'box', 'light', 0, 3.25, 0, 0.86, 0.10, 0.48);
-        part(group, 'cylinder', 'light', 0, 4.25, 0, 0.08, 1.6, 0.08);
-      } else if (index === 1) {
-        part(group, 'box', 'shadow', 0, 1.65, 0, 1.12, 3.3, 1.05);
-        part(group, 'box', 'body', 0, 3.45, 0, 1.30, 0.72, 1.18);
-        part(group, 'sphere', 'light', 0, 3.45, 0.61, 0.54, 0.54, 0.08);
-        part(group, 'cone', 'body', 0, 4.28, 0, 1.0, 1.10, 1.0);
-        part(group, 'cylinder', 'light', 0, 5.05, 0, 0.10, 0.72, 0.10);
-      } else if (index === 2) {
-        part(group, 'box', 'glass', 0, 1.8, 0, 1.02, 3.6, 0.90);
-        part(group, 'box', 'glass', 0.36, 3.1, 0, 0.68, 2.6, 0.72);
-        part(group, 'box', 'body', 0.60, 4.15, 0, 0.40, 1.8, 0.50);
-        part(group, 'box', 'body', 0.76, 5.05, 0, 0.22, 1.3, 0.30);
-        part(group, 'cylinder', 'light', 0.82, 6.25, 0, 0.08, 1.8, 0.08);
-      } else if (index === 3) {
-        part(group, 'box', 'shadow', 0, 0.22, 0, 3.1, 0.44, 1.8);
-        part(group, 'box', 'body', 0, 0.95, 0, 1.72, 1.18, 1.18);
-        part(group, 'sphere', 'body', 0, 1.78, 0, 1.45, 1.02, 1.45);
-        part(group, 'cylinder', 'light', 0, 2.58, 0, 0.10, 0.74, 0.10);
-        [-1.45, 1.45].forEach(function (x) {
-          [-0.65, 0.65].forEach(function (z) {
-            part(group, 'cylinder', 'body', x, 1.15, z, 0.18, 2.3, 0.18);
-            part(group, 'cone', 'light', x, 2.45, z, 0.42, 0.62, 0.42);
-          });
-        });
-      } else if (index === 4) {
-        part(group, 'box', 'shadow', 0, 0.18, 0, 3.4, 0.36, 1.6);
-        part(group, 'sphere', 'body', -0.82, 1.05, 0, 1.18, 2.25, 0.42, 0, 0, -0.42);
-        part(group, 'sphere', 'body', 0, 1.22, 0, 1.22, 2.55, 0.42, 0, 0, 0.10);
-        part(group, 'sphere', 'body', 0.86, 0.95, 0, 1.08, 2.05, 0.40, 0, 0, 0.48);
-      } else if (index === 5) {
-        part(group, 'pyramid', 'body', -0.70, 1.25, 0, 2.7, 2.5, 2.7);
-        part(group, 'pyramid', 'shadow', 0.95, 0.88, -0.25, 1.9, 1.76, 1.9);
-        part(group, 'pyramid', 'light', 2.05, 0.48, 0.18, 1.08, 0.96, 1.08);
-      } else if (index === 6) {
-        part(group, 'cylinder', 'shadow', 0, 1.75, 0, 0.24, 3.5, 0.24);
-        part(group, 'sphere', 'light', 0, 1.15, 0, 1.08, 1.08, 1.08);
-        part(group, 'sphere', 'glass', 0, 2.95, 0, 0.78, 0.78, 0.78);
-        part(group, 'sphere', 'light', 0, 3.75, 0, 0.40, 0.40, 0.40);
-        part(group, 'cylinder', 'body', 0, 4.65, 0, 0.12, 1.9, 0.12);
-      } else {
-        part(group, 'box', 'shadow', 0, 1.65, 0, 1.48, 3.3, 1.28);
-        part(group, 'box', 'body', 0, 3.55, 0, 1.08, 1.45, 0.98);
-        part(group, 'box', 'body', 0, 4.62, 0, 0.72, 0.82, 0.70);
-        part(group, 'cylinder', 'light', 0, 5.35, 0, 0.08, 1.1, 0.08);
+  function createGateClouds() {
+    state.gateMaterial = createParticleMaterial({
+      colorA: 0x26d9ff,
+      colorB: 0xffad42,
+      fogNear: 40,
+      fogFar: 128,
+      glow: 1.02,
+      sizeK: 70
+    });
+    for (var index = 0; index < LANDMARK_NAMES.length; index++) {
+      var positions = new Float32Array(GATE_POINT_COUNT * 3);
+      var scales = new Float32Array(GATE_POINT_COUNT);
+      var seeds = new Float32Array(GATE_POINT_COUNT);
+      var tints = new Float32Array(GATE_POINT_COUNT);
+      var cursor = 0;
+      var radius = 6.4;
+      var archCount = Math.floor(GATE_POINT_COUNT * 0.42);
+      for (var arch = 0; arch < archCount; arch++) {
+        var angle = Math.PI * (arch / (archCount - 1));
+        positions[cursor * 3] = Math.cos(angle) * radius;
+        positions[cursor * 3 + 1] = Math.sin(angle) * radius * 0.82;
+        positions[cursor * 3 + 2] = Math.sin(angle * 2.0) * 0.5;
+        scales[cursor] = 1.5 + (arch % 3) * 0.2;
+        seeds[cursor] = arch / archCount;
+        tints[cursor] = 0.24 + Math.sin(angle) * 0.5;
+        cursor += 1;
       }
-      group.visible = false;
-      state.landmarkRoot.add(group);
-      return group;
-    });
-    state.root.add(state.landmarkRoot);
+      while (cursor < GATE_POINT_COUNT) {
+        var u = hash1(cursor * 3 + index * 17, 917);
+        var v = (hash1(cursor * 5 + index * 23, 953) + 1) * 0.5;
+        var span = Math.sqrt(Math.max(0, 1 - u * u)) * radius;
+        positions[cursor * 3] = u * radius;
+        positions[cursor * 3 + 1] = v * span * 0.82;
+        positions[cursor * 3 + 2] = (hash1(cursor * 7 + index * 29, 991) + 1) * 0.6 - 0.3;
+        scales[cursor] = 0.6 + (hash1(cursor, 1031) + 1) * 0.5;
+        seeds[cursor] = v;
+        tints[cursor] = clamp01(0.36 + v * 0.62);
+        cursor += 1;
+      }
+      var geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+      geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+      geometry.setAttribute('aTint', new THREE.BufferAttribute(tints, 1));
+      geometry.computeBoundingSphere();
+      var points = new THREE.Points(geometry, state.gateMaterial);
+      points.name = 'highway-particles-gate-' + index;
+      points.frustumCulled = false;
+      points.visible = false;
+      points.renderOrder = 5;
+      state.root.add(points);
+      state.gateClouds.push(points);
+    }
   }
 
   function ensureLayer(scene) {
@@ -1125,7 +1442,6 @@
     if (!scene || typeof THREE === 'undefined') return;
     state.scene = scene;
     state.seed = state.seed || (Math.random() * 900 + 100);
-    state.dummy = new THREE.Object3D();
     state.rollQuaternion = new THREE.Quaternion();
     state.rollAxis = new THREE.Vector3(0, 0, 1);
     state.root = new THREE.Group();
@@ -1152,24 +1468,12 @@
     state.root.add(state.leftRail);
     state.root.add(state.rightRail);
 
-    var poleGeometry = new THREE.BoxGeometry(0.035, 1.12, 0.035);
-    state.poleMaterial = new THREE.MeshBasicMaterial({ color: 0x4b5563, transparent: true, opacity: 0 });
-    state.poleMesh = new THREE.InstancedMesh(poleGeometry, state.poleMaterial, LIGHT_PAIR_COUNT * 2);
-    state.poleMesh.frustumCulled = false;
-    state.root.add(state.poleMesh);
-
-    var lightGeometry = new THREE.BoxGeometry(0.24, 0.11, 0.32);
-    state.leftLightMaterial = new THREE.MeshBasicMaterial({ color: 0x26d9ff, transparent: true, opacity: 0 });
-    state.rightLightMaterial = new THREE.MeshBasicMaterial({ color: 0xffad42, transparent: true, opacity: 0 });
-    state.leftLights = new THREE.InstancedMesh(lightGeometry, state.leftLightMaterial, LIGHT_PAIR_COUNT);
-    state.rightLights = new THREE.InstancedMesh(lightGeometry, state.rightLightMaterial, LIGHT_PAIR_COUNT);
-    state.leftLights.frustumCulled = false;
-    state.rightLights.frustumCulled = false;
-    state.root.add(state.leftLights);
-    state.root.add(state.rightLights);
-
-    createLandscapeLayer();
-    createLandmarkLayer();
+    createTerrainCloud();
+    createGroundDustCloud();
+    createFloraCloud();
+    createLampCloud();
+    createMoteCloud();
+    createGateClouds();
 
     state.root.visible = false;
     scene.add(state.root);
@@ -1518,94 +1822,37 @@
     state.rightRail.geometry.attributes.position.needsUpdate = true;
   }
 
-  function setDummyTransform(mesh, index, x, y, z, scaleX, scaleY, scaleZ, rotationX, rotationY, rotationZ) {
-    state.dummy.position.set(x, y, z);
-    state.dummy.rotation.set(rotationX || 0, rotationY || 0, rotationZ || 0);
-    state.dummy.scale.set(scaleX, scaleY, scaleZ);
-    state.dummy.updateMatrix();
-    mesh.setMatrixAt(index, state.dummy.matrix);
-  }
-
-  function setDummyMatrix(mesh, index, x, y, z, scaleX, scaleY, scaleZ) {
-    setDummyTransform(mesh, index, x, y, z, scaleX, scaleY, scaleZ, 0, 0, 0);
-  }
-
   function updateRoadsideLights() {
+    if (!state.lampCloud) return;
+    var cloud = state.lampCloud;
+    var positions = cloud.positions;
+    var beamPositions = state.lampBeamPositions;
     var loopLength = LIGHT_PAIR_COUNT * LIGHT_SPACING;
     var phase = state.travel % LIGHT_SPACING;
-    var lampPulse = 1 + state.beat * 0.32 + state.boost * 0.22;
     for (var index = 0; index < LIGHT_PAIR_COUNT; index++) {
       var ahead = 4.6 + index * LIGHT_SPACING - phase;
       if (ahead < ROAD_NEAR + 1.2) ahead += loopLength;
       var sample = localRoadSample(ahead);
-      var leftX = sample.x - ROAD_HALF_WIDTH - 1.05;
-      var rightX = sample.x + ROAD_HALF_WIDTH + 1.05;
       var baseY = ROAD_BASE_Y + sample.y;
-      setDummyMatrix(state.poleMesh, index * 2, leftX, baseY + 0.56, -ahead, 1, 1, 1);
-      setDummyMatrix(state.poleMesh, index * 2 + 1, rightX, baseY + 0.56, -ahead, 1, 1, 1);
-      setDummyMatrix(state.leftLights, index, leftX, baseY + 1.15, -ahead, lampPulse, lampPulse, lampPulse);
-      setDummyMatrix(state.rightLights, index, rightX, baseY + 1.15, -ahead, lampPulse, lampPulse, lampPulse);
+      var lampY = baseY + 1.5 + state.bands[5] * 0.24;
+      for (var sideIndex = 0; sideIndex < 2; sideIndex++) {
+        var side = sideIndex ? 1 : -1;
+        var x = sample.x + side * (ROAD_HALF_WIDTH + 0.95);
+        var lampIndex = index * 2 + sideIndex;
+        positions[lampIndex * 3] = x;
+        positions[lampIndex * 3 + 1] = lampY;
+        positions[lampIndex * 3 + 2] = -ahead;
+        var beamOffset = lampIndex * 6;
+        beamPositions[beamOffset] = x;
+        beamPositions[beamOffset + 1] = baseY - 0.05;
+        beamPositions[beamOffset + 2] = -ahead;
+        beamPositions[beamOffset + 3] = x;
+        beamPositions[beamOffset + 4] = lampY;
+        beamPositions[beamOffset + 5] = -ahead;
+      }
     }
-    state.poleMesh.instanceMatrix.needsUpdate = true;
-    state.leftLights.instanceMatrix.needsUpdate = true;
-    state.rightLights.instanceMatrix.needsUpdate = true;
-  }
-
-  function placeTree(counts, x, baseY, ahead, height, crownScale, palm, yaw) {
-    var trunkIndex = counts.tree;
-    if (trunkIndex >= SCENERY_INSTANCE_COUNT) return;
-    setDummyTransform(
-      state.treeTrunkMesh,
-      trunkIndex,
-      x,
-      baseY + height * 0.5,
-      -ahead,
-      palm ? 0.72 : 0.92,
-      height,
-      palm ? 0.72 : 0.92,
-      0,
-      yaw,
-      palm ? 0.055 * (trunkIndex % 2 ? 1 : -1) : 0
-    );
-    setDummyTransform(
-      state.treeCrownMesh,
-      trunkIndex,
-      x,
-      baseY + height + (palm ? 0.18 : 0.58),
-      -ahead,
-      crownScale * (palm ? 1.48 : 1),
-      palm ? 0.34 : 0.92,
-      crownScale * (palm ? 1.32 : 1),
-      0,
-      yaw,
-      palm ? Math.PI : 0
-    );
-    counts.tree += 1;
-  }
-
-  function placeCactus(counts, x, baseY, ahead, height, yaw) {
-    var stemIndex = counts.cactus;
-    if (stemIndex >= SCENERY_INSTANCE_COUNT) return;
-    setDummyTransform(state.cactusStemMesh, stemIndex, x, baseY + height * 0.5, -ahead, 1, height, 1, 0, yaw, 0);
-    var armIndex = counts.cactusArm;
-    if (armIndex < SCENERY_INSTANCE_COUNT * 2) {
-      var armSide = stemIndex % 2 ? 1 : -1;
-      setDummyTransform(
-        state.cactusArmMesh,
-        armIndex,
-        x + armSide * 0.24,
-        baseY + height * 0.62,
-        -ahead,
-        0.48,
-        0.11,
-        0.12,
-        0,
-        yaw,
-        0
-      );
-      counts.cactusArm += 1;
-    }
-    counts.cactus += 1;
+    cloud.geometry.attributes.position.needsUpdate = true;
+    if (state.lampBeams) state.lampBeams.geometry.attributes.position.needsUpdate = true;
   }
 
   function setBlendedHexColor(target, currentHex, nextHex, blend) {
@@ -1618,18 +1865,27 @@
   }
 
   function applyBiomePalette(index, nextIndex, blend) {
-    if (!state.sceneryMaterials || index < 0 || index >= BIOME_PALETTES.length) return;
+    if (index < 0 || index >= BIOME_PALETTES.length) return;
     if (nextIndex == null || nextIndex < 0 || nextIndex >= BIOME_PALETTES.length) nextIndex = index;
     var palette = BIOME_PALETTES[index];
     var nextPalette = BIOME_PALETTES[nextIndex];
-    setBlendedHexColor(state.shoulderMaterial.color, palette.ground, nextPalette.ground, blend);
-    setBlendedHexColor(state.sceneryMaterials.mountain.color, palette.mountain, nextPalette.mountain, blend);
-    setBlendedHexColor(state.sceneryMaterials.mound.color, palette.mound, nextPalette.mound, blend);
-    setBlendedHexColor(state.sceneryMaterials.trunk.color, palette.trunk, nextPalette.trunk, blend);
-    setBlendedHexColor(state.sceneryMaterials.crown.color, palette.crown, nextPalette.crown, blend);
-    setBlendedHexColor(state.sceneryMaterials.cactus.color, palette.crown, nextPalette.crown, blend);
-    setBlendedHexColor(state.sceneryMaterials.waterLeft.color, palette.water, nextPalette.water, blend);
-    setBlendedHexColor(state.sceneryMaterials.waterRight.color, palette.water, nextPalette.water, blend);
+    if (state.shoulderMaterial) {
+      setBlendedHexColor(state.shoulderMaterial.color, palette.ground, nextPalette.ground, blend);
+      // 地坪只做底色，压到近黑才不会跟粒子抢视线。
+      state.shoulderMaterial.color.multiplyScalar(0.42);
+    }
+    if (state.groundDustCloud) {
+      setBlendedHexColor(state.groundDustCloud.material.uniforms.uColorA.value, palette.trunk, nextPalette.trunk, blend);
+      setBlendedHexColor(state.groundDustCloud.material.uniforms.uColorB.value, palette.crown, nextPalette.crown, blend);
+    }
+    if (state.terrainCloud) {
+      setBlendedHexColor(state.terrainCloud.material.uniforms.uColorA.value, palette.mound, nextPalette.mound, blend);
+      setBlendedHexColor(state.terrainCloud.material.uniforms.uColorB.value, palette.mountain, nextPalette.mountain, blend);
+    }
+    if (state.floraCloud) {
+      setBlendedHexColor(state.floraCloud.material.uniforms.uColorA.value, palette.trunk, nextPalette.trunk, blend);
+      setBlendedHexColor(state.floraCloud.material.uniforms.uColorB.value, palette.crown, nextPalette.crown, blend);
+    }
   }
 
   function biomeWaterForSide(index, beachWaterSide, side) {
@@ -1683,94 +1939,33 @@
   }
 
   function updateLandscape(dt) {
-    if (!state.sceneryRoot || !state.sceneryMaterials) return;
-    var biome = syncBiomeTransition(state.travel + ROAD_LENGTH * 0.34);
-    var counts = { mountain: 0, mound: 0, tree: 0, cactus: 0, cactusArm: 0 };
-    var zone = biome.zone;
-    var beachWaterSide = zone % 2 ? -1 : 1;
-    for (var index = 0; index < SCENERY_INSTANCE_COUNT; index++) {
-      var placement = recycledWorldPlacement(index, SCENERY_SPACING, SCENERY_INSTANCE_COUNT, 8, state.travel, SCENERY_PASS_DISTANCE);
-      var ahead = placement.ahead;
-      if (ahead > ROAD_LENGTH + 8) continue;
-      var slot = placement.slot;
-      var slotBiome = biomeIndexAtDistance(placement.worldDistance, state.seed);
-      var randomA = (hash1(slot, state.seed + 211) + 1) * 0.5;
-      var randomB = (hash1(slot, state.seed + 337) + 1) * 0.5;
-      var side = hash1(slot, state.seed + 449) >= 0 ? 1 : -1;
-      var sample = localRoadSample(ahead);
-      var baseY = ROAD_BASE_Y + sample.y - 0.04;
-      var yaw = randomB * Math.PI * 2;
-
-      if (slotBiome === 0) {
-        var mountainHeight = 3.8 + randomA * 6.2;
-        var mountainX = sample.x + side * (12.5 + randomB * 14);
-        setDummyTransform(state.mountainMesh, counts.mountain++, mountainX, baseY + mountainHeight * 0.5, -ahead, 2.6 + randomB * 2.4, mountainHeight, 2.4 + randomA * 2.8, 0, yaw, 0);
-        if (index % 2 === 0) placeTree(counts, sample.x + side * (7.8 + randomA * 4.6), baseY, ahead, 1.45 + randomB * 1.3, 0.72 + randomA * 0.46, false, yaw);
-      } else if (slotBiome === 1) {
-        if (index % 3 === 0) {
-          var riverMoundScale = 2.4 + randomA * 3.2;
-          setDummyTransform(state.moundMesh, counts.mound++, sample.x + side * (13 + randomB * 8), baseY - 0.55, -ahead, riverMoundScale, 1.0 + randomB, riverMoundScale * 0.82, 0, yaw, 0);
-        }
-        if (index % 2 === 0) placeTree(counts, sample.x + side * (7.6 + randomA * 4.8), baseY, ahead, 1.2 + randomB * 1.1, 0.68 + randomA * 0.42, false, yaw);
-      } else if (slotBiome === 2) {
-        var hillScale = 3.2 + randomA * 4.2;
-        setDummyTransform(state.moundMesh, counts.mound++, sample.x + side * (10 + randomB * 10), baseY - 0.58, -ahead, hillScale, 1.15 + randomB * 1.25, hillScale * 0.86, 0, yaw, 0);
-        if (index % 3 === 0) placeTree(counts, sample.x + side * (7.8 + randomA * 5.2), baseY, ahead, 1.15 + randomB, 0.70 + randomA * 0.38, false, yaw);
-      } else if (slotBiome === 3) {
-        var duneScale = 3.4 + randomA * 5.4;
-        setDummyTransform(state.moundMesh, counts.mound++, sample.x + side * (10.5 + randomB * 10), baseY - 0.64, -ahead, duneScale, 0.72 + randomB * 0.86, duneScale * 1.18, 0, yaw, 0);
-        if (index % 2 === 0) placeCactus(counts, sample.x + side * (8.4 + randomA * 6.6), baseY, ahead, 0.9 + randomB * 1.35, yaw);
-      } else if (slotBiome === 4) {
-        var landSide = -beachWaterSide;
-        if (index % 2 === 0) {
-          var beachMoundScale = 2.7 + randomA * 4.4;
-          setDummyTransform(state.moundMesh, counts.mound++, sample.x + landSide * (11 + randomB * 11), baseY - 0.62, -ahead, beachMoundScale, 0.62 + randomB * 0.64, beachMoundScale, 0, yaw, 0);
-          placeTree(counts, sample.x + landSide * (7.4 + randomA * 4.0), baseY, ahead, 1.75 + randomB * 1.25, 0.82 + randomA * 0.36, true, yaw);
-        }
-      } else {
-        var grassScale = 3.1 + randomA * 4.6;
-        setDummyTransform(state.moundMesh, counts.mound++, sample.x + side * (10 + randomB * 11), baseY - 0.64, -ahead, grassScale, 0.72 + randomB * 0.80, grassScale * 0.92, 0, yaw, 0);
-        if (index % 4 === 0) placeTree(counts, sample.x + side * (8 + randomA * 5.8), baseY, ahead, 1.1 + randomB * 0.85, 0.66 + randomA * 0.35, false, yaw);
-      }
-    }
-
-    state.mountainMesh.count = counts.mountain;
-    state.moundMesh.count = counts.mound;
-    state.treeTrunkMesh.count = counts.tree;
-    state.treeCrownMesh.count = counts.tree;
-    state.cactusStemMesh.count = counts.cactus;
-    state.cactusArmMesh.count = counts.cactusArm;
-    [state.mountainMesh, state.moundMesh, state.treeTrunkMesh, state.treeCrownMesh, state.cactusStemMesh, state.cactusArmMesh].forEach(function (mesh) {
-      mesh.instanceMatrix.needsUpdate = true;
-    });
-
-    var waterSample = localRoadSample(ROAD_LENGTH * 0.52);
-    state.leftWater.position.set(waterSample.x - 16, ROAD_BASE_Y + waterSample.y - 0.018, -ROAD_LENGTH * 0.52);
-    state.rightWater.position.set(waterSample.x + 16, ROAD_BASE_Y + waterSample.y - 0.018, -ROAD_LENGTH * 0.52);
-    state.leftWater.scale.set(22, ROAD_LENGTH * 1.18, 1);
-    state.rightWater.scale.set(22, ROAD_LENGTH * 1.18, 1);
-    state.leftWater.visible = state.leftWaterAmount > 0.01;
-    state.rightWater.visible = state.rightWaterAmount > 0.01;
+    if (!state.terrainCloud) return;
+    syncBiomeTransition(state.travel + ROAD_LENGTH * 0.34);
+    updateTerrainCloud();
+    updateFloraCloud();
+    updateMoteCloud(dt);
   }
 
   function updateLandmarks() {
-    if (!state.landmarkRoot || !state.landmarks.length) return;
+    if (!state.gateClouds.length) return;
     state.visibleLandmark = '';
-    state.landmarks.forEach(function (group, index) {
-      var placement = recycledWorldPlacement(index, LANDMARK_SPACING, LANDMARK_NAMES.length, 58, state.travel, LANDMARK_PASS_DISTANCE);
+    for (var index = 0; index < state.gateClouds.length; index++) {
+      var gate = state.gateClouds[index];
+      var placement = recycledWorldPlacement(index, GATE_SPACING, LANDMARK_NAMES.length, 96, state.travel, LANDMARK_PASS_DISTANCE);
       var ahead = placement.ahead;
-      var visible = ahead >= -LANDMARK_PASS_DISTANCE && ahead <= ROAD_LENGTH + 4;
-      group.visible = visible;
-      if (!visible) return;
+      var visible = ahead >= -LANDMARK_PASS_DISTANCE && ahead <= ROAD_LENGTH + 6;
+      gate.visible = visible;
+      if (!visible) continue;
       var sample = localRoadSample(ahead);
-      var side = index % 2 ? 1 : -1;
-      var lateral = 9.5 + index % 3 * 1.45;
-      group.position.set(sample.x + side * lateral, ROAD_BASE_Y + sample.y - 0.02, -ahead);
-      group.rotation.set(0, side < 0 ? 0.16 : -0.16, 0);
-      var scale = 1.14 + index % 3 * 0.14;
-      group.scale.setScalar(scale);
+      gate.position.set(sample.x, ROAD_BASE_Y + sample.y - 0.05, -ahead);
+      gate.scale.setScalar(1 + state.beat * 0.10 + state.boost * 0.06);
       state.visibleLandmark = LANDMARK_NAMES[index];
-    });
+    }
+    if (state.gateMaterial) {
+      state.gateMaterial.uniforms.uTime.value = state.time;
+      state.gateMaterial.uniforms.uBeat.value = state.beat;
+      state.gateMaterial.uniforms.uEnergy.value = state.bands[6];
+    }
   }
 
   function targetRoadSpeed(audio, fx, lowDrive, boost, beat) {
@@ -1824,12 +2019,25 @@
     uniforms.uAccent.value.lerp(theme.accent, amount);
     state.leftRail.material.color.lerp(theme.primary, amount);
     state.rightRail.material.color.lerp(theme.secondary, amount);
-    state.leftLightMaterial.color.lerp(theme.primary.clone().lerp(theme.accent, 0.16), amount);
-    state.rightLightMaterial.color.lerp(theme.secondary.clone().lerp(theme.accent, 0.12), amount);
-    if (state.landmarkMaterials) {
-      state.landmarkMaterials.glass.color.lerp(theme.primary.clone().lerp(new THREE.Color('#2c8da5'), 0.48), amount);
-      state.landmarkMaterials.light.color.lerp(theme.accent.clone().lerp(new THREE.Color('#f4d28a'), 0.42), amount);
+    if (state.lampCloud) {
+      state.lampCloud.material.uniforms.uColorA.value.lerp(theme.primary.clone().lerp(theme.accent, 0.24), amount);
+      state.lampCloud.material.uniforms.uColorB.value.lerp(theme.secondary.clone().lerp(theme.accent, 0.18), amount);
     }
+    if (state.moteCloud) state.moteCloud.material.uniforms.uColorA.value.lerp(theme.accent, amount * 0.7);
+    if (state.gateMaterial) {
+      state.gateMaterial.uniforms.uColorA.value.lerp(theme.primary, amount);
+      state.gateMaterial.uniforms.uColorB.value.lerp(theme.secondary, amount);
+    }
+  }
+
+  function syncParticleUniforms(particle, opacity, beat, energy, pixelRatio) {
+    if (!particle) return;
+    var uniforms = particle.material.uniforms;
+    uniforms.uOpacity.value = opacity;
+    uniforms.uBeat.value = beat;
+    uniforms.uEnergy.value = energy;
+    uniforms.uTime.value = state.time;
+    if (pixelRatio) uniforms.uPixelRatio.value = pixelRatio;
   }
 
   function syncOpacity() {
@@ -1844,27 +2052,14 @@
     state.shoulderMaterial.opacity = opacity * 0.90;
     state.leftRail.material.opacity = opacity * (0.78 + state.bands[6] * 0.22);
     state.rightRail.material.opacity = opacity * (0.78 + state.bands[5] * 0.22);
-    state.poleMaterial.opacity = opacity * 0.82;
-    state.leftLightMaterial.opacity = opacity * (0.86 + state.bands[6] * 0.14);
-    state.rightLightMaterial.opacity = opacity * (0.86 + state.bands[5] * 0.14);
+    if (state.poleMaterial) state.poleMaterial.opacity = opacity * 0.34;
     var worldOpacity = opacity * state.biomeFade;
-    if (state.sceneryRoot) state.sceneryRoot.visible = worldOpacity > 0.01;
-    if (state.landmarkRoot) state.landmarkRoot.visible = worldOpacity > 0.01;
-    if (state.sceneryMaterials) {
-      state.sceneryMaterials.mountain.opacity = worldOpacity * 0.68;
-      state.sceneryMaterials.mound.opacity = worldOpacity * 0.72;
-      state.sceneryMaterials.trunk.opacity = worldOpacity * 0.78;
-      state.sceneryMaterials.crown.opacity = worldOpacity * 0.78;
-      state.sceneryMaterials.cactus.opacity = worldOpacity * 0.82;
-      state.sceneryMaterials.waterLeft.opacity = worldOpacity * state.leftWaterAmount * (0.52 + state.bands[6] * 0.16);
-      state.sceneryMaterials.waterRight.opacity = worldOpacity * state.rightWaterAmount * (0.52 + state.bands[6] * 0.16);
-    }
-    if (state.landmarkMaterials) {
-      state.landmarkMaterials.body.opacity = worldOpacity * 0.76;
-      state.landmarkMaterials.shadow.opacity = worldOpacity * 0.64;
-      state.landmarkMaterials.glass.opacity = worldOpacity * 0.76;
-      state.landmarkMaterials.light.opacity = worldOpacity * (0.78 + state.beat * 0.16);
-    }
+    syncParticleUniforms(state.terrainCloud, worldOpacity * 0.62, state.beat, state.bands[2], state.pixelRatio);
+    syncParticleUniforms(state.groundDustCloud, worldOpacity * 0.5, state.beat, state.bands[1], state.pixelRatio);
+    syncParticleUniforms(state.floraCloud, worldOpacity * 0.74, state.beat, state.bands[4], state.pixelRatio);
+    syncParticleUniforms(state.lampCloud, opacity * 0.95, state.beat, state.bands[6], state.pixelRatio);
+    syncParticleUniforms(state.moteCloud, opacity * 0.72, state.beat, state.bands[7], state.pixelRatio);
+    syncParticleUniforms(state.gateClouds.length ? { material: state.gateMaterial } : null, worldOpacity * 0.88, state.beat, state.bands[6], state.pixelRatio);
   }
 
   function clearLayer() {
@@ -1901,9 +2096,7 @@
     state.shoulder = null;
     state.leftRail = null;
     state.rightRail = null;
-    state.poleMesh = null;
-    state.leftLights = null;
-    state.rightLights = null;
+    state.poleMaterial = null;
     state.sky = null;
     state.skyMaterial = null;
     state.precipitation = null;
@@ -1913,19 +2106,15 @@
     state.celestialMaterial = null;
     state.celestialRing = null;
     state.celestialRingMaterial = null;
-    state.sceneryRoot = null;
-    state.sceneryMaterials = null;
-    state.mountainMesh = null;
-    state.moundMesh = null;
-    state.treeTrunkMesh = null;
-    state.treeCrownMesh = null;
-    state.cactusStemMesh = null;
-    state.cactusArmMesh = null;
-    state.leftWater = null;
-    state.rightWater = null;
-    state.landmarkRoot = null;
-    state.landmarks = [];
-    state.landmarkMaterials = null;
+    state.terrainCloud = null;
+    state.groundDustCloud = null;
+    state.floraCloud = null;
+    state.lampCloud = null;
+    state.moteCloud = null;
+    state.gateMaterial = null;
+    state.gateClouds = [];
+    state.lampBeams = null;
+    state.lampBeamPositions = null;
     state.biomeIndex = -1;
     state.nextBiomeIndex = -1;
     state.biomeBlend = 0;
@@ -1972,6 +2161,9 @@
     }
     ensureLayer(ctx.scene);
     if (!state.root || !ctx.camera) return;
+    state.pixelRatio = (typeof renderer !== 'undefined' && renderer && renderer.getPixelRatio)
+      ? renderer.getPixelRatio()
+      : (Number(global.devicePixelRatio) || 1);
     var audio = readAudio(ctx.audio);
     updateAudioState(audio, fx, dt);
     state.time += dt;
@@ -2072,9 +2264,10 @@
       snowAmount: state.snowAmount,
       precipitationCount: state.precipitation ? PRECIPITATION_COUNT : 0,
       visibleLandmark: state.visibleLandmark,
-      sceneryInstances: state.mountainMesh
-        ? state.mountainMesh.count + state.moundMesh.count + state.treeTrunkMesh.count + state.cactusStemMesh.count
-        : 0,
+      terrainParticles: state.terrainCloud ? state.terrainCloud.count : 0,
+      groundDustParticles: state.groundDustCloud ? state.groundDustCloud.count : 0,
+      floraParticles: state.floraCloud ? state.floraCloud.count : 0,
+      moteParticles: state.moteCloud ? state.moteCloud.count : 0,
       roadVertices: (ROAD_SEGMENT_COUNT + 1) * ROAD_COLUMN_COUNT,
       roadWaveVertices: state.roadPulse ? state.roadPulse.length : 0,
       roadTrackVertices: state.roadTrackPulse ? state.roadTrackPulse.length : 0,
@@ -2140,9 +2333,14 @@
         trackLaneCount: ROAD_TRACK_LANE_COUNT,
         trackLaneBands: ROAD_TRACK_LANE_BANDS.map(function (bands) { return bands.slice(); }),
         lightPairCount: LIGHT_PAIR_COUNT,
-        sceneryInstanceCount: SCENERY_INSTANCE_COUNT,
-        scenerySpacing: SCENERY_SPACING,
-        sceneryPassDistance: SCENERY_PASS_DISTANCE,
+        terrainSlotCount: TERRAIN_SLOT_COUNT,
+        terrainLayerCount: TERRAIN_LAYER_COUNT,
+        terrainPointCount: TERRAIN_POINT_COUNT,
+        floraPointCount: FLORA_POINT_COUNT,
+        moteCount: MOTE_COUNT,
+        groundDustCount: GROUND_DUST_COUNT,
+        gatePointCount: GATE_POINT_COUNT,
+        gateSpacing: GATE_SPACING,
         biomeZoneLength: BIOME_ZONE_LENGTH,
         biomeNames: BIOME_NAMES.slice(),
         weatherNames: WEATHER_NAMES.slice(),

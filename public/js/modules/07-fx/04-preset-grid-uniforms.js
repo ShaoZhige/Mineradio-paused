@@ -106,7 +106,6 @@ function setPreset(p, opts) {
   if (changed && window.MineradioSonicTopography) MineradioSonicTopography.onPresetChange(prev, p, { scene: scene, fx: fx });
   if (changed && window.MineradioSonicWorkshop) MineradioSonicWorkshop.onPresetChange(prev, p, { scene: scene, fx: fx });
   if (changed && window.MineradioHighwayDrive) MineradioHighwayDrive.onPresetChange(prev, p, { scene: scene, fx: fx });
-  if (changed && window.MineradioNiuLaiDream) MineradioNiuLaiDream.onPresetChange(prev, p, { scene: scene, fx: fx });
   uniforms.uPreset.value = p;
   refreshPresetGrid();
   if (typeof updateSonicSeriesControlVisibility === 'function') updateSonicSeriesControlVisibility();

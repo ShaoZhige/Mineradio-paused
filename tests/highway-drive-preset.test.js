@@ -35,7 +35,11 @@ assert.strictEqual(api.constants.spectrumSampleCount, api.constants.segmentCount
 assert(api.constants.segmentCount <= 128, '路面网格必须有上界');
 assert((api.constants.segmentCount + 1) * api.constants.columnCount <= 2200, '路面顶点预算必须有上界');
 assert(api.constants.lightPairCount <= 32, '路灯实例预算必须有上界');
-assert(api.constants.sceneryInstanceCount <= 32, '景物实例池必须有上界');
+assert(api.constants.terrainPointCount <= 20000, '地形粒子池必须有上界');
+assert(api.constants.floraPointCount <= 800, '植被粒子池必须有上界');
+assert(api.constants.moteCount <= 320, '浮尘粒子池必须有上界');
+assert(api.constants.groundDustCount <= 8000, '地面尘埃粒子池必须有上界');
+assert(api.constants.gatePointCount <= 280, '路标粒子池必须有上界');
 assert(api.constants.precipitationCount <= 512, '雨雪必须共用一份有界粒子池');
 assert(api.constants.maxCameraRoll <= 0.015, '相机侧倾必须低于晕动症阈值');
 assert(api.constants.cameraRollResponse <= 1.5, '侧倾要缓入，不能跟着弯道瞬间甩');
@@ -180,13 +184,7 @@ celestialTilts.forEach(tilt => {
 assert(new Set(celestialTilts.map(tilt => tilt.azimuth.toFixed(3))).size >= 5, '各行星自转轴不能全朝一边歪');
 assert.strictEqual(api.constants.celestialNames[api.celestialIndexForZone(5, 0)], 'saturn', '第一个星空分区要出现带环的土星');
 
-// 七、回收：景物与地标必须在真正掠过相机后才循环。
-const sceneryBeforePass = api.recycledWorldPlacement(0, api.constants.scenerySpacing, api.constants.sceneryInstanceCount, 8, 13.9, api.constants.sceneryPassDistance);
-const sceneryAfterPass = api.recycledWorldPlacement(0, api.constants.scenerySpacing, api.constants.sceneryInstanceCount, 8, 14.1, api.constants.sceneryPassDistance);
-assert(sceneryBeforePass.ahead < 0, '景物掠过相机平面后仍要可见');
-assert.strictEqual(sceneryBeforePass.worldDistance, 8, '景物在掠过之前就被回收了');
-assert(sceneryAfterPass.worldDistance > sceneryBeforePass.worldDistance, '景物必须在过屏蔽距离后才回收');
-assert(sceneryAfterPass.ahead > api.constants.sceneryPassDistance, '回收后的景物要回到近景之外');
+// 七、回收：路标必须在真正掠过相机后才循环。
 const landmarkBeforePass = api.recycledWorldPlacement(0, api.constants.landmarkSpacing, api.constants.landmarkNames.length, 58, 69.9, api.constants.landmarkPassDistance);
 const landmarkAfterPass = api.recycledWorldPlacement(0, api.constants.landmarkSpacing, api.constants.landmarkNames.length, 58, 70.1, api.constants.landmarkPassDistance);
 assert(landmarkBeforePass.ahead < 0, '地标要先真正掠过相机');
@@ -203,25 +201,30 @@ assert(beatSpeed > idleSpeed + 20, '强节拍必须带来可感知的提速');
 
 // 九、接线：任何一处漏登记都不会报错，只会「什么都不发生」。
 assert(loader.includes("'highway-drive-preset.js'"), 'index-loader 必须登记无尽公路');
-assert(/MAX_VISUAL_PRESET_INDEX = 14/.test(core) && /HIGHWAY_PRESET_INDEX = 13/.test(core), '预设 13 必须能通过启动与存档夹取');
+assert(/MAX_VISUAL_PRESET_INDEX = 13/.test(core) && /HIGHWAY_PRESET_INDEX = 13/.test(core), '预设 13 必须能通过启动与存档夹取');
 assert(presets.includes("name: '无尽公路'") && presets.includes('作者 <span class="pc-author-cyberforker">Cyberforker</span>'), '预设卡片必须署名 Cyberforker');
-assert(/presetDisplayOrder = \[0, 9, 10, 11, 12, 6, 7, 8, 13, 14, 5, 4, 2, 1, 3\]/.test(presets), '无尽公路卡片要排在音域回响之后');
+assert(/presetDisplayOrder = \[0, 9, 10, 11, 12, 6, 7, 8, 13, 5, 4, 2, 1, 3\]/.test(presets), '无尽公路卡片要排在音域回响之后');
 assert(/MineradioHighwayDrive\.onPresetChange/.test(presetGrid), '切换预设必须通知无尽公路运行时');
 assert(/MineradioHighwayDrive\.update/.test(mainLoop) && /visual\.highway-drive/.test(mainLoop), '主循环必须驱动并计量无尽公路');
 assert(/audio: sonicAudioFrame \|\|/.test(mainLoop), '无尽公路必须收到共享实时频谱帧，而不是只有聚合能量');
 assert(/!highwayPresetActiveEarly/.test(mainLoop), '无尽公路激活时基础封面粒子必须隐藏');
-assert(/setVisualSuppressed\(highwayPresetActiveEarly \|\| niulaiPresetActiveEarly\)/.test(mainLoop) && /setVisualSuppressed: function/.test(shelfManager), '无尽公路必须在不改动存档里的歌单架模式的前提下让架体让位');
+assert(/setVisualSuppressed\(highwayPresetActiveEarly\)/.test(mainLoop) && /setVisualSuppressed: function/.test(shelfManager), '无尽公路必须在不改动存档里的歌单架模式的前提下让架体让位');
 assert(/syncShelfSuppression\(active\)/.test(source), '后续场景更新后仍要保持歌单架隐藏');
 
-// 十、造型与资源边界。
-assert(/InstancedMesh/.test(source) && /highway-landscape-root/.test(source), '路边自然景物必须用实例化几何');
-assert(/highway-landmark-root/.test(source) && /lateral = 9\.5/.test(source), '地标必须留在车道之外');
+// 十、造型与资源边界：整场景只有点云和着色器，不允许任何低模实体。
+assert(!/InstancedMesh|BoxGeometry|ConeGeometry|CylinderGeometry/.test(source), '场景不得再出现立方体、锥体、圆柱这类低模实体');
+assert(/highway-particles-terrain/.test(source) && /highway-particles-flora/.test(source), '地形与植被必须是点云');
+assert(/highway-particles-gate-/.test(source), '路标必须是粒子拱门而不是建筑模型');
+assert(/gl_PointSize/.test(source) && /AdditiveBlending/.test(source), '粒子必须按深度衰减并叠加发光');
+assert(/uFogNear/.test(source) && /uFogFar/.test(source), '粒子必须自带深度雾，远处不能硬切');
+assert(/uPixelRatio/.test(source) && /renderer\.getPixelRatio/.test(source), '粒子尺寸必须跟随渲染像素比，高分屏才不会缩成一片');
 assert(/highway-dynamic-sky/.test(source) && /new THREE\.Points/.test(source), '天气要用一份程序化天空与一份共享降水粒子');
-assert(/syncBiomeTransition\(state\.travel \+ ROAD_LENGTH \* 0\.34\)/.test(source), '路边配色与水面的过渡进度必须与天空一致');
+assert(/syncBiomeTransition\(state\.travel \+ ROAD_LENGTH \* 0\.34\)/.test(source), '路边配色必须与天空使用同一份过渡进度');
 assert(/aBandPulse/.test(source) && /advanceSpectrumHistory\(state\.speed \* dt\)/.test(source), '路面波纹必须把起音从地平线推向相机');
 assert(/aTrackPulse/.test(source) && /trackPulseHistory/.test(source), '四车道音符要用独立历史，不能顶掉原始路面律动');
 assert(/rhythmTrackEventFrame/.test(source) && /ROAD_TRACK_LANE_SEQUENCE/.test(source), '路面必须生成自动谱面而不是整行闪光');
-assert(/trackCell=smoothstep\([^;]+laneDist\)/.test(source), '节拍方块要填满四条可见车道并尊重分隔线');
+assert(/laneBand=smoothstep\([^;]+laneDist\)/.test(source), '节拍光带要铺满车道并避开分隔线');
+assert(!/crossGrid/.test(source), '路面不能再有横竖交叉的方格光网');
 assert(/state\.spectrumDistance \/ ROAD_SPECTRUM_STEP/.test(source), '谱面事件必须在深度行之间插值，接近才连续');
 assert(/new THREE\.SphereGeometry\(1, 48, 32\)/.test(source), '夜空天体必须是真 3D 球体而不是着色器圆盘');
 assert(/new THREE\.RingGeometry\(1\.26, 2\.16, 96, 2\)/.test(source), '土星必须有独立 3D 环');
@@ -240,4 +243,4 @@ planetAssetNames.forEach(name => {
 assert(planetAssetBytes < 1024 * 1024, '行星贴图总体积必须低于 1 MB');
 assert(fs.readFileSync(path.join(planetAssetDir, 'LICENSE.txt'), 'utf8').includes('CC BY 4.0'), '贴图署名必须随资源分发');
 
-console.log('[OK] 无尽公路以 13 号预设交付：六种地貌、七颗带贴图 3D 天体、有界降水、地标、八频段响应与节拍提速。');
+console.log('[OK] 无尽公路以 13 号预设交付：六种地貌、七颗带贴图 3D 天体、有界降水、粒子点绘地形与拱门、八频段响应与节拍提速。');

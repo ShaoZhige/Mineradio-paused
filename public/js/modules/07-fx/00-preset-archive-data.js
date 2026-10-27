@@ -14,7 +14,6 @@ var presetMeta = [
   { name: '折光蝶群', nameHtml: '折光蝶群 <span class="pc-name-en">PRISM FLOCK</span>', desc: '折纸翼阵 · 光谱迁徙', premiumVisual: true, accent: '#f0d7ff', accent2: '#75e6d1' },
   { name: '深海绽放', nameHtml: '深海绽放 <span class="pc-name-en">ABYSSAL BLOOM</span>', desc: '生物荧光 · 潮汐花冠', premiumVisual: true, accent: '#75f0d0', accent2: '#8178ff' },
   { name: '无尽公路', nameHtml: '无尽公路 <span class="pc-name-en">HIGHWAY DRIVE</span>', desc: '作者 Cyberforker', descHtml: '作者 <span class="pc-author-cyberforker">Cyberforker</span>', premiumVisual: true, accent: '#ff9a4d', accent2: '#5ad6ff' },
-  { name: '牛来', nameHtml: '牛来 <span class="pc-name-en">DREAM MIGRATION</span>', desc: '作者 Cyberforker', descHtml: '作者 <span class="pc-author-cyberforker">Cyberforker</span>', premiumVisual: true, accent: '#f0c779', accent2: '#78c7b7' },
 ];
 var presetIcons = [
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14c3-2 5-2 8 0s5 2 8 0M3 10c3-2 5-2 8 0s5 2 8 0M3 18c3-2 5-2 8 0s5 2 8 0"/></svg>',
@@ -31,9 +30,8 @@ var presetIcons = [
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"><path d="M12 12 3 6l3 9 6-3 6 3 3-9-9 6Z"/><path d="M12 12V4M6 15l3 4 3-7 3 7 3-4"/></svg>',
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><path d="M12 20c-1-5-7-5-7-10 4 0 6 2 7 5 1-3 3-5 7-5 0 5-6 5-7 10Z"/><path d="M12 15c-3-3-2-7 0-11 2 4 3 8 0 11Z"/><circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none"/></svg>',
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8.2 21 10.4 3"/><path d="m15.8 21-2.2-18"/><path d="M12 5.5v3"/><path d="M12 12v3"/><path d="M12 18.5V21"/><path d="M3 21h18"/></svg>',
-  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 7.2C5.2 7 3.8 5.8 3 3.8c2.5-.2 4.3.5 5.4 2.1"/><path d="M16.5 7.2c2.3-.2 3.7-1.4 4.5-3.4-2.5-.2-4.3.5-5.4 2.1"/><path d="M7.2 7.3C8.3 5.8 9.9 5 12 5s3.7.8 4.8 2.3l.9 6.2c.2 3.5-2 6.5-5.7 6.5s-5.9-3-5.7-6.5z"/><path d="M9.2 11.3h.1M14.7 11.3h.1"/><path d="M9.2 15.2c1.8 1 3.8 1 5.6 0"/></svg>',
 ];
-var presetDisplayOrder = [0, 9, 10, 11, 12, 6, 7, 8, 13, 14, 5, 4, 2, 1, 3];
+var presetDisplayOrder = [0, 9, 10, 11, 12, 6, 7, 8, 13, 5, 4, 2, 1, 3];
 // 含取词调用的顶层数据一律用函数：本模块在解析期求值，而词典是异步 fetch 的，
 // 写成顶层常量会把键名冻进配色名里。消费方一律调用 lyricColorPresets()。
 // Top-level data that calls the accessors must be a function: this module evaluates during

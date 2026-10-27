@@ -592,8 +592,7 @@ function animate() {
   var sonicPresetActiveEarly = window.MineradioSonicTopography && MineradioSonicTopography.isActive(fx);
   var sonicWorkshopActiveEarly = window.MineradioSonicWorkshop && MineradioSonicWorkshop.isActive(fx);
   var highwayPresetActiveEarly = window.MineradioHighwayDrive && MineradioHighwayDrive.isActive(fx);
-  var niulaiPresetActiveEarly = window.MineradioNiuLaiDream && MineradioNiuLaiDream.isActive(fx);
-  var skullBackdropDim = fx && fx.preset === SKULL_PRESET_INDEX ? 0.58 : (sonicPresetActiveEarly || sonicWorkshopActiveEarly || highwayPresetActiveEarly || niulaiPresetActiveEarly ? 0.82 : 1);
+  var skullBackdropDim = fx && fx.preset === SKULL_PRESET_INDEX ? 0.58 : (sonicPresetActiveEarly || sonicWorkshopActiveEarly || highwayPresetActiveEarly ? 0.82 : 1);
   var shelfDimTarget = shouldDimWallpaperForShelf() ? 0.48 : skullBackdropDim;
   var shelfDimEase = shelfDimTarget < uniforms.uParticleDim.value ? 0.18 : 0.10;
   uniforms.uParticleDim.value += (shelfDimTarget - uniforms.uParticleDim.value) * Math.min(1, shelfDimEase * Math.max(1, dt * 60));
@@ -609,8 +608,8 @@ function animate() {
   updateFloatLayer(dt);
   if (perfProbe && perfProbe.markSince) perfProbe.markSince('visual.cover-layers', coverLayerPerfStart);
   var shelfPerfStart = performance.now();
-  // 无尽公路与牛来会自己接管相机与地面，歌单架的 3D 架体留着会浮在路面上。
-  if (shelfManager && shelfManager.setVisualSuppressed) shelfManager.setVisualSuppressed(highwayPresetActiveEarly || niulaiPresetActiveEarly);
+  // 无尽公路会自己接管相机与地面，歌单架的 3D 架体留着会浮在路面上。
+  if (shelfManager && shelfManager.setVisualSuppressed) shelfManager.setVisualSuppressed(highwayPresetActiveEarly);
   var shelfStepDt = consumeFrameGate(mainFrameGates.shelf, now, dt, targetMainShelfFps(now), false, 'shelf-manager');
   if (shelfStepDt > 0 && shelfManager) shelfManager.update(shelfStepDt);
   if (perfProbe && perfProbe.markSince) perfProbe.markSince('visual.shelf-manager', shelfPerfStart);
@@ -637,10 +636,10 @@ function animate() {
   var workshopPresetActive = window.MineradioSonicWorkshop && MineradioSonicWorkshop.isActive(fx);
   var presetUsesStarRiverParticles = fx && (Number(fx.preset) === 5 || (typeof SONIC_PRESET_INDEX !== 'undefined' && Number(fx.preset) === SONIC_PRESET_INDEX));
   var presetStarRiverMuted = presetUsesStarRiverParticles && fx.backgroundStarRiver === false;
-  particles.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly && !niulaiPresetActiveEarly && !presetStarRiverMuted;
-  if (bloomParticles) bloomParticles.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly && !niulaiPresetActiveEarly && !presetStarRiverMuted && fx.bloom && fx.bloomStrength > 0.01;
-  if (floatGroup) floatGroup.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly && !niulaiPresetActiveEarly;
-  if (backCoverGroup) backCoverGroup.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly && !niulaiPresetActiveEarly;
+  particles.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly && !presetStarRiverMuted;
+  if (bloomParticles) bloomParticles.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly && !presetStarRiverMuted && fx.bloom && fx.bloomStrength > 0.01;
+  if (floatGroup) floatGroup.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly;
+  if (backCoverGroup) backCoverGroup.visible = !skullPresetActive && !workshopPresetActive && !highwayPresetActiveEarly;
   var targetRotY = orbit.centerLocked ? 0 : (headParallax.active ? headParallax.x * 0.5 : 0) + gestureRotation.y;
   var targetRotX = orbit.centerLocked ? 0 : (headParallax.active ? -headParallax.y * 0.35 : 0) + gestureRotation.x;
   particles.rotation.y += (targetRotY - particles.rotation.y) * 0.055;
@@ -694,17 +693,6 @@ function animate() {
     });
   }
   if (perfProbe && perfProbe.markSince) perfProbe.markSince('visual.highway-drive', highwayPerfStart);
-  var niulaiPerfStart = performance.now();
-  if (window.MineradioNiuLaiDream) {
-    MineradioNiuLaiDream.update(dt, {
-      scene: scene,
-      camera: camera,
-      fx: fx,
-      time: uniforms.uTime.value,
-      audio: sonicAudioFrame || { bass: bass, mid: mid, treble: treble, beat: beatPulse, energy: audioEnergy }
-    });
-  }
-  if (perfProbe && perfProbe.markSince) perfProbe.markSince('visual.niulai-dream', niulaiPerfStart);
   var stageLyricsPerfStart = performance.now();
   var stageLyricsStepDt = consumeFrameGate(mainFrameGates.stageLyrics, now, dt, targetMainStageLyricsFps(now), false, 'stage-lyrics');
   if (stageLyricsStepDt > 0) updateStageLyrics3D(stageLyricsStepDt);
