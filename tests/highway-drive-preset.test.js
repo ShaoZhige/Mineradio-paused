@@ -203,7 +203,9 @@ assert(beatSpeed > idleSpeed + 20, '强节拍必须带来可感知的提速');
 // 九、接线：任何一处漏登记都不会报错，只会「什么都不发生」。
 assert(loader.includes("'highway-drive-preset.js'"), 'index-loader 必须登记无尽公路');
 assert(/MAX_VISUAL_PRESET_INDEX = 13/.test(core) && /HIGHWAY_PRESET_INDEX = 13/.test(core), '预设 13 必须能通过启动与存档夹取');
-assert(presets.includes("name: '无尽公路'") && presets.includes('作者 <span class="pc-author-cyberforker">Cyberforker</span>'), '预设卡片必须署名 Cyberforker');
+assert(presets.includes("name: '无尽公路'") && presets.includes('作者 <span class="pc-author-shaozhige">Shao Zhige</span>'), '预设卡片必须署名 Shao Zhige');
+assert(presets.includes('灵感 Cyberforker'), '卡片要保留灵感来源');
+assert(!/pc-author-cyberforker/.test(presets + read('public', 'css', 'index.css')), '旧的署名样式必须保持删除');
 assert(/presetDisplayOrder = \[0, 9, 10, 11, 12, 6, 7, 8, 13, 5, 4, 2, 1, 3\]/.test(presets), '无尽公路卡片要排在音域回响之后');
 assert(/MineradioHighwayDrive\.onPresetChange/.test(presetGrid), '切换预设必须通知无尽公路运行时');
 assert(/MineradioHighwayDrive\.update/.test(mainLoop) && /visual\.highway-drive/.test(mainLoop), '主循环必须驱动并计量无尽公路');
@@ -230,21 +232,18 @@ assert(/highway-abyss-floor/.test(source) && /uNight/.test(source), '玻璃路�
 assert(/ABYSS_COLORS/.test(source), '虚空底色要按天气取色，否则地平线会出现一道硬边');
 assert(/seamPhase/.test(source), '玻璃桥面要有横向板缝，否则只是一层透明色');
 assert(/state\.spectrumDistance \/ ROAD_SPECTRUM_STEP/.test(source), '谱面事件必须在深度行之间插值，接近才连续');
-assert(/new THREE\.SphereGeometry\(1, 48, 32\)/.test(source), '夜空天体必须是真 3D 球体而不是着色器圆盘');
-assert(/new THREE\.RingGeometry\(1\.26, 2\.16, 96, 2\)/.test(source), '土星必须有独立 3D 环');
-assert(/new THREE\.TextureLoader\(\)/.test(source) && /assets\/highway-planets\//.test(source), '行星必须用随包贴图，不得运行时联网取图');
+assert(/createCelestialCloudTexture/.test(source) && /CanvasTexture/.test(source), '夜空天体必须统一成程序化柔光团');
+assert(/highway-celestial-cloud-/.test(source) && /highway-celestial-core/.test(source), '光团要有主体与内核两层，才不是一块平涂的圆斑');
+assert(!/new THREE\.(SphereGeometry|RingGeometry)|TextureLoader|assets\/highway-planets/.test(source), '天体不能再有实体球、实体环或贴图');
+assert(/buildCelestialRingGeometry/.test(source) && /CELESTIAL_RING_PARTICLE_COUNT/.test(source), '土星的环也必须是粒子');
+assert(api.celestialConfigs.length === 7, '七颗行星都要有配置');
+assert(new Set(api.celestialConfigs.map(config => config.glow)).size === 7, '每颗行星的亮度都要不同，否则光团认不出彼此');
+assert(api.celestialConfigs.filter(config => config.ring).length === 1, '只有土星带环');
 assert(!/celestialBody\(vec2 uv,float body\)/.test(source), '旧的平面天体着色器必须保持删除');
 assert(/celestialPositionForZone\(displayZone, state\.seed\)/.test(source), '3D 行星只在夜晚分区切换时重算位置');
 assert(/applyCelestialAxialTilt\(displayZone, displayIndex\)/.test(source), '行星与土星环必须共用同一份稳定轴倾');
 
-// 十一、贴图随包且预算可控。缺一张就是一颗纯色球，而且不会报错。
-let planetAssetBytes = 0;
-planetAssetNames.forEach(name => {
-  const assetPath = path.join(planetAssetDir, name);
-  assert(fs.existsSync(assetPath), '行星贴图缺失 ' + name);
-  planetAssetBytes += fs.statSync(assetPath).size;
-});
-assert(planetAssetBytes < 1024 * 1024, '行星贴图总体积必须低于 1 MB');
-assert(fs.readFileSync(path.join(planetAssetDir, 'LICENSE.txt'), 'utf8').includes('CC BY 4.0'), '贴图署名必须随资源分发');
+// 十一、天体贴图已经换成粒子光团，资源和相关代码都不该再回来。
+assert(!fs.existsSync(path.join(root, 'public', 'assets', 'highway-planets')), '天体贴图目录必须保持删除');
 
-console.log('[OK] 无尽公路以 13 号预设交付：六种地貌、七颗带贴图 3D 天体、有界降水、粒子点绘地形与拱门、八频段响应与节拍提速。');
+console.log('[OK] 无尽公路以 13 号预设交付：六种地貌、七颗柔光团、玻璃路面与虚空地幕、粒子地形与拱门、八频段响应与节拍提速。');

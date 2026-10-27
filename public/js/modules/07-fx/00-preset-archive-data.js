@@ -13,7 +13,7 @@ var presetMeta = [
   { name: '雨幕霓虹', nameHtml: '雨幕霓虹 <span class="pc-name-en">NEON DRIZZLE</span>', desc: '城市雨丝 · 色谱残光', premiumVisual: true, accent: '#67efff', accent2: '#ff6bb5' },
   { name: '折光蝶群', nameHtml: '折光蝶群 <span class="pc-name-en">PRISM FLOCK</span>', desc: '折纸翼阵 · 光谱迁徙', premiumVisual: true, accent: '#f0d7ff', accent2: '#75e6d1' },
   { name: '深海绽放', nameHtml: '深海绽放 <span class="pc-name-en">ABYSSAL BLOOM</span>', desc: '生物荧光 · 潮汐花冠', premiumVisual: true, accent: '#75f0d0', accent2: '#8178ff' },
-  { name: '无尽公路', nameHtml: '无尽公路 <span class="pc-name-en">HIGHWAY DRIVE</span>', desc: '作者 Cyberforker', descHtml: '作者 <span class="pc-author-cyberforker">Cyberforker</span>', premiumVisual: true, accent: '#ff9a4d', accent2: '#5ad6ff' },
+  { name: '无尽公路', nameHtml: '无尽公路 <span class="pc-name-en">HIGHWAY DRIVE</span>', desc: '作者 Shao Zhige · 灵感 Cyberforker', descHtml: '作者 <span class="pc-author-shaozhige">Shao Zhige</span> · 灵感 Cyberforker', premiumVisual: true, accent: '#ff9a4d', accent2: '#5ad6ff' },
 ];
 var presetIcons = [
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14c3-2 5-2 8 0s5 2 8 0M3 10c3-2 5-2 8 0s5 2 8 0M3 18c3-2 5-2 8 0s5 2 8 0"/></svg>',

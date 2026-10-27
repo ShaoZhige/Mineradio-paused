@@ -59,10 +59,7 @@ for (const [id, cn, en, file, globalName] of [
 assert.ok(mainLoop.includes('setVisualSuppressed(highwayPresetActiveEarly)'));
 assert.ok(read('public/js/modules/04-shelf/01-manager-core.js').includes('setVisualSuppressed: function'));
 assert.ok(read('public/js/modules/04-shelf/01-manager-core.js').includes('!visualSuppressed'));
-// 贴图是云端外置资源，缺一张就是一片纯色球。
-const planets = fs.readdirSync(path.join(appRoot, 'public/assets/highway-planets'));
-for (const name of ['moon.jpg', 'mars.jpg', 'jupiter.jpg', 'saturn.jpg', 'neptune.jpg', 'venus.jpg', 'mercury.jpg', 'saturn-ring.png', 'LICENSE.txt']) {
-  assert.ok(planets.includes(name), '行星贴图缺失 ' + name);
-}
+// 天体已经换成粒子光团，天体贴图目录不该再回来。
+assert.ok(!fs.existsSync(path.join(appRoot, 'public/assets/highway-planets')), '天体贴图目录必须保持删除');
 
 console.log('OK curated-visual-presets');

@@ -4230,13 +4230,12 @@ function checkSonicTopographyPresetGuard() {
   if (!/setVisualSuppressed: function/.test(shelfCoreText) || !/!visualSuppressed/.test(shelfCoreText) || !/setVisualSuppressed\(highwayPresetActiveEarly\)/.test(mainLoopText)) {
     fail('Highway Drive must suppress the 3D shelf, otherwise the shelf body floats over the road');
   }
-  if (!/CELESTIAL_TEXTURE_PATH = 'assets\/highway-planets\/'/.test(highwayText)) {
-    fail('Highway Drive celestial textures must stay on the packaged assets/highway-planets path');
+  if (!/createCelestialCloudTexture/.test(highwayText) || !/buildCelestialRingGeometry/.test(highwayText)) {
+    fail('Highway Drive celestial bodies must stay as one shared procedural glow set');
   }
-  ['moon.jpg', 'mars.jpg', 'jupiter.jpg', 'saturn.jpg', 'neptune.jpg', 'venus.jpg', 'mercury.jpg', 'saturn-ring.png', 'LICENSE.txt'].forEach((assetName) => {
-    const assetPath = path.join(appRoot, 'public', 'assets', 'highway-planets', assetName);
-    if (!fs.existsSync(assetPath)) fail('Highway Drive preset is missing packaged planet asset: ' + assetName);
-  });
+  if (/CELESTIAL_TEXTURE_PATH|assets\/highway-planets|new THREE\.SphereGeometry/.test(highwayText)) {
+    fail('Highway Drive celestial textures are gone; do not bring the textured sphere back');
+  }
   if (!/wallpaperRegisterAudioListener/.test(sonicWorkshopBridgeText) || !/__mineradioApplyAudio/.test(sonicWorkshopBridgeText) || !/__mineradioApplyMedia/.test(sonicWorkshopBridgeText) || !/theme:\s*'coral-mirage'/.test(sonicWorkshopBridgeText) || !/themeCycleInterval:\s*50/.test(sonicWorkshopBridgeText) || !/gridSize:\s*320/.test(sonicWorkshopBridgeText) || !/audioIntensity:\s*1\.15/.test(sonicWorkshopBridgeText) || !/responseRange:\s*1\.3/.test(sonicWorkshopBridgeText) || !/peakColorIntensity:\s*0\.62/.test(sonicWorkshopBridgeText) || !/pulseSensitivity:\s*0\.05/.test(sonicWorkshopBridgeText) || !/pulseCooldown:\s*0/.test(sonicWorkshopBridgeText) || !/meteorSensitivity:\s*0\.3/.test(sonicWorkshopBridgeText) || !/cameraDistance:\s*80/.test(sonicWorkshopBridgeText) || !/autoRotateEnabled:\s*true/.test(sonicWorkshopBridgeText) || !/autoRotateSpeed:\s*7/.test(sonicWorkshopBridgeText) || !/cameraAngleX:\s*150/.test(sonicWorkshopBridgeText) || !/cameraAngleY:\s*30/.test(sonicWorkshopBridgeText) || !/showPlayerController:\s*false/.test(sonicWorkshopBridgeText)) {
     fail('Sonic Workshop bridge must preserve the requested Wallpaper Engine default parameters and receive Mineradio audio/media');
   }

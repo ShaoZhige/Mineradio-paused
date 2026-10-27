@@ -57,16 +57,15 @@
   var ABYSS_COLORS = [0x4a5f78, 0x5a3f2e, 0x2c3742, 0x5d6a7a, 0x04060f, 0x08121f];
   var WEATHER_NAMES = ['clear-day', 'golden-hour', 'rain', 'snow', 'starry-night', 'aurora'];
   var CELESTIAL_NAMES = ['moon', 'mars', 'jupiter', 'saturn', 'neptune', 'venus', 'mercury'];
-  var CELESTIAL_TEXTURE_PATH = 'assets/highway-planets/';
-  var CELESTIAL_TEXTURE_FILES = ['moon.jpg', 'mars.jpg', 'jupiter.jpg', 'saturn.jpg', 'neptune.jpg', 'venus.jpg', 'mercury.jpg'];
+  var CELESTIAL_RING_PARTICLE_COUNT = 760;
   var CELESTIAL_CONFIG = [
-    { radius: 4.25, flatten: 1.00, tilt: 0.12, spin: 0.040, color: 0xc8c8c2, shininess: 3 },
-    { radius: 4.05, flatten: 0.99, tilt: 0.44, spin: 0.035, color: 0xb44725, shininess: 4 },
-    { radius: 5.05, flatten: 0.93, tilt: 0.05, spin: 0.062, color: 0xd6ad78, shininess: 8 },
-    { radius: 4.75, flatten: 0.91, tilt: 0.47, spin: 0.057, color: 0xd8bd82, shininess: 7, ring: true },
-    { radius: 4.55, flatten: 0.98, tilt: 0.49, spin: 0.047, color: 0x397bd8, shininess: 10 },
-    { radius: 4.35, flatten: 0.99, tilt: 0.05, spin: 0.028, color: 0xd9a95d, shininess: 8 },
-    { radius: 3.75, flatten: 1.00, tilt: 0.03, spin: 0.032, color: 0x898783, shininess: 3 }
+    { radius: 4.25, flatten: 1.00, tilt: 0.12, spin: 0.040, color: 0xc8c8c2, glow: 0.95 },
+    { radius: 4.05, flatten: 0.99, tilt: 0.44, spin: 0.035, color: 0xb44725, glow: 1.10 },
+    { radius: 5.05, flatten: 0.93, tilt: 0.05, spin: 0.062, color: 0xd6ad78, glow: 1.32 },
+    { radius: 4.75, flatten: 0.91, tilt: 0.47, spin: 0.057, color: 0xd8bd82, glow: 1.16, ring: true },
+    { radius: 4.55, flatten: 0.98, tilt: 0.49, spin: 0.047, color: 0x397bd8, glow: 1.38 },
+    { radius: 4.35, flatten: 0.99, tilt: 0.05, spin: 0.028, color: 0xd9a95d, glow: 1.42 },
+    { radius: 3.75, flatten: 1.00, tilt: 0.03, spin: 0.032, color: 0x898783, glow: 0.82 }
   ];
   var WEATHER_BY_BIOME_TOUR = [
     [3, 2, 0, 1, 0, 4],
@@ -91,7 +90,6 @@
     { ground: 0x092111, mountain: 0x315342, mound: 0x347442, trunk: 0x314637, crown: 0x4d8555, water: 0x1a6572 }
   ];
   var BAND_KEYS = ['subBass', 'bass', 'lowMid', 'mid', 'highMid', 'presence', 'brilliance', 'air'];
-  var celestialTextureCache = null;
 
   var state = {
     root: null,
@@ -110,6 +108,9 @@
     celestialRoot: null,
     celestialMesh: null,
     celestialMaterial: null,
+    celestialSpriteMaterials: null,
+    celestialCore: null,
+    celestialCoreMaterial: null,
     celestialRing: null,
     celestialRingMaterial: null,
     abyssFloor: null,
@@ -685,74 +686,157 @@
     ].join('\n');
   }
 
-  function loadCelestialTextures() {
-    if (celestialTextureCache) return celestialTextureCache;
-    var loader = new THREE.TextureLoader();
-    function loadTexture(file) {
-      var texture = loader.load(CELESTIAL_TEXTURE_PATH + file);
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
-      texture.anisotropy = 4;
-      if (THREE.sRGBEncoding != null) texture.encoding = THREE.sRGBEncoding;
-      return texture;
+  // 天体全部改成同一套粒子光团：球面上撒点、中心再补一些，靠颜色与大小区分彼此。
+  // 之前一半是带贴图的实体球、一半是天空里的模糊光斑，两种质感摆在一起很违和。
+  // 天体统一成「模糊光团」：一张程序化柔光贴图 + 一层更亮的内核，外圈再罩一层散射光。
+  // 之前是贴图实体球，跟别处的模糊光斑摆在一起很违和。
+  function createCelestialCloudTexture(seed) {
+    var size = 160;
+    var canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    var context = canvas.getContext('2d');
+    var half = size / 2;
+    var gradient = context.createRadialGradient(half, half, 0, half, half, half);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.98)');
+    gradient.addColorStop(0.30, 'rgba(255,255,255,0.64)');
+    gradient.addColorStop(0.56, 'rgba(255,255,255,0.26)');
+    gradient.addColorStop(0.80, 'rgba(255,255,255,0.07)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+    // 表面斑块：让每颗行星的纹理不一样，光看轮廓也能分辨。
+    context.globalCompositeOperation = 'source-atop';
+    for (var index = 0; index < 52; index++) {
+      var angle = (hash1(index, seed) + 1) * Math.PI;
+      var radius = (hash1(index + 311, seed) + 1) * 0.5 * half * 0.80;
+      var spotX = half + Math.cos(angle) * radius;
+      var spotY = half + Math.sin(angle) * radius;
+      var spotSize = 4 + (hash1(index + 617, seed) + 1) * 10;
+      var spotAlpha = 0.025 + (hash1(index + 733, seed) + 1) * 0.055;
+      context.beginPath();
+      context.arc(spotX, spotY, spotSize, 0, Math.PI * 2);
+      context.fillStyle = hash1(index + 811, seed) > 0
+        ? 'rgba(0,0,0,' + spotAlpha.toFixed(3) + ')'
+        : 'rgba(255,255,255,' + spotAlpha.toFixed(3) + ')';
+      context.fill();
     }
-    celestialTextureCache = {
-      surfaces: CELESTIAL_TEXTURE_FILES.map(loadTexture),
-      ring: loadTexture('saturn-ring.png')
-    };
-    return celestialTextureCache;
+    context.globalCompositeOperation = 'source-over';
+    var texture = new THREE.CanvasTexture(canvas);
+    if (THREE.sRGBEncoding != null) texture.encoding = THREE.sRGBEncoding;
+    return texture;
   }
 
-  function celestialTextureReadyCount() {
-    if (!celestialTextureCache) return 0;
-    var textures = celestialTextureCache.surfaces.concat([celestialTextureCache.ring]);
-    return textures.reduce(function (count, texture) {
-      return count + (texture && texture.image && texture.image.width > 0 ? 1 : 0);
-    }, 0);
+  function createCelestialSprite(texture, name, renderOrder) {
+    var material = new THREE.SpriteMaterial({
+      map: texture,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      depthTest: true,
+      blending: THREE.AdditiveBlending
+    });
+    var sprite = new THREE.Sprite(material);
+    sprite.name = name;
+    sprite.renderOrder = renderOrder;
+    return sprite;
   }
 
-  function celestialRingVertexShader() {
-    return [
-      'precision highp float;',
-      'varying vec3 vLocalPosition;',
-      'void main(){',
-      '  vLocalPosition=position;',
-      '  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);',
-      '}'
-    ].join('\n');
+  function buildCelestialRingGeometry() {
+    var count = CELESTIAL_RING_PARTICLE_COUNT;
+    var positions = new Float32Array(count * 3);
+    var scales = new Float32Array(count);
+    var seeds = new Float32Array(count);
+    var tints = new Float32Array(count);
+    for (var index = 0; index < count; index++) {
+      var t = (hash1(index, 101) + 1) * 0.5;
+      var radius = 1.26 + t * 0.90;
+      var angle = (hash1(index, 131) + 1) * Math.PI;
+      // 环中间留一道缝，才看得出是土星那道环而不是一个光盘。
+      var gap = Math.abs(radius - 1.72) < 0.06 ? 0.22 : 1;
+      positions[index * 3] = Math.cos(angle) * radius;
+      positions[index * 3 + 1] = (hash1(index, 149) + 1) * 0.012;
+      positions[index * 3 + 2] = Math.sin(angle) * radius;
+      scales[index] = (0.85 + (hash1(index, 163) + 1) * 0.4) * gap;
+      seeds[index] = (hash1(index, 179) + 1) * 0.5;
+      tints[index] = clamp01(0.35 + t * 0.45);
+    }
+    var geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    geometry.setAttribute('aTint', new THREE.BufferAttribute(tints, 1));
+    geometry.computeBoundingSphere();
+    return geometry;
   }
 
-  function celestialRingFragmentShader() {
-    return [
-      'precision highp float;',
-      'uniform sampler2D uMap;',
-      'uniform float uOpacity;',
-      'varying vec3 vLocalPosition;',
-      'void main(){',
-      '  float radius=length(vLocalPosition.xy);',
-      '  float radialUv=clamp((radius-1.26)/(2.16-1.26),0.0,1.0);',
-      '  vec4 band=texture2D(uMap,vec2(radialUv,0.5));',
-      '  float edge=smoothstep(1.26,1.31,radius)*(1.0-smoothstep(2.10,2.16,radius));',
-      '  float alpha=band.a*edge*uOpacity;',
-      '  if(alpha<0.015) discard;',
-      '  gl_FragColor=vec4(band.rgb*(0.72+radialUv*0.22),alpha);',
-      '}'
-    ].join('\n');
+  function createCelestialLayer() {
+    state.celestialRoot = new THREE.Group();
+    state.celestialRoot.name = 'highway-celestial-3d-root';
+    var initialPosition = celestialPositionForZone(0, state.seed);
+    state.celestialRoot.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
+
+    state.celestialSpriteMaterials = CELESTIAL_CONFIG.map(function (config, index) {
+      return createCelestialSprite(createCelestialCloudTexture(state.seed + index * 37 + 11), 'highway-celestial-cloud-' + index, -90).material;
+    });
+    state.celestialMesh = new THREE.Sprite(state.celestialSpriteMaterials[0]);
+    state.celestialMesh.name = 'highway-celestial-' + CELESTIAL_NAMES[0];
+    state.celestialMesh.center.set(0.5, 0.5);
+    state.celestialRoot.add(state.celestialMesh);
+
+    state.celestialCoreMaterial = new THREE.SpriteMaterial({
+      map: createCelestialCloudTexture(state.seed + 907),
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      depthTest: true,
+      blending: THREE.AdditiveBlending
+    });
+    state.celestialCore = new THREE.Sprite(state.celestialCoreMaterial);
+    state.celestialCore.name = 'highway-celestial-core';
+    state.celestialCore.renderOrder = -89;
+    state.celestialRoot.add(state.celestialCore);
+
+    state.celestialRingMaterial = createParticleMaterial({
+      colorA: 0x6a5433,
+      colorB: 0xe6cf9a,
+      sizeK: 215,
+      glow: 1.05,
+      fogNear: 400,
+      fogFar: 800
+    });
+    state.celestialRing = new THREE.Points(buildCelestialRingGeometry(), state.celestialRingMaterial);
+    state.celestialRing.name = 'highway-celestial-saturn-ring';
+    state.celestialRing.rotation.x = 1.10;
+    state.celestialRing.rotation.z = -0.08;
+    state.celestialRing.renderOrder = -88;
+    state.celestialRing.frustumCulled = false;
+    state.celestialRoot.add(state.celestialRing);
+
+    state.root.add(state.celestialRoot);
+    applyCelestialAppearance(0);
+    state.celestialRoot.visible = false;
   }
 
   function applyCelestialAppearance(index) {
     if (!state.celestialMesh || index < 0 || index >= CELESTIAL_CONFIG.length) return;
     var config = CELESTIAL_CONFIG[index];
-    var textures = loadCelestialTextures();
+    var color = new THREE.Color(config.color);
     state.activeCelestialIndex = index;
-    state.celestialMaterial.map = textures.surfaces[index];
-    state.celestialMaterial.color.setHex(textures.surfaces[index].image ? 0xffffff : config.color);
-    state.celestialMaterial.shininess = config.shininess;
-    state.celestialMaterial.needsUpdate = true;
+    state.celestialMaterial = state.celestialSpriteMaterials[index];
+    state.celestialMesh.material = state.celestialMaterial;
+    state.celestialMaterial.color.copy(color);
+    state.celestialMaterial.opacity = 0;
     state.celestialMesh.name = 'highway-celestial-' + CELESTIAL_NAMES[index];
-    state.celestialMesh.scale.set(config.radius, config.radius * config.flatten, config.radius);
+    // 扁率靠纵向压扁，光团也要跟着扁。
+    state.celestialMesh.scale.set(config.radius * 2.9, config.radius * 2.9 * config.flatten, 1);
+    if (state.celestialCore) {
+      state.celestialCoreMaterial.color.copy(color.clone().lerp(new THREE.Color(0xffffff), 0.34));
+      state.celestialCore.scale.set(config.radius * 1.15, config.radius * 1.15 * config.flatten, 1);
+    }
     state.celestialRing.scale.setScalar(config.radius);
-    state.celestialMesh.rotation.y = index * 0.71;
     state.celestialRing.visible = !!config.ring;
   }
 
@@ -760,64 +844,10 @@
     if (!state.celestialRoot || !state.celestialMesh) return;
     var orientation = celestialAxialTiltForZone(zone, index, state.seed);
     state.celestialRoot.rotation.set(orientation.x, 0, orientation.z);
-    state.celestialMesh.rotation.y = orientation.spinPhase;
     state.celestialAxialTilt = orientation.angle;
     state.celestialAxisAzimuth = orientation.azimuth;
     state.celestialAxisX = orientation.x;
     state.celestialAxisZ = orientation.z;
-  }
-
-  function createCelestialLayer() {
-    var textures = loadCelestialTextures();
-    state.celestialRoot = new THREE.Group();
-    state.celestialRoot.name = 'highway-celestial-3d-root';
-    var initialPosition = celestialPositionForZone(0, state.seed);
-    state.celestialRoot.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
-
-    state.celestialMaterial = new THREE.MeshPhongMaterial({
-      map: textures.surfaces[0],
-      color: CELESTIAL_CONFIG[0].color,
-      transparent: true,
-      opacity: 0,
-      shininess: CELESTIAL_CONFIG[0].shininess,
-      specular: 0x343c48,
-      depthWrite: true,
-      depthTest: true
-    });
-    state.celestialMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), state.celestialMaterial);
-    state.celestialMesh.renderOrder = -90;
-    state.celestialMesh.frustumCulled = false;
-    state.celestialRoot.add(state.celestialMesh);
-
-    state.celestialRingMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uMap: { value: textures.ring },
-        uOpacity: { value: 0 }
-      },
-      vertexShader: celestialRingVertexShader(),
-      fragmentShader: celestialRingFragmentShader(),
-      transparent: true,
-      depthWrite: false,
-      depthTest: true,
-      side: THREE.DoubleSide
-    });
-    state.celestialRing = new THREE.Mesh(new THREE.RingGeometry(1.26, 2.16, 96, 2), state.celestialRingMaterial);
-    state.celestialRing.name = 'highway-celestial-saturn-ring';
-    state.celestialRing.rotation.x = 1.10;
-    state.celestialRing.rotation.z = -0.08;
-    state.celestialRing.renderOrder = -89;
-    state.celestialRing.frustumCulled = false;
-    state.celestialRoot.add(state.celestialRing);
-
-    var ambient = new THREE.AmbientLight(0x8795ad, 0.60);
-    var key = new THREE.DirectionalLight(0xffedd2, 1.12);
-    key.position.set(-18, 32, -48);
-    key.target = state.celestialRoot;
-    state.root.add(ambient);
-    state.root.add(key);
-    state.root.add(state.celestialRoot);
-    applyCelestialAppearance(0);
-    state.celestialRoot.visible = false;
   }
 
   function updateCelestialLayer(weather, dt) {
@@ -858,8 +888,6 @@
     state.celestialRoot.visible = state.celestialOpacity > 0.01;
     if (displayIndex >= 0) {
       var config = CELESTIAL_CONFIG[displayIndex];
-      state.celestialMesh.rotation.y += config.spin * Math.max(0.001, dt || 1 / 60);
-      state.celestialMaterial.color.setHex(celestialTextureCache.surfaces[displayIndex].image ? 0xffffff : config.color);
       state.celestialRing.visible = !!config.ring && state.celestialOpacity > 0.01;
     }
   }
@@ -2169,6 +2197,7 @@
     if (state.precipitationMaterial) state.precipitationMaterial.uniforms.uOpacity.value = opacity;
     var celestialOpacity = opacity * state.celestialOpacity;
     if (state.celestialMaterial) state.celestialMaterial.opacity = celestialOpacity;
+    if (state.celestialCoreMaterial) state.celestialCoreMaterial.opacity = celestialOpacity * 0.62;
     if (state.celestialRingMaterial) state.celestialRingMaterial.uniforms.uOpacity.value = celestialOpacity;
     state.shoulderMaterial.opacity = opacity * 0.06;
     if (state.abyssMaterial) state.abyssMaterial.uniforms.uOpacity.value = opacity * 0.92;
@@ -2227,6 +2256,9 @@
     state.celestialRoot = null;
     state.celestialMesh = null;
     state.celestialMaterial = null;
+    state.celestialSpriteMaterials = null;
+    state.celestialCore = null;
+    state.celestialCoreMaterial = null;
     state.celestialRing = null;
     state.celestialRingMaterial = null;
     state.abyssFloor = null;
@@ -2383,9 +2415,9 @@
       celestialAxialTilt: state.celestialAxialTilt,
       celestialAxisAzimuth: state.celestialAxisAzimuth,
       celestialAxis: state.activeCelestialZone >= 0 ? { x: state.celestialAxisX, z: state.celestialAxisZ } : null,
-      celestial3D: !!(state.celestialMesh && state.celestialMesh.geometry && state.celestialMesh.geometry.type === 'SphereGeometry'),
+      celestialClouds: state.celestialSpriteMaterials ? state.celestialSpriteMaterials.length : 0,
+      celestialRingParticles: state.celestialRing ? state.celestialRing.geometry.attributes.position.count : 0,
       celestialMeshCount: state.celestialMesh ? 1 + (state.celestialRing ? 1 : 0) : 0,
-      celestialTexturesReady: celestialTextureReadyCount(),
       rainAmount: state.rainAmount,
       snowAmount: state.snowAmount,
       precipitationCount: state.precipitation ? PRECIPITATION_COUNT : 0,
@@ -2432,6 +2464,9 @@
       biomeStateAtDistance: biomeStateAtDistance,
       weatherStateAtDistance: weatherStateAtDistance,
       celestialIndexForZone: celestialIndexForZone,
+      celestialConfigs: CELESTIAL_CONFIG.map(function (config) {
+        return { radius: config.radius, flatten: config.flatten, color: config.color, glow: config.glow == null ? 1 : config.glow, ring: !!config.ring };
+      }),
       celestialPositionForZone: celestialPositionForZone,
       celestialAxialTiltForZone: celestialAxialTiltForZone,
       landmarkIndexAtDistance: landmarkIndexAtDistance,
