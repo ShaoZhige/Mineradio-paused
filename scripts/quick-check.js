@@ -4195,7 +4195,7 @@ function checkSonicTopographyPresetGuard() {
   }
   if (!archiveText.includes('音域回响 <span class="pc-name-en">Sonic-Topography</span>')
     || !archiveText.includes('作者 <span class="pc-author-ajin">Ajin</span>')
-    || !archiveText.includes('音域回响 <span class="pc-name-en">Wallpaper Engine</span>')
+    || !archiveText.includes('音域回响 <span class="pc-name-en">Sonic Workshop</span>')
     || !archiveText.includes("desc: '作者 CmzYa'")
     || !/var name = p\.nameHtml \|\| p\.name/.test(presetGridText)
     || !/\.preset-card \.pc-name-en[\s\S]{0,260}font-size:\s*9px/.test(presetCssText)

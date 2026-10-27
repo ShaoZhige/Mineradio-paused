@@ -8,7 +8,7 @@ var presetMeta = [
   { name: '星河', desc: '壁纸粒子 · 音乐律动' },
   { name: '安魂', desc: '骷髅·YUI7W', descHtml: '骷髅·<span class="pc-yui7w">YUI7W</span>' },
   { name: '音域回响', nameHtml: '音域回响 <span class="pc-name-en">Sonic-Topography</span>', desc: '作者 Ajin', descHtml: '作者 <span class="pc-author-ajin">Ajin</span>' },
-  { name: '音域回响', nameHtml: '音域回响 <span class="pc-name-en">Wallpaper Engine</span>', desc: '作者 CmzYa' },
+  { name: '音域回响', nameHtml: '音域回响 <span class="pc-name-en">Sonic Workshop</span>', desc: '作者 CmzYa' },
   { name: '月蚀圣环', nameHtml: '月蚀圣环 <span class="pc-name-en">ECLIPSE HALO</span>', desc: '黑曜轨道 · 冷金日冕', premiumVisual: true, accent: '#e8c98d', accent2: '#8fd8ff' },
   { name: '雨幕霓虹', nameHtml: '雨幕霓虹 <span class="pc-name-en">NEON DRIZZLE</span>', desc: '城市雨丝 · 色谱残光', premiumVisual: true, accent: '#67efff', accent2: '#ff6bb5' },
   { name: '折光蝶群', nameHtml: '折光蝶群 <span class="pc-name-en">PRISM FLOCK</span>', desc: '折纸翼阵 · 光谱迁徙', premiumVisual: true, accent: '#f0d7ff', accent2: '#75e6d1' },
