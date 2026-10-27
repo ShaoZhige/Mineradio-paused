@@ -44,6 +44,7 @@
   var FLORA_BEADS = 5;
   var FLORA_POINT_COUNT = FLORA_SLOT_COUNT * 2 * FLORA_BEADS;
   var GROUND_DUST_COUNT = 7000;
+  var VOID_DUST_COUNT = 4200;
   var MOTE_COUNT = 260;
   var GATE_POINT_COUNT = 236;
   var GATE_SPACING = 132;
@@ -53,6 +54,7 @@
   var LANDMARK_SPACING = 148;
   var LANDMARK_PASS_DISTANCE = 12;
   var BIOME_NAMES = ['mountains', 'river', 'hills', 'desert', 'beach', 'grassland'];
+  var ABYSS_COLORS = [0x4a5f78, 0x5a3f2e, 0x2c3742, 0x5d6a7a, 0x04060f, 0x08121f];
   var WEATHER_NAMES = ['clear-day', 'golden-hour', 'rain', 'snow', 'starry-night', 'aurora'];
   var CELESTIAL_NAMES = ['moon', 'mars', 'jupiter', 'saturn', 'neptune', 'venus', 'mercury'];
   var CELESTIAL_TEXTURE_PATH = 'assets/highway-planets/';
@@ -110,8 +112,11 @@
     celestialMaterial: null,
     celestialRing: null,
     celestialRingMaterial: null,
+    abyssFloor: null,
+    abyssMaterial: null,
     terrainCloud: null,
     groundDustCloud: null,
+    voidDustCloud: null,
     floraCloud: null,
     lampCloud: null,
     moteCloud: null,
@@ -476,23 +481,27 @@
       '  float side=abs(vUv.x*2.0-1.0);',
       '  float fog=1.0-smoothstep(54.0,98.0,vDepth);',
       '  float laneDist=min(abs(side-0.34),side);',
-      '  float dash=step(0.42,fract((vDepth+uTravel)*0.10));',
-      '  float lane=(1.0-smoothstep(0.008,0.028,laneDist))*dash;',
-      '  float edge=1.0-smoothstep(0.010,0.040,abs(side-0.955));',
+      '  float dash=step(0.44,fract((vDepth+uTravel)*0.085));',
+      '  float lane=(1.0-smoothstep(0.006,0.024,laneDist))*dash;',
+      '  float edge=1.0-smoothstep(0.010,0.045,abs(side-0.955));',
+      '  float rim=smoothstep(0.955,0.995,side);',
       '  float flow=0.5+0.5*sin((vDepth+uTravel)*0.26-uTime*1.9);',
-      '  float laneBand=smoothstep(0.020,0.320,laneDist);',
+      '  float laneBand=smoothstep(0.020,0.340,laneDist);',
       '  vec3 bandColor=mix(uPrimary,uSecondary,smoothstep(0.08,0.92,side));',
-      '  vec3 asphalt=mix(vec3(0.008,0.012,0.022),bandColor,0.040+vBandEnergy*0.075);',
       '  float spectrum=(0.12+vBandEnergy*0.88)*(0.44+flow*0.56);',
       '  float waveGlow=pow(max(vBandPulse,0.0),1.16)*(0.34+flow*0.66);',
       '  float trackGlow=pow(max(vTrackPulse,0.0),1.06)*laneBand;',
-      '  vec3 color=asphalt+bandColor*spectrum*0.46;',
+      '  float sheen=(1.0-smoothstep(0.0,0.62,abs(side-0.55)))*(0.35+flow*0.65);',
+      '  float seamPhase=fract((vDepth+uTravel)/9.0);',
+      '  float seam=1.0-smoothstep(0.0,0.045,min(seamPhase,1.0-seamPhase));',
+      '  vec3 color=bandColor*(0.030+spectrum*0.16);',
+      '  color+=uAccent*sheen*0.10;',
+      '  color+=uAccent*seam*0.30;',
       '  color+=uAccent*lane*(0.86+uBoost*0.58+uBeat*0.12);',
-      '  color+=mix(uPrimary,uSecondary,step(0.5,vUv.x))*edge*(0.96+vBandEnergy*0.72);',
-      '  color+=bandColor*pow(max(vBandEnergy,0.0),1.22)*0.58;',
+      '  color+=mix(uPrimary,uSecondary,step(0.5,vUv.x))*(edge*1.05+rim*0.70)*(0.96+vBandEnergy*0.72);',
       '  color+=mix(bandColor,uAccent,0.30)*waveGlow*0.86;',
       '  color+=mix(bandColor,uAccent,0.72)*trackGlow*1.32;',
-      '  float alpha=uOpacity*fog*(0.94+min(0.05,spectrum*0.03));',
+      '  float alpha=uOpacity*fog*(0.075+sheen*0.06+seam*0.16+lane*0.90+edge*0.95+rim*0.85+waveGlow*0.42+trackGlow*0.46);',
       '  gl_FragColor=vec4(color,alpha);',
       '}'
     ].join('\n');
@@ -513,7 +522,7 @@
       vertexShader: roadVertexShader(),
       fragmentShader: roadFragmentShader(),
       transparent: true,
-      depthWrite: true,
+      depthWrite: false,
       depthTest: true,
       side: THREE.DoubleSide
     });
@@ -1074,13 +1083,14 @@
       'uniform float uBaseY;',
       'uniform float uNearNear;',
       'uniform float uNearFar;',
+      'uniform float uTravelScale;',
       'uniform vec3 uColorA;',
       'uniform vec3 uColorB;',
       'varying vec3 vColor;',
       'varying float vAlpha;',
       'void main(){',
       '  float spacing = uRoadLength / max(uSlotCount, 1.0);',
-      '  float ahead = mod(aSlot * spacing - uTravel * 0.22, uRoadLength);',
+      '  float ahead = mod(aSlot * spacing - uTravel * uTravelScale, uRoadLength);',
       '  float bandEnergy = mix(uBandLow, uBandHigh, aLayer);',
       '  vec3 local;',
       '  local.x = aSide * aLateral;',
@@ -1117,9 +1127,10 @@
         uRoadLength: { value: ROAD_LENGTH },
         uBandLow: { value: 0 },
         uBandHigh: { value: 0 },
-        uBaseY: { value: ROAD_BASE_Y },
+        uBaseY: { value: options.baseY == null ? ROAD_BASE_Y : options.baseY },
         uNearNear: { value: options.nearNear == null ? 2 : options.nearNear },
         uNearFar: { value: options.nearFar == null ? 18 : options.nearFar },
+        uTravelScale: { value: options.travelScale == null ? 0.22 : options.travelScale },
         uTravel: { value: 0 },
         uColorA: { value: new THREE.Color(0x1d8fb0) },
         uColorB: { value: new THREE.Color(0x2f4f7a) }
@@ -1206,6 +1217,7 @@
     uniforms.uTravel.value = state.travel;
     uniforms.uBandLow.value = state.bands[2] * 0.72 + state.bands[3] * 0.28;
     uniforms.uBandHigh.value = state.bands[5] * 0.64 + state.bands[6] * 0.36;
+    if (state.voidDustCloud) state.voidDustCloud.material.uniforms.uTravel.value = state.travel;
     var dustUniforms = state.groundDustCloud && state.groundDustCloud.material.uniforms;
     if (dustUniforms) {
       dustUniforms.uTravel.value = state.travel;
@@ -1253,6 +1265,103 @@
     points.frustumCulled = false;
     points.renderOrder = 1;
     state.groundDustCloud = { points: points, geometry: geometry, material: material, count: count };
+    state.root.add(points);
+  }
+
+  // 玻璃路面下面是空的，得给虚空一点内容：一层比地形跑得更快的光尘。
+  // 路面是玻璃的，底下必须真有「深渊」：一层随相机走的深色地幕，边缘圆形渐隐接住天空。
+  function createAbyssLayer() {
+    var geometry = new THREE.PlaneGeometry(260, 260, 1, 1);
+    var material = new THREE.ShaderMaterial({
+      uniforms: {
+        uOpacity: { value: 0 },
+        uNight: { value: 0 },
+        uColor: { value: new THREE.Color(0x050810) }
+      },
+      vertexShader: [
+        'precision highp float;',
+        'varying vec2 vUv;',
+        'void main(){',
+        '  vUv=uv;',
+        '  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'precision highp float;',
+        'uniform float uOpacity;',
+        'uniform float uNight;',
+        'uniform vec3 uColor;',
+        'varying vec2 vUv;',
+        'void main(){',
+        '  float d=length(vUv-vec2(0.5));',
+        '  float edge=1.0-smoothstep(0.22,0.50,d);',
+        '  vec3 col=uColor;',
+        '  gl_FragColor=vec4(col, edge*uOpacity*mix(0.82,0.95,uNight));',
+        '}'
+      ].join('\n'),
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide
+    });
+    var mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'highway-abyss-floor';
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = -2.42;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = -5;
+    state.abyssFloor = mesh;
+    state.abyssMaterial = material;
+    state.root.add(mesh);
+  }
+
+  function createVoidDustCloud() {
+    var count = VOID_DUST_COUNT;
+    var positions = new Float32Array(count * 3);
+    var slots = new Float32Array(count);
+    var sides = new Float32Array(count);
+    var laterals = new Float32Array(count);
+    var rises = new Float32Array(count);
+    var layers = new Float32Array(count);
+    var tints = new Float32Array(count);
+    var scales = new Float32Array(count);
+    var seeds = new Float32Array(count);
+    for (var index = 0; index < count; index++) {
+      slots[index] = (hash1(index, 1301) + 1) * 0.5 * TERRAIN_SLOT_COUNT;
+      sides[index] = hash1(index, 1327) >= 0 ? 1 : -1;
+      laterals[index] = 1.2 + (hash1(index, 1361) + 1) * 0.5 * 46;
+      rises[index] = (hash1(index, 1387) + 1) * 0.5 * 0.9;
+      layers[index] = 0;
+      tints[index] = clamp01(0.28 + (hash1(index, 1409) + 1) * 0.4);
+      scales[index] = 0.55 + (hash1(index, 1433) + 1) * 0.5 * 0.75;
+      seeds[index] = (hash1(index, 1451) + 1) * 0.5;
+    }
+    var geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aSlot', new THREE.BufferAttribute(slots, 1));
+    geometry.setAttribute('aSide', new THREE.BufferAttribute(sides, 1));
+    geometry.setAttribute('aLateral', new THREE.BufferAttribute(laterals, 1));
+    geometry.setAttribute('aRise', new THREE.BufferAttribute(rises, 1));
+    geometry.setAttribute('aLayer', new THREE.BufferAttribute(layers, 1));
+    geometry.setAttribute('aTint', new THREE.BufferAttribute(tints, 1));
+    geometry.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    geometry.computeBoundingSphere();
+    var material = createTerrainMaterial({
+      sizeK: 265,
+      glow: 1.7,
+      fogNear: 20,
+      fogFar: 84,
+      nearNear: 0.4,
+      nearFar: 7,
+      baseY: -2.55,
+      travelScale: 0.36
+    });
+    var points = new THREE.Points(geometry, material);
+    points.name = 'highway-particles-void-dust';
+    points.frustumCulled = false;
+    points.renderOrder = 0;
+    state.voidDustCloud = { points: points, geometry: geometry, material: material, count: count };
     state.root.add(points);
   }
 
@@ -1468,8 +1577,10 @@
     state.root.add(state.leftRail);
     state.root.add(state.rightRail);
 
+    createAbyssLayer();
     createTerrainCloud();
     createGroundDustCloud();
+    createVoidDustCloud();
     createFloraCloud();
     createLampCloud();
     createMoteCloud();
@@ -1872,7 +1983,11 @@
     if (state.shoulderMaterial) {
       setBlendedHexColor(state.shoulderMaterial.color, palette.ground, nextPalette.ground, blend);
       // 地坪只做底色，压到近黑才不会跟粒子抢视线。
-      state.shoulderMaterial.color.multiplyScalar(0.42);
+      state.shoulderMaterial.color.multiplyScalar(0.16);
+    }
+    if (state.voidDustCloud) {
+      setBlendedHexColor(state.voidDustCloud.material.uniforms.uColorA.value, palette.mountain, nextPalette.mountain, blend);
+      setBlendedHexColor(state.voidDustCloud.material.uniforms.uColorB.value, palette.water, nextPalette.water, blend);
     }
     if (state.groundDustCloud) {
       setBlendedHexColor(state.groundDustCloud.material.uniforms.uColorA.value, palette.trunk, nextPalette.trunk, blend);
@@ -1927,6 +2042,12 @@
     state.rainAmount = (weather.index === 2 ? 1 - weather.blend : 0) + (weather.nextIndex === 2 ? weather.blend : 0);
     state.snowAmount = (weather.index === 3 ? 1 - weather.blend : 0) + (weather.nextIndex === 3 ? weather.blend : 0);
 
+    if (state.abyssMaterial) {
+      var abyssCurrent = ABYSS_COLORS[weather.index] == null ? 0x04060f : ABYSS_COLORS[weather.index];
+      var abyssNext = ABYSS_COLORS[weather.nextIndex] == null ? 0x04060f : ABYSS_COLORS[weather.nextIndex];
+      setBlendedHexColor(state.abyssMaterial.uniforms.uColor.value, abyssCurrent, abyssNext, weather.blend);
+      state.abyssMaterial.uniforms.uNight.value = lerp(weather.index >= 4 ? 1 : 0, weather.nextIndex >= 4 ? 1 : 0, weather.blend);
+    }
     state.skyMaterial.uniforms.uTime.value = state.time;
     state.skyMaterial.uniforms.uMode.value = weather.index;
     state.skyMaterial.uniforms.uNextMode.value = weather.nextIndex;
@@ -2049,13 +2170,15 @@
     var celestialOpacity = opacity * state.celestialOpacity;
     if (state.celestialMaterial) state.celestialMaterial.opacity = celestialOpacity;
     if (state.celestialRingMaterial) state.celestialRingMaterial.uniforms.uOpacity.value = celestialOpacity;
-    state.shoulderMaterial.opacity = opacity * 0.90;
+    state.shoulderMaterial.opacity = opacity * 0.06;
+    if (state.abyssMaterial) state.abyssMaterial.uniforms.uOpacity.value = opacity * 0.92;
     state.leftRail.material.opacity = opacity * (0.78 + state.bands[6] * 0.22);
     state.rightRail.material.opacity = opacity * (0.78 + state.bands[5] * 0.22);
     if (state.poleMaterial) state.poleMaterial.opacity = opacity * 0.34;
     var worldOpacity = opacity * state.biomeFade;
     syncParticleUniforms(state.terrainCloud, worldOpacity * 0.62, state.beat, state.bands[2], state.pixelRatio);
     syncParticleUniforms(state.groundDustCloud, worldOpacity * 0.5, state.beat, state.bands[1], state.pixelRatio);
+    syncParticleUniforms(state.voidDustCloud, opacity * 0.62, state.beat, state.bands[0], state.pixelRatio);
     syncParticleUniforms(state.floraCloud, worldOpacity * 0.74, state.beat, state.bands[4], state.pixelRatio);
     syncParticleUniforms(state.lampCloud, opacity * 0.95, state.beat, state.bands[6], state.pixelRatio);
     syncParticleUniforms(state.moteCloud, opacity * 0.72, state.beat, state.bands[7], state.pixelRatio);
@@ -2106,8 +2229,11 @@
     state.celestialMaterial = null;
     state.celestialRing = null;
     state.celestialRingMaterial = null;
+    state.abyssFloor = null;
+    state.abyssMaterial = null;
     state.terrainCloud = null;
     state.groundDustCloud = null;
+    state.voidDustCloud = null;
     state.floraCloud = null;
     state.lampCloud = null;
     state.moteCloud = null;
@@ -2266,6 +2392,7 @@
       visibleLandmark: state.visibleLandmark,
       terrainParticles: state.terrainCloud ? state.terrainCloud.count : 0,
       groundDustParticles: state.groundDustCloud ? state.groundDustCloud.count : 0,
+      voidDustParticles: state.voidDustCloud ? state.voidDustCloud.count : 0,
       floraParticles: state.floraCloud ? state.floraCloud.count : 0,
       moteParticles: state.moteCloud ? state.moteCloud.count : 0,
       roadVertices: (ROAD_SEGMENT_COUNT + 1) * ROAD_COLUMN_COUNT,
@@ -2339,6 +2466,7 @@
         floraPointCount: FLORA_POINT_COUNT,
         moteCount: MOTE_COUNT,
         groundDustCount: GROUND_DUST_COUNT,
+        voidDustCount: VOID_DUST_COUNT,
         gatePointCount: GATE_POINT_COUNT,
         gateSpacing: GATE_SPACING,
         biomeZoneLength: BIOME_ZONE_LENGTH,

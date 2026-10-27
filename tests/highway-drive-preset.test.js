@@ -39,6 +39,7 @@ assert(api.constants.terrainPointCount <= 20000, '地形粒子池必须有上界
 assert(api.constants.floraPointCount <= 800, '植被粒子池必须有上界');
 assert(api.constants.moteCount <= 320, '浮尘粒子池必须有上界');
 assert(api.constants.groundDustCount <= 8000, '地面尘埃粒子池必须有上界');
+assert(api.constants.voidDustCount <= 6000, '虚空光尘粒子池必须有上界');
 assert(api.constants.gatePointCount <= 280, '路标粒子池必须有上界');
 assert(api.constants.precipitationCount <= 512, '雨雪必须共用一份有界粒子池');
 assert(api.constants.maxCameraRoll <= 0.015, '相机侧倾必须低于晕动症阈值');
@@ -225,6 +226,9 @@ assert(/aTrackPulse/.test(source) && /trackPulseHistory/.test(source), '四车�
 assert(/rhythmTrackEventFrame/.test(source) && /ROAD_TRACK_LANE_SEQUENCE/.test(source), '路面必须生成自动谱面而不是整行闪光');
 assert(/laneBand=smoothstep\([^;]+laneDist\)/.test(source), '节拍光带要铺满车道并避开分隔线');
 assert(!/crossGrid/.test(source), '路面不能再有横竖交叉的方格光网');
+assert(/highway-abyss-floor/.test(source) && /uNight/.test(source), '玻璃路面下方必须有会随天气变色的虚空地幕');
+assert(/ABYSS_COLORS/.test(source), '虚空底色要按天气取色，否则地平线会出现一道硬边');
+assert(/seamPhase/.test(source), '玻璃桥面要有横向板缝，否则只是一层透明色');
 assert(/state\.spectrumDistance \/ ROAD_SPECTRUM_STEP/.test(source), '谱面事件必须在深度行之间插值，接近才连续');
 assert(/new THREE\.SphereGeometry\(1, 48, 32\)/.test(source), '夜空天体必须是真 3D 球体而不是着色器圆盘');
 assert(/new THREE\.RingGeometry\(1\.26, 2\.16, 96, 2\)/.test(source), '土星必须有独立 3D 环');
