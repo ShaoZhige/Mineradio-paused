@@ -183,6 +183,27 @@ contextBridge.exposeInMainWorld('desktopWindow', {
     ipcRenderer.on('mineradio-desktop-lyrics-enabled-state', listener);
     return () => ipcRenderer.removeListener('mineradio-desktop-lyrics-enabled-state', listener);
   },
+  // 花再 Halo PixelBar 同步：渲染进程只发「当前歌词 / 音量 / 播放状态 / 封面色」这类
+  // 语义事件，USB HID 的拼包与写入全在主进程与它的子进程里，桥不过设备协议。
+  // Halo PixelBar sync: the renderer only posts semantic events; framing and the HID
+  // write live in the main process and its child, never across this bridge.
+  halo: {
+    getConfig: () => ipcRenderer.invoke('halo-sync-get-config'),
+    setConfig: (patch) => ipcRenderer.invoke('halo-sync-set-config', patch || {}),
+    setEnabled: (enabled) => ipcRenderer.invoke('halo-sync-set-enabled', !!enabled),
+    connect: () => ipcRenderer.invoke('halo-sync-connect'),
+    listDevices: () => ipcRenderer.invoke('halo-sync-list-devices'),
+    lyric: (text) => ipcRenderer.send('halo-sync-lyric', String(text == null ? '' : text)),
+    audioFrame: (energy, beat, brightness) => ipcRenderer.send('halo-sync-audio-frame', energy, beat, brightness),
+    volume: (value) => ipcRenderer.send('halo-sync-volume', value),
+    playState: (playing) => ipcRenderer.send('halo-sync-play-state', playing === true),
+    song: (name, artist) => ipcRenderer.send('halo-sync-song', name, artist),
+    coverColor: (rgb) => ipcRenderer.send('halo-sync-cover-color', rgb),
+    scene: (name) => ipcRenderer.send('halo-sync-scene', name),
+    spectrum: (style) => ipcRenderer.send('halo-sync-spectrum', style),
+    clockStyle: (style) => ipcRenderer.send('halo-sync-clock-style', style),
+    manualHold: (on) => ipcRenderer.send('halo-sync-manual-hold', on === true),
+  },
   setWallpaperMode: (enabled, payload) => ipcRenderer.invoke('mineradio-wallpaper-set-enabled', !!enabled, payload || {}),
   updateWallpaperMode: (payload) => ipcRenderer.invoke('mineradio-wallpaper-update', payload || {}),
   getWallpaperModeStatus: () => ipcRenderer.invoke('mineradio-wallpaper-get-status'),

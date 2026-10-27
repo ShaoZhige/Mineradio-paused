@@ -181,6 +181,11 @@ function applyFetchedLyricResponse(song, token, response, options) {
   cancelPendingTrackFallbackLyrics();
   var state = parseLyricResponseToOriginalState(song, mergedResponse);
   setOriginalLyricsState(state.lines, state.hasNativeKaraoke, state.timingSource, state.translationLines, state.translationSource);
+  // 只有真正成为当前歌词的那一份才推给音响：队列预取走的是别的歌曲，
+  // 在解析处挂钩会把下一首的词提前刷到屏幕上。
+  // Only lyrics that actually became the current ones reach the speaker; queue prefetch
+  // parses a different song, so the hook sits here rather than inside the parser.
+  if (window.haloSync) window.haloSync.setLyricContext(song, state.lines);
   applyPreferredLyricsForCurrent(true);
   scheduleNeteaseLyricTranslationFallback(song, token, state);
   scheduleNeteasePrimaryLyricFallback(song, token, state);
@@ -369,6 +374,7 @@ function adoptNeteasePrimaryLyricFallback(song, mergedResponse, token, cacheKey)
   if (!state.usableLyric) return false;
   cancelPendingTrackFallbackLyrics();
   setOriginalLyricsState(state.lines, state.hasNativeKaraoke, state.timingSource, state.translationLines, state.translationSource);
+  if (window.haloSync) window.haloSync.setLyricContext(song, state.lines);
   applyPreferredLyricsForCurrent(true);
   // 写入持久缓存：同一首云盘歌曲下次播放直接命中，不再重复搜索。
   writePersistentLyricCache(song, merged);

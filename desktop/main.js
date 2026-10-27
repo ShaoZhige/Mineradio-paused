@@ -5802,6 +5802,133 @@ ipcMain.handle('mineradio-desktop-lyrics-move-by', async (_event, dx, dy) => {
   }
 });
 
+// ===================== 花再 Halo PixelBar 歌词/灯光同步 =====================
+// 音响通过 USB HID 接收歌词行与灯光指令。主进程只做编排：协议拼包与设备读写全在
+// desktop/halo-lyric-sync.js，真正的 HID 写入发生在它派生的子进程里。
+// The speaker takes lyrics and lighting over USB HID. The main process only orchestrates;
+// framing and device I/O live in halo-lyric-sync.js, which offloads the writes to a child.
+const HALO_CONFIG_FILE = 'halo-sync.json';
+let haloSyncInstance = null;
+
+function haloConfigPath() {
+  try {
+    return path.join(app.getPath('userData'), HALO_CONFIG_FILE);
+  } catch (_) {
+    return '';
+  }
+}
+
+function getHaloSync() {
+  if (haloSyncInstance) return haloSyncInstance;
+  try {
+    const { HaloSync } = require('./halo-lyric-sync');
+    haloSyncInstance = new HaloSync(haloConfigPath());
+  } catch (error) {
+    console.warn('[HaloSync] 初始化失败:', (error && error.message) || error);
+    haloSyncInstance = null;
+  }
+  return haloSyncInstance;
+}
+
+// 启动时只在「这台机器真的连到过设备」的情况下才连。构造本身不派生子进程，
+// 但连接会，而绝大多数用户没有这台音响，不该为一个不存在的设备留一个常驻进程。
+// Only auto-connect where a device was actually seen before; connecting spawns the HID
+// child process, and most users do not own this speaker.
+function restoreHaloSyncOnStartup() {
+  try {
+    const { loadConfig } = require('./halo-lyric-sync');
+    const saved = loadConfig(haloConfigPath());
+    if (!saved.enabled || !saved.lastDeviceSeen) return;
+    const halo = getHaloSync();
+    if (halo) halo.connect().catch(() => {});
+  } catch (error) {
+    console.warn('[HaloSync] 启动恢复失败:', (error && error.message) || error);
+  }
+}
+
+app.on('before-quit', () => {
+  if (!haloSyncInstance || typeof haloSyncInstance.dispose !== 'function') return;
+  try { haloSyncInstance.dispose(); } catch (_) { /* ignore */ }
+});
+
+ipcMain.handle('halo-sync-get-config', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, config: null };
+  const halo = getHaloSync();
+  return { ok: !!halo, config: halo ? halo.getConfig() : null };
+});
+ipcMain.handle('halo-sync-set-config', async (event, patch) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false };
+  const halo = getHaloSync();
+  if (!halo) return { ok: false };
+  return { ok: true, config: halo.setConfig(patch || {}) };
+});
+ipcMain.handle('halo-sync-set-enabled', async (event, enabled) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false };
+  const halo = getHaloSync();
+  if (!halo) return { ok: false };
+  return { ok: true, enabled: halo.setEnabled(enabled) };
+});
+ipcMain.handle('halo-sync-list-devices', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, devices: [], connected: false };
+  const halo = getHaloSync();
+  return { ok: !!halo, devices: halo ? await halo.listDevices() : [], connected: halo ? halo.connected : false };
+});
+ipcMain.handle('halo-sync-connect', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, connected: false };
+  const halo = getHaloSync();
+  return { ok: !!halo, connected: halo ? await halo.connect() : false };
+});
+ipcMain.on('halo-sync-lyric', (event, text) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.onLyric(text);
+});
+ipcMain.on('halo-sync-audio-frame', (event, energy, beat, brightness) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.onAudioFrame(energy, beat, brightness);
+});
+ipcMain.on('halo-sync-volume', (event, value) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.onVolume01(value);
+});
+ipcMain.on('halo-sync-play-state', (event, playing) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.onPlayState(playing);
+});
+ipcMain.on('halo-sync-song', (event, name, artist) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.onSong(name, artist);
+});
+ipcMain.on('halo-sync-cover-color', (event, rgb) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.onCoverColor(rgb);
+});
+ipcMain.on('halo-sync-scene', (event, name) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.sendTheme(name);
+});
+ipcMain.on('halo-sync-spectrum', (event, style) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.sendSpectrum(style);
+});
+ipcMain.on('halo-sync-clock-style', (event, style) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.sendClockStyle(style);
+});
+ipcMain.on('halo-sync-manual-hold', (event, on) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const halo = getHaloSync();
+  if (halo) halo.setManualHold(on);
+});
+
 ipcMain.handle('mineradio-wallpaper-set-enabled', async (event, enabled, payload) => {
   try {
     if (!isTrustedMainWindowIpc(event)) return { ok: false, enabled: false, error: 'WALLPAPER_UNTRUSTED_SENDER' };
@@ -6795,6 +6922,7 @@ if (!gotSingleInstanceLock) {
     } catch (error) {
       console.warn('[Wallpaper Engine] local media protocol unavailable:', error && error.message || error);
     }
+    restoreHaloSyncOnStartup();
     const handleDisplayLayoutChanged = (_event, _display, changedMetrics) => {
       positionDesktopLyricsWindow();
       positionWallpaperWindow(Array.isArray(changedMetrics) ? 'display-metrics-changed' : 'display-layout-changed');

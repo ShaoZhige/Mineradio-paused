@@ -27,6 +27,7 @@
       "buildResources": "build"
     },
     "afterPack": "build/after-pack.js",
+    "npmRebuild": false,
     "toolsets": {
       "winCodeSign": "1.1.0"
     },
@@ -58,6 +59,11 @@
       "!node_modules/NeteaseCloudMusicApi/data/**",
       "!node_modules/gsap/**",
       "!node_modules/xml2js/lib/xml2js.bc.js",
+      "!node_modules/node-hid/prebuilds/HID-linux*/**",
+      "!node_modules/node-hid/prebuilds/HID-darwin*/**",
+      "!node_modules/node-hid/prebuilds/HID_hidraw*/**",
+      "!node_modules/node-hid/hidapi/**",
+      "!node_modules/node-hid/src/**",
       "!node_modules/**/*.map",
       "!node_modules/**/*.md",
       "!node_modules/**/*.d.ts",
@@ -66,7 +72,10 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "build/**/*"
+      "build/**/*",
+      "desktop/halo-hid-server.js",
+      "node_modules/node-hid/**",
+      "node_modules/pkg-prebuilds/**"
     ],
     "compression": "maximum",
     "win": {
@@ -132,6 +141,7 @@
     "mpg123-decoder": "^1.0.3",
     "music-metadata": "11.16.1",
     "NeteaseCloudMusicApi": "^4.32.0",
+    "node-hid": "^3.4.0",
     "qrcode": "^1.5.4"
   },
   "overrides": {

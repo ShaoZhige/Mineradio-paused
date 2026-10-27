@@ -135,3 +135,43 @@ included here.
 Preset indices follow this repository's own numbering, which already reaches 12: the
 upstream PR assumed the series stopped at 8 and used 9 and 10, which would have silently
 reinterpreted existing saved presets. Highway Drive is 13 and Niu Lai Dream is 14.
+
+## Edifier Halo PixelBar lyric and lighting sync
+
+- Upstream: `XxHuberrr/Mineradio-paused` pull request #433, author not stated in the PR body
+- Merged-in revision: not merged upstream; taken from the PR head, then reworked for this tree
+- License: GNU GPL v3 (`GPL-3.0`), same as the project this repository forks
+- Port date: 2026-10-27
+
+Device: EDIFIER / 花再 Halo PixelBar over USB HID, `VID 0x2D99` / `PID 0xA106`,
+control interface `usagePage 0xFF14` / `usage 1`, fixed 64-byte reports.
+
+Packet layouts were not published by the vendor. Three community projects were used as the
+reference: `HaloLyricSync` and `HaloPixelToolBox` for the `2E AA EC E8` text frame and the
+`0xEF` scene model, `Seraph310/halo-pixelbar-mcp` (`PROTOCOL_NOTES`) for the `2E AA ED`
+command frame, and `traceless929/PixelBar` for the spectrum and clock styles. Because no
+simulator exists, every frame is pinned as a byte vector in
+`tests/halo-pixelbar-protocol.test.js` — that test is the wire specification.
+
+What was changed from the PR when porting:
+
+- `node-hid` is a normal production dependency. `build.npmRebuild` is set to `false`, unlike
+  the PR which also pinned `electronDist` and dropped `toolsets.winCodeSign` — those two were
+  not taken. The rebuild has to be off because `@electron/rebuild` (via `node-abi`) cannot
+  resolve an ABI for Electron 45 and aborts the whole build; rebuilding is unnecessary anyway,
+  since node-hid ships N-API v4 prebuilds that load unchanged under Electron.
+- The HID writer is a separate plain-Node child process (`desktop/halo-hid-server.js`),
+  unpacked out of `app.asar` together with `node-hid` and `pkg-prebuilds` (the loader
+  node-hid uses to find its binary); the main process only frames and forwards. Writing from
+  inside the Electron process was measured to fail with `0x3E5`. A packaging mistake here is
+  silent at build time and fatal at runtime, so `tests/halo-pixelbar-protocol.test.js` asserts
+  the asar-unpacked path resolution and the packed tree is checked by running the child out of
+  `dist/win-unpacked`.
+- HID initialisation is lazy. Constructing the module only reads `halo-sync.json`; the child
+  process is spawned on the first `connect()`, and startup auto-connect additionally
+  requires a `lastDeviceSeen` flag written after a real device was found. Users without the
+  speaker never pay for a resident process.
+- Every IPC channel checks `isTrustedMainWindowIpc` before touching hardware state.
+- The panel copy is wired through the four-language dictionary instead of hardcoded
+  Chinese, and the popover sits in the titlebar rather than inside the DIY console, whose
+  workspace rebuild would delete an injected panel.
