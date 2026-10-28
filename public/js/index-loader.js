@@ -33,9 +33,13 @@
     'js/modules/00-state/13-i18n.js',
     'js/modules/00-state/14-i18n-switcher.js',
     'js/modules/00-state/15-backend-text.js',
+    'js/modules/00-state/00a-shared-utils.js',
+    // 偏好读取要在 00-core-stores 之前：00-core 在顶层就调用 readAudioFadePreference() 等，
+    // 靠拼接期的函数提升本来能跑，拆成分文件后会变成 ReferenceError。
+    // Preference readers come before the core stores: the stores call them during evaluation.
+    'js/modules/00-state/02-preferences-ui-modes.js',
     'js/modules/00-state/00-core-stores.js',
     'js/modules/00-state/01-perf-render-state.js',
-    'js/modules/00-state/02-preferences-ui-modes.js',
     'js/modules/00-state/03-beat-dj-state.js',
     'js/modules/00-state/04-fx-defaults.js',
     'js/modules/00-state/05-packaged-fx-archive.js',
@@ -296,6 +300,18 @@
     return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + moduleCacheBust;
   }
 
+  // 所有模块执行完后统一跑注册过的收尾工作；单个失败不影响其它。
+  // Run every registered boot hook after all modules executed; one failure must not stop the rest.
+  function bootRunSource() {
+    return String.raw`
+;(function () {
+  var hooks = window.__mineradioBootHooks || [];
+  for (var i = 0; i < hooks.length; i++) {
+    try { hooks[i](); } catch (error) { console.error("[Boot] hook failed: " + (error && error.message || error)); }
+  }
+})();
+`;
+  }
   function injectSplitModules() {
     const host = document.currentScript.parentNode;
     // 每个新节点都要插在「上一个刚插入的节点」之后，否则后插的会跑到前面，顺序整个反掉。
@@ -317,7 +333,7 @@
     });
     // 惰性运行时与模块共享同一个全局作用域，必须排在所有模块之后。
     const runtime = document.createElement('script');
-    runtime.text = lazyRuntimeSource;
+    runtime.text = bootRunSource() + lazyRuntimeSource;
     appendAfter(runtime);
   }
 
@@ -342,6 +358,14 @@
     return ';(function () {\n'
       + '  var map = ' + JSON.stringify(map) + ';\n'
       + '  window.__mineradioModuleLineMap = map;\n'
+      // 模块可以在顶层登记「等所有模块都执行完再做」的收尾工作。这是拆掉跨文件函数提升依赖的
+      // 那块地基：状态初始化不再要求“后面文件里的函数此刻已经存在”。
+      // Modules may register work that has to run after every module has executed. This is the
+      // foundation for dropping the cross-file hoisting dependency.
+      + '  window.__mineradioBootHooks = window.__mineradioBootHooks || [];\n'
+      + '  window.__mineradioDefer = function (fn) {\n'
+      + '    if (typeof fn === "function") window.__mineradioBootHooks.push(fn);\n'
+      + '  };\n'
       + '  window.__mineradioLocateModule = function (line) {\n'
       + '    line = Number(line) || 0;\n'
       + '    for (var i = 0; i < map.length; i++) {\n'
@@ -388,6 +412,7 @@
 
     const script = document.createElement('script');
     script.text = pieces.map((piece) => piece.code).join('')
+      + bootRunSource()
       + lazyRuntimeSource
       + '\n//# sourceURL=mineradio-index-modules.js\n';
     appendAfter(script);

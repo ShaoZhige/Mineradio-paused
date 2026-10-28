@@ -31,6 +31,9 @@ const coverText = readSource('public/js/modules/02-visual/00-pointer-cover-parti
 const floatText = readSource('public/js/modules/02-visual/01-float-skull-backcover.js');
 const starRiverText = readSource('public/js/modules/02-visual/03-lyrics-star-river.js');
 const persistenceText = readSource('public/js/modules/02-visual/04-visual-settings-persistence.js');
+// 纯工具已经下沉到 00-state/00a-shared-utils.js，沙箱从句柄要换到新位置切。
+// The pure helpers moved to 00-state/00a-shared-utils.js, so the sandbox slices them from there.
+const sharedUtilsText = readSource('public/js/modules/00-state/00a-shared-utils.js');
 const perfPanelText = readSource('public/js/modules/07-fx/05-fx-panel-performance.js');
 const mainLoopText = readSource('public/js/modules/11-main-loop.js');
 const loaderText = readSource('public/js/index-loader.js');
@@ -371,8 +374,10 @@ function coverGeometrySandbox() {
   );
   vm.runInContext(budgetText, context, { filename: '12-particle-budget.js' });
   vm.runInContext(
-    ['clampRange', 'normalizeCoverResolution', 'coverParticleGridForResolution', 'coverParticleCountLabel']
-      .map((name) => cutFunction(persistenceText, name)).join('\n'),
+    ['clampRange', 'normalizeCoverResolution', 'coverParticleGridForResolution']
+      .map((name) => cutFunction(sharedUtilsText, name))
+      .concat(['coverParticleCountLabel'].map((name) => cutFunction(persistenceText, name)))
+      .join('\n'),
     context,
     { filename: '04-visual-settings-persistence.js (excerpt)' }
   );

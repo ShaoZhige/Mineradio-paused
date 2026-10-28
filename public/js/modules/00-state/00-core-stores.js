@@ -104,9 +104,8 @@ var albumGaplessState = { enabled: false, defaultEnabled: true, albumKey: '', di
 var PLAYBACK_RESUME_STALL_DELAYS = [1600, 3600];
 var PLAYBACK_RESUME_LONG_PAUSE_MS = 8 * 60 * 1000;
 var PLAYBACK_RESUME_LONG_PAUSE_PROVIDER_MS = { qishui: 3 * 60 * 1000, qq: 8 * 60 * 1000, kugou: 8 * 60 * 1000, netease: 12 * 60 * 1000 };
-var AUDIO_FADE_STORE_KEY = 'mineradio-audio-fade-v1';
-var AUDIO_FADE_MIN_MS = 0;
-var AUDIO_FADE_MAX_MS = 3000;
+// AUDIO_FADE_STORE_KEY / MIN / MAX 已下沉到 00a-shared-utils.js：
+// readAudioFadePreference() 要在本文件之前执行，常量必须比它更早存在。
 var audioFadePreference = readAudioFadePreference();
 var AUDIO_FADE_IN_MS = audioFadePreference.fadeInMs;
 var AUDIO_FADE_OUT_MS = audioFadePreference.fadeOutMs;
