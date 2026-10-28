@@ -150,7 +150,8 @@
     "body-parser": "1.20.9",
     "follow-redirects": "1.16.1",
     "ip-address": "10.7.4",
-    "music-metadata": "11.16.1"
+    "music-metadata": "11.16.1",
+    "qs": "6.17.0"
   },
   "devDependencies": {
     "electron": "^45.0.0",
