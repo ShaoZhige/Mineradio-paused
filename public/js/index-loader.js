@@ -321,10 +321,76 @@
     appendAfter(runtime);
   }
 
+  // 拼接后所有模块共享一个 sourceURL，栈里只有 `mineradio-index-modules.js:20912`，
+  // 得靠行号累加去反查是谁炸的。这里记下每个模块的起止行，并在全局放一个翻译器，
+  // 加载期出错时把拼接行号换回「文件:行」，省掉那一步人工对表。
+  // After concatenation every module shares one sourceURL, so a stack only says
+  // `mineradio-index-modules.js:20912`. Record each module's line range and expose a translator so a
+  // load-time failure reports `file:line` instead of a number nobody can map back by hand.
+  function buildModuleLineMap(pieces) {
+    const map = [];
+    let cursor = 1;
+    pieces.forEach((piece) => {
+      const lineCount = piece.lines;
+      map.push({ path: piece.path, start: cursor, end: cursor + lineCount - 1 });
+      cursor += lineCount;
+    });
+    return map;
+  }
+
+  function moduleMapSource(map) {
+    return ';(function () {\n'
+      + '  var map = ' + JSON.stringify(map) + ';\n'
+      + '  window.__mineradioModuleLineMap = map;\n'
+      + '  window.__mineradioLocateModule = function (line) {\n'
+      + '    line = Number(line) || 0;\n'
+      + '    for (var i = 0; i < map.length; i++) {\n'
+      + '      if (line >= map[i].start && line <= map[i].end) {\n'
+      + '        return map[i].path + ":" + (line - map[i].start + 1);\n'
+      + '      }\n'
+      + '    }\n'
+      + '    return null;\n'
+      + '  };\n'
+      + '  window.addEventListener("error", function (event) {\n'
+      + '    var stack = event && event.error && event.error.stack;\n'
+      + '    if (!stack || typeof stack !== "string") return;\n'
+      + '    var translated = stack.replace(/mineradio-index-modules\\.js:(\\d+)(?::\\d+)?/g, function (match, lineText) {\n'
+      + '      var located = window.__mineradioLocateModule(Number(lineText));\n'
+      + '      return located || match;\n'
+      + '    });\n'
+      + '    if (translated !== stack) console.error("[Loader] mapped stack:\\n" + translated);\n'
+      + '  });\n'
+      + '})();\n';
+  }
+
   function injectConcatenatedModules() {
+    // 每段都补成以换行结尾。缺尾换行的文件若直接拼下一段，下一段的第 1 行会接在上一段的
+    // 末行上，行号整体往前错位——第一版映射就是这样把错误指到了隔壁文件。
+    // Pad every piece with a trailing newline: without it the next file's first line glues onto the
+    // previous file's last line and the whole map shifts by one.
+    const pieces = modulePaths.map((path) => {
+      const raw = readModule(path);
+      const code = raw.endsWith('\n') ? raw : raw + '\n';
+      return { path: path, code: code, lines: code.split('\n').length - 1 };
+    });
+    const lineMap = buildModuleLineMap(pieces);
+    const host = document.currentScript.parentNode;
+    let anchor = document.currentScript;
+    const appendAfter = (el) => {
+      host.insertBefore(el, anchor.nextSibling);
+      anchor = el;
+    };
+    // 映射器单独一个 <script>，这样它自己的行数不会挤占拼接脚本的行号。
+    // The mapper gets its own <script> so its own line count cannot shift the bundle's line numbers.
+    const mapper = document.createElement('script');
+    mapper.text = moduleMapSource(lineMap);
+    appendAfter(mapper);
+
     const script = document.createElement('script');
-    script.text = modulePaths.map(readModule).join('') + lazyRuntimeSource + '\n//# sourceURL=mineradio-index-modules.js\n';
-    document.currentScript.parentNode.insertBefore(script, document.currentScript.nextSibling);
+    script.text = pieces.map((piece) => piece.code).join('')
+      + lazyRuntimeSource
+      + '\n//# sourceURL=mineradio-index-modules.js\n';
+    appendAfter(script);
   }
 
   if (loaderMode === 'concat') injectConcatenatedModules();
