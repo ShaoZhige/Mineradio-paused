@@ -166,3 +166,22 @@ test('pointer updates reach the stage hot zone through the single cue entry poin
   // 进入舞台模式时要给宽限期，否则刚切过去就收起。
   assert.match(bindingsText, /if \(m === 'stage'\) stageShelfHoldUntil = performance\.now\(\) \+ 1200;/);
 });
+
+test('issue #432: the side hot zone must not depend on the never-set guide flag', () => {
+  const body = sliceFunction(layoutText, 'canShowShelfHoverCueAt');
+  // 这句曾经把侧栏热区判定整条掐死：shelfHoverCue.guide 全仓库只有被置 false 的地方，
+  // setShelfGuideCueActive 定义了却没有任何调用点，于是自动隐藏模式下鼠标贴到右边也唤不出。
+  assert.doesNotMatch(
+    body,
+    /if \(!shelfHoverCue\.guide\) return false;/,
+    'the guide flag is never set true; gating the hot zone on it disables summoning entirely'
+  );
+  // 真正决定放行的应该是坐标、UI 遮挡与模式，不是那个永远为假的开关。
+  assert.match(body, /isShelfClickZone\(e\)/, 'the click zone must stay able to open the shelf');
+  // 侧栏可见度要继续吃热区结果，否则删掉门槛也没人用。
+  assert.match(
+    managerText,
+    /cueVis > 0\.01 \? Math\.max\(0\.16, cueVis \* 0\.88\) : 0/,
+    'side mode visibility has to follow the hot-zone cue'
+  );
+});

@@ -151,7 +151,12 @@ function shelfAutoHiddenInputReady() {
 function canShowShelfHoverCueAt(e) {
   if (!e) return false;
   if (shelfPlaybackSwitchGuardActive()) return false;
-  if (!shelfHoverCue.guide) return false;
+  // 这里原来是「guide 不为真就直接 return false」。但 shelfHoverCue.guide 全仓库只有被置 false
+  // 的地方，setShelfGuideCueActive() 定义了却从没被调用，于是这一句把侧栏热区判定整条掐死：
+  // 自动隐藏模式下鼠标贴到屏幕右边也唤不出 3D 歌单架（issue #432）。
+  // guide 的本意只是「引导提示激活时放开整块热区」，不能当成呼出的前置条件。
+  // This used to bail out unless shelfHoverCue.guide was true, and nothing ever sets it true,
+  // so the auto-hidden side shelf could never be summoned (issue #432).
   if (document.body.classList.contains('splash-active')) return false;
   if (visualGuideActive || emptyHomeActive || homeForcedOpen) return false;
   if (!shelfManager || !shelfManager.getMode || shelfManager.getMode() !== 'side') return false;
