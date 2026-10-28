@@ -109,10 +109,11 @@ assert.match(
 // 基线关掉不等于永远关掉：读档路径仍要按平台能力把它提升回来，否则 Win11 也拿不到玻璃增强。
 // Off by default is not off forever: the read path still has to promote it per platform, or
 // Win11 loses the enhancement too.
-const persistenceText = fs.readFileSync(
+// 视觉存档的读/写已拆成两个文件（00-state/05a 读、02-visual/04 写），两半一起读。
+const persistenceText = [
+  path.join(appRoot, 'public', 'js', 'modules', '00-state', '05a-fx-save-read.js'),
   path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'),
-  'utf8'
-);
+].map((file) => fs.readFileSync(file, 'utf8')).join('\n');
 assert.match(
   persistenceText,
   /wallpaperEngineGlassSampler == null\s*\n?\s*\?\s*wallpaperEngineBorderlessCaptureSupported\(\)/,

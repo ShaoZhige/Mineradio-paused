@@ -80,30 +80,6 @@ function packLocalBeatEvent(ev) {
     localBeatRound(ev.step || 0, 1000)
   ];
 }
-function unpackLocalBeatEvent(row) {
-  if (typeof row === 'number') return row;
-  if (!Array.isArray(row)) return row;
-  var flags = row[8] || 0;
-  return {
-    time: row[0] || 0,
-    strength: row[1] == null ? 0.42 : row[1],
-    confidence: row[2] == null ? 0.72 : row[2],
-    impact: row[3] == null ? (row[1] || 0.42) : row[3],
-    low: row[4] == null ? 0.62 : row[4],
-    body: row[5] == null ? 0.22 : row[5],
-    snap: row[6] == null ? 0.16 : row[6],
-    combo: LOCAL_BEAT_COMBOS[row[7] || 0] || undefined,
-    primary: !!(flags & 1),
-    camera: !!(flags & 2),
-    pulse: !!(flags & 4),
-    dj: !!(flags & 8),
-    grid: !!(flags & 16),
-    kickOnly: !!(flags & 32),
-    mass: row[9] == null ? 0.62 : row[9],
-    sharpness: row[10] == null ? 0.12 : row[10],
-    step: row[11] || 0
-  };
-}
 function packLocalBeatMap(map) {
   if (!map) return null;
   var camera = (map.cameraBeats || map.beats || map.kicks || []).map(packLocalBeatEvent);
@@ -122,47 +98,8 @@ function packLocalBeatMap(map) {
     pulseBeats: pulse
   };
 }
-function unpackLocalBeatMap(stored) {
-  if (!stored) return null;
-  if (stored.v && stored.v !== 1 && stored.v !== 2) return stored;
-  var camera = (stored.cameraBeats || []).map(unpackLocalBeatEvent);
-  var pulse = (stored.pulseBeats || []).map(unpackLocalBeatEvent);
-  return {
-    kicks: camera.map(function (b) { return typeof b === 'number' ? b : b.time; }),
-    beats: camera,
-    pulseBeats: pulse,
-    cameraBeats: camera,
-    gridStep: stored.gridStep || 0,
-    sectionSteps: stored.sectionSteps || [],
-    tempoSource: stored.tempoSource || 'local',
-    duration: stored.duration || 0,
-    visualBeatCount: stored.visualBeatCount || camera.length,
-    analyzedAt: stored.analyzedAt || Date.now(),
-    partial: !!stored.partial,
-    partialUntilSec: stored.partialUntilSec || 0
-  };
-}
-function readLocalBeatPrefs() {
-  try { return JSON.parse(localStorage.getItem(LOCAL_BEAT_PREF_STORE_KEY) || '{}') || {}; }
-  catch (e) { return {}; }
-}
 function saveLocalBeatPrefs() {
   try { localStorage.setItem(LOCAL_BEAT_PREF_STORE_KEY, JSON.stringify(localBeatMapPrefs || {})); } catch (e) { }
-}
-function readLocalBeatMapCache() {
-  var out = {};
-  try {
-    var raw = JSON.parse(localStorage.getItem(LOCAL_BEATMAP_STORE_KEY) || '{}') || {};
-    Object.keys(raw).forEach(function (key) {
-      var entry = raw[key] || {};
-      out[key] = { updatedAt: entry.updatedAt || 0 };
-      if (entry.mr) out[key].mr = unpackLocalBeatMap(entry.mr);
-      if (entry.dj) out[key].dj = unpackLocalBeatMap(entry.dj);
-    });
-  } catch (e) {
-    out = {};
-  }
-  return out;
 }
 function packLocalBeatCache(maxEntries) {
   var entries = Object.keys(localBeatMapCache || {}).map(function (key) {

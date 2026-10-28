@@ -39,10 +39,23 @@
     // Preference readers come before the core stores: the stores call them during evaluation.
     'js/modules/00-state/02-preferences-ui-modes.js',
     'js/modules/00-state/00-core-stores.js',
+    // 本地存档读取器必须紧跟 00-core-stores：它引用的 STORE_KEY 常量都在那里定义，而 00-core
+    // 顶层又要用这些 reader 的返回值初始化 customCoverMap / customLyricFonts / listenStatsState…
+    // The local-storage readers have to follow 00-core-stores: they use its STORE_KEY constants and
+    // 00-core initialises those stores from their return values at top level.
+    'js/modules/00-state/00b-local-readers.js',
     'js/modules/00-state/01-perf-render-state.js',
     'js/modules/00-state/03-beat-dj-state.js',
     'js/modules/00-state/04-fx-defaults.js',
     'js/modules/00-state/05-packaged-fx-archive.js',
+    // 存档**读取**层要在 06 之前：06 在顶层就 Object.assign({}, fxDefaults, readSavedLyricLayout())
+    // 求 fx，而 01-scene/01、02-visual/00、10-shell/05 在顶层就要读它的 preset / coverResolution /
+    // shelf / floatLayer 等真值。读取层的写入对半留在 02-visual/04（位置更晚也没人需要它提前）。
+    // The read side of the visual archive has to land before 06: 06 builds `fx` at top level from
+    // readSavedLyricLayout(), and 01-scene/01, 02-visual/00 and 10-shell/05 read preset /
+    // coverResolution / shelf / floatLayer from it at top level too. The write half stays in
+    // 02-visual/04, which loads later — nothing needs it early.
+    'js/modules/00-state/05a-fx-save-read.js',
     'js/modules/00-state/06-fx-runtime-layout.js',
     'js/modules/00-state/07-ui-playback-runtime.js',
     'js/modules/00-state/08-desktop-render-power.js',
@@ -320,6 +333,11 @@
       host.insertBefore(el, anchor.nextSibling);
       anchor = el;
     };
+    // 地基要先于第一个模块：模块顶层就会调 __mineradioDefer。
+    // The foundation goes in before the first module: modules call __mineradioDefer at top level.
+    const boot = document.createElement('script');
+    boot.text = bootHooksSource();
+    appendAfter(boot);
     modulePaths.forEach((path) => {
       const el = document.createElement('script');
       // 动态插入的 script 默认 async=true，会按下载完成的先后执行；必须显式关掉才能保序。
@@ -354,18 +372,29 @@
     return map;
   }
 
-  function moduleMapSource(map) {
+  // 两条注入路径共用的地基：boot 钩子表 + 它的注册器。它**必须比任何模块先执行**，因为模块
+  // 会在顶层调用 `window.__mineradioDefer(...)`。以前这段写在 moduleMapSource() 里，于是只有
+  // concat 路径拿得到；split 路径下 `__mineradioDefer` 根本不存在，模块一调用就是 TypeError。
+  // Shared by both injection paths: the boot hook list and its register. It has to run BEFORE any
+  // module, because modules call __mineradioDefer at top level. This used to live inside
+  // moduleMapSource(), so only the concat path ever got it — under split the register did not exist
+  // at all and the first module to call it threw a TypeError.
+  function bootHooksSource() {
     return ';(function () {\n'
-      + '  var map = ' + JSON.stringify(map) + ';\n'
-      + '  window.__mineradioModuleLineMap = map;\n'
-      // 模块可以在顶层登记「等所有模块都执行完再做」的收尾工作。这是拆掉跨文件函数提升依赖的
-      // 那块地基：状态初始化不再要求“后面文件里的函数此刻已经存在”。
-      // Modules may register work that has to run after every module has executed. This is the
-      // foundation for dropping the cross-file hoisting dependency.
       + '  window.__mineradioBootHooks = window.__mineradioBootHooks || [];\n'
       + '  window.__mineradioDefer = function (fn) {\n'
       + '    if (typeof fn === "function") window.__mineradioBootHooks.push(fn);\n'
       + '  };\n'
+      + '})();\n';
+  }
+
+  // 行号翻译只对拼接路径有意义：split 下每个模块是独立文件，栈里自带真实路径。
+  // The line translator only matters for the concatenated bundle: under split every module is its
+  // own file, so stacks already carry real paths.
+  function moduleMapSource(map) {
+    return ';(function () {\n'
+      + '  var map = ' + JSON.stringify(map) + ';\n'
+      + '  window.__mineradioModuleLineMap = map;\n'
       + '  window.__mineradioLocateModule = function (line) {\n'
       + '    line = Number(line) || 0;\n'
       + '    for (var i = 0; i < map.length; i++) {\n'
@@ -407,7 +436,7 @@
     // 映射器单独一个 <script>，这样它自己的行数不会挤占拼接脚本的行号。
     // The mapper gets its own <script> so its own line count cannot shift the bundle's line numbers.
     const mapper = document.createElement('script');
-    mapper.text = moduleMapSource(lineMap);
+    mapper.text = bootHooksSource() + moduleMapSource(lineMap);
     appendAfter(mapper);
 
     const script = document.createElement('script');

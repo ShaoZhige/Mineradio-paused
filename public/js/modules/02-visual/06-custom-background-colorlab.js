@@ -35,43 +35,6 @@ function customBackgroundColorlabText(key, fallback, params) {
   }
   return out;
 }
-function normalizeCustomBackgroundImage(value) {
-  var src = String(value || '').trim();
-  if (!src) return '';
-  if (/^data:image\/(png|jpe?g|webp);base64,/i.test(src)) return src;
-  if (/^https?:\/\//i.test(src)) return src;
-  return '';
-}
-function normalizeCustomBackgroundMedia(value) {
-  if (!value) return null;
-  if (typeof value === 'string') {
-    var img = normalizeCustomBackgroundImage(value);
-    if (img) return { type: 'image', src: img };
-    if (/^data:video\/(mp4|webm|quicktime);base64,/i.test(value) || /^https?:\/\//i.test(value)) return { type: 'video', src: String(value) };
-    return null;
-  }
-  if (typeof value !== 'object') return null;
-  if (value.type === 'album' || value.type === 'cover') return { type: 'album' };
-  var type = value.type === 'video' ? 'video' : (value.type === 'image' ? 'image' : '');
-  if (type === 'image') {
-    var imageSrc = normalizeCustomBackgroundImage(value.src || value.url || '');
-    return imageSrc ? { type: 'image', src: imageSrc } : null;
-  }
-  if (type === 'video') {
-    var src = String(value.src || '').trim();
-    var id = String(value.id || '').trim();
-    if (!id && !/^data:video\/(mp4|webm|quicktime);base64,/i.test(src) && !/^https?:\/\//i.test(src)) return null;
-    return {
-      type: 'video',
-      id: id,
-      src: src,
-      name: String(value.name || '').slice(0, 120),
-      mime: String(value.mime || '').slice(0, 80),
-      size: Math.max(0, Number(value.size) || 0)
-    };
-  }
-  return null;
-}
 function customBackgroundMediaLabel(media) {
   media = normalizeCustomBackgroundMedia(media);
   if (!media) return customBackgroundColorlabText('bg_media_unset', '未设置');

@@ -28,7 +28,7 @@ var startupRestoreHomePending = false;
 var pendingPlaybackResumeAt = 0;
 var restoredLastPlaybackSnapshot = null;
 var lastPlaybackSnapshotSavedAt = 0;
-var hotkeySettings = readHotkeySettings();
+// hotkeySettings 在 00b-local-readers.js 初始化（getHotkeyDefaults / readHotkeySettings 一起搬过去了）。
 var immersiveMode = false;
 var immersiveState = {
   shelfMode: null,

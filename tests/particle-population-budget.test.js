@@ -30,7 +30,12 @@ const budgetText = readSource('public/js/modules/00-state/12-particle-budget.js'
 const coverText = readSource('public/js/modules/02-visual/00-pointer-cover-particles.js');
 const floatText = readSource('public/js/modules/02-visual/01-float-skull-backcover.js');
 const starRiverText = readSource('public/js/modules/02-visual/03-lyrics-star-river.js');
-const persistenceText = readSource('public/js/modules/02-visual/04-visual-settings-persistence.js');
+// 视觉存档的读/写已拆成两个文件（00-state/05a 读、02-visual/04 写），两半一起读：下面的断言
+// 钉的是「函数写成什么样」，不是「它住在哪个文件」。
+const persistenceText = [
+  readSource('public/js/modules/00-state/05a-fx-save-read.js'),
+  readSource('public/js/modules/02-visual/04-visual-settings-persistence.js'),
+].join('\n');
 // 纯工具已经下沉到 00-state/00a-shared-utils.js，沙箱从句柄要换到新位置切。
 // The pure helpers moved to 00-state/00a-shared-utils.js, so the sandbox slices them from there.
 const sharedUtilsText = readSource('public/js/modules/00-state/00a-shared-utils.js');

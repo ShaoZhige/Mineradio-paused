@@ -226,16 +226,14 @@ function hotkeyActionsList() {
 var hotkeyCaptureState = null;
 var hotkeyGlobalStatus = {};
 var diyPlayerMode = readDiyModePreference();
-var customCoverMap = readCustomCoverMap();
-var customLyricMap = readCustomLyricMap();
-var customLyricPrefs = readCustomLyricPrefs();
-var customLyricFonts = readCustomLyricFonts();
-registerSavedCustomLyricFonts();
-var localBeatMapCache = readLocalBeatMapCache();
-var localBeatMapPrefs = readLocalBeatPrefs();
-var playbackQualityPrefs = readPlaybackQualityPreference();
-var playbackQuality = getProviderPlaybackQuality('netease');
-var audioOutputDeviceId = readAudioOutputDevicePreference();
+// 从本地存档读出的用户状态（customCoverMap / customLyricMap / customLyricPrefs /
+// customLyricFonts / localBeatMapCache / localBeatMapPrefs / listenStatsState / hotkeySettings）
+// 在 00b-local-readers.js 里初始化：那些 reader 曾经散在 05-playback / 02-visual / 03-beat /
+// 07-fx，在本文件里直接调用只能靠整包拼接的跨文件函数提升，拆成分文件就会 ReferenceError。
+// User state read from local storage is initialised in 00b-local-readers.js: those readers used to
+// live in later folders and only worked through cross-file hoisting inside the concatenated bundle.
+// playbackQualityPrefs / playbackQuality / audioOutputDeviceId 在 00b-local-readers.js 初始化
+// （它们的读取器原本在 05-playback/00，靠跨文件提升才能在这里调用）。
 var audioOutputDevices = [];
 var audioInputDevices = [];
 // 设备枚举与热插拔监听都推迟到输出设备界面首次可见（启动时枚举会拉起 Video Capture Service）。
@@ -243,8 +241,7 @@ var audioInputDevices = [];
 // reveal; enumerating at boot spawns the Video Capture Service.
 var audioOutputDevicesLoaded = false;
 var audioOutputDeviceChangeBound = false;
-var audioOutputMirrorDeviceIds = readAudioOutputMirrorPreference();
-var audioInputBridgeState = readAudioInputBridgePreference();
+// audioOutputMirrorDeviceIds / audioInputBridgeState 同样在 00b-local-readers.js 初始化。
 var audioOutputMirrorElements = {};
 var audioOutputMirrorRuntime = {};
 var audioOutputMirrorSyncTimer = 0;
@@ -273,6 +270,6 @@ var homeVisualPresetActive = false;
 var homeVisualPrevPreset = 0;
 var HOME_LISTEN_STATS_KEY = 'mineradio-listen-stats-v1';
 var activeRadioContext = null;
-var listenStatsState = loadListenStatsState();
+// listenStatsState 在 00b-local-readers.js 初始化（loadListenStatsState 是同一条搬迁链）。
 var listenSession = null;
 var appPerfMarks = [];

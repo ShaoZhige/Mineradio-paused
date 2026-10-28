@@ -739,7 +739,7 @@ function markSplashReadyToEnter() {
   s.setAttribute('aria-label', splashText('click_to_enter_mineradio', '点击进入 Mineradio'));
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+function bootSplash() {
   var s = document.getElementById('splash');
   if (!s) return;
   markAppPerf('dom-content-loaded');
@@ -768,4 +768,18 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   playMineradioIntroSound();
   splashTimer = setTimeout(markSplashReadyToEnter, 1500);
-});
+}
+
+// 别无条件挂在 DOMContentLoaded 上：分文件注入（?loader=split）时模块是动态插入的
+// <script src>，按规范**不延迟** DOMContentLoaded，于是本模块执行时那个事件可能已经过去了，
+// 监听器再也不会触发——表现是 splash 永远停在 `splash-active`，整屏黑，只剩右上角窗口按钮。
+// 就绪就立刻跑，没就绪才挂监听。
+// Do not hang unconditionally on DOMContentLoaded: under split injection modules are inserted as
+// dynamic <script src>, which by spec does NOT delay DOMContentLoaded, so by the time this module
+// runs the event may already have fired and the listener would never fire. Symptom: the splash
+// stays in `splash-active` forever — a black screen with only the window buttons left.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootSplash);
+} else {
+  bootSplash();
+}

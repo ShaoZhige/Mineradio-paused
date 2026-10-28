@@ -25,51 +25,9 @@ function lyricsFontsTextureText(key, fallback, params) {
   return out;
 }
 
-function builtinLyricFontKeyPattern() {
-  return /^(sans|hei|song|bold-song|stone-song|kai-song|serif-en|gothic|editorial|humanist|round|mono|display)$/;
-}
 function customLyricFontKey(id) {
   id = String(id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 32);
   return id ? ('custom:' + id) : '';
-}
-function customLyricFontIdFromKey(key) {
-  var match = /^custom:([a-z0-9_-]{1,32})$/i.exec(String(key || ''));
-  return match ? match[1] : '';
-}
-function customLyricFontRecordForKey(key) {
-  var id = customLyricFontIdFromKey(key);
-  if (!id || !Array.isArray(customLyricFonts)) return null;
-  for (var i = 0; i < customLyricFonts.length; i++) {
-    if (customLyricFonts[i] && customLyricFonts[i].id === id) return customLyricFonts[i];
-  }
-  return null;
-}
-function normalizeCustomLyricFontName(name) {
-  name = String(name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return (name || lyricsFontsTextureText('lyfonts_custom')).slice(0, 18);
-}
-function normalizeCustomLyricFontRecord(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  var id = String(raw.id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 32);
-  var dataUrl = String(raw.dataUrl || '');
-  if (!id || !/^data:(font\/(ttf|otf|woff2?|sfnt)|application\/(font-woff|x-font-ttf|x-font-otf|octet-stream)|application\/vnd\.ms-fontobject);base64,/i.test(dataUrl)) return null;
-  return {
-    id: id,
-    name: normalizeCustomLyricFontName(raw.name),
-    family: String(raw.family || ('MineradioCustomLyricFont-' + id)).replace(/["\\]/g, '').slice(0, 72) || ('MineradioCustomLyricFont-' + id),
-    dataUrl: dataUrl,
-    size: Math.max(0, Number(raw.size) || 0),
-    savedAt: Math.max(0, Number(raw.savedAt) || Date.now())
-  };
-}
-function readCustomLyricFonts() {
-  try {
-    var raw = JSON.parse(localStorage.getItem(CUSTOM_LYRIC_FONT_STORE_KEY) || '[]');
-    if (!Array.isArray(raw)) return [];
-    return raw.map(normalizeCustomLyricFontRecord).filter(Boolean).slice(0, CUSTOM_LYRIC_FONT_MAX_COUNT);
-  } catch (e) {
-    return [];
-  }
 }
 function saveCustomLyricFonts() {
   try {
@@ -110,12 +68,7 @@ function registerSavedCustomLyricFonts() {
   if (!Array.isArray(customLyricFonts) || !customLyricFonts.length) return;
   customLyricFonts.forEach(function (record) { registerCustomLyricFont(record); });
 }
-function normalizeLyricFontKey(value) {
-  value = String(value || 'sans');
-  if (builtinLyricFontKeyPattern().test(value)) return value;
-  if (customLyricFontRecordForKey(value)) return value;
-  return 'sans';
-}
+
 function lyricFontStackForKey(key) {
   key = normalizeLyricFontKey(key);
   var customFont = customLyricFontRecordForKey(key);

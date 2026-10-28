@@ -4,15 +4,6 @@ function isTypingTarget(target) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   return !!(target.isContentEditable || (target.closest && target.closest('[contenteditable="true"]')));
 }
-function readCustomCoverMap() {
-  try {
-    var raw = localStorage.getItem(CUSTOM_COVER_STORE_KEY);
-    var parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (e) {
-    return {};
-  }
-}
 function saveCustomCoverMap() {
   try {
     localStorage.setItem(CUSTOM_COVER_STORE_KEY, JSON.stringify(customCoverMap || {}));

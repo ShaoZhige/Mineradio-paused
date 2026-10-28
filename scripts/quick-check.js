@@ -17,6 +17,23 @@ const appRoot = path.resolve(__dirname, '..');
 const runElectron = process.argv.includes('--electron') || process.argv.includes('--full');
 const forbiddenPattern = /\b(fsr|dlss|native-fg|framegen)\b|frame generation/i;
 
+// 视觉存档的「读」与「写」已经拆成两个文件：读取层在 00-state/05a-fx-save-read.js（它必须排在
+// 06-fx-runtime-layout.js 之前，否则 fx 在顶层拿不到存档真值），写入层仍在 02-visual/04。
+// 下面这些守卫钉的是「代码写成什么样」，不是「函数住在哪个文件」，所以两半拼成一份文本一起读；
+// 否则函数一搬家守卫就会假失败，而那和「写法被改坏了」是两回事。
+// The visual archive split into a read half (00-state/05a, which has to run before 06 builds `fx`)
+// and a write half (02-visual/04). These guards pin WHAT the code says, not which file it lives in,
+// so both halves are read as one text — otherwise relocating a function would fail the guard for a
+// reason that has nothing to do with what the guard is protecting.
+const VISUAL_ARCHIVE_MODULE_PATHS = [
+  path.join(appRoot, 'public', 'js', 'modules', '00-state', '05a-fx-save-read.js'),
+  path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'),
+];
+
+function readVisualArchiveText() {
+  return VISUAL_ARCHIVE_MODULE_PATHS.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+}
+
 function rel(file) {
   return path.relative(appRoot, file).replace(/\\/g, '/');
 }
@@ -649,7 +666,7 @@ function checkBackgroundTransparencyControlsGuard() {
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const rendererText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '01-scene', '00-renderer-quality.js'), 'utf8');
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const backgroundText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '02-accent-background-controls.js'), 'utf8');
   const panelText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
   const bindingText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
@@ -981,7 +998,7 @@ function checkDesktopWallpaperModeGuard() {
   const wallpaperToggleTag = htmlText.match(/<[^>]*\bid=["']t-wallpaperMode["'][^>]*>/i);
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const layoutText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const panelText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
   const bindingText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
@@ -1235,7 +1252,7 @@ function checkDesktopWindowAdaptationGuard() {
 function checkLyricLayoutRangeGuard() {
   logStep('Lyric layout range guard');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const bindingText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
   const stageText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '14-stage-lyrics-rendering.js'), 'utf8');
@@ -1883,7 +1900,7 @@ function checkLyricVerticalFloatToggleGuard() {
   logStep('Lyric vertical float toggle guard');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const panelText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
   const bindingText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
@@ -4060,7 +4077,7 @@ function checkSonicTopographyPresetGuard() {
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const packagedText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '05-packaged-fx-archive.js'), 'utf8');
   const runtimeText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const pointerText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '00-pointer-cover-particles.js'), 'utf8');
   const gestureText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '00-gesture-control.js'), 'utf8');
   const orbitText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '01-scene', '01-orbit-free-camera.js'), 'utf8');
@@ -4334,7 +4351,7 @@ function checkPlaylistPanelTriggerGuard() {
   const panelShellText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '01-playlist-panel-shell.js'), 'utf8');
   const fxDefaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const fxRuntimeText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const fxBindText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const focusCameraText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '01-scene', '03-focus-cinema-camera.js'), 'utf8');
@@ -4463,7 +4480,7 @@ function checkBeatAnalysisToggleGuard() {
   logStep('Beat analysis toggle guard');
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const layoutText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const beatText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '03-beat', '00-tempo-worker-cache-prefetch.js'), 'utf8');
   const panelText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
@@ -7790,7 +7807,6 @@ function checkFxConsoleWorkspaceGuard() {
   const htmlPath = path.join(appRoot, 'public', 'index.html');
   const defaultsPath = path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js');
   const packagedDefaultsPath = path.join(appRoot, 'public', 'js', 'modules', '00-state', '05-packaged-fx-archive.js');
-  const persistencePath = path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js');
   const archivePath = path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js');
   const defaultArchivePath = path.join(appRoot, 'public', 'default-user-fx-archive.json');
   const rowLayersPath = path.join(appRoot, 'public', 'js', 'modules', '02-visual', '12-lyrics-row-layers.js');
@@ -7804,7 +7820,7 @@ function checkFxConsoleWorkspaceGuard() {
   const html = fs.readFileSync(htmlPath, 'utf8');
   const defaults = fs.readFileSync(defaultsPath, 'utf8');
   const packagedDefaults = fs.readFileSync(packagedDefaultsPath, 'utf8');
-  const persistence = fs.readFileSync(persistencePath, 'utf8');
+  const persistence = readVisualArchiveText();
   const archive = fs.readFileSync(archivePath, 'utf8');
   const defaultArchive = JSON.parse(fs.readFileSync(defaultArchivePath, 'utf8'));
   const rowLayers = fs.readFileSync(rowLayersPath, 'utf8');
@@ -8157,7 +8173,7 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const packagedText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '05-packaged-fx-archive.js'), 'utf8');
   const archive = JSON.parse(fs.readFileSync(path.join(appRoot, 'public', 'default-user-fx-archive.json'), 'utf8'));
-  const persistenceText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'), 'utf8');
+  const persistenceText = readVisualArchiveText();
   const fxArchiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const splashText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '03-splash.js'), 'utf8');
   const splashCode = splashText.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');

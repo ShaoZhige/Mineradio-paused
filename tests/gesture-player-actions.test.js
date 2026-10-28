@@ -8,7 +8,11 @@ const appRoot = path.resolve(__dirname, '..');
 const read = rel => fs.readFileSync(path.join(appRoot, rel), 'utf8');
 const gesture = read('public/js/modules/10-shell/00-gesture-control.js');
 const defaults = read('public/js/modules/00-state/04-fx-defaults.js');
-const persistence = read('public/js/modules/02-visual/04-visual-settings-persistence.js');
+// 视觉存档的读/写已拆成两个文件（00-state/05a 读、02-visual/04 写），两半一起读。
+const persistence = [
+  read('public/js/modules/00-state/05a-fx-save-read.js'),
+  read('public/js/modules/02-visual/04-visual-settings-persistence.js'),
+].join('\n');
 const archive = read('public/js/modules/07-fx/00-preset-archive-data.js');
 const panel = read('public/js/modules/07-fx/05-fx-panel-performance.js');
 const workspace = read('public/js/modules/07-fx/09-console-workspace.js');

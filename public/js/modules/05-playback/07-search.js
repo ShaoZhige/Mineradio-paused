@@ -257,7 +257,13 @@ function updateSearchModeTabs() {
       : (searchMode === 'kugou' ? searchPanelText('search_kugou_music') : (searchMode === 'qq' ? searchPanelText('search_qq') : (searchMode === 'netease' ? searchPanelText('search_netease') : searchPanelText('search_placeholder', '搜索歌曲、歌手...'))));
   }
   if ($input && searchMode === 'qishui') $input.placeholder = searchPanelText('search_qishui_match');
-  requestAnimationFrame(updateSearchPillGlassDisplacementMap);
+  // 分文件注入时 updateSearchPillGlassDisplacementMap 还在 05-playback/15，此刻可能尚未加载。
+  // 跳过是安全的：启动预热任务（10-shell/05 的 scheduleUiWarmTask，900ms）还会再调一次。
+  // Under split injection that helper lives in 05-playback/15 and may not exist yet. Skipping is
+  // safe: the 900ms startup warm task calls it again.
+  requestAnimationFrame(function () {
+    if (typeof updateSearchPillGlassDisplacementMap === 'function') updateSearchPillGlassDisplacementMap();
+  });
 }
 function setSearchMode(mode) {
   // 没有 SP 独立页签：Spotify 搜索受 Premium 限制，单平台页签只会搜出空白。

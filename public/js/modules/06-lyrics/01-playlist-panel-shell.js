@@ -486,9 +486,17 @@ document.addEventListener('click', function (e) {
   if (miniQueueOpen && !(e.target && e.target.closest && e.target.closest('#bottom-bar'))) closeMiniQueue();
 });
 bindSmoothQueueScrolling();
-bindPlaylistPanelLazyRender();
+// 这两个 helper 在后面的模块里（02-playlist-detail / 08-account）：整包拼接靠跨文件提升本来就
+// 能调到，分文件注入时此刻还不存在，于是推到 boot 阶段再绑——绑的是滚动懒渲染与弹窗背景关闭，
+// 早一帧晚一帧没有区别。
+// These helpers live in later modules. Concatenation hoists them into reach; under split they do not
+// exist yet, so they are bound at boot — they only wire lazy scrolling and backdrop closing, where
+// one frame makes no difference.
+if (typeof bindPlaylistPanelLazyRender === 'function') bindPlaylistPanelLazyRender();
+else if (typeof window.__mineradioDefer === 'function') window.__mineradioDefer(function () { bindPlaylistPanelLazyRender(); });
 bindLongPressPanelReorder();
-bindModalBackdropClose();
+if (typeof bindModalBackdropClose === 'function') bindModalBackdropClose();
+else if (typeof window.__mineradioDefer === 'function') window.__mineradioDefer(function () { bindModalBackdropClose(); });
 function renderQueuePanel(opts) {
   opts = opts || {};
   var $ql = document.getElementById('queue-list');

@@ -48,7 +48,11 @@ test('first-launch UI accent defaults and missing-field fallback stay white', ()
   const defaults = read('public/js/modules/00-state/04-fx-defaults.js');
   const css = read('public/css/index.css');
   const html = read('public/index.html');
-  const persistence = read('public/js/modules/02-visual/04-visual-settings-persistence.js');
+  // 视觉存档的读/写已拆成两个文件（00-state/05a 读、02-visual/04 写），两半一起读。
+  const persistence = [
+    read('public/js/modules/00-state/05a-fx-save-read.js'),
+    read('public/js/modules/02-visual/04-visual-settings-persistence.js'),
+  ].join('\n');
 
   assert.match(defaults, /uiAccentColor:\s*'#ffffff'/i);
   assert.match(css, /--fc-accent:\s*#ffffff\s*;/i);

@@ -10,17 +10,12 @@ const systemMemoryText = fs.readFileSync(
   path.join(appRoot, 'desktop', 'system-memory.js'),
   'utf8'
 );
-const persistenceText = fs.readFileSync(
-  path.join(
-    appRoot,
-    'public',
-    'js',
-    'modules',
-    '02-visual',
-    '04-visual-settings-persistence.js'
-  ),
-  'utf8'
-);
+// 视觉存档的读/写已拆成两个文件（00-state/05a 读、02-visual/04 写），两半一起读。
+// The visual archive split into a read half and a write half, so both are read as one text.
+const persistenceText = [
+  path.join(appRoot, 'public', 'js', 'modules', '00-state', '05a-fx-save-read.js'),
+  path.join(appRoot, 'public', 'js', 'modules', '02-visual', '04-visual-settings-persistence.js'),
+].map((file) => fs.readFileSync(file, 'utf8')).join('\n');
 const defaultsText = fs.readFileSync(
   path.join(
     appRoot,

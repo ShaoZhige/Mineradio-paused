@@ -92,29 +92,6 @@ function backendCodeDisplay(value) {
   }
   return raw;
 }
-
-function normalizePlaybackQuality(value) {
-  value = String(value || '').toLowerCase();
-  if (value === 'jymaster' || value === 'master' || value === 'svip') return 'jymaster';
-  if (value === 'hires' || value === 'hi-res' || value === 'highres' || value === 'highest') return 'hires';
-  if (value === 'lossless' || value === 'flac' || value === 'sq') return 'lossless';
-  if (value === 'exhigh' || value === 'high' || value === '320k' || value === 'hq') return 'exhigh';
-  if (value === 'standard' || value === 'normal' || value === 'std') return 'standard';
-  return 'hires';
-}
-function normalizePlaybackProvider(provider) {
-  if (provider === 'qq') return 'qq';
-  if (provider === 'kugou') return 'kugou';
-  if (provider === 'qishui') return 'qishui';
-  if (provider === 'spotify') return 'spotify';
-  return 'netease';
-}
-function normalizePlaybackQualityForProvider(value, provider) {
-  provider = normalizePlaybackProvider(provider);
-  var q = normalizePlaybackQuality(value);
-  if (provider === 'qq' && q === 'jymaster') return 'hires';
-  return q;
-}
 function playbackQualityOptions(provider) {
   provider = normalizePlaybackProvider(provider);
   // 表是 00-core-stores.js 里的 playbackQualityOptionTable()（原先叫 playbackQualityOptions，
@@ -127,11 +104,6 @@ function playbackQualityOptions(provider) {
 function currentPlaybackQualityProvider() {
   var song = Array.isArray(playQueue) && currentIdx >= 0 && currentIdx < playQueue.length ? playQueue[currentIdx] : null;
   return normalizePlaybackProvider(songProviderKey(song));
-}
-function getProviderPlaybackQuality(provider) {
-  provider = normalizePlaybackProvider(provider);
-  var prefs = playbackQualityPrefs || {};
-  return normalizePlaybackQualityForProvider(prefs[provider] || PLAYBACK_QUALITY_DEFAULTS[provider], provider);
 }
 function setProviderPlaybackQuality(provider, value) {
   provider = normalizePlaybackProvider(provider);
@@ -267,40 +239,6 @@ function playbackResolvedQualityText(data, provider) {
     : playbackQualityLabel(data.level || getProviderPlaybackQuality(provider), provider);
   var br = playbackBitrateLabel(data.br);
   return br ? (label + ' · ' + br) : label;
-}
-function readPlaybackQualityPreference() {
-  var fallback = {
-    netease: PLAYBACK_QUALITY_DEFAULTS.netease,
-    qq: PLAYBACK_QUALITY_DEFAULTS.qq,
-    kugou: PLAYBACK_QUALITY_DEFAULTS.kugou,
-    qishui: PLAYBACK_QUALITY_DEFAULTS.qishui,
-    spotify: PLAYBACK_QUALITY_DEFAULTS.spotify
-  };
-  try {
-    var raw = localStorage.getItem(PLAYBACK_QUALITY_STORE_KEY) || '';
-    if (!raw) return fallback;
-    if (raw.trim().charAt(0) !== '{') {
-      var legacy = normalizePlaybackQuality(raw);
-      return {
-        netease: normalizePlaybackQualityForProvider(legacy, 'netease'),
-        qq: normalizePlaybackQualityForProvider(legacy, 'qq'),
-        kugou: normalizePlaybackQualityForProvider(legacy, 'kugou'),
-        qishui: normalizePlaybackQualityForProvider(fallback.qishui, 'qishui'),
-        spotify: normalizePlaybackQualityForProvider(fallback.spotify, 'spotify')
-      };
-    }
-    var parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return fallback;
-    return {
-      netease: normalizePlaybackQualityForProvider(parsed.netease || fallback.netease, 'netease'),
-      qq: normalizePlaybackQualityForProvider(parsed.qq || fallback.qq, 'qq'),
-      kugou: normalizePlaybackQualityForProvider(parsed.kugou || fallback.kugou || 'lossless', 'kugou'),
-      qishui: normalizePlaybackQualityForProvider(parsed.qishui || fallback.qishui || 'standard', 'qishui'),
-      spotify: normalizePlaybackQualityForProvider(parsed.spotify || fallback.spotify || 'standard', 'spotify')
-    };
-  } catch (e) {
-    return fallback;
-  }
 }
 function savePlaybackQualityPreference() {
   try { localStorage.setItem(PLAYBACK_QUALITY_STORE_KEY, JSON.stringify(playbackQualityPrefs || {})); } catch (e) { }
@@ -586,24 +524,8 @@ function bindAudioOutputDeviceRevealHook() {
   });
   observer.observe(panel);
 }
-function readAudioOutputDevicePreference() {
-  try { return localStorage.getItem(AUDIO_OUTPUT_DEVICE_STORE_KEY) || ''; } catch (e) { return ''; }
-}
 function saveAudioOutputDevicePreference() {
   try { localStorage.setItem(AUDIO_OUTPUT_DEVICE_STORE_KEY, audioOutputDeviceId || ''); } catch (e) { }
-}
-function normalizeAudioOutputIdList(list) {
-  var seen = {};
-  return (Array.isArray(list) ? list : []).map(function (id) { return String(id || '').trim(); }).filter(function (id) {
-    if (!id || seen[id]) return false;
-    seen[id] = true;
-    return true;
-  }).slice(0, 4);
-}
-function readAudioOutputMirrorPreference() {
-  try {
-    return normalizeAudioOutputIdList(JSON.parse(localStorage.getItem(AUDIO_OUTPUT_MIRROR_STORE_KEY) || '[]'));
-  } catch (e) { return []; }
 }
 function saveAudioOutputMirrorPreference() {
   try { localStorage.setItem(AUDIO_OUTPUT_MIRROR_STORE_KEY, JSON.stringify(normalizeAudioOutputIdList(audioOutputMirrorDeviceIds))); } catch (e) { }
@@ -666,14 +588,6 @@ function audioOutputMirrorStatusText(id, active, disabled) {
   if (rt.state === 'waiting') return playbackOutputText('out_try_mirror_on_playback');
   if (rt.state === 'sink-error' || rt.state === 'play-error' || rt.state === 'unsupported') return playbackOutputText('out_mirror_failed_prefix') + (rt.message || playbackOutputText('out_switch_please'));
   return playbackOutputText('out_mirror_pending');
-}
-function readAudioInputBridgePreference() {
-  try {
-    var parsed = JSON.parse(localStorage.getItem(AUDIO_INPUT_BRIDGE_STORE_KEY) || '{}');
-    return { enabled: !!parsed.enabled, deviceId: String(parsed.deviceId || '') };
-  } catch (e) {
-    return { enabled: false, deviceId: '' };
-  }
 }
 function saveAudioInputBridgePreference() {
   try { localStorage.setItem(AUDIO_INPUT_BRIDGE_STORE_KEY, JSON.stringify(audioInputBridgeState || { enabled: false, deviceId: '' })); } catch (e) { }

@@ -733,5 +733,13 @@ if (typeof window !== 'undefined') {
   window.getSonicAudioMonitorSnapshot = getSonicAudioMonitorSnapshot;
   window.toggleSonicAudioMonitorPanel = toggleSonicAudioMonitorPanel;
   window.refreshSonicAudioMonitorUi = refreshSonicAudioMonitorUi;
-  document.addEventListener('DOMContentLoaded', bindSonicAudioMonitorControls);
+  // 分文件注入时模块是动态插入的 <script src>，按规范不延迟 DOMContentLoaded；本模块靠后，
+  // 执行时那个事件可能已经过去。就绪就立刻绑，没就绪才挂监听。
+  // Dynamic <script src> does not delay DOMContentLoaded, so by the time this module runs the event
+  // may already have fired. Bind immediately when the document is ready.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindSonicAudioMonitorControls);
+  } else {
+    bindSonicAudioMonitorControls();
+  }
 }

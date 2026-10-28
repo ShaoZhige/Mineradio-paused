@@ -768,20 +768,6 @@ function clearCustomCoverForCurrent() {
   updateCustomCoverButton();
   showToast(trackActionText('track_cover_restored'));
 }
-function readCustomLyricMap() {
-  try {
-    var raw = JSON.parse(localStorage.getItem(CUSTOM_LYRIC_STORE_KEY) || '{}') || {};
-    var out = {};
-    Object.keys(raw).forEach(function (key) {
-      var item = raw[key];
-      if (typeof item === 'string') out[key] = { text: item, updatedAt: 0 };
-      else if (item && typeof item.text === 'string') out[key] = { text: item.text, updatedAt: item.updatedAt || 0 };
-    });
-    return out;
-  } catch (e) {
-    return {};
-  }
-}
 function saveCustomLyricMap() {
   try {
     localStorage.setItem(CUSTOM_LYRIC_STORE_KEY, JSON.stringify(customLyricMap || {}));
@@ -790,10 +776,6 @@ function saveCustomLyricMap() {
     console.warn('custom lyric save failed:', e);
     return false;
   }
-}
-function readCustomLyricPrefs() {
-  try { return JSON.parse(localStorage.getItem(CUSTOM_LYRIC_PREF_STORE_KEY) || '{}') || {}; }
-  catch (e) { return {}; }
 }
 function saveCustomLyricPrefs() {
   try { localStorage.setItem(CUSTOM_LYRIC_PREF_STORE_KEY, JSON.stringify(customLyricPrefs || {})); } catch (e) { }
