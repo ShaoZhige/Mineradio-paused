@@ -1,11 +1,13 @@
 'use strict';
 
 // ── 必须知道的加载模型（改这个文件之前先读完）────────────────────────────────
-// 1. 下面每一条路径都会被逐个 XHR 取回文本，然后**拼成一个 classic <script>** 一次性执行
+// 1. 下面每一条路径都是一个**独立的 classic <script src>**，由本文件按顺序注入
 //    （不是 ES module，没有 import/export）。因此：
-//    - 所有顶层 `function` / `var` 都落在**同一个全局作用域**里，模块之间靠名字互相看见；
-//      这也意味着两个模块用了同名顶层变量会**互相覆盖且不报错**。
-//    - 脚本内不存在 `import`，所以「谁依赖谁」只能靠**顺序**表达。
+//    - 所有顶层 `function` / `var` 仍然落在**同一个全局作用域**里，模块之间靠名字互相看见；
+//      两个模块用了同名顶层名字会**互相覆盖且不报错**（`startup-bundle-execution` 守卫拦这个）。
+//    - 但**没有跨文件的函数提升**：A 执行时，B 里声明的函数还不存在。所以「A 在顶层调用 B 的
+//      函数」这种写法是硬错误，必须把被调用的东西挪到 A 之前，或者用 `__mineradioDefer` 推迟。
+//      这是与旧「拼成一个 script」模型唯一的语义差别 —— 那边靠提升侥幸能跑，这里会直接抛错。
 // 2. 顺序敏感，以下是**既有约定**，改顺序前先确认：
 //    - i18n 三个模块（13/14/15）排在最前。它们提供 `window.MineradioI18n`，而其它模块的
 //      文案访问器在加载期与运行期都会读它，所以不要往后挪；
@@ -18,14 +20,15 @@
 //    它们是靠顺序插进去的，不要重命名成整数序号。
 //
 // ── Loading model (read this before editing the file) ────────────────────────
-// Each path below is fetched as text and the pieces are concatenated into ONE classic <script>
-// executed in a single pass — no ES modules, no import/export. So every top-level `function`/`var`
-// lands in the SAME global scope (modules see each other by name, and two modules declaring the
-// same top-level name overwrite each other silently), and dependencies can only be expressed by
-// ORDER. i18n (13/14/15) comes first because other modules may call its copy accessors while
-// loading; `00-core-stores.js` precedes everything that reads its state. A new module file MUST be
-// registered below — an unregistered file does not error, does not fail a test, and does not warn;
-// it simply never loads. quick-check's index module registration guard catches that omission.
+// Every path below becomes its own classic <script src>, injected in order — no ES modules, no
+// import/export. Top-level `function`/`var` still land in ONE shared global scope (modules see
+// each other by name, and two modules declaring the same name overwrite each other silently), but
+// there is **no cross-file hoisting**: when A runs, a function declared in a later file does not
+// exist yet. So "A calls B's function at top level" is a hard error here — move the callee ahead of
+// A, or wrap the call in `__mineradioDefer`. That hoisting is the only semantic difference from the
+// old single-script bundle, where such a call happened to work. Register every new module below:
+// an unregistered file does not error, does not fail a test, and does not warn — it simply never
+// loads, and quick-check's registration guard is what catches the omission.
 
 (function loadMineradioIndexModules() {
   const moduleCacheBust = String(Date.now());
@@ -181,19 +184,7 @@
     'js/modules/07-fx/03-wallpaper-engine-library.js',
   ];
 
-  function readModule(path) {
-    const request = new XMLHttpRequest();
-    request.open('GET', path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + moduleCacheBust, false);
-    request.send(null);
-
-    if ((request.status < 200 || request.status >= 300) && request.status !== 0) {
-      throw new Error('Failed to load Mineradio module: ' + path + ' (' + request.status + ')');
-    }
-
-    return request.responseText;
-  }
-
-  // 惰性加载运行时：注入到拼接脚本尾部，与模块共享同一个全局作用域。
+  // 惰性加载运行时：注入到最后，与模块共享同一个全局作用域。
   // 它做三件事：
   //   1. 提供 __mineradioEnsureLazyModule()，用 <script src> 按需注入惰性模块并去重；
   //   2. 给 index.html 的内联 on* 入口放「转发桩」——第一次点击先加载，再由真函数接手
@@ -289,25 +280,20 @@
 })();
 `;
 
-  // ── 注入方式 ────────────────────────────────────────────────────────────────
-  // 默认仍是拼接。分文件注入（?loader=split）已经写好但**暂时不能当默认值**：整包拼接时，
-  // 所有模块顶层 `function` 声明在执行前就一起提升到全局，于是前面的文件能直接调用后面文件里
-  // 的函数；拆成多个 <script> 后这个提升不再跨文件，`00-state/06-fx-runtime-layout.js` 在顶层
-  // 就调用了 `02-visual/04-visual-settings-persistence.js` 里的 readSavedLyricLayout，实测会
-  // 立刻抛错、`fx` 变 undefined，主循环随后每帧报 uniforms 未定义。
-  // 要让分文件成为默认，得先清掉这些「后向引用」：把顶层立即执行改成显式 init()，由加载器
-  // 在全部模块就绪后统一调用。那一步做完再切默认值才安全。
-  // Concatenation stays the default on purpose: inside one script every top-level `function`
-  // declaration is hoisted before execution, so earlier files may call functions defined later.
-  // Split injection loses that cross-file hoisting and breaks on the first backward reference.
-  const loaderMode = (function () {
-    try {
-      const forced = new URLSearchParams(window.location.search).get('loader');
-      return forced === 'split' ? 'split' : 'concat';
-    } catch (error) {
-      return 'concat';
-    }
-  })();
+  // ── 注入 ────────────────────────────────────────────────────────────────────
+  // 只保留分文件注入。以前还有一条「把所有模块拼成一个 <script>」的路径，默认走它、靠
+  // 跨文件函数提升兜住后向引用；那条路径已经整个删掉：它每次都要 117 次**同步** XHR
+  // （`open(..., false)`，直接阻塞主线程），换来的是一个两万行的巨型 script，栈里只有
+  // `mineradio-index-modules.js:64467`，还得靠行号映射反查文件。分文件后每个模块有自己的
+  // URL，栈里直接是 `js/modules/xxx.js:12`，也不用再跟浏览器解释一个巨型脚本。
+  // Split injection is the only path left. The old "concatenate everything into one <script>"
+  // route is gone: it cost 117 *synchronous* XHRs (open(..., false) blocks the main thread),
+  // produced one 20k-line script whose stacks only said `mineradio-index-modules.js:64467`, and
+  // needed a line map just to name the failing file. Each module now has its own URL, so a stack
+  // already reads `js/modules/xxx.js:12`.
+  // 跨文件函数提升随之消失 —— 那正是 2026-10-28 这一轮把读取层前移的原因。见文件头注释。
+  // Cross-file hoisting is gone with it, which is why the read layer had to move ahead of its
+  // consumers; see the header comment.
 
   function moduleUrl(path) {
     return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + moduleCacheBust;
@@ -355,30 +341,13 @@
     appendAfter(runtime);
   }
 
-  // 拼接后所有模块共享一个 sourceURL，栈里只有 `mineradio-index-modules.js:20912`，
-  // 得靠行号累加去反查是谁炸的。这里记下每个模块的起止行，并在全局放一个翻译器，
-  // 加载期出错时把拼接行号换回「文件:行」，省掉那一步人工对表。
-  // After concatenation every module shares one sourceURL, so a stack only says
-  // `mineradio-index-modules.js:20912`. Record each module's line range and expose a translator so a
-  // load-time failure reports `file:line` instead of a number nobody can map back by hand.
-  function buildModuleLineMap(pieces) {
-    const map = [];
-    let cursor = 1;
-    pieces.forEach((piece) => {
-      const lineCount = piece.lines;
-      map.push({ path: piece.path, start: cursor, end: cursor + lineCount - 1 });
-      cursor += lineCount;
-    });
-    return map;
-  }
-
-  // 两条注入路径共用的地基：boot 钩子表 + 它的注册器。它**必须比任何模块先执行**，因为模块
-  // 会在顶层调用 `window.__mineradioDefer(...)`。以前这段写在 moduleMapSource() 里，于是只有
-  // concat 路径拿得到；split 路径下 `__mineradioDefer` 根本不存在，模块一调用就是 TypeError。
-  // Shared by both injection paths: the boot hook list and its register. It has to run BEFORE any
-  // module, because modules call __mineradioDefer at top level. This used to live inside
-  // moduleMapSource(), so only the concat path ever got it — under split the register did not exist
-  // at all and the first module to call it threw a TypeError.
+  // boot 钩子表 + 它的注册器。它**必须比任何模块先执行**，因为模块会在顶层调用
+  // `window.__mineradioDefer(...)`。这也是拆掉跨文件函数提升之后的地基：模块不再能指望
+  // 「后面文件里的函数此刻已经存在」，需要等的就登记到这里，由 bootRunSource() 统一跑。
+  // The boot hook list and its register. It has to run BEFORE any module, because modules call
+  // __mineradioDefer at top level. It is also the foundation for living without cross-file
+  // hoisting: a module can no longer assume a later file's function already exists, so whatever it
+  // needs to wait for gets registered here and is run by bootRunSource().
   function bootHooksSource() {
     return ';(function () {\n'
       + '  window.__mineradioBootHooks = window.__mineradioBootHooks || [];\n'
@@ -388,65 +357,5 @@
       + '})();\n';
   }
 
-  // 行号翻译只对拼接路径有意义：split 下每个模块是独立文件，栈里自带真实路径。
-  // The line translator only matters for the concatenated bundle: under split every module is its
-  // own file, so stacks already carry real paths.
-  function moduleMapSource(map) {
-    return ';(function () {\n'
-      + '  var map = ' + JSON.stringify(map) + ';\n'
-      + '  window.__mineradioModuleLineMap = map;\n'
-      + '  window.__mineradioLocateModule = function (line) {\n'
-      + '    line = Number(line) || 0;\n'
-      + '    for (var i = 0; i < map.length; i++) {\n'
-      + '      if (line >= map[i].start && line <= map[i].end) {\n'
-      + '        return map[i].path + ":" + (line - map[i].start + 1);\n'
-      + '      }\n'
-      + '    }\n'
-      + '    return null;\n'
-      + '  };\n'
-      + '  window.addEventListener("error", function (event) {\n'
-      + '    var stack = event && event.error && event.error.stack;\n'
-      + '    if (!stack || typeof stack !== "string") return;\n'
-      + '    var translated = stack.replace(/mineradio-index-modules\\.js:(\\d+)(?::\\d+)?/g, function (match, lineText) {\n'
-      + '      var located = window.__mineradioLocateModule(Number(lineText));\n'
-      + '      return located || match;\n'
-      + '    });\n'
-      + '    if (translated !== stack) console.error("[Loader] mapped stack:\\n" + translated);\n'
-      + '  });\n'
-      + '})();\n';
-  }
-
-  function injectConcatenatedModules() {
-    // 每段都补成以换行结尾。缺尾换行的文件若直接拼下一段，下一段的第 1 行会接在上一段的
-    // 末行上，行号整体往前错位——第一版映射就是这样把错误指到了隔壁文件。
-    // Pad every piece with a trailing newline: without it the next file's first line glues onto the
-    // previous file's last line and the whole map shifts by one.
-    const pieces = modulePaths.map((path) => {
-      const raw = readModule(path);
-      const code = raw.endsWith('\n') ? raw : raw + '\n';
-      return { path: path, code: code, lines: code.split('\n').length - 1 };
-    });
-    const lineMap = buildModuleLineMap(pieces);
-    const host = document.currentScript.parentNode;
-    let anchor = document.currentScript;
-    const appendAfter = (el) => {
-      host.insertBefore(el, anchor.nextSibling);
-      anchor = el;
-    };
-    // 映射器单独一个 <script>，这样它自己的行数不会挤占拼接脚本的行号。
-    // The mapper gets its own <script> so its own line count cannot shift the bundle's line numbers.
-    const mapper = document.createElement('script');
-    mapper.text = bootHooksSource() + moduleMapSource(lineMap);
-    appendAfter(mapper);
-
-    const script = document.createElement('script');
-    script.text = pieces.map((piece) => piece.code).join('')
-      + bootRunSource()
-      + lazyRuntimeSource
-      + '\n//# sourceURL=mineradio-index-modules.js\n';
-    appendAfter(script);
-  }
-
-  if (loaderMode === 'concat') injectConcatenatedModules();
-  else injectSplitModules();
+  injectSplitModules();
 })();

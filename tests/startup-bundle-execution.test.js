@@ -1,157 +1,49 @@
 'use strict';
 
-// 启动期渲染守卫：index-loader 把 113 个模块拼成同一个 <script>，任何一个模块在
-// 顶层抛错，后面的模块全部不会执行。之前 13-i18n.js 缺 pick()、09-console-workspace.js
-// 对 null 调 appendChild，两次都只表现为"只剩外壳的黑屏"，因为 splash 揭幕、startup
-// 绑定与主循环都被吃掉了，而启动状态日志一路报 ready。
-// 这个守卫真的把拼好的 bundle 跑一遍：任何一个模块抛错就红。
+// 启动期渲染守卫：模块之间没有跨文件函数提升，任何一个模块在顶层抛错，它自己后面那段
+// 赋值/绑定就全部不执行（以前拼成一个 <script> 时更狠：一条抛错会吃掉后面所有模块）。
+// 两次只表现为「只剩外壳的黑屏」的事故都是这样来的：13-i18n.js 缺 pick()、
+// 09-console-workspace.js 对 null 调 appendChild，而 splash 揭幕、startup 绑定与主循环
+// 都被吃掉了，启动状态日志却一路报 ready。以下守卫钉的都是这类「静态看不出、跑起来才炸」
+// 的写法：裸调用未定义函数、跨文件重名、解析期固化 i18n 键名。
 //
-// Startup rendering guard: index-loader concatenates 113 modules into a single <script>.
-// A throw in any one of them silently skips every module after it. That is how a missing
-// helper and a null appendChild both presented as "black screen with only the frame left",
-// while startup-state.json still reported ready. This guard actually executes the
-// concatenated bundle: any module that throws turns it red.
+// Startup rendering guard. There is no cross-file hoisting between modules, so a top-level throw
+// kills the rest of that file (under the old single-script bundle it killed every later module
+// too). Both "black screen with only the frame left" incidents came from exactly this: a missing
+// helper and a null appendChild. The guards below pin the shapes that look fine statically and
+// only blow up at runtime.
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 const LOADER = path.join(ROOT, 'public/js/index-loader.js');
 
-// 拼 bundle 的方式和 index-loader 保持一致（同步读文件再按顺序拼接），
-// 这样守卫跑的就是浏览器真正执行的那一串代码。
-// Mirrors index-loader exactly (sequential read, then concatenate) so the guard runs the
-// very same string the browser executes.
-function readModuleList() {
+// 从两个数组字面量里取清单。早先用「js/modules/… 或 sonic-…」的前缀白名单正则，漏掉了
+// `highway-drive-preset.js`（两个前缀都不带），于是这个文件从来没被下面任何一条守卫检查过。
+// 截字面量则不挑前缀。
+// 惰性清单必须一起算：壁纸模块被注入后与其它模块共享同一个全局作用域，它定义的函数
+// （syncWallpaperEngineCaptureFrameRate 等）对先加载的模块同样可见，不算「未定义」。
+// Reads both literals. The old prefix-whitelist regex (js/modules/… or sonic-…) missed
+// `highway-drive-preset.js`, so that file was never covered by any guard below. The lazy list has
+// to count too: once injected, the wallpaper module shares the same global scope, so the functions
+// it defines are visible to modules that loaded earlier.
+function readListLiteral(marker) {
   const loader = fs.readFileSync(LOADER, 'utf8');
-  const paths = [];
-  const re = /'(js\/modules\/[^']+|sonic-[^']+\.js)'/g;
-  let m;
-  while ((m = re.exec(loader)) !== null) paths.push(m[1]);
-  return paths;
+  const start = loader.indexOf(marker);
+  assert.ok(start >= 0, `index-loader.js 里找不到 ${marker}`);
+  const end = loader.indexOf('];', start);
+  assert.ok(end > start, `${marker} 数组没有闭合`);
+  return [...loader.slice(start + marker.length, end).matchAll(/'([^']+\.js)'/g)].map((m) => m[1]);
 }
 
-function buildBundle() {
-  return readModuleList()
-    .map((p) => fs.readFileSync(path.join(ROOT, 'public', p), 'utf8'))
-    .join('');
-}
-
-// WebGL 上下文 / 渲染器这类第三方对象的方法面很大，逐个补方法会让守卫退化成
-// "Three.js API 覆盖率测试"。这个可链式空壳兜住它们：任何方法调用返回 undefined，
-// 任何属性读取再给一个同样可链式的空壳，守卫只负责发现**我们自己代码**的异常。
-// The WebGL context / renderer surface is huge; stubbing method by method would turn this
-// guard into a Three.js API coverage test. This chainable shell absorbs them: any method
-// call returns undefined and any property read yields another chainable shell, so the
-// guard stays focused on failures in *our* code.
-function makeChainable(name) {
-  return new Proxy(function () {}, {
-    get(_t, prop) {
-      if (prop === Symbol.toPrimitive || prop === 'valueOf') return () => 0;
-      if (prop === 'toString') return () => '';
-      if (prop === Symbol.iterator || prop === 'then') return undefined;
-      if (typeof prop === 'string' && /^(is|get|has)[A-Z]/.test(prop)) return () => false;
-      return makeChainable(prop);
-    },
-    apply() { return makeChainable(name); },
-  });
-}
-
-// 最小 DOM：只实现模块在顶层真正会碰到的那几件事。
-// Minimal DOM: implements only what modules actually touch at the top level.
-function makeStubElement(tag) {
-  const el = {
-    tagName: String(tag || 'div').toUpperCase(),
-    className: '',
-    id: '',
-    style: {
-      setProperty() {},
-      removeProperty() {},
-      getPropertyValue() { return ''; },
-    },
-    dataset: {},
-    children: [],
-    hidden: false,
-    _attrs: {},
-    textContent: '',
-    innerHTML: '',
-    classList: {
-      _set: new Set(),
-      add(...c) { c.forEach((x) => el.classList._set.add(x)); },
-      remove(...c) { c.forEach((x) => el.classList._set.delete(x)); },
-      contains(c) { return el.classList._set.has(c); },
-      toggle(c) { el.classList._set.has(c) ? el.classList._set.delete(c) : el.classList._set.add(c); },
-    },
-    setAttribute(k, v) { el._attrs[k] = String(v); },
-    getAttribute(k) { return Object.prototype.hasOwnProperty.call(el._attrs, k) ? el._attrs[k] : null; },
-    removeAttribute(k) { delete el._attrs[k]; },
-    hasAttribute(k) { return Object.prototype.hasOwnProperty.call(el._attrs, k); },
-    appendChild(child) { el.children.push(child); child.parentNode = el; return child; },
-    removeChild(child) {
-      const i = el.children.indexOf(child);
-      if (i >= 0) el.children.splice(i, 1);
-      return child;
-    },
-    insertBefore(child) { el.children.push(child); child.parentNode = el; return child; },
-    remove() {},
-    getContext() { return makeChainable('ctx'); },
-    toDataURL() { return 'data:image/png;base64,'; },
-    querySelector() { return null; },
-    querySelectorAll() { return []; },
-    closest() { return null; },
-    contains() { return false; },
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent() { return true; },
-    getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }; },
-    focus() {},
-    blur() {},
-    click() {},
-    focus() {},
-  };
-  el.parentNode = null;
-  return el;
-}
-
-function makeStubDom() {
-  const body = makeStubElement('body');
-  const head = makeStubElement('head');
-  const byId = new Map();
-  // 顶层代码普遍 getElementById(...).classList.add(...)，给一个不会崩的元素即可。
-  // Top-level code commonly does getElementById(...).classList.add(...); a stable stub
-  // element is enough to keep that from throwing for unrelated reasons.
-  const document = {
-    readyState: 'loading',
-    body,
-    head,
-    documentElement: makeStubElement('html'),
-    cookie: '',
-    referrer: '',
-    hidden: false,
-    visibilityState: 'visible',
-    title: 'Mineradio',
-    fonts: { ready: Promise.resolve(), addEventListener() {}, check: () => true },
-    createElement: (tag) => makeStubElement(tag),
-    createElementNS: (_ns, tag) => makeStubElement(tag),
-    createTextNode: (t) => ({ nodeValue: t, textContent: t }),
-    createDocumentFragment: () => makeStubElement('fragment'),
-    getElementById: (id) => {
-      if (!byId.has(id)) byId.set(id, makeStubElement('div'));
-      return byId.get(id);
-    },
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    getElementsByClassName: () => [],
-    getElementsByTagName: () => [],
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent() { return true; },
-  };
-  body.ownerDocument = document;
-  return { document, byId };
+function readModuleList() {
+  return [
+    ...readListLiteral('const modulePaths = ['),
+    ...readListLiteral('const lazyModulePaths = ['),
+  ];
 }
 
 // 把注释与字符串字面量替换成等长空白，**保留偏移量**，这样后面按行号定位不会错位。
