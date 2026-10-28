@@ -272,7 +272,61 @@
 })();
 `;
 
-  const script = document.createElement('script');
-  script.text = modulePaths.map(readModule).join('') + lazyRuntimeSource + '\n//# sourceURL=mineradio-index-modules.js\n';
-  document.currentScript.parentNode.insertBefore(script, document.currentScript.nextSibling);
+  // ── 注入方式 ────────────────────────────────────────────────────────────────
+  // 默认仍是拼接。分文件注入（?loader=split）已经写好但**暂时不能当默认值**：整包拼接时，
+  // 所有模块顶层 `function` 声明在执行前就一起提升到全局，于是前面的文件能直接调用后面文件里
+  // 的函数；拆成多个 <script> 后这个提升不再跨文件，`00-state/06-fx-runtime-layout.js` 在顶层
+  // 就调用了 `02-visual/04-visual-settings-persistence.js` 里的 readSavedLyricLayout，实测会
+  // 立刻抛错、`fx` 变 undefined，主循环随后每帧报 uniforms 未定义。
+  // 要让分文件成为默认，得先清掉这些「后向引用」：把顶层立即执行改成显式 init()，由加载器
+  // 在全部模块就绪后统一调用。那一步做完再切默认值才安全。
+  // Concatenation stays the default on purpose: inside one script every top-level `function`
+  // declaration is hoisted before execution, so earlier files may call functions defined later.
+  // Split injection loses that cross-file hoisting and breaks on the first backward reference.
+  const loaderMode = (function () {
+    try {
+      const forced = new URLSearchParams(window.location.search).get('loader');
+      return forced === 'split' ? 'split' : 'concat';
+    } catch (error) {
+      return 'concat';
+    }
+  })();
+
+  function moduleUrl(path) {
+    return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + moduleCacheBust;
+  }
+
+  function injectSplitModules() {
+    const host = document.currentScript.parentNode;
+    // 每个新节点都要插在「上一个刚插入的节点」之后，否则后插的会跑到前面，顺序整个反掉。
+    let anchor = document.currentScript;
+    const appendAfter = (el) => {
+      host.insertBefore(el, anchor.nextSibling);
+      anchor = el;
+    };
+    modulePaths.forEach((path) => {
+      const el = document.createElement('script');
+      // 动态插入的 script 默认 async=true，会按下载完成的先后执行；必须显式关掉才能保序。
+      // Dynamically inserted scripts default to async: they run in download order unless this is off.
+      el.async = false;
+      el.src = moduleUrl(path);
+      el.onerror = () => {
+        console.error('[Loader] failed to load module: ' + path);
+      };
+      appendAfter(el);
+    });
+    // 惰性运行时与模块共享同一个全局作用域，必须排在所有模块之后。
+    const runtime = document.createElement('script');
+    runtime.text = lazyRuntimeSource;
+    appendAfter(runtime);
+  }
+
+  function injectConcatenatedModules() {
+    const script = document.createElement('script');
+    script.text = modulePaths.map(readModule).join('') + lazyRuntimeSource + '\n//# sourceURL=mineradio-index-modules.js\n';
+    document.currentScript.parentNode.insertBefore(script, document.currentScript.nextSibling);
+  }
+
+  if (loaderMode === 'concat') injectConcatenatedModules();
+  else injectSplitModules();
 })();
