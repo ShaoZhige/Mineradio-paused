@@ -99,7 +99,12 @@ function fxConsoleLayout() {
         fxConsoleItem('user-archive-grid', '用户存档', '方案 快照 预设码 应用 回退')
       ] },
       { key: 'reset', title: consoleWorkspaceText('fx_cat_reset'), hint: consoleWorkspaceText('fx_reset_all'), items: [
-        fxConsoleItem({ selector: '.fx-actions' }, '恢复默认', '重置 全部默认')
+        // 用 id 而不是 `.fx-actions`：那个类名是排版用的，面板里一旦出现第二个同类的按钮行，
+        // 全局选择器就会抓到错的那一条（本轮新增音响块时实测被抢走的就是它）。
+        // By id rather than `.fx-actions`: the class is a layout utility, and the moment a second
+        // button row with it appears in the panel, the global selector grabs the wrong one —
+        // exactly what happened when the speaker block was added.
+        fxConsoleItem({ selector: '#fx-reset-actions' }, '恢复默认', '重置 全部默认')
       ] }
     ]
   },
@@ -214,6 +219,20 @@ function fxConsoleLayout() {
         fxConsoleItem('fx-desktoplyricsopacity', consoleWorkspaceText('fx_desktop_lyrics_opacity'), '桌面歌词透明'),
         fxConsoleItem('fx-desktoplyricsy', '桌面歌词高度', '桌面位置'),
         fxConsoleItem('desktop-lyrics-fps-seg', consoleWorkspaceText('fx_desktop_lyrics_fps'), '24 30 60 120 无上限 FPS')
+      ] },
+      // 花再 Halo PixelBar 的同步设置。它原来挂在标题栏的一颗按钮 + 浮层里，和主界面那一排
+      // 控件挤在一起，而它本质是「外接的歌词屏」—— 跟桌面歌词同性质，所以搬到同一页签。
+      // index.html 只提供 #halo-sync-section 这个空容器，控件由 06-lyrics/halo-sync-bridge.js
+      // 填进去；这里登记的是容器本身（整块搬运），因此 history 关掉 —— 它改的是音响配置，
+      // 不在 fx 存档里，撤销历史抓不到任何变化，留一条空记录只会误导。
+      // The Halo PixelBar sync settings used to be a titlebar button plus a popover, crowded in
+      // with the main control row. It is really an external lyric screen, i.e. the same kind of
+      // thing as desktop lyrics, so it moves to the same tab. index.html ships only the empty
+      // container and halo-sync-bridge.js fills it; the container is what gets registered and
+      // moved as a whole. History is off: it edits the speaker config, which is not in the fx
+      // archive, so an undo snapshot would capture nothing.
+      { key: 'halo', title: consoleWorkspaceText('halo_panel_title'), hint: consoleWorkspaceText('halo_group_hint'), items: [
+        fxConsoleItem('halo-sync-section', consoleWorkspaceText('halo_panel_title'), '花再 音响 音箱 屏幕 灯效 歌词 硬件 Halo PixelBar speaker', false)
       ] }
     ]
   },
@@ -455,7 +474,7 @@ function fxConsoleResolveBlock(ref) {
   else if (ref && ref.element) el = ref.element;
   else if (ref && ref.selector) el = document.querySelector('#fx-panel ' + ref.selector) || document.querySelector(ref.selector);
   if (!el) return null;
-  var selector = '.fx-slider,.lyric-color-row,.lyric-color-grid,.fx-seg,.preset-grid,.user-archive-grid,.fx-font-grid,.fx-toggle,.lyric-glitch-controls,.lyric-glow-effect-row,.sonic-audio-monitor,.audio-output-section,.cache-storage-panel,.memory-status-chip,.memory-status-sub,.memory-action-row,.fx-actions';
+  var selector = '.fx-slider,.lyric-color-row,.lyric-color-grid,.fx-seg,.preset-grid,.user-archive-grid,.fx-font-grid,.fx-toggle,.lyric-glitch-controls,.lyric-glow-effect-row,.sonic-audio-monitor,.audio-output-section,.cache-storage-panel,.memory-status-chip,.memory-status-sub,.memory-action-row,.halo-sync-section,.fx-actions';
   if (el.matches && el.matches(selector)) return el;
   return el.closest ? (el.closest(selector) || el) : el;
 }
@@ -616,7 +635,7 @@ function fxConsoleFindUnclassifiedControls(roots) {
   // The selector decides which "block" a control belongs to: a match is moved as a whole, a miss
   // degrades to a bare control. ⚠️ It must include `.fx-select`: otherwise a <select> is swept as an
   // unowned bare control, and where it lands depends on scan order rather than on its registration.
-  var blockSelector = '.fx-select-row,.fx-select,.fx-slider,.lyric-color-row,.lyric-color-grid,.fx-seg,.preset-grid,.user-archive-grid,.fx-font-grid,.fx-toggle,.lyric-glitch-controls,.lyric-glow-effect-row,.sonic-audio-monitor,.audio-output-section,.cache-storage-panel,.memory-status-chip,.memory-status-sub,.memory-action-row,.fx-actions';
+  var blockSelector = '.fx-select-row,.fx-select,.fx-slider,.lyric-color-row,.lyric-color-grid,.fx-seg,.preset-grid,.user-archive-grid,.fx-font-grid,.fx-toggle,.lyric-glitch-controls,.lyric-glow-effect-row,.sonic-audio-monitor,.audio-output-section,.cache-storage-panel,.memory-status-chip,.memory-status-sub,.memory-action-row,.halo-sync-section,.fx-actions';
   var blocks = [];
   roots.forEach(function (root) {
     if (!root || !root.isConnected) return;

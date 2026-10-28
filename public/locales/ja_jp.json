@@ -2646,6 +2646,7 @@
   "lyric_swatch_ink_black": "インクブラック",
   "halo_title": "Halo スピーカー同期",
   "halo_panel_title": "Halo PixelBar 同期",
+  "halo_group_hint": "歌詞・アンビエントライト・内蔵シーンをスピーカーへ直接送信",
   "halo_enable": "同期を有効にする",
   "halo_ambient": "アンビエントライト",
   "halo_beat_reactive": "ビートに反応",

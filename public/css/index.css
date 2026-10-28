@@ -745,9 +745,11 @@ body.desktop-shell #ai-depth-chip {
   top: 112px
 }
 
-body.desktop-shell #beat-chip {
-  top: 154px
-}
+/* 角标已挪到左上角，不需要再为居中那条 banner 让位（原来 +32px 是为了躲开它）。
+   桌面模式下首页卡片从 132px 开始，68px 处起、约 33px 高，仍在其上方。 */
+/* The badge moved to the top-left, so it no longer has to step down for the centred banner
+   (the old +32px offset existed to clear it). In desktop mode the card grid starts at 132px and
+   the 33px-tall badge sits at 68px, i.e. still above it. */
 
 body.desktop-shell #toast {
   top: 60px
@@ -11142,11 +11144,18 @@ body.login-guide-active #login-guide-canvas {
   animation: spin .7s linear infinite
 }
 
+/* 节拍分析角标贴左上：原来在右上角（top:122px right:24px），正好压在「最近播放」那张卡片
+   的右肩上，分析过程中一出现就盖住卡片标题。左上这一块是空的 —— 搜索框居中、标题栏按钮在
+   右上，卡片区从 100px 以下才开始。 */
+/* The beat-analysis badge sits top-left: it used to be top-right (top:122px right:24px), which
+   lands on the shoulder of the "recently played" card and covers its heading while analysing.
+   The top-left area is empty — the search box is centred, the titlebar buttons are top-right,
+   and the card grid starts below 100px. */
 #beat-chip {
   position: fixed;
   z-index: 7;
-  top: 122px;
-  right: 24px;
+  top: 68px;
+  left: 24px;
   background: rgba(10, 10, 16, 0.85);
   border: 1px solid rgba(126, 226, 168, 0.3);
   padding: 8px 14px;
@@ -19629,101 +19638,57 @@ html[data-perf-quality="eco"] {
   --glass-blur-scale: .32;
 }
 
-/* ===== 花再 Halo PixelBar 同步浮层 / Halo PixelBar popover =====
-   入口是标题栏一颗普通 icon-btn，浮层挂在 #top-right 里。
-   毛玻璃跟着 --glass-blur-scale 走，与全站画质档位一致。 */
-#halo-sync-btn svg {
-  display: block;
-}
-.halo-sync-panel {
-  position: absolute;
-  top: 42px;
-  right: 6px;
-  z-index: 9999;
-  display: none;
-  width: 252px;
-  max-height: calc(100vh - 96px);
-  overflow-y: auto;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, .14);
-  border-radius: 12px;
-  background: rgba(16, 18, 26, .94);
-  box-shadow: 0 14px 42px rgba(0, 0, 0, .46);
-  backdrop-filter: blur(calc(10px * var(--glass-blur-scale, 1)));
-  color: #e8edf3;
-  font-size: 12px;
-}
-.halo-sync-panel.show {
-  display: block;
-}
-.halo-sync-title {
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.halo-sync-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* ===== 花再 Halo PixelBar 设置块（DIY 控制台 → 歌词 → 音响）/ Halo PixelBar block =====
+   以前是标题栏一颗按钮 + 一块浮层，现在整块住进 DIY 控制台里，外观直接复用控制台的
+   .fx-toggle / .fx-select-row / .fx-mini-btn，所以这里只补控制台没有的那几条排版。
+   Used to be a titlebar button plus a popover. The block now lives inside the DIY console and
+   reuses .fx-toggle / .fx-select-row / .fx-mini-btn, so only the bespoke layout is left here. */
+.halo-sync-section {
+  display: grid;
   gap: 10px;
-  padding: 4px 0;
-}
-.halo-sync-row label {
-  opacity: .86;
-}
-.halo-sync-row select {
-  padding: 2px 5px;
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 6px;
-  background: #11141c;
-  color: #e8edf3;
-  font-size: 12px;
-}
-.halo-sync-row input[type="checkbox"] {
-  accent-color: #66afff;
 }
 .halo-sync-group {
-  margin-top: 8px;
+  display: grid;
+  gap: 8px;
 }
-.halo-sync-group-title {
-  margin-bottom: 4px;
-  font-size: 11px;
-  opacity: .68;
+/* 这两条是「并入控制台」的间距归零：.fx-select-row 自带 10px 下边距、.fx-section-label
+   自带 18px 上边距，都是为「整页平铺」设计的；这里块与块之间由 grid gap 统一给，
+   两者叠加会多出一倍的空当。 */
+/* Spacing reset for living inside the console: .fx-select-row carries a 10px bottom margin and
+   .fx-section-label an 18px top margin, both meant for a full-page flow. Here the grid gap
+   already spaces them, and keeping both would double every gap. */
+.halo-sync-section .fx-select-row {
+  margin-bottom: 0;
 }
-.halo-sync-btns {
+.halo-sync-section .fx-section-label {
+  margin: 6px 0 0;
+}
+.halo-sync-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
-.halo-sync-chip {
-  padding: 3px 8px;
-  border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: 10px;
-  background: transparent;
-  color: inherit;
-  font-size: 11px;
-  cursor: pointer;
+/* 控制台的一排按钮是等分宽度（flex:1），芯片要按内容宽排开、自动换行。 */
+/* The console's button rows split the width evenly (flex:1); chips size to their content. */
+.halo-sync-chips .fx-mini-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
 }
-.halo-sync-chip:hover {
-  background: rgba(255, 255, 255, .12);
-}
-.halo-sync-mini-btn {
-  width: 100%;
-  margin-top: 6px;
-  padding: 5px;
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 6px;
-  background: #262b37;
-  color: #e8edf3;
-  font-size: 12px;
-  cursor: pointer;
-}
-.halo-sync-mini-btn:hover {
-  background: #313748;
+/* 按钮行：不用控制台的 .fx-actions —— 那一块是「恢复默认」的抓取目标，共用类名会被抢走。 */
+/* Button row kept separate from the console's .fx-actions, which the reset entry targets. */
+.halo-sync-actions {
+  display: flex;
+  gap: 8px;
 }
 .halo-sync-status {
-  min-height: 14px;
-  margin-top: 6px;
+  min-height: 15px;
   font-size: 11px;
-  opacity: .72;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .55);
+}
+/* 状态行默认占位会把下面的按钮推开一截，空着时干脆不占位。 */
+/* An empty status line would push the buttons down; collapse it while it holds nothing. */
+.halo-sync-status:empty {
+  display: none;
 }

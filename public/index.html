@@ -404,6 +404,16 @@
         </div>
       </div>
 
+      <!-- 花再 Halo PixelBar 的源节点。这里只有一个空容器：控件由歌词页签那边的桥接模块在
+           词典就绪后填进来，因为每个标签和选项都取自词典与配置，写死在 HTML 里等于同一份
+           文案维护两遍。
+           容器本身必须静态存在 —— 09-console-workspace.js 的组织流程会按登记表把它整块搬进
+           「歌词 → 花再 Halo PixelBar」分组；晚于那一步才创建节点的话，它会被当成残留控件。
+           Source node for the Halo PixelBar block. The container is declared statically because
+           09-console-workspace.js moves registered nodes into their group on rebuild; controls
+           are filled in afterwards by the bridge module, so labels stay single-sourced. -->
+      <div class="halo-sync-section" id="halo-sync-section"></div>
+
       <div class="fx-section-label" data-i18n="visual_presets">视觉预设</div>
       <div class="preset-grid" id="preset-grid"></div>
       <div class="fx-section-label" data-i18n="user_archives">用户存档</div>
@@ -1192,7 +1202,7 @@
         </div>
       </div>
 
-      <div class="fx-actions">
+      <div class="fx-actions" id="fx-reset-actions">
         <button class="fx-mini-btn" onclick="resetFx()" data-i18n="btn_reset_default">恢复默认</button>
       </div>
     </div>

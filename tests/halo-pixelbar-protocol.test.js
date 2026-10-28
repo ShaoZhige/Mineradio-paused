@@ -139,9 +139,18 @@ function testWiring() {
   assert.match(loader, /'js\/modules\/06-lyrics\/halo-sync-bridge\.js'/);
   assert.doesNotMatch(indexHtml, /halo-sync-bridge\.js/, '走加载器登记，不要往 index.html 塞 script');
 
-  // 浮层的毛玻璃必须跟着画质档位走
-  assert.match(css, /\.halo-sync-panel\s*\{[\s\S]{0,600}backdrop-filter:\s*blur\(calc\(10px \* var\(--glass-blur-scale, 1\)\)\)/);
-  assert.match(css, /\.halo-sync-panel\.show\s*\{[\s\S]{0,40}display:\s*block/);
+  // 设置块已经并入 DIY 控制台：index.html 只提供空容器，搬运由控制台的登记表负责。
+  // 这几条钉的是「别退回标题栏浮层」—— 那套定位与显隐类一旦回来，就说明又长出一块自己
+  // 的浮层样式，而不是复用控制台的控件。
+  // The block now lives in the DIY console: index.html ships an empty container and the
+  // console's registry does the moving. These pin that wiring and forbid a return to the old
+  // titlebar popover — its positioning/visibility classes coming back would mean a second,
+  // bespoke popover style instead of reusing the console's controls.
+  const workspace = read('public/js/modules/07-fx/09-console-workspace.js');
+  assert.match(indexHtml, /id="halo-sync-section"/, 'index.html 必须提供静态容器供控制台搬运');
+  assert.match(workspace, /fxConsoleItem\('halo-sync-section'/, '容器没有登记进控制台的布局表');
+  assert.doesNotMatch(bridge, /halo-sync-panel|halo-sync-btn/, '标题栏按钮与浮层已经迁入 DIY 控制台');
+  assert.match(css, /\.halo-sync-section\s*\{[\s\S]{0,200}display:\s*grid/, '设置块缺少容器排版');
 
   // 面板文案全部走词典，不许写死中文
   const uiStrings = bridge.match(/'(halo_[a-z0-9_]+)'/g) || [];

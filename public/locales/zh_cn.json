@@ -2646,6 +2646,7 @@
   "lyric_swatch_ink_black": "墨黑",
   "halo_title": "花再音响同步",
   "halo_panel_title": "花再 Halo PixelBar 同步",
+  "halo_group_hint": "同步歌词、氛围灯与内置场景，设置会直接下发到音响",
   "halo_enable": "启用同步",
   "halo_ambient": "氛围灯",
   "halo_beat_reactive": "随音乐律动",

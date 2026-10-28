@@ -2646,6 +2646,7 @@
   "lyric_swatch_ink_black": "Чернильно-чёрный",
   "halo_title": "Синхронизация с Halo",
   "halo_panel_title": "Синхронизация Halo PixelBar",
+  "halo_group_hint": "Текст, подсветка и встроенные сцены отправляются прямо на колонку",
   "halo_enable": "Включить синхронизацию",
   "halo_ambient": "Подсветка",
   "halo_beat_reactive": "Реакция на бит",

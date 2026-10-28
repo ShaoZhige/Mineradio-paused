@@ -8,10 +8,14 @@
 //    USB HID write live in the main process.
 //  - 音响不在、开关关掉、桥没接上时全部空转，不影响播放与歌词本体。
 //    Every call is best-effort: no speaker, switch off, or no bridge means no-ops.
-//  - 设置入口是标题栏的一颗按钮加一块浮层，与 DIY 视觉控制台分开：
-//    控制台会整体重建静态子节点，塞进去的东西打开就被删。
-//    The settings entry is one titlebar button plus a popover, deliberately apart from the
-//    DIY console, which rebuilds its static children and would delete an injected panel.
+//  - 设置块住在 DIY 视觉控制台里（歌词页签 → 花再 Halo PixelBar）。index.html 只声明一个
+//    空容器 #halo-sync-section 并把它登记进 09-console-workspace.js 的布局表，控件在本文件
+//    里生成 —— 控制台会整块搬运登记过的节点，但未登记的直接删，所以容器必须是静态的、
+//    登记过的，控件什么时候填进去都行。
+//    The settings block lives inside the DIY console (Lyrics tab → Halo PixelBar). index.html
+//    declares one empty container and registers it in 09-console-workspace.js's layout table;
+//    the controls are built here. The console moves registered nodes as a whole and deletes
+//    unregistered ones, so the container must be static — its contents can be filled any time.
 // ============================================================
 (function () {
   if (window.haloSync) return;
@@ -194,7 +198,19 @@
     },
   };
 
-  // ---- 设置浮层 ----
+  // ---- DIY 控制台里的设置块 ----
+  //
+  // 控件一律借用控制台既有的样式类，外观因此跟着面板走，不再有一套自己的暗色浮层样式：
+  //   .fx-toggle        开关（右侧 .dot 当指示灯）
+  //   .fx-select-row    下拉（标签在左、控件在右）
+  //   .fx-section-label 小节标题
+  //   .fx-mini-btn      次要按钮
+  // 这里只负责建节点与下发配置；搬运由 09-console-workspace.js 按登记表完成。
+  //
+  // Every control borrows the console's own classes, so the block inherits the panel's look
+  // instead of carrying a second dark popover style: .fx-toggle for switches, .fx-select-row
+  // for dropdowns, .fx-section-label for sub-headings, .fx-mini-btn for secondary buttons.
+  // This file only builds nodes and pushes config; the console moves them per its registry.
 
   function make(tag, className, text) {
     var node = document.createElement(tag);
@@ -203,148 +219,172 @@
     return node;
   }
 
-  function row(labelNode, control) {
-    var wrap = make('div', 'halo-sync-row');
-    wrap.appendChild(labelNode);
-    wrap.appendChild(control);
-    return wrap;
-  }
-
-  function toggleRow(key, disabled) {
-    var label = make('label');
-    var box = document.createElement('input');
-    box.type = 'checkbox';
-    box.disabled = !!disabled;
-    box.addEventListener('change', function () {
-      var h = getHalo();
-      if (h) h.setConfig(makePatch(key, box.checked));
-    });
-    return {
-      node: row(label, box),
-      relabel: function (key2) { label.textContent = haloText(key2); },
-      set: function (value) { box.checked = !!value; },
-    };
-  }
-
-  function selectRow(configKey, labelKey, options) {
-    var label = make('label');
-    var sel = document.createElement('select');
-    options.forEach(function (item) {
-      var opt = document.createElement('option');
-      opt.value = item.value;
-      opt.textContent = haloText(item.key);
-      opt.__haloKey = item.key;
-      sel.appendChild(opt);
-    });
-    sel.addEventListener('change', function () {
-      var h = getHalo();
-      if (h) h.setConfig(makePatch(configKey, sel.value));
-    });
-    return {
-      node: row(label, sel),
-      configKey: configKey,
-      labelKey: labelKey,
-      relabel: function () {
-        label.textContent = haloText(labelKey);
-        for (var i = 0; i < sel.options.length; i++) {
-          var option = sel.options[i];
-          if (option.__haloKey) option.textContent = haloText(option.__haloKey);
-        }
-      },
-      set: function (value) { if (value != null) sel.value = value; },
-    };
-  }
-
   function makePatch(key, value) {
     var patch = {};
     patch[key] = value;
     return patch;
   }
 
-  function chipGroup(items, onPick) {
+  // 开关自己翻转 .on 并下发配置。不复用 toggleFx()：那是视觉存档的写入器，
+  // 音响配置不在 fx 里，走那条路只会写进无关的存档字段。
+  // Toggles flip their own .on class and push the config. toggleFx() is not reused — it writes
+  // the visual archive, and the speaker config is not part of it.
+  function toggleNode(configKey, labelKey, locked) {
+    var node = make('div', 'fx-toggle' + (locked ? ' dev-locked' : ''));
+    node.id = 't-halo-' + configKey;
+    var label = make('span');
+    var dot = make('span', 'dot');
+    node.appendChild(label);
+    node.appendChild(dot);
+    if (!locked) {
+      node.addEventListener('click', function () {
+        var next = !node.classList.contains('on');
+        node.classList.toggle('on', next);
+        var h = getHalo();
+        if (h) h.setConfig(makePatch(configKey, next));
+      });
+    }
+    return {
+      node: node,
+      // 控制台的开关是一行一个标签 + 右侧指示灯，标签超长会被省略号截掉（英文与俄文
+      // 尤其容易）。title 把完整文案补在悬停提示里，截断时不至于看不出这是哪一项。
+      // The console's toggle is one line plus an indicator dot, so a long label gets ellipsised
+      // (English and Russian hit this first). The title carries the full text as a fallback.
+      relabel: function () {
+        var text = haloText(labelKey);
+        label.textContent = text;
+        node.title = text;
+      },
+      set: function (value) { node.classList.toggle('on', !!value); },
+    };
+  }
+
+  // onPick 存在时走独立通道（时钟样式不是配置字段，主进程另有 halo-sync-clock-style），
+  // 否则按配置字段下发。
+  // onPick routes through its own channel (clock style is not a config field and has its own
+  // main-process handler); otherwise the value goes out as a config patch.
+  function selectNode(configKey, labelKey, options, onPick) {
+    var wrap = make('div', 'fx-select-row');
+    wrap.id = 'halo-row-' + configKey;
+    var label = make('span', 'fx-select-row-label');
+    var sel = document.createElement('select');
+    sel.className = 'fx-select';
+    options.forEach(function (item) {
+      var opt = document.createElement('option');
+      opt.value = String(item.value);
+      opt.__haloLabel = item;
+      opt.textContent = haloText(item.key, null, item.params);
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', function () {
+      var h = getHalo();
+      if (!h) return;
+      if (onPick) onPick(sel.value);
+      else h.setConfig(makePatch(configKey, sel.value));
+    });
+    wrap.appendChild(label);
+    wrap.appendChild(sel);
+    return {
+      node: wrap,
+      configKey: configKey,
+      relabel: function () {
+        label.textContent = haloText(labelKey);
+        for (var i = 0; i < sel.options.length; i += 1) {
+          var option = sel.options[i];
+          if (option.__haloLabel) {
+            option.textContent = haloText(option.__haloLabel.key, null, option.__haloLabel.params);
+          }
+        }
+      },
+      set: function (value) { if (value != null) sel.value = String(value); },
+    };
+  }
+
+  // 场景与频谱是「发一条命令」而不是「存一个状态」，所以做成按钮而非分段控件：
+  // 分段控件会暗示一个当前选中项，而设备并不回报当前场景。
+  // Scenes and spectrum styles fire a command rather than storing a state, so they are buttons:
+  // a segmented control would imply an active selection the device never reports back.
+  function chipGroup(titleKey, items, onPick) {
     var wrap = make('div', 'halo-sync-group');
-    var title = make('div', 'halo-sync-group-title');
-    wrap.appendChild(title);
-    var chips = make('div', 'halo-sync-btns');
+    var title = make('div', 'fx-section-label');
+    var chips = make('div', 'halo-sync-chips');
     var buttons = items.map(function (item) {
-      var btn = make('button', 'halo-sync-chip');
+      var btn = make('button', 'fx-mini-btn ghost');
       btn.type = 'button';
       btn.addEventListener('click', function () { onPick(item); });
       chips.appendChild(btn);
       return { node: btn, key: item.key };
     });
+    wrap.appendChild(title);
     wrap.appendChild(chips);
     return {
       node: wrap,
-      relabel: function (titleKey) {
+      relabel: function () {
         title.textContent = haloText(titleKey);
         buttons.forEach(function (entry) { entry.node.textContent = haloText(entry.key); });
       },
     };
   }
 
-  function buildHaloPanel() {
+  function clockOptions() {
+    var list = [];
+    for (var i = 1; i <= 11; i += 1) {
+      list.push({ value: i, key: 'halo_clock_style_n', params: { n: i } });
+    }
+    return list;
+  }
+
+  function buildHaloSection() {
     if (ui) return ui;
-    var host = document.getElementById('top-right');
+    var host = document.getElementById('halo-sync-section');
     if (!host) return null;
-
-    var btn = document.createElement('button');
-    btn.id = 'halo-sync-btn';
-    btn.className = 'icon-btn';
-    btn.type = 'button';
-    btn.innerHTML = '<svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7"'
-      + ' viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4Z"/>'
-      + '<path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18 6.7a7.4 7.4 0 0 1 0 10.6"/></svg>';
-
-    var panel = make('div', 'halo-sync-panel');
-    panel.id = 'halo-sync-panel';
-
-    var title = make('div', 'halo-sync-title');
-    panel.appendChild(title);
+    host.textContent = '';
 
     var toggles = {
-      enabled: toggleRow('enabled'),
-      ambientEnabled: toggleRow('ambientEnabled'),
-      beatReactive: toggleRow('beatReactive'),
-      followCover: toggleRow('followCover', true),
-      volumeSync: toggleRow('volumeSync'),
-      dynamicScroll: toggleRow('dynamicScroll'),
+      enabled: toggleNode('enabled', 'halo_enable'),
+      ambientEnabled: toggleNode('ambientEnabled', 'halo_ambient'),
+      beatReactive: toggleNode('beatReactive', 'halo_beat_reactive'),
+      // 跟随封面固定置灰：屏色包发太密会把设备刷到复位，这条通道留着占位、不开放操作。
+      // followCover stays greyed out: dense colour packets can reset the device, so the channel
+      // is a placeholder rather than an operable switch.
+      followCover: toggleNode('followCover', 'halo_follow_cover', true),
+      volumeSync: toggleNode('volumeSync', 'halo_volume_sync'),
+      dynamicScroll: toggleNode('dynamicScroll', 'halo_dynamic_scroll'),
     };
-    var toggleKeys = {
-      enabled: 'halo_enable',
-      ambientEnabled: 'halo_ambient',
-      beatReactive: 'halo_beat_reactive',
-      followCover: 'halo_follow_cover',
-      volumeSync: 'halo_volume_sync',
-      dynamicScroll: 'halo_dynamic_scroll',
-    };
+    var grid = make('div', 'fx-toggle-grid');
     Object.keys(toggles).forEach(function (key) {
-      panel.appendChild(toggles[key].node);
-      toggles[key].relabel(toggleKeys[key]);
+      grid.appendChild(toggles[key].node);
+      toggles[key].relabel();
     });
+    host.appendChild(grid);
 
-    var idle = selectRow('idleScene', 'halo_idle_scene', [
-      { value: 'none', key: 'halo_idle_keep' },
-      { value: 'clock', key: 'halo_idle_clock' },
-    ]);
-    var align = selectRow('align', 'halo_align', [
-      { value: 'left', key: 'halo_align_left' },
-      { value: 'center', key: 'halo_align_center' },
-      { value: 'right', key: 'halo_align_right' },
-      { value: 'justify', key: 'halo_align_justify' },
-    ]);
-    var brightness = selectRow('ambientBrightness', 'halo_brightness', [
-      { value: 'low', key: 'halo_bright_low' },
-      { value: 'medium', key: 'halo_bright_medium' },
-      { value: 'high', key: 'halo_bright_high' },
-    ]);
-    var selects = [idle, align, brightness];
+    var selects = [
+      selectNode('idleScene', 'halo_idle_scene', [
+        { value: 'none', key: 'halo_idle_keep' },
+        { value: 'clock', key: 'halo_idle_clock' },
+      ]),
+      selectNode('align', 'halo_align', [
+        { value: 'left', key: 'halo_align_left' },
+        { value: 'center', key: 'halo_align_center' },
+        { value: 'right', key: 'halo_align_right' },
+        { value: 'justify', key: 'halo_align_justify' },
+      ]),
+      selectNode('ambientBrightness', 'halo_brightness', [
+        { value: 'low', key: 'halo_bright_low' },
+        { value: 'medium', key: 'halo_bright_medium' },
+        { value: 'high', key: 'halo_bright_high' },
+      ]),
+      selectNode('clockStyle', 'halo_clock_style', clockOptions(), function (value) {
+        var h = getHalo();
+        if (h) h.clockStyle(parseInt(value, 10));
+      }),
+    ];
     selects.forEach(function (entry) {
-      panel.appendChild(entry.node);
+      host.appendChild(entry.node);
       entry.relabel();
     });
 
-    var scenes = chipGroup([
+    var scenes = chipGroup('halo_group_scene', [
       { value: 'clock', key: 'halo_scene_clock' },
       { value: 'game', key: 'halo_scene_game' },
       { value: 'work', key: 'halo_scene_work' },
@@ -358,10 +398,10 @@
       var h = getHalo();
       if (h) h.scene(item.value);
     });
-    panel.appendChild(scenes.node);
-    scenes.relabel('halo_group_scene');
+    host.appendChild(scenes.node);
+    scenes.relabel();
 
-    var spectrum = chipGroup([
+    var spectrum = chipGroup('halo_group_spectrum', [
       { value: 1, key: 'halo_spectrum_bar' },
       { value: 2, key: 'halo_spectrum_wave' },
       { value: 3, key: 'halo_spectrum_symmetric' },
@@ -370,29 +410,18 @@
       var h = getHalo();
       if (h) h.spectrum(item.value);
     });
-    panel.appendChild(spectrum.node);
-    spectrum.relabel('halo_group_spectrum');
-
-    var clockLabel = make('label');
-    var clockSelect = document.createElement('select');
-    for (var ci = 1; ci <= 11; ci += 1) {
-      var clockOption = document.createElement('option');
-      clockOption.value = String(ci);
-      clockOption.__haloStyle = ci;
-      clockOption.textContent = haloText('halo_clock_style_n', null, { n: ci });
-      clockSelect.appendChild(clockOption);
-    }
-    clockSelect.addEventListener('change', function () {
-      var h = getHalo();
-      if (h) h.clockStyle(parseInt(clockSelect.value, 10));
-    });
-    var clockRow = row(clockLabel, clockSelect);
-    panel.appendChild(clockRow);
+    host.appendChild(spectrum.node);
+    spectrum.relabel();
 
     var status = make('div', 'halo-sync-status');
-    panel.appendChild(status);
+    host.appendChild(status);
 
-    var resume = make('button', 'halo-sync-mini-btn');
+    // 按钮行用自己的类而不是控制台的 .fx-actions：后者被「恢复默认」那一项按全局选择器
+    // 抓取，多一条同类的行就会把它抢走（实测过一次）。
+    // Own class instead of the console's .fx-actions: that one is located through a global
+    // selector by the reset entry, so a second row carrying it gets stolen (measured once).
+    var actions = make('div', 'halo-sync-actions');
+    var resume = make('button', 'fx-mini-btn ghost');
     resume.type = 'button';
     resume.addEventListener('click', function () {
       var h = getHalo();
@@ -400,9 +429,7 @@
       h.manualHold(false);
       status.textContent = haloText('halo_resumed');
     });
-    panel.appendChild(resume);
-
-    var detect = make('button', 'halo-sync-mini-btn');
+    var detect = make('button', 'fx-mini-btn ghost');
     detect.type = 'button';
     detect.addEventListener('click', function () {
       var h = getHalo();
@@ -417,42 +444,21 @@
         } else status.textContent = haloText('halo_no_device');
       }).catch(function () { status.textContent = haloText('halo_detect_failed'); });
     });
-    panel.appendChild(detect);
-
-    var open = false;
-    btn.addEventListener('click', function (event) {
-      event.stopPropagation();
-      open = !open;
-      panel.classList.toggle('show', open);
-      if (open) {
-        syncUiFromConfig();
-        refreshConfig();
-      }
-    });
-    document.addEventListener('click', function (event) {
-      if (!open || panel.contains(event.target) || event.target === btn) return;
-      open = false;
-      panel.classList.remove('show');
-    });
-
-    host.appendChild(btn);
-    host.appendChild(panel);
+    actions.appendChild(resume);
+    actions.appendChild(detect);
+    host.appendChild(actions);
 
     ui = {
-      btn: btn,
-      panel: panel,
-      title: title,
-      toggleKeys: toggleKeys,
+      host: host,
       toggles: toggles,
       selects: selects,
       scenes: scenes,
       spectrum: spectrum,
-      clockLabel: clockLabel,
-      clockSelect: clockSelect,
+      status: status,
       resume: resume,
       detect: detect,
     };
-    relabelHaloPanel();
+    relabelHaloSection();
     return ui;
   }
 
@@ -466,30 +472,18 @@
     });
   }
 
-  function relabelHaloPanel() {
+  function relabelHaloSection() {
     if (!ui) return;
-    ui.btn.title = haloText('halo_title');
-    ui.btn.setAttribute('aria-label', haloText('halo_title'));
-    ui.title.textContent = haloText('halo_panel_title');
-    Object.keys(ui.toggles).forEach(function (key) {
-      ui.toggles[key].relabel(ui.toggleKeys[key]);
-    });
+    Object.keys(ui.toggles).forEach(function (key) { ui.toggles[key].relabel(); });
     ui.selects.forEach(function (entry) { entry.relabel(); });
-    ui.scenes.relabel('halo_group_scene');
-    ui.spectrum.relabel('halo_group_spectrum');
-    ui.clockLabel.textContent = haloText('halo_clock_style');
-    for (var i = 0; i < ui.clockSelect.options.length; i += 1) {
-      var option = ui.clockSelect.options[i];
-      if (option.__haloStyle) {
-        option.textContent = haloText('halo_clock_style_n', null, { n: option.__haloStyle });
-      }
-    }
+    ui.scenes.relabel();
+    ui.spectrum.relabel();
     ui.resume.textContent = haloText('halo_resume_lyrics');
     ui.detect.textContent = haloText('halo_detect_device');
   }
 
   function start() {
-    buildHaloPanel();
+    buildHaloSection();
     ensureAudio();
     refreshConfig();
     window.setInterval(tick, 250);
@@ -498,7 +492,7 @@
 
   if (typeof window !== 'undefined' && window.MineradioI18n
     && typeof window.MineradioI18n.onLanguageChange === 'function') {
-    window.MineradioI18n.onLanguageChange(function () { relabelHaloPanel(); });
+    window.MineradioI18n.onLanguageChange(function () { relabelHaloSection(); });
   }
 
   if (document.readyState === 'loading') {
