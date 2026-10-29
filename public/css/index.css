@@ -7285,7 +7285,6 @@ body.login-guide-active #login-guide-canvas {
   padding: 24px 30px 26px;
   overflow: auto;
   text-align: left;
-  scrollbar-width: thin;
   background: radial-gradient(circle at 18% 10%, rgba(255, 255, 255, .09), transparent 28%), radial-gradient(circle at 78% 62%, rgba(var(--fc-accent-rgb), .055), transparent 38%), rgba(6, 7, 10, .34);
   border-color: rgba(255, 255, 255, .060);
   border-radius: 24px;
@@ -7293,6 +7292,42 @@ body.login-guide-active #login-guide-canvas {
   backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
   -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.18);
   transition: min-width .46s cubic-bezier(.16, 1, .3, 1), box-shadow .46s ease, background .46s ease
+}
+
+/* 登录弹窗是唯一滚动容器：内容比视口高时滚它，不接管时 Chromium 会在深色玻璃上
+   画一根亮灰系统条，比面板还显眼。
+   这里换成同色系的悬浮细条：槽宽 10px、滑块用 3px 透明边框收成 4px，
+   于是细条离面板边缘还有 3px，不压 24px 圆角、也不会贴到最右一列的字。
+   🔴 只写 webkit 伪元素、绝不混用 scrollbar-width —— 标准属性一旦出现，
+   同一元素上的伪元素规则会被整条忽略（之前正是这个原因一直露系统灰条）。 */
+.dual-login-modal::-webkit-scrollbar,
+.audio-output-workflow-modal::-webkit-scrollbar {
+  width: 10px;
+  height: 10px
+}
+
+.dual-login-modal::-webkit-scrollbar-track,
+.audio-output-workflow-modal::-webkit-scrollbar-track {
+  background: transparent
+}
+
+.dual-login-modal::-webkit-scrollbar-thumb,
+.audio-output-workflow-modal::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .22);
+  background-clip: padding-box
+}
+
+.dual-login-modal::-webkit-scrollbar-thumb:hover,
+.audio-output-workflow-modal::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, .40);
+  background-clip: padding-box
+}
+
+.dual-login-modal::-webkit-scrollbar-corner,
+.audio-output-workflow-modal::-webkit-scrollbar-corner {
+  background: transparent
 }
 
 .login-easter-egg-gate {
@@ -7837,7 +7872,6 @@ body.login-guide-active #login-guide-canvas {
   padding: 24px 28px 24px;
   overflow: auto;
   text-align: left;
-  scrollbar-width: thin;
   background: radial-gradient(circle at 18% 10%, rgba(255, 255, 255, .09), transparent 28%), radial-gradient(circle at 78% 62%, rgba(var(--fc-accent-rgb), .055), transparent 38%), rgba(6, 7, 10, .34);
   border-color: rgba(255, 255, 255, .060);
   border-radius: 24px;
@@ -8978,43 +9012,17 @@ body.login-guide-active #login-guide-canvas {
 }
 
 .login-auth-drawer.spotify-mode.show {
-  /* 抽屉本身是弹窗里的第二层滚动容器：用 contain 会让滚轮到顶后不再传给外层弹窗，
-     表现为「滚轮完全没反应，只能拖右侧滚动条」。这里改成 auto 允许滚动链式传递，
-     并把高度放宽，尽量让内容整块交给外层弹窗滚动，避免嵌套滚动。 */
-  max-height: min(880px, calc(100vh - 96px));
+  /* 只允许一个滚动容器，就是外层弹窗。抽屉自己再滚会变成两根条套在一起（小窗口下必然同时出现），
+     滚轮还要先滚内层再传给外层，观感和手感都乱。
+     所以这里保留 overflow: hidden（展开动画期间仍要裁切）但把上限放到足够大，
+     让抽屉按内容自然撑高、整块交给弹窗滚动。  2000px 远高于任何窗口宽度下的实际内容高度；
+     真要超出，也是弹窗在滚，不存在够不着的部分。 */
+  max-height: 2000px;
   padding: 18px;
-  overflow: auto;
-  overscroll-behavior: auto
+  overflow: hidden
 }
 
-/* 不接管滚动条时，Chromium 会在深色玻璃面板上画一根亮灰粗条，比面板本身还显眼。
-   这里换成同色系的悬浮细条（Spotify 绿）：槽宽 10px、滑块用透明边框收成 4px，
-   于是细条离面板边框还有 3px，不会压在圆角上。与其它面板的细条是同一套观感。
-   只写 webkit 伪元素、不写 scrollbar-width —— 标准属性一旦出现，伪元素会被整条忽略。 */
-.login-auth-drawer.spotify-mode.show::-webkit-scrollbar {
-  width: 10px;
-  height: 10px
-}
-
-.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-track {
-  background: transparent
-}
-
-.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background: rgba(30, 215, 96, .30);
-  background-clip: padding-box
-}
-
-.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-thumb:hover {
-  background: rgba(30, 215, 96, .58);
-  background-clip: padding-box
-}
-
-.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-corner {
-  background: transparent
-}
+/* 抽屉不再是滚动容器（见 .login-auth-drawer.spotify-mode.show），滚动条只有弹窗那一根。 */
 
 .login-auth-drawer.spotify-mode > .login-auth-copy,
 .login-auth-drawer.spotify-mode > .login-auth-body,
