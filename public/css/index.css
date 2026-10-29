@@ -10705,16 +10705,22 @@ body.login-guide-active #login-guide-canvas {
 
 /* 节拍分析角标贴左上：原来在右上角（top:122px right:24px），正好压在「最近播放」那张卡片
    的右肩上，分析过程中一出现就盖住卡片标题。左上这一块是空的 —— 搜索框居中、标题栏按钮在
-   右上，卡片区从 100px 以下才开始。 */
+   右上，卡片区从 100px 以下才开始。
+   高度还得让开歌单面板：`#playlist-panel` 是 `top:78px`（桌面全屏模式 56~92px）、z-index 17，
+   角标只有 7，落在 68px 时下面 24px 直接被面板吃掉。这里顶到 34px（34px 高 + 10px 间隙），
+   正好停在面板顶边之上，全屏桌面模式那档再单独让一档（见下方 56px 那组）。 */
 /* The beat-analysis badge sits top-left: it used to be top-right (top:122px right:24px), which
    lands on the shoulder of the "recently played" card and covers its heading while analysing.
    The top-left area is empty — the search box is centred, the titlebar buttons are top-right,
-   and the card grid starts below 100px. */
+   and the card grid starts below 100px.
+   Height also has to clear the playlist panel: that panel is `top:78px`, while the badge only has
+   z-index 7, so at 68px its bottom 24px was swallowed by the panel. 34px keeps a 10px gap above
+   the panel edge; the fullscreen-desktop tier gets its own offset below. */
 #beat-chip {
   position: fixed;
   z-index: 7;
-  top: 68px;
-  left: 24px;
+  top: 34px;
+  left: 32px;
   background: rgba(10, 10, 16, 0.85);
   border: 1px solid rgba(126, 226, 168, 0.3);
   padding: 8px 14px;
@@ -10740,6 +10746,12 @@ body.login-guide-active #login-guide-canvas {
   border-top-color: #7ee2a8;
   border-radius: 50%;
   animation: spin .7s linear infinite
+}
+
+/* 桌面全屏模式把歌单面板顶到 56~92px，34px 那档就又压上了；这一档整体再让到 18px（底边 52px）。 */
+body.desktop-shell.desktop-fullscreen #beat-chip,
+html:fullscreen body.desktop-shell #beat-chip {
+  top: 18px
 }
 
 /* ---------- toast ---------- */
