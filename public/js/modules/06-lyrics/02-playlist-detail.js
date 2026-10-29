@@ -821,11 +821,50 @@ function playlistCatalogFooterHtml() {
     if (item.hasMore || item.loading) acc.pending = true;
     return acc;
   }, { loaded: 0, total: 0, pending: !!state.loading });
-  if (!totals.pending && !state.error) return '';
-  var label = state.error
-    ? (playlistDetailText('pl_partial_failed_prefix') + userPlaylists.length + playlistDetailText('pl_count_unit'))
-    : (playlistDetailText('pl_loading_bg') + totals.loaded + (totals.total ? '/' + totals.total : ''));
-  return '<div class="playlist-catalog-status"><span class="queue-hydration-spinner spinning"></span><span>' + label + '</span></div>';
+  if (totals.pending) {
+    return '<div class="playlist-catalog-status"><span class="queue-hydration-spinner spinning"></span><span>'
+      + escHtml(playlistDetailText('pl_loading_bg') + totals.loaded + (totals.total ? '/' + totals.total : ''))
+      + '</span></div>';
+  }
+  // 错误行只由**当前**失败状态决定：没有平台失败就整行消失。
+  // 老版本把失败写进常驻字段，于是后台某一页超时之后，即使全部歌单都加载完了，
+  // 「部分歌单载入失败」也会一直挂在列表底部。
+  // The error row reflects only the CURRENT failure set: no failed provider, no row. The old
+  // version latched the failure, so one timed-out background page left the warning pinned
+  // under a fully loaded list.
+  var failed = state.failedProviders || [];
+  if (!failed.length) return '';
+  var missing = typeof playlistCatalogDataMissing === 'function' && playlistCatalogDataMissing();
+  // 首屏就一条没取到的平台只提示一次（noticeUntil 过期后自己收起来）。
+  // A platform that lost nothing gets a single timed notice instead of a permanent warning.
+  if (!missing && Number(state.noticeUntil || 0) <= Date.now()) return '';
+  var authExpiredProvider = (state.authExpiredProviders || [])[0] || '';
+  // 只有**全部**失败都是登录过期时才说「登录已过期」并给「重新登录」：
+  // 混着普通失败时重试才是唯一能推进的动作。
+  // Only when every failure is an expired session does the row say so and offer "sign in again";
+  // with a mixed set, retrying is the only action that can make progress.
+  var authExpiredOnly = failed.length > 0 && (state.authExpiredProviders || []).length === failed.length;
+  var singleName = failed.length === 1 ? playlistProviderName(failed[0]) : '';
+  var label;
+  if (authExpiredOnly) {
+    label = singleName + playlistDetailText('pl_provider_auth_expired');
+  } else if (!missing) {
+    label = singleName + playlistDetailText('pl_provider_not_loaded');
+  } else if (!userPlaylists.length) {
+    label = playlistDetailText('pl_provider_load_failed');
+  } else if (singleName) {
+    label = singleName + playlistDetailText('pl_provider_load_failed');
+  } else {
+    label = playlistDetailText('pl_partial_failed_prefix') + userPlaylists.length + playlistDetailText('pl_count_unit');
+  }
+  var action = authExpiredOnly && authExpiredProvider
+    ? '<button type="button" class="pl-catalog-action" data-pl-catalog-relogin="' + escHtml(authExpiredProvider) + '">'
+      + escHtml(playlistDetailText('pl_relogin')) + '</button>'
+    : '<button type="button" class="pl-catalog-action" data-pl-catalog-retry="1">'
+      + escHtml(playlistDetailText('pl_retry')) + '</button>';
+  return '<div class="playlist-catalog-status is-error" role="status">'
+    + '<span class="pl-catalog-warn" aria-hidden="true">!</span>'
+    + '<span class="pl-catalog-label">' + escHtml(label) + '</span>' + action + '</div>';
 }
 function schedulePlaylistPanelVirtualRender() {
   if (playlistPanelVirtualCache.raf) return;
@@ -904,9 +943,14 @@ function renderUserPlaylistsList(opts) {
   var seq = ++playlistRenderSeq;
   if (!userPlaylists.length) {
     renderPlaylistProviderTabs(null);
-    $pl.innerHTML = playlistCatalogSyncState && playlistCatalogSyncState.loading
-      ? miniQueueSkeleton() + playlistCatalogFooterHtml()
-      : playlistDetailText('pl_not_found_html');
+    // 一条歌单都没有时，状态行可能正是「为什么没有」的答案（全部平台失败 / 登录过期），
+    // 所以这种情况下让它顶替「未找到歌单」，别把失败伪装成空列表。
+    // With zero playlists the status row IS the explanation (every provider failed, or a
+    // session expired), so it replaces "未找到歌单" instead of hiding the failure.
+    var emptyFooter = playlistCatalogFooterHtml();
+    $pl.innerHTML = (playlistCatalogSyncState && playlistCatalogSyncState.loading)
+      ? miniQueueSkeleton() + emptyFooter
+      : (emptyFooter || playlistDetailText('pl_not_found_html'));
     return;
   }
   var panel = document.getElementById('playlist-panel');
@@ -977,6 +1021,22 @@ function renderMyPodcastCollections(opts) {
   if (opts.animate) animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
 }
 document.getElementById('pl-list').addEventListener('click', function (e) {
+  var catalogRetry = e.target && e.target.closest ? e.target.closest('[data-pl-catalog-retry]') : null;
+  if (catalogRetry) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof retryPlaylistCatalogProviders === 'function') retryPlaylistCatalogProviders();
+    return;
+  }
+  var catalogRelogin = e.target && e.target.closest ? e.target.closest('[data-pl-catalog-relogin]') : null;
+  if (catalogRelogin) {
+    e.preventDefault();
+    e.stopPropagation();
+    // 登录过期重试没有意义，直接把对应平台的登录弹窗打开。
+    // Retrying an expired session is pointless; open that provider's login modal instead.
+    if (typeof showLoginModal === 'function') showLoginModal({ provider: catalogRelogin.getAttribute('data-pl-catalog-relogin') || 'kugou' });
+    return;
+  }
   var pagerBtn = e.target && e.target.closest ? e.target.closest('[data-pl-page]') : null;
   if (pagerBtn) {
     e.preventDefault();

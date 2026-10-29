@@ -14311,6 +14311,62 @@ html:fullscreen body.desktop-shell #playlist-panel {
   padding: 6px 8px
 }
 
+/* 失败态：不再转圈（转圈暗示"马上就好"，而失败恰恰是不会自己好），
+   改成琥珀色警示 + 一颗可点的动作按钮，宽度按内容收，别把面板撑高。
+   Error state: no spinner (it implies "any second now" when nothing is coming), just an
+   amber mark plus one compact action button. */
+.playlist-catalog-status.is-error {
+  min-height: 34px;
+  gap: 6px;
+  padding: 6px 10px;
+  color: rgba(244, 210, 138, .80)
+}
+
+.pl-catalog-warn {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(244, 210, 138, .52);
+  font-size: 9px;
+  line-height: 11px;
+  text-align: center;
+  font-style: normal;
+  color: rgba(244, 210, 138, .92)
+}
+
+.playlist-catalog-status.is-error .pl-catalog-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.pl-catalog-action {
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 210, 138, .30);
+  background: rgba(244, 210, 138, .10);
+  color: rgba(244, 210, 138, .92);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, color .18s ease
+}
+
+.pl-catalog-action:hover {
+  border-color: rgba(244, 210, 138, .48);
+  background: rgba(244, 210, 138, .18);
+  color: #f4d28a
+}
+
+.pl-catalog-action:active {
+  transform: translateY(1px)
+}
+
 .queue-hydration-spinner {
   width: 12px;
   height: 12px;

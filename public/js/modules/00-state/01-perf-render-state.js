@@ -72,6 +72,11 @@ var miniQueueLazyBound = false;
 var PLAYLIST_PANEL_BATCH_SIZE = PLAYLIST_LAZY_BATCH_SIZE;
 var PLAYLIST_CATALOG_FIRST_PAGE_SIZE = PLAYLIST_LAZY_BATCH_SIZE;
 var PLAYLIST_CATALOG_BACKGROUND_PAGE_SIZE = 200;
+// 某个平台首屏就一条没取到时，只在列表底部提示一次就走，不常驻 —— 平台自己出问题
+// 不该让整张列表永远挂着一行红字。
+// A platform that fails its very first page gets one short notice and no more: a single
+// broken platform must not leave a permanent warning pinned under the whole list.
+var PLAYLIST_CATALOG_NOTICE_MS = 9000;
 var PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX = 760;
 var playlistPanelRenderLimit = PLAYLIST_PANEL_BATCH_SIZE;
 var playlistPanelLazyBound = false;
@@ -100,7 +105,14 @@ var PLAYLIST_DETAIL_OUTER_FOOTER_HEIGHT = 34;
 var PLAYLIST_QUEUE_INITIAL_BATCH_SIZE = 96;
 var PLAYLIST_QUEUE_BACKGROUND_BATCH_SIZE = 160;
 var PLAYLIST_QUEUE_PLAYBACK_AHEAD_THRESHOLD = 96;
-var playlistCatalogSyncState = { token: 0, loading: false, timer: 0, providers: {}, error: '' };
+// failedProviders / authExpiredProviders / noticeUntil 都是**派生**字段：由各平台的分页结果
+// 重算（refreshPlaylistCatalogErrorState），不是「一次失败记一辈子」的开关。
+// failedProviders / authExpiredProviders / noticeUntil are derived from per-provider page
+// results, never latched by a single failure.
+var playlistCatalogSyncState = {
+  token: 0, loading: false, timer: 0, providers: {}, error: '',
+  failedProviders: [], authExpiredProviders: [], noticeUntil: 0, noticeTimer: 0
+};
 var playlistCatalogRevision = 0;
 var smoothWheelScrollBound = false;
 var coverProcessToken = 0, aiDepthPipeline = null, aiDepthReady = false, aiDepthBusy = false, aiDepthFailUntil = 0;

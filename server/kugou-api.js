@@ -28,6 +28,11 @@ const KUGOU_H5_CLIENTVER = '20000';
 const KUGOU_SIGN_KEY_SALT = '57ae12eb6890223e355ccfcb74edf70d';
 const KUGOU_GATEWAY_UA = 'Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi';
 const KUGOU_VIP_ROLEINFO_URL = 'https://vip.kugou.com/recharge/roleinfo';
+// 20017 / 20018 是上游的「登录信息已过期」，重试永远不会好，只能重新登录。
+// 这和「这一次没取到」必须区别对待：前者要给「重新登录」，后者给「重试」。
+// 20017 / 20018 mean the stored session has expired upstream: retrying never helps and the
+// only fix is signing in again — which is a different affordance from a transient failure.
+const KUGOU_AUTH_EXPIRED_CODES = new Set([20017, 20018]);
 
 function createKugouTtlCache(maxEntries, defaultTtlMs) {
   const store = new Map();
@@ -1752,7 +1757,15 @@ function mapKugouPlaylistTrack(item) {
 async function handleKugouUserPlaylists(cookie) {
   const auth = extractKugouAuth(cookie);
   if (!auth.playbackReady) {
-    return { provider: 'kugou', loggedIn: auth.loggedIn, playbackReady: false, playlists: [], error: 'KUGOU_AUTH_REQUIRED', message: '酷狗登录未完成，请重新网页登录' };
+    return {
+      provider: 'kugou',
+      loggedIn: auth.loggedIn,
+      playbackReady: false,
+      playlists: [],
+      error: 'KUGOU_AUTH_REQUIRED',
+      authExpired: true,
+      message: '酷狗登录已过期，请重新登录'
+    };
   }
   try {
     const json = await kugouH5GatewayRequest('/v7/get_all_list', {
@@ -1788,6 +1801,7 @@ async function handleKugouUserPlaylists(cookie) {
       playlists,
     };
   } catch (err) {
+    const authExpired = KUGOU_AUTH_EXPIRED_CODES.has(Number(err.upstreamCode));
     return {
       provider: 'kugou',
       loggedIn: true,
@@ -1796,7 +1810,8 @@ async function handleKugouUserPlaylists(cookie) {
       playlists: [],
       error: err.message || 'KUGOU_PLAYLIST_FAILED',
       upstreamCode: err.upstreamCode,
-      message: '酷狗歌单加载失败，请稍后重试',
+      authExpired,
+      message: authExpired ? '酷狗登录已过期，请重新登录' : '酷狗歌单加载失败，请稍后重试',
     };
   }
 }

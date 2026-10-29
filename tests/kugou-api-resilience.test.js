@@ -204,6 +204,9 @@ test('personal-library failures retain an explicit upstream code and are retried
     assert.equal(failed.libraryReady, false);
     assert.equal(failed.upstreamCode, 20017);
     assert.equal(failed.error, 'KUGOU_GATEWAY_FAILED');
+    // 20017 是「登录已过期」，前端据此给「重新登录」而不是「重试」。
+    // 20017 means the session expired, which is what the UI keys its "sign in again" on.
+    assert.equal(failed.authExpired, true);
     const recovered = await kugou.handleKugouUserPlaylists(memberCookie);
     assert.equal(recovered.libraryReady, true);
     assert.equal(recovered.playlists.length, 1);
@@ -216,6 +219,10 @@ test('malformed personal-library and track payloads cannot become successful cac
     const library = await kugou.handleKugouUserPlaylists(memberCookie);
     assert.equal(library.libraryReady, false);
     assert.equal(library.error, 'KUGOU_PLAYLIST_RESPONSE_INVALID');
+    // 结构不对是上游变了，不是登录过期 —— 这两种在界面上给的动作不同。
+    // A malformed payload means the upstream changed, not that the session died; the two get
+    // different actions in the UI.
+    assert.equal(library.authExpired, false);
     for (let attempt = 0; attempt < 2; attempt++) {
       const tracks = await kugou.handleKugouPlaylistTracks('5', memberCookie);
       assert.equal(tracks.error, 'KUGOU_PLAYLIST_TRACKS_RESPONSE_INVALID');

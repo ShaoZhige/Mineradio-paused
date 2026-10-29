@@ -611,7 +611,16 @@ async function loadPlaylistCatalogProviderPage(provider, reason) {
     var r = await apiJson(url, { timeoutMs: 15000 });
     if (playlistCatalogSyncState.token !== token) return false;
     var incoming = (r && r.playlists || []).map(function (pl) { pl.provider = provider; pl.source = provider; return pl; });
-    if (r && r.error && !incoming.length) throw new Error(r.message || r.error);
+    if (r && r.error && !incoming.length) {
+      // 上游的「登录已过期」和「这一次没取到」必须分开：前者重试也没用，只能引导重新登录。
+      // 酷狗把 token 过期报成 status 0 + error_code 20017/20018，服务端会翻成 authExpired。
+      // An upstream "session expired" is not a transient miss: retrying is pointless and the
+      // only fix is signing in again. KuGou reports it as status 0 + error_code 20017/20018,
+      // which the server turns into authExpired.
+      var pageError = new Error(r.message || r.error);
+      pageError.authExpired = !!r.authExpired;
+      throw pageError;
+    }
     var current = first ? [] : playlistCatalogProviderArray(provider);
     var merged = mergePlaylistCatalogRows(current, incoming, provider);
     setPlaylistCatalogProviderArray(provider, merged);
@@ -623,19 +632,110 @@ async function loadPlaylistCatalogProviderPage(provider, reason) {
     if (state.total && state.nextOffset >= state.total) state.hasMore = false;
     if (!incoming.length) state.hasMore = false;
     state.error = (r && r.error) || '';
+    state.authExpired = false;
     rebuildUserPlaylistsFromCatalog({ animate: first && isPlaylistPanelVisibleForRender(), reset: first, preserveScroll: !first, reason: reason || 'playlist-catalog-page' });
+    refreshPlaylistCatalogErrorState();
     return incoming.length > 0;
   } catch (e) {
     if (playlistCatalogSyncState.token !== token) return false;
     console.warn('[PlaylistCatalogPage]', provider, e);
     state.error = e && e.message || 'PLAYLIST_CATALOG_PAGE_FAILED';
+    state.authExpired = !!(e && e.authExpired);
     state.hasMore = false;
-    playlistCatalogSyncState.error = state.error;
+    // 一条都没取到的平台（首屏失败）不占常驻状态行，只给一次短提示：
+    // 手上有行的平台失败才是真的「部分失败」，那种情况下面会常驻并给重试。
+    // A platform with zero rows keeps no permanent row — one short notice is enough. Only a
+    // failure on top of already-loaded rows is a real "partial load", and that one is sticky.
+    if (!Number(state.loaded)) playlistCatalogSyncState.noticeUntil = Date.now() + PLAYLIST_CATALOG_NOTICE_MS;
+    refreshPlaylistCatalogErrorState();
     if (userPlaylists.length) renderUserPlaylistsList({ preserveScroll: true });
     return false;
   } finally {
     if (playlistCatalogSyncState.token === token) state.loading = false;
   }
+}
+// 状态行里的错误是**派生**的，不再「一次失败记一辈子」。
+// 每次有新页码回来就重算一遍，任何平台恢复正常都会让提示自动消失 —— 之前那个
+// `playlistCatalogSyncState.error` 只在强制刷新时重置，于是后台某一页超时之后，
+// 哪怕所有歌单都加载完了，「部分歌单载入失败」也一直挂在列表底部。
+// The error row is DERIVED, never remembered: it is recomputed on every page result, so a
+// platform that recovers clears it by itself. The old `playlistCatalogSyncState.error` was
+// only reset on a forced refresh, which is why one timed-out background page left
+// "部分歌单载入失败" pinned under a fully loaded list forever.
+function refreshPlaylistCatalogErrorState() {
+  var root = playlistCatalogSyncState;
+  if (!root) return;
+  var providers = root.providers || {};
+  var failed = Object.keys(providers).filter(function (key) {
+    var state = providers[key];
+    return !!(state && state.enabled && state.error);
+  });
+  root.failedProviders = failed;
+  root.authExpiredProviders = failed.filter(function (key) {
+    return !!(providers[key] && providers[key].authExpired);
+  });
+  root.error = failed.length ? String(providers[failed[0]].error || 'PLAYLIST_CATALOG_PAGE_FAILED') : '';
+  if (!failed.length) root.noticeUntil = 0;
+  schedulePlaylistCatalogNoticeRepaint();
+}
+function schedulePlaylistCatalogNoticeRepaint() {
+  var root = playlistCatalogSyncState;
+  if (!root || root.noticeTimer) return;
+  var left = Number(root.noticeUntil || 0) - Date.now();
+  if (left <= 0) return;
+  root.noticeTimer = setTimeout(function () {
+    root.noticeTimer = 0;
+    if (playlistCatalogSyncState !== root) return;
+    if (Number(root.noticeUntil || 0) > Date.now()) { schedulePlaylistCatalogNoticeRepaint(); return; }
+    if (typeof queueViewTab !== 'undefined' && queueViewTab !== 'playlists') return;
+    if (userPlaylists.length) renderUserPlaylistsList({ preserveScroll: true });
+  }, left + 60);
+  // 浏览器里 setTimeout 返回数字；Node（测试沙箱）返回 Timeout 对象，unref 掉免得把进程吊住。
+  // Browsers return a number; Node returns a Timeout — unref it so tests do not linger.
+  if (root.noticeTimer && typeof root.noticeTimer.unref === 'function') root.noticeTimer.unref();
+}
+// 只有真的丢数据才算「部分失败」：失败平台手上已经有行（分页中途断掉），
+// 或者所有登录平台一起失败（一条都没拿到）。首屏就 0 行的单个平台失败不丢任何
+// 已显示的内容 —— 那种情况只在上面弹一次短提示。
+// "Partial" is reserved for real loss: the failed platform already had rows, or every
+// logged-in platform failed at once. A single platform failing with zero rows loses nothing
+// that was already on screen, which is exactly what the short notice covers.
+function playlistCatalogDataMissing() {
+  var root = playlistCatalogSyncState || {};
+  var providers = root.providers || {};
+  var failed = root.failedProviders || [];
+  if (!failed.length) return false;
+  if (failed.some(function (key) { return Number(providers[key] && providers[key].loaded) > 0; })) return true;
+  var enabled = Object.keys(providers).filter(function (key) { return providers[key] && providers[key].enabled; });
+  var served = enabled.filter(function (key) { return !providers[key].error && Number(providers[key].loaded) > 0; });
+  return enabled.length > 0 && !served.length;
+}
+// 「重试」/「重新登录」按钮的落地：把失败平台重新标成待取，再走一遍分页调度。
+// 已经成功的平台不动，所以重试不会把整张列表刷白。
+// The retry affordance re-marks only the failed platforms and restarts the paging chain;
+// platforms that already succeeded are untouched, so nothing on screen blanks out.
+function retryPlaylistCatalogProviders() {
+  var root = playlistCatalogSyncState;
+  if (!root || !root.providers) return false;
+  var retried = 0;
+  Object.keys(root.providers).forEach(function (key) {
+    var state = root.providers[key];
+    if (!state || !state.error || !playlistCatalogProviderLoggedIn(key)) return;
+    state.error = '';
+    state.authExpired = false;
+    state.hasMore = true;
+    state.loading = false;
+    retried += 1;
+  });
+  if (!retried) return false;
+  root.error = '';
+  root.failedProviders = [];
+  root.authExpiredProviders = [];
+  root.noticeUntil = 0;
+  root.loading = true;
+  renderUserPlaylistsList({ preserveScroll: true });
+  requestNextPlaylistCatalogPage('retry');
+  return true;
 }
 function playlistCatalogHasPendingPages() {
   var providers = playlistCatalogSyncState.providers || {};
@@ -716,7 +816,10 @@ async function refreshUserPlaylists(force) {
   if ($pod) $pod.innerHTML = miniQueueSkeleton();
   if (playlistCatalogSyncState.timer) clearTimeout(playlistCatalogSyncState.timer);
   var token = playlistCatalogSyncState.token + 1;
-  playlistCatalogSyncState = { token: token, loading: true, timer: 0, providers: {}, error: '', startedAt: Date.now() };
+  playlistCatalogSyncState = {
+    token: token, loading: true, timer: 0, providers: {}, error: '', startedAt: Date.now(),
+    failedProviders: [], authExpiredProviders: [], noticeUntil: 0, noticeTimer: 0
+  };
   providerRegistryKeysWith('login').forEach(function (provider) {
     if (force && playlistCatalogProviderLoggedIn(provider)) setPlaylistCatalogProviderArray(provider, []);
     playlistCatalogSyncState.providers[provider] = {
@@ -726,7 +829,8 @@ async function refreshUserPlaylists(force) {
       nextOffset: 0,
       hasMore: playlistCatalogProviderLoggedIn(provider),
       loading: false,
-      error: ''
+      error: '',
+      authExpired: false
     };
   });
   if (force) {
