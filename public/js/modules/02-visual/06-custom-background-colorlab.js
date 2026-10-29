@@ -35,18 +35,13 @@ function customBackgroundColorlabText(key, fallback, params) {
   }
   return out;
 }
-function customBackgroundMediaLabel(media) {
-  media = normalizeCustomBackgroundMedia(media);
-  if (!media) return customBackgroundColorlabText('bg_media_unset', '未设置');
-  return media.type === 'video' ? customBackgroundColorlabText('bg_video_set') : customBackgroundColorlabText('bg_image_set');
-}
 function customBackgroundUsesAlbumCover() {
   return typeof fx !== 'undefined' && !!(fx && fx.backgroundAlbumCover === true);
 }
 function customBackgroundMediaLabel(media) {
   if (customBackgroundUsesAlbumCover()) return customBackgroundColorlabText('bg_cover_original');
   media = normalizeCustomBackgroundMedia(media);
-  if (!media) return '\u672a\u8bbe\u7f6e';
+  if (!media) return customBackgroundColorlabText('bg_media_unset', '未设置');
   if (media.type === 'album') return customBackgroundColorlabText('bg_cover_original');
   return media.type === 'video' ? customBackgroundColorlabText('bg_video_set') : customBackgroundColorlabText('bg_image_set');
 }
