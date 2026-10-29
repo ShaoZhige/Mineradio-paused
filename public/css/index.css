@@ -8954,6 +8954,35 @@ body.login-guide-active #login-guide-canvas {
   overscroll-behavior: auto
 }
 
+/* 不接管滚动条时，Chromium 会在深色玻璃面板上画一根亮灰粗条，比面板本身还显眼。
+   这里换成同色系的悬浮细条（Spotify 绿）：槽宽 10px、滑块用透明边框收成 4px，
+   于是细条离面板边框还有 3px，不会压在圆角上。与其它面板的细条是同一套观感。
+   只写 webkit 伪元素、不写 scrollbar-width —— 标准属性一旦出现，伪元素会被整条忽略。 */
+.login-auth-drawer.spotify-mode.show::-webkit-scrollbar {
+  width: 10px;
+  height: 10px
+}
+
+.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-track {
+  background: transparent
+}
+
+.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(30, 215, 96, .30);
+  background-clip: padding-box
+}
+
+.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 215, 96, .58);
+  background-clip: padding-box
+}
+
+.login-auth-drawer.spotify-mode.show::-webkit-scrollbar-corner {
+  background: transparent
+}
+
 .login-auth-drawer.spotify-mode > .login-auth-copy,
 .login-auth-drawer.spotify-mode > .login-auth-body,
 .login-auth-drawer.spotify-mode > .login-auth-actions {
