@@ -4276,6 +4276,10 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home {
 .modal.update-modal {
   width: min(408px, 92vw);
   max-width: min(408px, 92vw);
+  /* 日志条数变多后不再顶出视口：整窗封顶，头部与按钮固定，中间日志区自己滚。 */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
   padding: 0;
   text-align: left;
   border-radius: 18px;
@@ -4300,6 +4304,10 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home {
 .update-panel-inner {
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 28px 30px 24px
 }
 
@@ -4352,11 +4360,36 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home {
   display: none
 }
 
+/* 日志区是弹窗里唯一可滚动的部分：条目再多也只在这里滚，版本号、下载线路和按钮都固定。
+   padding-right 配合负 margin-right 把滚动条推到面板右侧留白里，正文宽度基本不变、条子也不贴字。
+   滚动条只写 webkit 伪元素，不混用 scrollbar-width（标准属性会让伪元素整条失效）。 */
 .update-list {
   display: flex;
   flex-direction: column;
-  margin: 0 0 19px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -10px 19px 0;
+  padding-right: 10px;
   border-top: 0
+}
+
+.update-list::-webkit-scrollbar {
+  width: 4px
+}
+
+.update-list::-webkit-scrollbar-track {
+  background: transparent
+}
+
+.update-list::-webkit-scrollbar-thumb {
+  background: rgba(244, 210, 138, .24);
+  border-radius: 999px
+}
+
+.update-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(244, 210, 138, .46)
 }
 
 .update-item {

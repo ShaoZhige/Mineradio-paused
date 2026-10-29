@@ -587,6 +587,12 @@ function compareVersions(a, b) {
   }
   return 0;
 }
+// 更新弹窗里的日志条目上限。此前是「4 条 / 单行 72 字」：CHANGELOG 的条目普遍是
+// 60~250 字，超长的整条被丢掉，弹窗里只剩零星几条，看起来像「日志只有部分」。
+// 弹窗现在由 CSS 负责滚动，条目数上限只用来挡住异常大的 body。
+const RELEASE_NOTE_LIMIT = 30;
+const RELEASE_NOTE_MAX_CHARS = 320;
+const RELEASE_NOTE_SUMMARY_CHARS = 96;
 function cleanReleaseLine(line) {
   return String(line || '')
     .replace(/^\s*#{1,6}\s*/, '')
@@ -605,10 +611,18 @@ function extractReleaseNotes(body) {
     if (/^(what'?s changed|changes|changelog|full changelog|更新日志|更新内容)$/i.test(text)) return;
     if (/https?:\/\//i.test(text)) return;
     if (/^(下载|网盘|夸克盘|百度(?:云|网盘)|蓝奏(?:云|网盘)|安装包)/i.test(text)) return;
-    if (text.length > 72) return;
+    if (text.length > RELEASE_NOTE_MAX_CHARS) return;
     notes.push(text);
   });
-  return notes.slice(0, 4);
+  return notes.slice(0, RELEASE_NOTE_LIMIT);
+}
+// 弹窗顶部那行摘要只放一条短句：完整条目可能很长，直接拿来当摘要会把头部撑成一段。
+function releaseNoteSummary(notes) {
+  const first = (Array.isArray(notes) ? notes : []).find(text => !!text) || '';
+  if (!first) return '';
+  return first.length > RELEASE_NOTE_SUMMARY_CHARS
+    ? first.slice(0, RELEASE_NOTE_SUMMARY_CHARS).trim() + '…'
+    : first;
 }
 function safeExternalUpdateUrl(value) {
   const raw = String(value || '').trim();
@@ -693,7 +707,7 @@ function normalizeManifestUpdateInfo(data) {
   const externalUrl = downloadPages.length ? downloadPages[0].url : '';
   const downloadPageUrl = externalUrl || htmlUrl;
   const notes = Array.isArray(release.notes) && release.notes.length
-    ? release.notes.slice(0, 4).map(cleanReleaseLine).filter(Boolean)
+    ? release.notes.slice(0, RELEASE_NOTE_LIMIT).map(cleanReleaseLine).filter(Boolean)
     : (extractReleaseNotes(release.body || data.body).length ? extractReleaseNotes(release.body || data.body) : UPDATE_FALLBACK_NOTES);
   return {
     configured: true,
@@ -714,7 +728,7 @@ function normalizeManifestUpdateInfo(data) {
       asset: null,
       patch: null,
       patchAvailable: false,
-      summary: release.summary || data.summary || notes[0] || '发现新版本，建议更新。',
+      summary: release.summary || data.summary || releaseNoteSummary(notes) || '发现新版本，建议更新。',
       notes,
     },
     source: 'manifest',
@@ -1014,7 +1028,7 @@ async function fetchLatestUpdateInfo() {
         asset: null,
         patch: null,
         patchAvailable: false,
-        summary: notes[0] || '发现新版本，建议更新。',
+        summary: releaseNoteSummary(notes) || '发现新版本，建议更新。',
         notes,
       },
     };

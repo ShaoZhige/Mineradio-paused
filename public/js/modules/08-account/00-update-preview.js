@@ -39,6 +39,12 @@ function updatePreviewText(key, fallback, params) {
   }
   return out;
 }
+// 弹窗一次最多渲染多少条日志。与 server 侧的 RELEASE_NOTE_LIMIT 对齐：列表变长后由 CSS
+// 在 .update-list 内部滚动，不再靠截断条数来控制弹窗高度。
+var UPDATE_NOTES_RENDER_LIMIT = 30;
+// 入场动画只排给首屏能看到的条目，后面的直接显示，否则 30 条会排队到两秒后才出现。
+var UPDATE_NOTES_STAGGER_LIMIT = 10;
+
 function isSafeUpdatePageUrl(value) {
   var raw = String(value || '').trim();
   if (!raw || raw.length > 2048) return false;
@@ -164,7 +170,7 @@ function applyLatestUpdateInfo(data) {
   updatePreviewState.errorReason = '';
   updatePreviewState.hero = release.summary
     || (updatePreviewState.updateAvailable ? updatePreviewText('server_update_available', '发现新版本，建议更新。') : updatePreviewText('already_latest', '当前版本已是最新。'));
-  updatePreviewState.notes = Array.isArray(release.notes) ? release.notes.slice(0, 4) : [];
+  updatePreviewState.notes = Array.isArray(release.notes) ? release.notes.slice(0, UPDATE_NOTES_RENDER_LIMIT) : [];
   renderUpdatePreviewPanel();
   setUpdatePreviewVisible(updatePreviewState.updateAvailable || updatePreviewState.preview);
 }
@@ -324,13 +330,14 @@ function animateUpdatePanelContents() {
     modal.querySelector('.update-hero')
   ].filter(Boolean);
   var items = Array.prototype.slice.call(modal.querySelectorAll('.update-item'));
+  var introItems = items.slice(0, UPDATE_NOTES_STAGGER_LIMIT);
   var sources = Array.prototype.slice.call(modal.querySelectorAll('.update-download-source'));
   var actions = modal.querySelector('.update-actions');
   window.gsap.fromTo(parts,
     { autoAlpha: 0, x: -7, filter: 'blur(5px)' },
     { autoAlpha: 1, x: 0, filter: 'blur(0px)', duration: 0.50, ease: 'power3.out', stagger: 0.045, delay: 0.10, overwrite: true }
   );
-  window.gsap.fromTo(items,
+  window.gsap.fromTo(introItems,
     { autoAlpha: 0, x: -8 },
     { autoAlpha: 1, x: 0, duration: 0.34, ease: 'power3.out', stagger: 0.055, delay: 0.25, overwrite: true }
   );
