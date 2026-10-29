@@ -109,14 +109,6 @@ function ensureLyricStarRiver() {
   return points;
 }
 
-function disposeLyricStarRiver() {
-  var river = stageLyrics && stageLyrics.starRiver;
-  if (!river) return;
-  if (river.parent) river.parent.remove(river);
-  if (river.geometry) river.geometry.dispose();
-  if (river.material) river.material.dispose();
-  stageLyrics.starRiver = null;
-}
 
 function updateLyricStarRiver(dt) {
   var river = ensureLyricStarRiver();

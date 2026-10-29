@@ -1,6 +1,4 @@
 // ============================================================
-function startHeadTracking() { }     // stub: 兼容旧调用
-function stopHeadTracking() { }      // stub
 
 // 手势 HUD 文案统一走 i18n；缺键时退回内置中文，HUD 不会出现空串或裸 key。
 // Gesture HUD copy goes through i18n and falls back to the built-in Chinese text, so
@@ -837,8 +835,6 @@ function showGestureHUD(label, progress, detail) {
   if (fill) fill.style.width = safeProgress + '%';
   hud.classList.add('show');
 }
-function showGestureCursor() { }  // stub: 兼容旧调用
-function hideGestureCursor() { }  // stub: 兼容旧调用
 
 
 // ============================================================

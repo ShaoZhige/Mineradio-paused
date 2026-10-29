@@ -93,10 +93,6 @@ function queuePanelListKey() {
     queuePanelItemKey(playQueue[Math.max(0, total - 1)], 'last')
   ].join('|');
 }
-function resetQueuePanelRenderLimit() {
-  queuePanelRenderLimit = QUEUE_PANEL_BATCH_SIZE;
-  queuePanelRenderKey = queuePanelListKey();
-}
 function queuePanelVisibleLimit(total) {
   total = Math.max(0, Number(total) || 0);
   if (!total) {
@@ -115,31 +111,6 @@ function queuePanelVisibleLimit(total) {
   }
   queuePanelRenderLimit = Math.min(total, base);
   return queuePanelRenderLimit;
-}
-function growQueuePanelRenderLimit(amount) {
-  if (!playQueue.length) return false;
-  var total = playQueue.length;
-  var current = queuePanelVisibleLimit(total);
-  var next = Math.min(total, current + (amount || QUEUE_PANEL_BATCH_SIZE));
-  if (next <= current) return false;
-  var panel = document.getElementById('playlist-panel');
-  var keepTop = panel ? panel.scrollTop : 0;
-  var miniList = document.getElementById('mini-queue-list');
-  var keepMiniTop = miniList ? miniList.scrollTop : 0;
-  queuePanelRenderLimit = next;
-  renderQueuePanel({ animate: true, scrollCurrent: false });
-  if (panel) panel.scrollTop = keepTop;
-  if (miniList) {
-    miniList = document.getElementById('mini-queue-list');
-    if (miniList) miniList.scrollTop = keepMiniTop;
-  }
-  return true;
-}
-function maybeGrowQueuePanelRenderLimit() {
-  var panel = document.getElementById('playlist-panel');
-  if (!panel || queueViewTab !== 'queue' || !playQueue.length) return;
-  if (queuePanelVisibleLimit(playQueue.length) >= playQueue.length) return;
-  if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 220) growQueuePanelRenderLimit();
 }
 function bindMiniQueueLazyRender() {
   var list = document.getElementById('mini-queue-list');
@@ -786,9 +757,6 @@ function withLocalLibraryPlaylist(list) {
   var localEntry = localLibraryPlaylistEntry();
   if (localEntry) out.unshift(localEntry);
   return out;
-}
-function playlistPanelGroupKey(pl) {
-  return normalizePlaylistProvider(pl && pl.provider);
 }
 function playlistPanelBuildVirtualEntries() {
   var detailSig = [

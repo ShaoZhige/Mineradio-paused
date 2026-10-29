@@ -291,11 +291,6 @@ function finishLyricMaskLayoutMetricsBuild(state) {
   return layout ? lyricMaskLayoutMetricsFromLayout(layout) : null;
 }
 
-function makeLyricMaskLayoutMetrics(input, layoutOverride) {
-  var state = beginLyricMaskLayoutMetricsBuild(input, layoutOverride);
-  while (!stepLyricMaskLayoutMetricsBuild(state, 1024)) { /* synchronous compatibility path */ }
-  return finishLyricMaskLayoutMetricsBuild(state);
-}
 
 function lyricStableHash(text) {
   text = String(text == null ? '' : text);

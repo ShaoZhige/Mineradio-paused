@@ -830,10 +830,6 @@ function searchProviderStatus(provider) {
   if (provider === 'qq') return qqLoginStatus;
   return loginStatus;
 }
-function searchProviderIsLoggedIn(provider) {
-  var st = searchProviderStatus(provider);
-  return !!(st && st.loggedIn);
-}
 function searchProviderCanSearch(provider) {
   var st = searchProviderStatus(provider) || {};
   var capabilities = st.capabilities || {};
@@ -1002,40 +998,6 @@ var SEARCH_ORIGINAL_ARTIST_HINTS = [
   { titles: ['日落大道'], artists: ['梁博'] },
   { titles: ['beautyandabeat', 'beauty and a beat'], artists: ['justin bieber', 'nicki minaj'] }
 ];
-function canonicalOriginalArtistsForSearch(q, song) {
-  var qNorm = simpleSearchNorm(q);
-  var titleNorm = simpleSearchNorm(song && song.name);
-  var joined = qNorm + ' ' + titleNorm;
-  var artists = [];
-  SEARCH_ORIGINAL_ARTIST_HINTS.forEach(function (rule) {
-    var matched = (rule.titles || []).some(function (title) {
-      var nt = simpleSearchNorm(title);
-      var titleMatches = !!(titleNorm && (titleNorm === nt || titleNorm.indexOf(nt) >= 0));
-      return !!(nt && (qNorm.indexOf(nt) >= 0 || titleMatches));
-    });
-    if (matched) {
-      (rule.artists || []).forEach(function (artist) {
-        if (artists.indexOf(artist) < 0) artists.push(artist);
-      });
-    }
-  });
-  return artists;
-}
-function songArtistMatchesAny(song, artists) {
-  var songArtist = simpleSearchNorm(song && song.artist);
-  if (!songArtist || !artists || !artists.length) return false;
-  return artists.some(function (artist) {
-    var na = simpleSearchNorm(artist);
-    return !!(na && (songArtist.indexOf(na) >= 0 || na.indexOf(songArtist) >= 0));
-  });
-}
-function searchLooksLikeSameTitleCover(song, nq, name, album, raw, originalArtistMatch, sourceIndex) {
-  if (!song || !nq || !name || originalArtistMatch) return false;
-  var sameTitle = name === nq || nq.indexOf(name) >= 0 || name.indexOf(nq) === 0;
-  if (!sameTitle) return false;
-  var selfTitledSingle = !!(album && (album === name || album === nq || album.indexOf(name) >= 0 || name.indexOf(album) >= 0));
-  return selfTitledSingle || searchLooksLikeDerivative(raw) || (sourceIndex || 0) > 0;
-}
 function searchPopularityScore(song, sourceIndex) {
   var hot = Number(song && (song.popularity || song.hot || song.heat || song.hotScore || song.score || song.playCount || song.playcount || song.listenCount || song.rankScore || 0));
   var score = 0;

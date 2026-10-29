@@ -1097,15 +1097,6 @@ function startStageLyricResidentBuild(mesh, targetIndex, start, end, options) {
   return true;
 }
 
-function stageLyricPersistentPrimaryMap(data) {
-  var map = {};
-  if (!data || !Array.isArray(data.rowLayers)) return map;
-  for (var i = 0; i < data.rowLayers.length; i++) {
-    var row = data.rowLayers[i];
-    if (row && row.isPrimary && row.lineIndex != null && isFinite(Number(row.lineIndex))) map[Math.round(Number(row.lineIndex))] = true;
-  }
-  return map;
-}
 
 function stageLyricPersistentResidentRowMap(data) {
   var map = {};
@@ -3189,19 +3180,6 @@ function tickLyricsParticles() {
   }
 }
 
-function disposeLyricsParticles() {
-  clearStageLyrics();
-  if (stageLyrics.starRiver) {
-    if (stageLyrics.starRiver.parent) stageLyrics.starRiver.parent.remove(stageLyrics.starRiver);
-    if (stageLyrics.starRiver.geometry) stageLyrics.starRiver.geometry.dispose();
-    if (stageLyrics.starRiver.material) stageLyrics.starRiver.material.dispose();
-    stageLyrics.starRiver = null;
-  }
-  if (stageLyrics.group) {
-    scene.remove(stageLyrics.group);
-    stageLyrics.group = null;
-  }
-}
 
 // ============================================================
 //  涟漪触发系统 — 3×3 九宫格 + bass 上升沿

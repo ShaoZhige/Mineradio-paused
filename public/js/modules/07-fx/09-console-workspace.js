@@ -800,25 +800,7 @@ function fxConsoleEntryForElement(element) {
   return null;
 }
 
-function fxConsoleNormalizeSearch(value) {
-  return String(value || '').toLowerCase().replace(/[\s\-_./]+/g, '');
-}
 
-function fxConsoleCurrentValue(entry) {
-  if (!entry || !entry.element) return '';
-  var el = entry.element;
-  var range = el.matches && el.matches('input[type="range"]') ? el : el.querySelector && el.querySelector('input[type="range"]');
-  if (range) {
-    var output = range.parentElement && range.parentElement.querySelector('output');
-    return output && output.textContent ? output.textContent : range.value;
-  }
-  var color = el.matches && el.matches('input[type="color"]') ? el : el.querySelector && el.querySelector('input[type="color"]');
-  if (color) return String(color.value || '').toUpperCase();
-  if (el.classList && el.classList.contains('fx-toggle')) return el.classList.contains('on') ? consoleWorkspaceText('fx_state_on') : consoleWorkspaceText('fx_state_off');
-  var active = el.querySelector && el.querySelector('.active');
-  if (active && active.textContent) return active.textContent.trim();
-  return '';
-}
 
 function closeFxConsolePopovers() {
   var results = document.getElementById('fx-console-search-results');
@@ -833,40 +815,6 @@ function closeFxConsolePopovers() {
 
 var fxConsoleSearchHitDelayTimer = 0;
 var fxConsoleSearchHitClearTimer = 0;
-function fxConsoleFocusEntry(entry) {
-  if (!entry || !entry.element) return;
-  setFxPanelTab(entry.tab);
-  var group = fxConsoleGroups[entry.tab + ':' + entry.group];
-  if (group) {
-    group.classList.add('open');
-    var head = group.querySelector('.fx-console-group-head');
-    if (head) head.setAttribute('aria-expanded', 'true');
-  }
-  closeFxConsolePopovers();
-  requestAnimationFrame(function () {
-    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    entry.element.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
-    var focusTarget = entry.element.matches && entry.element.matches('input,button,select,textarea,[tabindex]')
-      ? entry.element
-      : (entry.element.querySelector && entry.element.querySelector('input:not([type="hidden"]),button,select,textarea,[tabindex]'));
-    if (!focusTarget && group) focusTarget = group.querySelector('.fx-console-group-head');
-    if (focusTarget && focusTarget.focus) focusTarget.focus({ preventScroll: true });
-    if (fxConsoleSearchHitDelayTimer) clearTimeout(fxConsoleSearchHitDelayTimer);
-    if (fxConsoleSearchHitClearTimer) clearTimeout(fxConsoleSearchHitClearTimer);
-    document.querySelectorAll('#fx-panel .fx-search-hit').forEach(function (node) { node.classList.remove('fx-search-hit'); });
-    fxConsoleSearchHitDelayTimer = setTimeout(function () {
-      fxConsoleSearchHitDelayTimer = 0;
-      if (!entry.element || !entry.element.isConnected) return;
-      entry.element.classList.remove('fx-search-hit');
-      void entry.element.offsetWidth;
-      entry.element.classList.add('fx-search-hit');
-      fxConsoleSearchHitClearTimer = setTimeout(function () {
-        fxConsoleSearchHitClearTimer = 0;
-        if (entry.element) entry.element.classList.remove('fx-search-hit');
-      }, reduceMotion ? 1100 : 1650);
-    }, reduceMotion ? 0 : 220);
-  });
-}
 
 var fxConsoleHistory = [];
 var fxConsoleHistoryTxn = null;
@@ -915,10 +863,6 @@ function fxConsoleChangesEmpty(changes) {
   return !changes || (!changes.fx.length && !changes.prefs.length);
 }
 
-function fxConsoleStateEqual(a, b) {
-  if (!a || !b) return false;
-  return fxConsoleChangesEmpty(fxConsoleChangedKeys(a, b));
-}
 
 function fxConsoleFormatHistoryValue(value) {
   if (value === true) return consoleWorkspaceText('feature_state_on', '开启');
@@ -1255,6 +1199,3 @@ function initFxConsoleSearchAndHistory() {
     if (fxConsoleHistoryTxn) fxConsoleCommitRangeTxn(null);
   });
 }
-
-window.undoFxConsoleHistory = undoFxConsoleHistory;
-window.rollbackFxConsoleHistoryTo = rollbackFxConsoleHistoryTo;

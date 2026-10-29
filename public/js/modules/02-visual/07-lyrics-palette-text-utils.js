@@ -1,12 +1,3 @@
-function uiAccentHex(fallback) {
-  var defaultAccent = normalizeHexColor(fxDefaults.uiAccentColor || '#ffffff', '#ffffff');
-  var fallbackAccent = normalizeHexColor(fallback || defaultAccent, defaultAccent);
-  return normalizeHexColor((fx && fx.uiAccentColor) || fallbackAccent, fallbackAccent);
-}
-function uiAccentRgba(alpha, fallback) {
-  var c = hexToRgb(uiAccentHex(fallback));
-  return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + (alpha == null ? 1 : alpha) + ')';
-}
 function readableInkForHex(hex) {
   var c = hexToRgb(hex || '#00f5d4');
   var lum = (c.r * 0.299 + c.g * 0.587 + c.b * 0.114) / 255;
@@ -517,28 +508,6 @@ function updateLyricPaletteFromCover(coverCanvas) {
   } catch (e) { }
 }
 
-function wrapLyricText(ctx, text, maxWidth, maxLines, fontSize) {
-  text = String(text || '').trim();
-  var useWords = /\s/.test(text) && /[A-Za-z0-9]/.test(text);
-  var units = useWords ? text.split(/(\s+)/).filter(Boolean) : text.split('');
-  var lines = [], line = '';
-  for (var i = 0; i < units.length; i++) {
-    var test = line + units[i];
-    if (lyricMeasureText(ctx, test, fontSize) > maxWidth && line) {
-      lines.push(line.trim());
-      line = units[i].trimStart ? units[i].trimStart() : units[i].replace(/^\s+/, '');
-      if (lines.length >= maxLines) {
-        var rest = units.slice(i).join('').trim();
-        if (rest) lines[lines.length - 1] = lines[lines.length - 1].replace(/[.。,…，、\s]*$/, '') + '...';
-        return lines;
-      }
-    } else {
-      line = test;
-    }
-  }
-  if (line && lines.length < maxLines) lines.push(line.trim());
-  return lines.length ? lines : [''];
-}
 
 function cssColorToThreeColor(css, fallback) {
   var c = new THREE.Color(fallback || '#d6f8ff');

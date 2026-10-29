@@ -204,8 +204,6 @@ function toggleStartupFastSkip() {
   applyStartupAutoplayUi();
   showToast(startupFastSkipPreference ? preferencesUiModesText('fast_skip_on') : preferencesUiModesText('fast_skip_off'));
 }
-window.toggleStartupAutoplay = toggleStartupAutoplay;
-window.toggleStartupFastSkip = toggleStartupFastSkip;
 function applySpotifyLaunchClientUi() {
   var btn = document.getElementById('t-spotifyLaunchClient');
   var enabled = !!(window.SpotifyLaunchClient && window.SpotifyLaunchClient.isEnabled());
@@ -218,7 +216,6 @@ function toggleSpotifyLaunchClient() {
   applySpotifyLaunchClientUi();
   showToast(next ? preferencesUiModesText('settings_spotify_launch_on') : preferencesUiModesText('settings_spotify_launch_off'));
 }
-window.toggleSpotifyLaunchClient = toggleSpotifyLaunchClient;
 // 默认源选择器：选项由 provider 注册表派生（preferred 能力），**不写死平台清单** ——
 // 以后新增可被指定的平台，这里自动多一项，不需要记得回来改。
 // The preferred-source selector derives its options from the provider registry's preferred capability
@@ -251,8 +248,6 @@ function setPreferredSourceProvider(value) {
     ? preferencesUiModesText('settings_preferred_source_on', '默认源已设为 {provider}', { provider: providerRegistryLabel(provider) })
     : preferencesUiModesText('settings_preferred_source_off', '已改为不指定默认源'));
 }
-window.applyPreferredSourceUi = applyPreferredSourceUi;
-window.setPreferredSourceProvider = setPreferredSourceProvider;
 // 下拉项的文案是 JS 写的，`data-i18n` 重扫够不到它，所以切语言后要手动重建选项。
 // The dropdown labels are written by JS, which the data-i18n re-scan cannot reach, so the options are
 // rebuilt explicitly after a language switch.
@@ -464,9 +459,6 @@ function updateFullscreenToolsPeekFromPointer(x, y) {
   var hitBottom = Math.max(rect.top + rect.height, anchorRect.bottom) + 16;
   var active = x >= hitLeft && x <= hitRight && y >= hitTop && y <= hitBottom;
   document.body.classList.toggle('fullscreen-tools-peek', active);
-}
-function isDiyMode() {
-  return !!diyPlayerMode;
 }
 function syncDiyModeButton() {
   // 只有一个 DIY 按钮：窗口化时在标题栏，全屏时被 syncFullscreenToolsRow() 搬进工具行。

@@ -113,24 +113,6 @@ function estimateTempoPhaseOffset(tempoBeats, beatCandidates, step, duration) {
 
 var musicTempoLoadPromise = null;
 var QUEUE_BEAT_AUDIO_PREFETCH_ENABLED = false;
-function ensureMusicTempo() {
-  if (window.MusicTempo) return Promise.resolve(window.MusicTempo);
-  if (musicTempoLoadPromise) return musicTempoLoadPromise;
-  musicTempoLoadPromise = fetch('/vendor/music-tempo.min.js')
-    .then(function (resp) {
-      if (!resp.ok) throw new Error('music-tempo load failed: ' + resp.status);
-      return resp.text();
-    })
-    .then(function (code) {
-      (0, eval)(code);
-      return window.MusicTempo || null;
-    })
-    .catch(function (err) {
-      console.warn('music-tempo dynamic load failed:', err);
-      return null;
-    });
-  return musicTempoLoadPromise;
-}
 
 var musicTempoWorkerUrl = null;
 function getMusicTempoWorkerUrl() {

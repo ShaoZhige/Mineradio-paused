@@ -182,38 +182,3 @@ function rowBaseStageLyricPayload(payload) {
   };
 }
 
-function contextStageLyricPayload(payload) {
-  payload = normalizeStageLyricPayload(payload);
-  if (!payload || !payload.entries || payload.entries.length < 2) return null;
-  var entries = [];
-  var hasContext = false;
-  for (var i = 0; i < payload.entries.length; i++) {
-    var entry = payload.entries[i];
-    if (i === payload.activeLine) {
-      entries.push(cloneStageLyricEntryForLayer(entry, { alpha: 0 }));
-      continue;
-    }
-    hasContext = true;
-    if (entry.translationLine) {
-      entries.push(cloneStageLyricEntryForLayer(entry, {
-        alpha: clampRange(entry.alpha == null ? lyricContextOpacityValue() * 0.58 : entry.alpha, 0, 0.72),
-        scale: clampRange(entry.scale == null ? lyricTranslationScaleValue() * 0.88 : entry.scale, 0.42, 1.12),
-        weight: entry.weight == null ? 650 : entry.weight,
-        lineOffset: entry.lineOffset == null ? -0.20 : entry.lineOffset
-      }));
-      continue;
-    }
-    entries.push(cloneStageLyricEntryForLayer(entry, {
-      alpha: clampRange(entry.alpha == null ? lyricContextOpacityValue() : entry.alpha, 0, 1),
-      scale: clampRange(entry.scale == null ? 0.86 : entry.scale, 0.72, 0.98)
-    }));
-  }
-  if (!hasContext) return null;
-  return {
-    mode: payload.mode,
-    key: payload.key + '|context',
-    activeLine: payload.activeLine,
-    contextLayer: true,
-    entries: entries
-  };
-}

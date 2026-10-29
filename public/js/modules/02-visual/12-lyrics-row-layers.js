@@ -1,15 +1,3 @@
-function lyricLineCenterWorldY(mask, entry, lineIndex, worldH) {
-  mask = mask || {};
-  entry = entry || {};
-  var h = Math.max(1, Number(mask.height) || 384);
-  var fontSize = Number(mask.fontSize) || 128;
-  var lineHeight = Number(mask.lineHeight) || fontSize;
-  var lineFontSize = fontSize * (entry.scale || 1);
-  var y0 = isFinite(Number(mask.lineY0)) ? Number(mask.lineY0) : (h / 2 + fontSize * 0.36);
-  var baseline = y0 + lineIndex * lineHeight + lyricEntryLineOffset(entry) * lineHeight;
-  var centerY = baseline - lineFontSize * 0.36;
-  return (0.5 - clampRange(centerY / h, 0, 1)) * worldH;
-}
 
 function lyricRowVirtualIndex(entry, fallbackIndex) {
   entry = entry || {};
@@ -105,30 +93,8 @@ function lyricNearestPrimaryLineIndexForVirtual(virtualIndex, fallbackLineIndex)
     : upper;
 }
 
-function lyricRowVisualDelta(entry, index, activeLine) {
-  entry = entry || {};
-  var raw = index - activeLine;
-  if (entry.virtualIndex != null || entry.lineIndex != null || entry.parentIndex != null) {
-    var trackIndex = activeLine != null && isFinite(Number(activeLine)) ? Number(activeLine) : 0;
-    raw = lyricRowVirtualIndex(entry, index) - trackIndex;
-  }
-  if (entry.translationLine && entry.parentRole === 'current' && !(entry.virtualIndex != null || entry.lineIndex != null || entry.parentIndex != null)) {
-    var gap = lyricTranslationGapValue();
-    return raw >= 0 ? gap : -gap;
-  }
-  return raw;
-}
 
-function lyricRowDepthZ(entry, index, activeLine) {
-  var delta = lyricRowVisualDelta(entry, index, activeLine);
-  var abs = Math.min(5.5, Math.abs(delta));
-  return 0.055 - Math.pow(abs, 1.06) * 0.145;
-}
 
-function lyricRowDepthScale(entry, index, activeLine) {
-  var abs = Math.min(5.5, Math.abs(lyricRowVisualDelta(entry, index, activeLine)));
-  return clampRange(1 - abs * 0.026, 0.84, 1.02);
-}
 
 function makeLyricBackfaceReadableMaterial(opts) {
   opts = opts || {};
@@ -618,12 +584,6 @@ function appendLyricRowLayerBuildPhase(state) {
   return finishLyricRowLayerBuildEntry(state);
 }
 
-function appendLyricRowLayerBuildEntry(state) {
-  if (!state || state.done) return false;
-  var startCursor = state.cursor;
-  while (!state.done && state.cursor === startCursor) appendLyricRowLayerBuildPhase(state);
-  return state.cursor > startCursor;
-}
 
 function stepLyricRowLayerGroupBuild(state, maxPhases, budgetMs) {
   if (!state || state.done) return true;

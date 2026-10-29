@@ -436,23 +436,6 @@ function drawIdleGuideFrame() {
   ctx.globalCompositeOperation = 'source-over';
   scheduleIdleGuideFrame(0);
 }
-function idleRoundRect(ctx, x, y, w, h, r) {
-  if (ctx.roundRect) {
-    ctx.roundRect(x, y, w, h, r);
-    return;
-  }
-  r = Math.min(r || 0, Math.abs(w) * 0.5, Math.abs(h) * 0.5);
-  var x2 = x + w, y2 = y + h;
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x2 - r, y);
-  ctx.quadraticCurveTo(x2, y, x2, y + r);
-  ctx.lineTo(x2, y2 - r);
-  ctx.quadraticCurveTo(x2, y2, x2 - r, y2);
-  ctx.lineTo(x + r, y2);
-  ctx.quadraticCurveTo(x, y2, x, y2 - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-}
 function drawShelfGuideCue(ctx, t, strength) {
   strength = Math.max(0, Math.min(1, strength == null ? shelfHoverCue.value : strength));
   if (strength <= 0.01) return;

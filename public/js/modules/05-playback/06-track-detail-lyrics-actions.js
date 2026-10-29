@@ -1333,13 +1333,6 @@ function artistCollectTrayIconSvg() {
 function artistNextPlusIconSvg() {
   return '<svg fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13"/><path d="M5.5 12h13"/></svg>';
 }
-function songActionHtml(kind, source, index, song) {
-  var liked = isSongLiked(song);
-  if (kind === 'like') {
-    return '<button class="song-action-btn' + (liked ? ' liked' : '') + '" title="' + (liked ? trackActionText('track_unheart') : trackActionText('track_heart_like')) + '" onclick="event.stopPropagation();toggleLike' + source + '(' + index + ')">' + heartIconSvg() + '</button>';
-  }
-  return trackActionText('track_collect_btn_prefix_html') + source + '(' + index + ')">' + playlistPlusIconSvg() + '</button>';
-}
 function syncLikeStatusForSongs(songs) {
   if (!songs || !songs.length) return;
   var groups = Object.create(null);
@@ -1489,7 +1482,6 @@ function openCollectModal(song) {
   Promise.resolve(refresh).then(function () { renderCollectModal(); }).catch(function () { renderCollectModal(); });
 }
 function openCollectModalForCurrent() { openCollectModal(currentCoverSong()); }
-function collectSearchResult(i) { if (playlist[i]) openCollectModal(playlist[i]); }
 function collectQueueIndex(i) { if (playQueue[i]) openCollectModal(playQueue[i]); }
 function collectDetailSong(song) { openCollectModal(song); }
 function closeCollectModal() {

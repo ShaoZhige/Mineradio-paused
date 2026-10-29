@@ -73,10 +73,6 @@ function sonicAudioBlendForRate(rate, dt) {
   return sonicAudioClamp(1 - Math.exp(-Math.max(0, rate) * Math.max(0, dt || 0)), 0, 1);
 }
 
-function sonicAudioScaleBin(baseBin, len) {
-  len = Math.max(1, Math.round(Number(len) || 1));
-  return Math.max(0, Math.min(len - 1, Math.round((Number(baseBin) || 0) * len / SONIC_AUDIO_BASE_BINS)));
-}
 
 function sonicAudioResolveAnalysisMeta(data, opts) {
   opts = opts || {};
@@ -122,37 +118,7 @@ function sonicAudioBaseRangeToHz(meta, baseStart, baseEnd) {
   };
 }
 
-function sonicAudioBaseBinValue(data, baseBin) {
-  if (!data || !data.length) return 0;
-  return (data[sonicAudioScaleBin(baseBin, data.length)] || 0) / 255;
-}
 
-function sonicAudioRangeAverage(data, baseStart, baseEnd, weighted) {
-  if (!data || !data.length) return 0;
-  baseStart = Math.max(0, Math.round(Number(baseStart) || 0));
-  baseEnd = Math.max(baseStart, Math.round(Number(baseEnd) || baseStart));
-  var start = sonicAudioScaleBin(baseStart, data.length);
-  var end = sonicAudioScaleBin(baseEnd, data.length);
-  if (end < start) {
-    var tmp = start;
-    start = end;
-    end = tmp;
-  }
-  var sum = 0;
-  var total = 0;
-  var center = (start + end) / 2;
-  var half = Math.max(1, (end - start + 1) / 2);
-  for (var i = start; i <= end; i++) {
-    var weight = 1;
-    if (weighted) {
-      var distance = Math.abs(i - center);
-      weight = 0.35 + 0.65 * (1 - Math.min(1, distance / half));
-    }
-    sum += ((data[i] || 0) / 255) * weight;
-    total += weight;
-  }
-  return total > 0 ? sum / total : 0;
-}
 
 function sonicAudioHzRangeAverage(data, meta, hzStart, hzEnd, weighted) {
   if (!data || !data.length) return 0;
@@ -729,10 +695,6 @@ function bindSonicAudioMonitorControls() {
 }
 
 if (typeof window !== 'undefined') {
-  window.stepSonicAudioMonitor = stepSonicAudioMonitor;
-  window.getSonicAudioMonitorSnapshot = getSonicAudioMonitorSnapshot;
-  window.toggleSonicAudioMonitorPanel = toggleSonicAudioMonitorPanel;
-  window.refreshSonicAudioMonitorUi = refreshSonicAudioMonitorUi;
   // 分文件注入时模块是动态插入的 <script src>，按规范不延迟 DOMContentLoaded；本模块靠后，
   // 执行时那个事件可能已经过去。就绪就立刻绑，没就绪才挂监听。
   // Dynamic <script src> does not delay DOMContentLoaded, so by the time this module runs the event
