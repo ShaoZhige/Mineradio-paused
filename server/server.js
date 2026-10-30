@@ -61,7 +61,10 @@ const path = require('path');
 const crypto = require('crypto');
 const tls = require('tls');
 const { fileURLToPath } = require('url');
-const { analyzePodcastDjStream, analyzePodcastDjIntro } = require('./dj-analyzer');
+// 走代理而不是直接 require('./dj-analyzer')：解码与频谱计算要放进 utilityProcess，
+// 否则整首歌的 O(n) 计算会占住主进程事件循环，分析期间所有 IPC 一起变慢。
+// 代理在没有 utilityProcess 的环境（纯 Node 测试）会自动退回进程内调用。
+const { analyzePodcastDjStream, analyzePodcastDjIntro } = require('./dj-analyzer-host');
 const { TrackDecryptor } = require('./qishui-audio-decryptor/track-decryptor');
 const {
   normalizeQQVipPayload: normalizeQQVipPayloadStrict,

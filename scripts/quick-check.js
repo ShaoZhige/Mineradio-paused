@@ -8337,6 +8337,50 @@ function checkWorkflowGatingHonestyGuard() {
   console.log(`[OK] Every never-failing step declares itself. Report-only steps: ${reportOnly.length}${reportOnly.length ? ' → ' + reportOnly.join('; ') : ''}.`);
 }
 
+// DJ 节奏分析的解码与 FFT 必须在 utilityProcess 里跑。
+// 这条接线极其容易静默回退：把 server.js 那一行 require('./dj-analyzer-host') 改回
+// require('./dj-analyzer')，功能照样正常、测试照样绿，只有主进程事件循环重新被占住
+// （实测单次分析就能造成 66ms 的长任务，期间所有 IPC 一起变慢）。所以用守卫钉住两端。
+// The DJ beat-analysis decode/FFT must run in a utilityProcess. Reverting that one require
+// silently restores the blocking behaviour: nothing fails, nothing turns red, the main
+// process just goes back to being occupied for the whole analysis.
+function checkDjAnalyzerIsolationGuard() {
+  logStep('DJ analysis isolation guard');
+  const serverPath = path.join(appRoot, 'server', 'server.js');
+  const serverText = fs.readFileSync(serverPath, 'utf8');
+  // 只看真正的代码行：注释里提到「直接 require('./dj-analyzer') 会怎样」是正常的说明，
+  // 不该被当成实际引用。整行注释与块注释的行首都剔除。
+  const serverCode = serverText
+    .split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  if (!/require\('\.\/dj-analyzer-host'\)/.test(serverCode)) {
+    fail('server.js must reach DJ beat analysis through ./dj-analyzer-host; requiring ./dj-analyzer directly runs decoding and FFT on the main-process event loop');
+  }
+  if (/require\('\.\/dj-analyzer'\)/.test(serverCode)) {
+    fail('server.js must not require ./dj-analyzer directly — that blocks the main-process event loop for the whole analysis');
+  }
+  const hostPath = path.join(appRoot, 'server', 'dj-analyzer-host.js');
+  const workerPath = path.join(appRoot, 'server', 'dj-worker.js');
+  if (!fs.existsSync(hostPath) || !fs.existsSync(workerPath)) {
+    fail('server/dj-analyzer-host.js and server/dj-worker.js must both exist — the utilityProcess boundary needs both ends');
+  }
+  const hostText = fs.readFileSync(hostPath, 'utf8');
+  if (!/utilityProcess\.fork\(/.test(hostText)) {
+    fail('dj-analyzer-host must fork the worker through utilityProcess');
+  }
+  // 降级链不能删：纯 Node 环境（npm test、后端搬家回归、scripts 直跑 server.js）里
+  // 没有 utilityProcess，缺了回退会让播客锁拍直接抛错。
+  if (!/analyzePodcastDjStream\b/.test(hostText) || !/require\('\.\/dj-analyzer'\)/.test(hostText)) {
+    fail('dj-analyzer-host must keep the in-process fallback for environments without utilityProcess');
+  }
+  const workerText = fs.readFileSync(workerPath, 'utf8');
+  if (!/process\.parentPort/.test(workerText)) {
+    fail('dj-worker must listen on process.parentPort, otherwise the forked process never replies');
+  }
+  console.log('[OK] DJ beat analysis runs in a utilityProcess, with an in-process fallback when unavailable.');
+}
+
 async function main() {
   console.log(`App root: ${appRoot}`);
   runNodeSyntaxCheck(jsCheckFiles());
@@ -8420,6 +8464,7 @@ async function main() {
   checkIdleGuideCanvasReleaseGuard();
   checkWorkflowGatingHonestyGuard();
   checkFxConsoleWorkspaceGuard();
+  checkDjAnalyzerIsolationGuard();
   if (runElectron) {
     runElectronRuntimeCheck();
     runMainStartupRecoveryCheck();
