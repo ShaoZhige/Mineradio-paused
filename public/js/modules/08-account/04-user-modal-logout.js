@@ -199,15 +199,9 @@ function resetAllProviderRendererLoginState() {
   activeAccountProvider = 'netease';
   playlistCatalogRevision += 1;
   if (typeof clearQQPlaybackVipEvidence === 'function') clearQQPlaybackVipEvidence();
-  if (typeof homeDiscoverState !== 'undefined' && homeDiscoverState) {
-    homeDiscoverState.loading = false;
-    homeDiscoverState.loaded = true;
-    homeDiscoverState.loggedIn = false;
-    homeDiscoverState.mode = 'starter';
-    homeDiscoverState.songs = [];
-    homeDiscoverState.playlists = [];
-    homeDiscoverState.podcasts = [];
-  }
+  // 首页推荐的缓存、各平台推荐 feed、仪表盘指纹都在 resetHomeDiscoverAfterLogout 里一起清，
+  // 只清 homeDiscoverState 的话卡片会一直挂着上个账号的内容（见该函数注释）。
+  if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-all', { reload: false });
 }
 
 async function logoutAllAccountsAndResetEasterEgg() {
@@ -282,6 +276,8 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
+    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
+    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
     safeShelfRebuild('spotify-logout');
@@ -302,6 +298,8 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'qishui'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
+    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
+    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
     safeShelfRebuild('qishui-logout');
@@ -322,6 +320,8 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'kugou'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
+    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
+    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
     if (hasAnyPlatformLogin()) updateUserModalUi();
@@ -342,6 +342,8 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'qq'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
+    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
+    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
     if (hasAnyPlatformLogin()) updateUserModalUi();
@@ -367,6 +369,8 @@ async function doLogout() {
   myPodcastCollections = [];
   myPodcastItems = {};
   likedSongMap = {};
+  // 网易云一退，首页那几张卡片就是上个账号的残影了：缓存与指纹一起清掉再重绘。
+  if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-netease');
   closeCollectModal();
   updateLikeButtons();
   safeRenderQueuePanel('logout', { scrollCurrent: miniQueueOpen });

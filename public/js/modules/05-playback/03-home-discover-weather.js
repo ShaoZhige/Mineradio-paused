@@ -224,3 +224,64 @@ async function loadHomeDiscover(force) {
     }
   }
 }
+
+// 退出登录（或全部退出）之后，首页要还原成「一开始什么都没有」的样子。
+//
+// 只把 homeDiscoverState.songs 清空是不够的，三个地方各自留了一份缓存：
+//   1. loadHomeDiscover() 见到 loaded 就直接返回 —— 谁不把 loaded 置回去，上个账号的
+//      推荐就永远挂在界面上，直到重启；
+//   2. 各平台推荐 feed（`homePlatformRecommendationState.feeds`）自己存了 songs/loaded；
+//   3. 首页仪表盘用指纹判断「内容没变」就跳过重绘，指纹不清就永远不重画。
+// 三个都清掉再重绘，卡片才会退回 fallbackHomeTiles() 那一组起始入口。
+//
+// Called from every logout path in 08-account/04-user-modal-logout.js.
+function resetHomeDiscoverAfterLogout(reason, opts) {
+  opts = opts || {};
+  // 在途请求会带着旧账号的数据回来；把 token 推走，让它的回包直接作废。
+  homeDiscoverToken += 1;
+  homeDiscoverState.loading = false;
+  homeDiscoverState.error = '';
+  homeDiscoverState.updatedAt = 0;
+  homeDiscoverState.songs = [];
+  homeDiscoverState.playlists = [];
+  homeDiscoverState.podcasts = [];
+
+  homePlatformRecommendationState.neteaseLoading = false;
+  var feeds = homePlatformRecommendationState.feeds;
+  Object.keys(feeds).forEach(function (key) {
+    var feed = feeds[key];
+    feed.loading = false;
+    feed.loaded = false;
+    feed.songs = [];
+    feed.error = '';
+    feed.message = '';
+    feed.mode = '';
+    feed.source = '';
+    feed.fallback = false;
+    feed.provenance = '';
+  });
+
+  // 指纹缓存住在 03a-home-dashboard.js，同为顶层 var（即 window 属性），这里直接清。
+  window.homeDashboardDiscoveryCache = [];
+  window.homeDashboardDiscoveryFingerprint = '';
+  window.homeDashboardQuickFingerprint = '';
+
+  var stillLoggedIn = typeof hasAnyPlatformLogin === 'function' && hasAnyPlatformLogin();
+  homeDiscoverState.loggedIn = stillLoggedIn;
+  if (stillLoggedIn) {
+    // 还有别的平台登录着：作废缓存，让首页按剩下的账号重新拉一次，别留着上个账号的内容。
+    homeDiscoverState.loaded = false;
+  } else {
+    // 已经全退出，这就是终态：loaded 置 true，避免任何地方再触发一次无意义的加载。
+    homeDiscoverState.loaded = true;
+    homeDiscoverState.mode = 'starter';
+  }
+
+  if (typeof renderHomeDiscover === 'function') renderHomeDiscover();
+  if (typeof renderHomeDashboard === 'function') renderHomeDashboard();
+  if (typeof renderHomePlatformRecommendations === 'function') renderHomePlatformRecommendations();
+  if (stillLoggedIn && opts.reload !== false && typeof loadHomeDiscover === 'function') {
+    loadHomeDiscover(true);
+  }
+  return reason || '';
+}
