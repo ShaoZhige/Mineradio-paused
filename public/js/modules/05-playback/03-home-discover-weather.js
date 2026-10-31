@@ -1,17 +1,5 @@
-// 界面文案统一走 i18n；缺键时退回内置中文模板，界面不会出现空串或裸 key。
-// All UI copy goes through i18n and falls back to the built-in Chinese template, so the
-// UI never shows an empty string or a raw key.
-// 本模块界面文案统一走 i18n，词典是唯一文案来源。
-// UI copy in this module goes through i18n; the dictionary is the single source of copy.
-// 两种形态：
-//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
-//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
-//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
-// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
-// Two call shapes. A missing key returns the key itself on purpose: an empty string would
-// make an untranslated string fail silently, while a bare key is self-identifying on screen.
-// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
-// params goes to both t() and the fallback template so placeholders still resolve.
+// 词典是界面文案的唯一来源。缺键刻意返回键名而不是空串：空串会让漏译静默发生，
+// 键名在界面上是一眼能认出的错误。params 同时喂给 t() 与兜底模板，缺词典时占位符仍会被替换。
 function homeDiscoverText(key, fallback, params) {
   var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
   var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
@@ -225,16 +213,10 @@ async function loadHomeDiscover(force) {
   }
 }
 
-// 退出登录（或全部退出）之后，首页要还原成「一开始什么都没有」的样子。
-//
-// 只把 homeDiscoverState.songs 清空是不够的，三个地方各自留了一份缓存：
-//   1. loadHomeDiscover() 见到 loaded 就直接返回 —— 谁不把 loaded 置回去，上个账号的
-//      推荐就永远挂在界面上，直到重启；
-//   2. 各平台推荐 feed（`homePlatformRecommendationState.feeds`）自己存了 songs/loaded；
-//   3. 首页仪表盘用指纹判断「内容没变」就跳过重绘，指纹不清就永远不重画。
-// 三个都清掉再重绘，卡片才会退回 fallbackHomeTiles() 那一组起始入口。
-//
-// Called from every logout path in 08-account/04-user-modal-logout.js.
+// 退出登录后首页要回到起始入口。只清 songs 不够，因为有三处独立缓存都拦着：
+// loadHomeDiscover() 见到 loaded 就短路，各平台推荐 feed 自己存了 songs/loaded，
+// 仪表盘又用指纹判断「内容没变」而跳过重绘。三处一起清再重绘才会退回 fallbackHomeTiles()。
+// 每条退出路径都必须调用它。
 function resetHomeDiscoverAfterLogout(reason, opts) {
   opts = opts || {};
   // 在途请求会带着旧账号的数据回来；把 token 推走，让它的回包直接作废。

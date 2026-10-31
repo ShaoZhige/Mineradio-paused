@@ -1,13 +1,6 @@
 #!/usr/bin/env node
-// 把刚打好的安装包归档到仓库上一级的 releases\<tag>\ ，供上传网盘与日后回查。
-//
-// 为什么不再从云端取：GitHub runner 的产物要在这台机器上下回来，95 MB 得二十多分钟，
-// 中途还会断流；本地自己构建只要两分钟。既然两边都是同一条提交打出来的，留本地那份
-// 就够用了 —— 云端那份的职责只是挂在 Release 上给用户下载。
-//
-// Archive the installer we just built into ..\releases\<tag>\. The cloud copy exists only
-// to be published as a Release asset; downloading it here costs twenty minutes on this
-// link, while building locally costs two.
+// 把本地打好的安装包归档到仓库上一级的 releases\<tag>\，供上传网盘与日后回查。
+// 归档副本只服务网盘分发；云端 Release 附件供用户下载，两者互不替代。
 //
 // 目录语义：同版本目录已存在就往里覆盖，不存在就新建。两个版本的包不会混在一起 ——
 // 归档时会把该目录里其它版本的安装包和校验和清掉，免得传网盘时拿错。
@@ -76,8 +69,8 @@ function sha256(filePath) {
   return hash.digest('hex');
 }
 
-// 备用更新线路读的极简清单必须与包版本一致。漏改过一次（停在 2.2.0），备用线路从此
-// 读到「没有新版本」，静默失效且不报错。
+// 备用更新线路只读这份极简清单：版本对不上就会被判成「没有新版本」，静默失效且不报错，
+// 所以版本必须与 package.json 一致。
 function assertManifestVersion(version) {
   if (!fs.existsSync(MANIFEST_SRC)) fail('缺少 docs/update/latest.yml，无法生成备用更新清单。');
   const text = fs.readFileSync(MANIFEST_SRC, 'utf8');
@@ -117,7 +110,7 @@ function main() {
   const hash = sha256(installerPath);
   const size = fs.statSync(installerPath).size;
 
-  // 同版本目录一般早就在了（上次传网盘留下的），直接覆盖；没有就建。
+  // 同版本目录已存在就覆盖，不存在就新建。
   const existing = fs.existsSync(outDir);
   if (options.dryRun) {
     log('[--dry-run] 归档目录：' + outDir + (existing ? '（已存在，覆盖）' : '（新建）'));
@@ -142,10 +135,8 @@ function main() {
   // 校验和写在 dist 里，与 CI 同格式：`<hash>  <文件名>`。
   fs.writeFileSync(path.join(DIST_DIR, sumsName), hash + '  ' + installerName + '\n', 'utf8');
 
-  // 用仓库内的极简清单覆盖 electron-builder 生成的那份。后者带 files[].url / sha512 /
-  // path，配上 blockmap 就是完整的自动更新源；这份归档文件是要跟着网盘分发的，不能带。
-  // Overwrite the builder-generated manifest: the archived copy travels with the mirror
-  // download, and that manifest would be a working auto-update feed.
+  // 用仓库内的极简清单覆盖 electron-builder 生成的那份：后者带 files[].url / sha512 /
+  // path，配上 blockmap 就是一条可用的自动更新源，而归档副本会跟着网盘一起发出去。
   fs.copyFileSync(MANIFEST_SRC, path.join(outDir, 'latest.yml'));
 
   for (const name of [installerName, sumsName]) {

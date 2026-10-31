@@ -1,17 +1,5 @@
-// 界面文案统一走 i18n；缺键时退回内置中文模板，界面不会出现空串或裸 key。
-// All UI copy goes through i18n and falls back to the built-in Chinese template, so the
-// UI never shows an empty string or a raw key.
-// 本模块界面文案统一走 i18n，词典是唯一文案来源。
-// UI copy in this module goes through i18n; the dictionary is the single source of copy.
-// 两种形态：
-//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
-//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
-//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
-// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
-// Two call shapes. A missing key returns the key itself on purpose: an empty string would
-// make an untranslated string fail silently, while a bare key is self-identifying on screen.
-// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
-// params goes to both t() and the fallback template so placeholders still resolve.
+// 词典是界面文案的唯一来源。缺键刻意返回键名而不是空串：空串会让漏译静默发生，
+// 键名在界面上是一眼能认出的错误。params 同时喂给 t() 与兜底模板，缺词典时占位符仍会被替换。
 function accountPanelText(key, fallback, params) {
   var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
   var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
@@ -33,13 +21,8 @@ function accountPanelText(key, fallback, params) {
   return out;
 }
 function loggedProviderCount() {
-  // ⚠️ 这里原先手写 ['netease','qq','kugou','qishui']，**漏了 Spotify** —— 而登出弹窗单独处理了
-  //    Spotify、hasAnyPlatformLogin() 也认它，所以只用 Spotify 登录时这个计数会算出 0，
-  //    连带把「双账号模式」判成关闭（下方两处都拿它比 2）。改为按注册表的 login 能力取集合。
-  // ⚠️ This used to hardcode ['netease','qq','kugou','qishui'] and therefore MISSED Spotify, even
-  //    though the logout modal handles Spotify explicitly and hasAnyPlatformLogin() counts it. A
-  //    Spotify-only session scored 0 here, which in turn disabled dual-account mode (both call sites
-  //    below compare it against 2). The set now comes from the registry's login capability.
+  // 平台集合必须取自注册表的 login 能力：登出弹窗与 hasAnyPlatformLogin() 都认 Spotify，
+  // 写死平台列表会让只用 Spotify 的会话算出 0，连带把下方的双账号模式判成关闭。
   return providerRegistryKeysWith('login').filter(function (key) { return hasPlatformLogin(key); }).length;
 }
 function updateUserModalUi() {
@@ -199,8 +182,7 @@ function resetAllProviderRendererLoginState() {
   activeAccountProvider = 'netease';
   playlistCatalogRevision += 1;
   if (typeof clearQQPlaybackVipEvidence === 'function') clearQQPlaybackVipEvidence();
-  // 首页推荐的缓存、各平台推荐 feed、仪表盘指纹都在 resetHomeDiscoverAfterLogout 里一起清，
-  // 只清 homeDiscoverState 的话卡片会一直挂着上个账号的内容（见该函数注释）。
+  // 首页推荐状态、各平台 feed、仪表盘指纹一律由 resetHomeDiscoverAfterLogout 统一清理。
   if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-all', { reload: false });
 }
 
@@ -257,15 +239,11 @@ async function logoutAllAccountsAndResetEasterEgg() {
 }
 
 async function logoutActiveAccount() {
-  // Spotify 没有登录窗口，令牌藏在后端文件 + 主进程缓存里：两条都要清，
-  // 否则退出后下一次状态查询还会把旧资料读回来。
-  // Spotify has no login window; the token lives in a backend file plus a main-process cache.
-  // Both must be cleared, or the next status query reads the old profile right back.
+  // Spotify 没有登录窗口，令牌同时存在于后端文件与主进程缓存，两处都要清，
+  // 否则下一次状态查询会把旧资料读回来。
   if (activeAccountProvider === 'spotify') {
-    // 只走 IPC：它会删掉令牌文件并清空主进程缓存，和 /api/spotify/logout 做的是同一件事，
-    // 但不必为一个本地文件发 HTTP 请求。
-    // IPC only: it deletes the token file and clears the main-process cache — exactly what
-    // /api/spotify/logout does, without an HTTP round-trip for a local file.
+    // 走 IPC 即可：它删令牌文件并清主进程缓存，与 /api/spotify/logout 等价，
+    // 但不必为一次本地文件操作发 HTTP 请求。
     try {
       if (window.desktopWindow && typeof window.desktopWindow.clearSpotifyMusicLogin === 'function') {
         await window.desktopWindow.clearSpotifyMusicLogin();
@@ -276,7 +254,6 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
-    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
     if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
@@ -298,7 +275,6 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'qishui'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
-    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
     if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
@@ -320,7 +296,6 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'kugou'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
-    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
     if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
@@ -342,7 +317,6 @@ async function logoutActiveAccount() {
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'qq'; });
     playlistCatalogRevision += 1;
     dualAccountMode = false;
-    // 退出一个平台后，首页那几张推荐卡片必须回到起始态（或按剩下还登录着的平台重拉）。
     if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
@@ -369,7 +343,6 @@ async function doLogout() {
   myPodcastCollections = [];
   myPodcastItems = {};
   likedSongMap = {};
-  // 网易云一退，首页那几张卡片就是上个账号的残影了：缓存与指纹一起清掉再重绘。
   if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-netease');
   closeCollectModal();
   updateLikeButtons();
