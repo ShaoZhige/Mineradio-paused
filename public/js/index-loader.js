@@ -300,14 +300,39 @@
   }
 
   // 所有模块执行完后统一跑注册过的收尾工作；单个失败不影响其它。
+  //
+  // 时机很关键：模块是以 `el.src` 动态插入的**外部**脚本（async=false 只保证它们彼此按插入
+  // 顺序执行），而这段是**内联**脚本，插入当场就同步跑完——那时候模块一个都还没下载回来，
+  // 钩子表还是空的。以前内联脚本跑完就结束了，于是之后模块登记的钩子永远躺在数组里没人读，
+  // 滚动懒渲染和弹窗背景关闭全部失效（表现：歌单/队列列表滚动后内容不更新，底部留一片空白）。
+  // 所以改成等 load（外部脚本都属于它管的资源）、并且在已经 complete 时立即跑；跑完之后
+  // 再登记的钩子由 __mineradioDefer 直接执行。
   // Run every registered boot hook after all modules executed; one failure must not stop the rest.
+  //
+  // Timing matters: the modules are dynamically inserted **external** scripts (async=false only
+  // keeps them ordered among themselves), while this one is **inline** and runs the moment it is
+  // inserted — when not a single module has downloaded yet and the hook list is still empty. It
+  // used to end there, so every hook registered later sat in a list nobody read again, and the
+  // panel's lazy scrolling plus the backdrop close were silently dead (the list stopped updating
+  // while scrolling and left a blank block at the bottom). Hence load, immediate when already
+  // complete, and __mineradioDefer runs late registrations directly.
   function bootRunSource() {
     return String.raw`
 ;(function () {
-  var hooks = window.__mineradioBootHooks || [];
-  for (var i = 0; i < hooks.length; i++) {
-    try { hooks[i](); } catch (error) { console.error("[Boot] hook failed: " + (error && error.message || error)); }
-  }
+  window.__mineradioRunBootHooks = function () {
+    // 钩子里可能又登记（例如被它调起的模块），跑完一轮再看一眼，最多三轮，避免互相激活死循环。
+    for (var round = 0; round < 3; round++) {
+      var hooks = window.__mineradioBootHooks || [];
+      if (!hooks.length) break;
+      window.__mineradioBootHooks = [];
+      for (var i = 0; i < hooks.length; i++) {
+        try { hooks[i](); } catch (error) { console.error("[Boot] hook failed: " + (error && error.message || error)); }
+      }
+    }
+    window.__mineradioBootFlushed = true;
+  };
+  if (document.readyState === "complete") window.__mineradioRunBootHooks();
+  else window.addEventListener("load", window.__mineradioRunBootHooks, { once: true });
 })();
 `;
   }
@@ -324,15 +349,29 @@
     const boot = document.createElement('script');
     boot.text = bootHooksSource();
     appendAfter(boot);
-    modulePaths.forEach((path) => {
+    // 最后一个模块的 load（脚本执行完之后才触发）就是钩子最早的安全时机：此刻所有模块的
+    // 顶层都跑过了。别等 window 的 load —— 播放器首屏有壁纸和封面，那个事件可能晚好几秒，
+    // 而这段时间里面板的滚动懒渲染一直是死的。加载失败也要兜一次，否则一个 404 就能把整条
+    // 收尾流程永远挂住。
+    // The last module's load (fired after execution) is the earliest safe moment for the hooks:
+    // every module's top level has run by then. Waiting for window load would be seconds late on a
+    // player with a wallpaper and cover art, and lazy panel scrolling stays dead meanwhile. A
+    // failed load flushes too, so one 404 cannot hang the whole tail for good.
+    const flushBootHooks = () => {
+      if (typeof window.__mineradioRunBootHooks === 'function') window.__mineradioRunBootHooks();
+    };
+    modulePaths.forEach((path, moduleIndex) => {
       const el = document.createElement('script');
       // 动态插入的 script 默认 async=true，会按下载完成的先后执行；必须显式关掉才能保序。
       // Dynamically inserted scripts default to async: they run in download order unless this is off.
       el.async = false;
       el.src = moduleUrl(path);
+      const isLastModule = moduleIndex === modulePaths.length - 1;
       el.onerror = () => {
         console.error('[Loader] failed to load module: ' + path);
+        if (isLastModule) flushBootHooks();
       };
+      if (isLastModule) el.onload = flushBootHooks;
       appendAfter(el);
     });
     // 惰性运行时与模块共享同一个全局作用域，必须排在所有模块之后。
@@ -352,7 +391,14 @@
     return ';(function () {\n'
       + '  window.__mineradioBootHooks = window.__mineradioBootHooks || [];\n'
       + '  window.__mineradioDefer = function (fn) {\n'
-      + '    if (typeof fn === "function") window.__mineradioBootHooks.push(fn);\n'
+      + '    if (typeof fn !== "function") return;\n'
+      // boot 已经跑过还来登记，说明是之后才注入的模块：直接执行，不要再往一个没人
+      // 再读的数组里塞（那正是「滚动列表永远不刷新」的成因）。
+      + '    if (window.__mineradioBootFlushed) {\n'
+      + '      try { fn(); } catch (error) { console.error("[Boot] deferred call failed: " + (error && error.message || error)); }\n'
+      + '      return;\n'
+      + '    }\n'
+      + '    window.__mineradioBootHooks.push(fn);\n'
       + '  };\n'
       + '})();\n';
   }

@@ -63,8 +63,26 @@ function queuePanelVirtualWindow(list, scroller, total, selfScroll, forceIndex) 
   end = Math.min(total, Math.max(end, start + maxRows));
   return { start: start, end: end, top: start * rowStep, bottom: Math.max(0, total - end) * rowStep };
 }
+// rAF 句柄可能被丢弃（窗口最小化、页面被遮挡、渲染进程刚从后台回到前台）：那个 id 再也不会
+// 回调，而 `if (state.raf) return` 会一直把它当成「已经排过队」，于是之后每次滚动都被短路，
+// 列表从此不再换窗口——占位符留在原地，就是一片空白。超过一个心跳就当作句柄已死，重新排队。
+// A rAF handle can be dropped (minimised window, occluded page, renderer back from background):
+// the id never calls back, while `if (state.raf) return` keeps treating it as queued, so every
+// later scroll is short-circuited, the list stops re-windowing and the spacers sit there as blank
+// space. Past one heartbeat the handle is presumed dead and re-armed.
+var PANEL_VIRTUAL_RAF_STALE_MS = 400;
+function takePanelVirtualFrame(state) {
+  if (!state) return false;
+  if (state.raf) {
+    if (Date.now() - (state.rafAt || 0) < PANEL_VIRTUAL_RAF_STALE_MS) return false;
+    try { cancelAnimationFrame(state.raf); } catch (e) { }
+    state.raf = 0;
+  }
+  state.rafAt = Date.now();
+  return true;
+}
 function scheduleQueuePanelVirtualRender() {
-  if (queuePanelVirtualState.raf) return;
+  if (!takePanelVirtualFrame(queuePanelVirtualState)) return;
   queuePanelVirtualState.raf = requestAnimationFrame(function () {
     queuePanelVirtualState.raf = 0;
     if (miniQueueOpen) renderMiniQueuePanel({ animate: false, scrollCurrent: false });
@@ -811,6 +829,22 @@ function playlistPanelOffsetIndex(offsets, value) {
   }
   return Math.max(0, Math.min(offsets.length - 2, lo));
 }
+// 详情条目（展开的歌单）在台账里是一条独立记录，高度好几百像素，但它和上一张卡片是
+// 一个整体。虚拟窗口的 start/end 是按卡片高度切出来的，正好落在详情上时就会把它切成
+// 「高度算进去了、节点没渲染」——面板上凭空多出一整块空白，位置就在展开的卡片下面。
+// 这里把两个边界往外扩，直到不再切开任何详情。
+// A detail entry is a standalone ledger record a few hundred pixels tall that visually belongs to
+// the card above it. The window is sliced by card height, so it can land exactly on a detail and
+// leave "reserved but never rendered" space — a blank hole right under the expanded card. Both
+// edges grow outward until no detail is split.
+function playlistPanelExpandWindowForDetail(entries, start, end) {
+  var list = Array.isArray(entries) ? entries : [];
+  start = Number(start) || 0;
+  end = Number(end) || 0;
+  while (end < list.length && list[end] && list[end].type === 'detail') end++;
+  while (start > 0 && list[start] && list[start].type === 'detail') start--;
+  return { start: start, end: end };
+}
 function playlistCatalogFooterHtml() {
   var state = playlistCatalogSyncState || {};
   var providerStates = state.providers || {};
@@ -867,7 +901,7 @@ function playlistCatalogFooterHtml() {
     + '<span class="pl-catalog-label">' + escHtml(label) + '</span>' + action + '</div>';
 }
 function schedulePlaylistPanelVirtualRender() {
-  if (playlistPanelVirtualCache.raf) return;
+  if (!takePanelVirtualFrame(playlistPanelVirtualCache)) return;
   playlistPanelVirtualCache.raf = requestAnimationFrame(function () {
     playlistPanelVirtualCache.raf = 0;
     if (queueViewTab !== 'playlists') return;
@@ -976,18 +1010,47 @@ function renderUserPlaylistsList(opts) {
   var viewport = Math.max(420, Number(panel && panel.clientHeight) || 620);
   var start = playlistPanelOffsetIndex(cache.offsets, Math.max(0, visibleTop - PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX));
   var end = Math.min(cache.entries.length, playlistPanelOffsetIndex(cache.offsets, visibleTop + viewport + PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX) + 1);
-  var topHeight = cache.offsets[start] || 0;
-  var bottomHeight = Math.max(0, cache.totalHeight - (cache.offsets[end] || cache.totalHeight));
-  var html = '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(topHeight) + 'px"></div>';
-  for (var entryIndex = start; entryIndex < end; entryIndex++) {
-    var entry = cache.entries[entryIndex];
-    if (entry.type === 'card') html += playlistCardHtml(entry.pl, entry.sourceIndex);
-    else if (entry.type === 'detail') {
-      html += playlistPanelDetailHtml(entry.pl, entry.provider);
-    }
+  // 详情块和它上面那张卡片是一体的：虚拟窗口只要把它切在任意一侧边界上，台账里那
+  // 三四百像素就没人渲染，面板上会凭空出现一整块空白——正是「展开歌单后下面空一大截」。
+  // 两个边界都往外扩到不切开详情为止。
+  // The detail block belongs to the card above it: if the virtual window cuts it at either edge,
+  // the few hundred pixels it holds in the ledger get rendered by nobody and read as a blank hole
+  // in the panel. Both edges therefore grow until no detail is split from its card.
+  var expanded = playlistPanelExpandWindowForDetail(cache.entries, start, end);
+  start = expanded.start;
+  end = expanded.end;
+  // 台账总高还撑不出滚动条时，占位符永远滚不走，只会变成一块死空白：索性整份渲染。
+  // When the ledger is too short to produce a scrollbar, a spacer can never be scrolled away — it
+  // just sits there as dead space, so everything is rendered instead.
+  if (cache.totalHeight <= viewport + PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX) {
+    start = 0;
+    end = cache.entries.length;
   }
-  html += '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(bottomHeight) + 'px"></div>' + playlistCatalogFooterHtml();
-  $pl.innerHTML = html;
+  function playlistPanelWindowHtml(winStart, winEnd) {
+    var openGap = cache.offsets[winStart] || 0;
+    var restGap = Math.max(0, cache.totalHeight - (cache.offsets[winEnd] || cache.totalHeight));
+    var out = '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(openGap) + 'px"></div>';
+    for (var k = winStart; k < winEnd; k++) {
+      var item = cache.entries[k];
+      if (item.type === 'card') out += playlistCardHtml(item.pl, item.sourceIndex);
+      else if (item.type === 'detail') {
+        out += playlistPanelDetailHtml(item.pl, item.provider);
+      }
+    }
+    return out + '<div class="playlist-virtual-spacer" aria-hidden="true" style="height:' + Math.round(restGap) + 'px"></div>' + playlistCatalogFooterHtml();
+  }
+  $pl.innerHTML = playlistPanelWindowHtml(start, end);
+  // 赋值之后自检：还有条目被虚拟掉，而面板已经滚不动了 —— 那一截用户永远够不到，
+  // 面板里就只剩一块空白（用户报的「歌单下面是空的」）。歌单列表本来就不长，
+  // 这种情况直接整份渲染，不再省那几十个节点。
+  // Post-render check: entries are still windowed out while the panel can no longer scroll, so
+  // that slice can never be reached and reads as a blank block. The list is short enough to render
+  // whole in that case instead of saving a few dozen nodes.
+  if (end < cache.entries.length && panel && panel.scrollHeight <= panel.clientHeight + 4) {
+    start = 0;
+    end = cache.entries.length;
+    $pl.innerHTML = playlistPanelWindowHtml(start, end);
+  }
   if (panel && opts.preserveScroll) panel.scrollTop = keepTop;
   // 详情高度最终以实际渲染结果为准：首次估算若与实测差超过 4px，记录后重排一次。
   if (playlistPanelDetailState.key && syncPlaylistPanelMeasuredDetailHeight(cache.detailSig)) {
