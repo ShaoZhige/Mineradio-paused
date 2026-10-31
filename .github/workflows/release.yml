@@ -104,6 +104,25 @@ jobs:
             dist/latest.yml
             dist/Mineradio-*-SHA256SUMS.txt
           retention-days: 7
+      - name: 在运行摘要里列出产物
+        # runner 跑完就销毁，产物只能靠 Release 附件带走。摘要里列出这一版的成品，方便回头
+        # 核对云端这份与本地那份是不是同一条提交打出来的。
+        # The runner is gone afterwards; list what this run produced where it will be seen.
+        shell: pwsh
+        run: |
+          $version = "${env:RELEASE_TAG}".TrimStart('v')
+          $installer = Get-ChildItem "dist/Mineradio-$version-Setup.exe"
+          $sizeMb = [math]::Round($installer.Length / 1MB, 1)
+          $lines = @(
+            '### 构建产物',
+            '',
+            "- $($installer.Name) — $sizeMb MB",
+            '- latest.yml',
+            "- Mineradio-$version-SHA256SUMS.txt",
+            '',
+            '本地那份由 3-build.bat 打出，归档在仓库上一级的 releases\<tag>\ 里。'
+          )
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
   publish:
     name: 创建 Release

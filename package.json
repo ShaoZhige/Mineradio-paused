@@ -16,6 +16,7 @@
     "check:quick": "node scripts/quick-check.js",
     "check:package": "node scripts/verify-package.js",
     "audit:prod": "node scripts/audit-prod.js",
+    "archive:release": "node scripts/archive-release-build.mjs",
     "build:win": "electron-builder --win nsis",
     "build:win:dir": "electron-builder --win dir"
   },
