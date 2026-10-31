@@ -61,11 +61,6 @@ var wallpaperEngineNativeSessionId = '';
 var wallpaperEngineHostBoundsRestartTimer = 0;
 var wallpaperEngineHostBoundsUnsubscribe = null;
 var wallpaperEngineHostBoundsPreparing = false;
-// 主进程在「常驻最小化」时发来 hold：本次隐藏不拆台，常驻原生表面保持不变。渲染进程必须
-// 跳过自己的 visibilitychange 拆台，否则会把常驻会话停掉，恢复时只能整轮重启（#406）。
-// Main sends `hold` for a resident minimize: the native surface stays alive, so the renderer must
-// skip its own visibilitychange teardown or the restore can only restart the whole Scene (#406).
-var wallpaperEngineHostResidentHold = false;
 var wallpaperEngineDesktopPreviewActive = false;
 var wallpaperEngineDesktopPreviewUsesAsset = false;
 var wallpaperEngineHostRecoveryInFlight = false;
@@ -2000,49 +1995,6 @@ function restartWallpaperEngineAfterHostBoundsChange() {
 
 function handleWallpaperEngineHostBoundsChange(payload) {
   var phase = String(payload && payload.phase || 'restart');
-  if (phase === 'hold') {
-    // #406 主进程决定最小化期间保留常驻原生表面，随后的 visibilitychange 不得拆台。
-    wallpaperEngineHostResidentHold = true;
-    wallpaperEngineHostBoundsPreparing = false;
-    return;
-  }
-  if (phase === 'resident') {
-    var residentSessionId = String(payload && payload.sessionId || '');
-    if (!wallpaperEngineSelection.active || wallpaperEngineSelection.kind !== 'engine') return;
-    if (!/^[a-f0-9]{24}$/i.test(residentSessionId)) return;
-    var claimedSessionId = String(wallpaperEngineNativeSessionId || '');
-    if (claimedSessionId) {
-      // 会话没被打断：必须是同一个原生会话，避免切歌/换壁纸后认领到过期会话。
-      if (wallpaperEngineCaptureMode !== 'dwm-thumbnail' || residentSessionId !== claimedSessionId) return;
-    } else if (!wallpaperEngineHostBoundsPreparing) {
-      // 本地也没有待恢复的会话，说明这次恢复与我们无关。
-      return;
-    }
-    // #406 渲染进程自己的 visibilitychange 拆台会清掉本地会话状态（session id / capture mode
-    // 都被清空），但主进程此时恰恰把同一个原生表面保留成了常驻。旧实现要求两个 session id
-    // 严格相等，在被自己拆过台之后就永远不成立 → 图层保持空白（背景全黑），还会因为
-    // hostBoundsPreparing 残留而触发整轮重启（后台刷新一阵才出图）。
-    // 这里改成重新认领常驻会话，只恢复渲染侧的视觉状态，不重启原生 Scene。
-    // The renderer's own visibilitychange teardown clears the local session state, while main keeps
-    // the very same native surface resident. Requiring the two session ids to be equal could then
-    // never hold again, so the layer stayed blank and a stale preparing flag forced a full Scene
-    // restart. Re-claim the resident session instead; only renderer-side visuals are restored.
-    wallpaperEngineNativeSessionId = residentSessionId;
-    wallpaperEngineCaptureMode = 'dwm-thumbnail';
-    wallpaperEngineHostResidentHold = false;
-    wallpaperEngineHostBoundsPreparing = false;
-    wallpaperEngineDesktopPreviewActive = false;
-    wallpaperEngineDesktopPreviewUsesAsset = false;
-    applyWallpaperEngineVisualSettings(true);
-    clearWallpaperEngineFreezeFrame(false);
-    if (!wallpaperEngineCaptureStream
-      || !wallpaperEngineCaptureStream.getVideoTracks
-      || !wallpaperEngineCaptureStream.getVideoTracks().some(function (track) { return track && track.readyState === 'live'; })) {
-      scheduleWallpaperEngineGlassSamplerCapture(residentSessionId, wallpaperEngineLayerToken, 0);
-    }
-    updateWallpaperEngineEntryUi();
-    return;
-  }
   if (phase === 'restart') {
     if (!wallpaperEngineHostBoundsPreparing && !wallpaperEngineDesktopPreviewActive) return;
     // BrowserWindow.show()/restore can fire before Chromium has published the
@@ -2627,20 +2579,12 @@ function bindWallpaperEngineLibraryEvents() {
           return;
         }
         if (document.hidden) {
-          // #406 常驻最小化期间主进程保留原生表面，这里拆台会把它停掉。跳过本次拆台，
-          // 等恢复时由 'resident' 阶段重新认领。
-          if (wallpaperEngineHostResidentHold) {
-            wallpaperEngineHostResidentHold = false;
-            return;
-          }
           var hiddenSessionId = String(wallpaperEngineNativeSessionId || '');
           window.__mineradioPrepareWallpaperEngineHostBoundsChange(hiddenSessionId, 'document-hidden');
-          // 传具体会话 id 而不是省略参数：省略会退化成 all=true，主进程便无法把这次拆台
-          // 与「常驻最小化保留现场」区分开（见主进程的 stop-scene 保留分支）。
+          // 传具体会话 id 而不是省略参数：省略会退化成 all=true，无法和主进程自己发起的
+          // 全量停止区分开，排查时看不出是谁先动的手。
           stopWallpaperEngineNativeSession(hiddenSessionId);
         } else {
-          // 窗口重新可见：hold 标记必须清掉，否则它会粘到下一次真正的最小化上。
-          wallpaperEngineHostResidentHold = false;
           if (item && wallpaperEngineHostBoundsPreparing) {
             wallpaperEngineHostBoundsPreparing = false;
             restartWallpaperEngineAfterHostBoundsChange();

@@ -420,16 +420,6 @@ let wallpaperEngineHostVisibilityResumePending = false;
 let wallpaperEngineHostVisibilityResumeTimer = null;
 let wallpaperEngineHostVisibilityOperation = 0;
 let wallpaperEngineHostVisibilityStopPromise = null;
-let wallpaperEngineHostVisibilityResidentMinimized = false;
-let wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
-// 渲染进程在最小化时也会自己走一遍 visibilitychange 拆台（prepare + stopWallpaperEngineScene）。
-// 常驻最小化期间这段拆台会打掉主进程刻意保留的原生表面，恢复时只能整轮重启。
-// 只在这段短窗口内忽略被限定到单个会话的停止请求，既覆盖住事件顺序竞争，又不会长期扣住会话。
-// The renderer tears the capture down from its own visibilitychange handler too. During a resident
-// minimize that teardown kills the native surface main deliberately preserved. Ignore scoped stop
-// requests only inside this short window, which covers the event-order race without pinning a
-// session indefinitely.
-const WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS = 3000;
 let fullDesktopModeHostVisibilityTransitionDepth = 0;
 let wallpaperEngineDesktopIconLayeringQueue = Promise.resolve(true);
 const WALLPAPER_ENGINE_CAPTURE_GRANT_MS = 12000;
@@ -1420,6 +1410,30 @@ function cancelWallpaperEngineHostBoundsRestart() {
   wallpaperEngineHostBoundsOperation += 1;
 }
 
+// 退出时屏幕上有两块独立表面：主窗口（渲染层的粒子预设在里面）和 WE 播放窗口（独立顶层
+// 窗口）。清理链要先收全桌面模式再关 WE，慢的时候十几秒，期间两块都还在画面上，看起来就像
+// 点了关闭没反应。先把它们从屏幕上撤掉，剩下的清理在不可见的情况下跑完。
+function hideVisibleSurfacesForQuit() {
+  const win = mainWindow;
+  if (win && !win.isDestroyed()) {
+    // 用透明度而不是 hide()：hide 会触发可见性恢复守卫和 WE 的挂起流程，与正在跑的退出清理
+    // 抢同一条链路。
+    try { win.setOpacity(0); } catch (_) { }
+  }
+  const status = wallpaperEngineRuntime.getStatus();
+  if (!status || status.active !== true) return;
+  const desktopMode = fullDesktopModeRuntime.getStatus('quit-visible-surfaces');
+  if (desktopMode.enabled === true) {
+    // 全桌面模式下 WE 窗口嵌在资源管理器里，先停车，交给紧接着的桌面模式 dispose 收尾。
+    wallpaperEngineRuntime.parkActiveWindow().catch(() => { });
+    return;
+  }
+  // 普通模式退出必须真的把 WE 关掉：停车只是把窗口挪到屏幕外，那扇窗口会一直活到进程
+  // 退出，用户看到的是「点了关闭，壁纸又停了几秒才消失」。这里直接走完整停止，后面的
+  // dispose 只作兜底。
+  stopWallpaperEngineRuntimeForRenderer('quit-visible-surfaces').catch(() => { });
+}
+
 function stopWallpaperEngineRuntimeForRenderer(reason = '') {
   wallpaperEngineCaptureOperation += 1;
   cancelWallpaperEngineHostBoundsRestart();
@@ -1447,43 +1461,14 @@ function finishWallpaperEngineVisibleHostResume(win) {
   setMainWindowBackgroundThrottling(win, desktopMode.enabled === true ? false : MAIN_WINDOW_BACKGROUND_THROTTLING);
 }
 
+// 主窗口一不可见（最小化 / 托盘隐藏），壁纸就必须整块退场：WE 播放窗口、DWM 表面、指针
+// 中继全部收掉，后台只留音乐播放和桌面歌词。渲染进程收到 prepare 后会先自己拆一次台，这里
+// 再走一遍完整停止；两个停止请求对同一个会话是幂等的，谁先到都行。
+// As soon as the host window is not visible the wallpaper leaves the screen entirely — only audio
+// playback and the desktop-lyrics window keep running. The renderer tears its own capture down on
+// `prepare`; the stop issued here is idempotent for the same session, so order does not matter.
 function suspendWallpaperEngineForHiddenHost(win, reason = 'hidden') {
   if (!win || win.isDestroyed()) return Promise.resolve({ ok: true, stopped: false });
-  const normalizedReason = String(reason || 'hidden').toLowerCase();
-  const runtimeStatus = wallpaperEngineRuntime.getStatus();
-  if (/^minimi[sz]e(?:d)?$/.test(normalizedReason)
-    && runtimeStatus
-    && runtimeStatus.active === true
-    && runtimeStatus.captureMode === 'dwm-thumbnail'
-    && runtimeStatus.dwmSurfaceReady === true) {
-    // The DWM helper is an independent native surface and can remain resident
-    // while Chromium is minimized. Stopping it here discards Scene state and
-    // forces a visible reload on restore.
-    wallpaperEngineHostVisibilityResidentMinimized = true;
-    wallpaperEngineHostVisibilityResidentMinimizedAt = Date.now();
-    finishWallpaperEngineVisibleHostResume(win);
-    cancelWallpaperEngineHostBoundsRestart();
-    // #406 明确告诉渲染进程「本次最小化不拆台」。渲染进程的 visibilitychange 拆台会把常驻的
-    // 原生 DWM 表面停掉，之后恢复只能整轮重启 → 先黑屏、后台刷新一阵子才重新出图。
-    // 中英对照：Tell the renderer that this minimize keeps the native surface resident, so its own
-    // visibilitychange teardown does not stop the very session we are preserving — otherwise the
-    // restore can only restart the whole Scene, which is the black gap reported in #406.
-    try {
-      win.webContents.send('mineradio-wallpaper-engine-host-bounds-changed', {
-        phase: 'hold',
-        reason: String(reason || 'hidden'),
-        sessionId: String(runtimeStatus.sessionId || ''),
-      });
-    } catch (_) { }
-    return Promise.resolve({
-      ok: true,
-      stopped: false,
-      preserved: true,
-      sessionId: String(runtimeStatus.sessionId || ''),
-    });
-  }
-  wallpaperEngineHostVisibilityResidentMinimized = false;
-  wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
   if (wallpaperEngineHostVisibilitySuspended) {
     return wallpaperEngineHostVisibilityStopPromise || Promise.resolve({ ok: true, stopped: true });
   }
@@ -1505,30 +1490,7 @@ function resumeWallpaperEngineForVisibleHost(win, reason = 'visible') {
   const desktopMode = fullDesktopModeRuntime.getStatus('wallpaper-engine-visible-host');
   if (appQuitting || (desktopMode.enabled === true
     && (desktopMode.interactive !== true || desktopMode.phase !== 'interactive'))) return;
-  if (!wallpaperEngineHostVisibilitySuspended) {
-    if (!wallpaperEngineHostVisibilityResidentMinimized) return;
-    wallpaperEngineHostVisibilityResidentMinimized = false;
-    wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
-    const residentStatus = wallpaperEngineRuntime.getStatus();
-    if (!residentStatus || residentStatus.active !== true || residentStatus.captureMode !== 'dwm-thumbnail') return;
-    setMainWindowBackgroundThrottling(win, false);
-    syncWallpaperEngineDesktopIconLayering(`resident-${reason || 'visible'}`).catch(() => false);
-    const notifyResident = () => {
-      if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return;
-      try {
-        win.webContents.send('mineradio-wallpaper-engine-host-bounds-changed', {
-          phase: 'resident',
-          reason: String(reason || 'visible'),
-          sessionId: String(residentStatus.sessionId || ''),
-          forceVisibleHost: true,
-        });
-      } catch (_) { }
-    };
-    setTimeout(notifyResident, 80);
-    setTimeout(notifyResident, 420);
-    setTimeout(() => finishWallpaperEngineVisibleHostResume(win), 900);
-    return;
-  }
+  if (!wallpaperEngineHostVisibilitySuspended) return;
   wallpaperEngineHostVisibilitySuspended = false;
   wallpaperEngineHostVisibilityResumePending = true;
   const visibilityOperation = ++wallpaperEngineHostVisibilityOperation;
@@ -5165,16 +5127,6 @@ ipcMain.handle('mineradio-wallpaper-engine-stop-scene', async (event, payload = 
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
     const sessionId = String(payload.sessionId || '');
     const stopAll = payload && payload.all === true || !sessionId;
-    // #406 常驻最小化期间渲染进程自己的 visibilitychange 拆台请求会打断主进程刻意保留的
-    // 原生表面。只在刚进入常驻状态的短窗口内保留现场（且只针对被限定到单个会话的请求），
-    // 窗口恢复后渲染进程会用 'resident' 阶段重新认领，不会留下无主会话。
-    // While the resident minimize hold is fresh, keep the scoped stop from the renderer's own
-    // visibilitychange from killing the preserved surface; the renderer re-claims it on restore.
-    if (!stopAll
-      && wallpaperEngineHostVisibilityResidentMinimized === true
-      && Date.now() - wallpaperEngineHostVisibilityResidentMinimizedAt <= WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS) {
-      return { ok: true, stopped: false, preserved: true, sessionId };
-    }
     // Invalidate pending preparation before awaiting the old source shutdown.
     // Otherwise a new start can begin during the close wait and then be
     // incorrectly superseded when this stop handler resumes.
@@ -6780,6 +6732,9 @@ async function createWindowOnce() {
       createOrUpdateTray();
       win.__mineradioIntentionalHide = true;
       markMainWindowExpectedVisible(win, false, 'tray-hide');
+      // 壁纸不等 autosave 落盘、窗口真正 hide 之后才退场：那段时间 WE 播放窗口还在桌面上，
+      // 看起来就是「点了关闭壁纸还挂着」。这里立刻挂起，随后 hide() 触发的同名调用是幂等的。
+      suspendWallpaperEngineForHiddenHost(win, 'tray-hide');
       flushMainWindowFxAutosave('tray-hide').finally(() => {
         if (win.isDestroyed()) return;
         win.hide();
@@ -6968,6 +6923,7 @@ if (!gotSingleInstanceLock) {
     if (appQuitCleanupComplete) return;
     event.preventDefault();
     if (appQuitCleanupPromise) return;
+    hideVisibleSurfacesForQuit();
     clearWallpaperEngineCaptureGrant();
     wallpaperEngineLibrary.dispose();
     stopMemoryAutoTimer();
@@ -7050,6 +7006,12 @@ if (!gotSingleInstanceLock) {
       }).catch((error) => {
         console.warn('[Wallpaper Engine] dispose failed:', error && error.message || error);
       });
+      // 常驻 PowerShell 只有在 WE 真正关完之后才能收：窗口控制宿主编译一次要 1.5s 上下，退出时
+      // 提前杀掉它会让正在跑的关窗请求退回一次性脚本，白等一轮。dispose 内部也会收，这里兜住
+      // dispose 超时或提前返回的情况。
+      // Reap the resident helpers only once WE is really closed. Killing the window-control host
+      // first forces an in-flight close onto the one-shot fallback, which is a wasted round.
+      wallpaperEngineRuntime.stopResidentHelpers('quit');
     })();
     const runtimeCleanup = fullDesktopAndWallpaperEngineCleanup;
     const timeoutCleanup = new Promise((resolve) => {
