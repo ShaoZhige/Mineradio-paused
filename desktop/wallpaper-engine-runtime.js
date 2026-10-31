@@ -29,8 +29,14 @@ const ENGINE_BOOTSTRAP_TIMEOUT_MS = 20000;
 const ENGINE_PROCESS_POLL_MS = 120;
 const ENGINE_PROCESS_STABLE_MS = 720;
 const ENGINE_READY_POLL_MS = 180;
+// 冷启动要求连续两次确认，一次成功可能是引擎刚起、还没接管命令；校验脚本钉住了这条策略。
 const ENGINE_READY_SUCCESS_COUNT = 2;
-const ENGINE_READY_CACHE_MS = 2500;
+const ENGINE_READY_CACHE_MS = 5 * 60 * 1000;
+// 跨启动的「引擎已就绪」结论只在进程集合不变时成立，换实例或超期就退回完整校验。
+const ENGINE_READY_DISK_CACHE_MS = 12 * 60 * 60 * 1000;
+const WINDOW_CONTROL_HOST_IDLE_MS = 120000;
+const WINDOW_CONTROL_HOST_START_TIMEOUT_MS = 8000;
+const WINDOW_CONTROL_HOST_COMMAND_TIMEOUT_MS = 20000;
 const INITIAL_MUTE_RETRY_DELAYS_MS = Object.freeze([0, 120, 320, 700, 1300, 2200]);
 const INITIAL_MUTE_RETRY_DEADLINE_MS = 8000;
 const MUTE_REASSERT_DELAYS_MS = Object.freeze([80, 220, 650, 1500, 3200, 6500, 10000]);
@@ -48,6 +54,7 @@ const POINTER_RELAY_RETRY_DELAYS_MS = Object.freeze([360, 1200, 3000]);
 const DWM_SURFACE_START_TIMEOUT_MS = 6000;
 const DWM_SURFACE_STOP_TIMEOUT_MS = 600;
 const DWM_SURFACE_RETRY_DELAY_MS = 650;
+const WINDOW_FRAME_DELTA_LIMIT = 96;
 
 function clampInteger(value, minimum, maximum, fallback) {
   const number = Number(value);
@@ -74,6 +81,22 @@ function runtimeError(code) {
   return error;
 }
 
+// -borderless 在窗口首次创建时还没生效，引擎实际开出来的窗口比请求尺寸大一圈
+// （100% DPI 下是 16×39 的非客户区）。把测到的差值记住，下次直接按「请求尺寸 - 差值」开窗，
+// 否则每次启用都要走一遍「开窗 → 对不齐 → 关掉 → 按校正尺寸重开」，白花三秒多。
+function readWindowFrameDelta(file) {
+  if (!file) return { width: 0, height: 0 };
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return {
+      width: clampInteger(raw && raw.width, -WINDOW_FRAME_DELTA_LIMIT, WINDOW_FRAME_DELTA_LIMIT, 0),
+      height: clampInteger(raw && raw.height, -WINDOW_FRAME_DELTA_LIMIT, WINDOW_FRAME_DELTA_LIMIT, 0),
+    };
+  } catch (_) {
+    return { width: 0, height: 0 };
+  }
+}
+
 function normalizeEngineProcessState(value) {
   if (value === true) return { ok: true, running: true, matching: true, executable: '', matchingPids: [] };
   if (value === false) return { ok: true, running: false, matching: false, executable: '', matchingPids: [] };
@@ -98,6 +121,21 @@ function engineProcessPidList(state) {
 
 function engineProcessPidKey(state) {
   return engineProcessPidList(state).join(',');
+}
+
+// tasklist 的 CSV 每行形如 "wallpaper64.exe","9004","Console","1","567,220 K"。
+// The image name stays untranslated, so matching on it is locale-independent.
+function parseTasklistEnginePids(output) {
+  const pids = [];
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const cells = line.split('","').map((cell) => cell.replace(/^"|"$/g, ''));
+    if (cells.length < 2) continue;
+    const name = String(cells[0] || '').trim().toLowerCase();
+    if (name !== 'wallpaper64.exe' && name !== 'wallpaper32.exe') continue;
+    const pid = Number(cells[1]);
+    if (pid > 0) pids.push(pid);
+  }
+  return pids.sort((left, right) => left - right);
 }
 
 // 要静默的是**壁纸核心**进程，不是 wallpaperengine 管理器。核心负责壁纸窗口以及它自己弹出的
@@ -574,18 +612,9 @@ $workingDirectory = [IO.Path]::GetDirectoryName($target)
   return source;
 }
 
-function nativeWindowControlScript() {
-  const source = String.raw`
-$ErrorActionPreference = 'Stop'
-$action = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_ACTION', 'Process')
-$sourceId = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_SOURCE_ID', 'Process')
-$expectedTitle = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_TITLE', 'Process')
-$expectedExecutable = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_EXECUTABLE', 'Process')
-$hostWindowId = [Environment]::GetEnvironmentVariable('MINERADIO_WE_HOST_WINDOW_ID', 'Process')
-$hostExecutable = [Environment]::GetEnvironmentVariable('MINERADIO_WE_HOST_EXECUTABLE', 'Process')
-$hostCornerRadius = [Environment]::GetEnvironmentVariable('MINERADIO_WE_HOST_CORNER_RADIUS', 'Process')
-if ([string]::IsNullOrWhiteSpace($action) -or [string]::IsNullOrWhiteSpace($sourceId)) { throw 'Missing window control input' }
-$source = @'
+// 窗口控制的原生实现只编译一次：单次脚本与常驻宿主共用同一份 C# 源码。
+function windowControlCSharpSource() {
+  return String.raw`
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -855,17 +884,65 @@ public static class MineradioWeWindowControl {
     }
   }
 }
-'@
-Add-Type -TypeDefinition $source -Language CSharp
-[MineradioWeWindowControl]::Run($action, $sourceId, $expectedTitle, $expectedExecutable, $hostWindowId, $hostExecutable, $hostCornerRadius) | ConvertTo-Json -Compress
 `.trim();
-  // 返回**原始脚本**（与 nativeDwmThumbnailSurfaceScript 一致），不再自行 base64。这个脚本
-  // 编码后约 3.85 万字符，超过 Windows 32767 的命令行上限：以前用 -EncodedCommand 调用时，
-  // spawn 会直接以 ENAMETOOLONG 失败，embed/close/park 每一步都失败，壁纸永远退回封面图。
-  // Returns the RAW script, matching nativeDwmThumbnailSurfaceScript. Encoded it runs to about
-  // 38.5k characters, past the Windows 32767 command-line cap: called with -EncodedCommand,
-  // spawn failed with ENAMETOOLONG before the process started, so every embed/close/park step
-  // failed and the wallpaper always fell back to its cover art.
+}
+
+function nativeWindowControlScript() {
+  const source = [
+    "$ErrorActionPreference = 'Stop'",
+    "$action = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_ACTION', 'Process')",
+    "$sourceId = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_SOURCE_ID', 'Process')",
+    "$expectedTitle = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_TITLE', 'Process')",
+    "$expectedExecutable = [Environment]::GetEnvironmentVariable('MINERADIO_WE_WINDOW_EXECUTABLE', 'Process')",
+    "$hostWindowId = [Environment]::GetEnvironmentVariable('MINERADIO_WE_HOST_WINDOW_ID', 'Process')",
+    "$hostExecutable = [Environment]::GetEnvironmentVariable('MINERADIO_WE_HOST_EXECUTABLE', 'Process')",
+    "$hostCornerRadius = [Environment]::GetEnvironmentVariable('MINERADIO_WE_HOST_CORNER_RADIUS', 'Process')",
+    "if ([string]::IsNullOrWhiteSpace($action) -or [string]::IsNullOrWhiteSpace($sourceId)) { throw 'Missing window control input' }",
+    "$source = @'",
+    windowControlCSharpSource(),
+    "'@",
+    "Add-Type -TypeDefinition $source -Language CSharp",
+    "[MineradioWeWindowControl]::Run($action, $sourceId, $expectedTitle, $expectedExecutable, $hostWindowId, $hostExecutable, $hostCornerRadius) | ConvertTo-Json -Compress",
+  ].join('\n');
+  return source;
+}
+
+// 常驻版：C# 只编译一次，之后按行读 JSON 命令、按行回 JSON 结果。每次启用壁纸要跑
+// isolate / embed（切换时还有 close），一次性脚本每次都要付一遍 PowerShell 冷启动加编译，
+// 单次约 0.95 秒，其中 0.7 秒是进程启动。宿主把这份开销摊到整个运行期。
+// 命令与响应都用单行 JSON：多行输出会把记录切断，所以响应里的换行一律压成空格。
+function nativeWindowControlHostScript() {
+  const source = [
+    "$ErrorActionPreference = 'Stop'",
+    'try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }',
+    'try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }',
+    "$source = @'",
+    windowControlCSharpSource(),
+    "'@",
+    'Add-Type -TypeDefinition $source -Language CSharp',
+    "[Console]::Out.WriteLine('{\"ready\":true}')",
+    '[Console]::Out.Flush()',
+    'while ($true) {',
+    '  $line = [Console]::In.ReadLine()',
+    '  if ($null -eq $line) { break }',
+    '  if ([string]::IsNullOrWhiteSpace($line)) { continue }',
+    '  $id = 0',
+    '  $payload = \'{"ok":false,"error":"invalid request"}\'',
+    '  try {',
+    '    $request = $line | ConvertFrom-Json',
+    '    try { $id = [int]$request.id } catch { $id = 0 }',
+    '    $result = [MineradioWeWindowControl]::Run([string]$request.action, [string]$request.sourceId, [string]$request.title, [string]$request.executable, [string]$request.hostWindowId, [string]$request.hostExecutable, [string]$request.cornerRadius)',
+    '    $encoded = $result | ConvertTo-Json -Compress -Depth 4',
+    "    if (-not [string]::IsNullOrWhiteSpace($encoded) -and $encoded.TrimStart().StartsWith('{')) { $payload = $encoded }",
+    '  } catch {',
+    '    $payload = (@{ ok = $false; error = [string]$_.Exception.Message } | ConvertTo-Json -Compress)',
+    '  }',
+    '  $payload = ($payload -replace "[\\r\\n]+", " ").Trim()',
+    "  if (-not $payload.StartsWith('{')) { $payload = '{\"ok\":false,\"error\":\"invalid result\"}' }",
+    '  [Console]::Out.WriteLine(\'{"id":\' + $id + "," + $payload.Substring(1))',
+    '  [Console]::Out.Flush()',
+    '}',
+  ].join('\n');
   return source;
 }
 
@@ -1932,9 +2009,43 @@ class WallpaperEngineRuntime {
     // cause is not obvious, the one thing that settles it is what we actually sent — without this
     // you either guess or try to catch a control process that lives a few dozen milliseconds.
     this.controlCommandLogPath = String(options.controlCommandLogPath || '').trim();
+    this.frameDeltaPath = String(options.frameDeltaPath || '').trim();
+    this.windowFrameDelta = readWindowFrameDelta(this.frameDeltaPath);
     this.windowController = typeof options.windowController === 'function'
       ? options.windowController
       : ((action, details) => this._nativeWindowControl(action, details));
+    // 常驻宿主默认关闭：注入 windowController 的测试与校验脚本要按原样观察单次调用。
+    this.residentWindowController = options.residentWindowController === true;
+    this.windowControlSpawn = options.windowControlSpawn || childProcess.spawn;
+    this.windowControlHostIdleMs = clampInteger(
+      options.windowControlHostIdleMs,
+      1000,
+      3600000,
+      WINDOW_CONTROL_HOST_IDLE_MS
+    );
+    this.windowControlHostStartTimeoutMs = clampInteger(
+      options.windowControlHostStartTimeoutMs,
+      1000,
+      30000,
+      WINDOW_CONTROL_HOST_START_TIMEOUT_MS
+    );
+    this.windowControlHostCommandTimeoutMs = clampInteger(
+      options.windowControlHostCommandTimeoutMs,
+      1000,
+      60000,
+      WINDOW_CONTROL_HOST_COMMAND_TIMEOUT_MS
+    );
+    this.windowControlHost = null;
+    this.windowControlHostStartPromise = null;
+    this.windowControlHostCommandId = 0;
+    this.windowControlCommandChain = Promise.resolve();
+    // tasklist 快路同样只在显式开启时启用：校验脚本用 engineProcessProbe 桩来断言流程。
+    this.fastEngineProbe = options.fastEngineProbe === true;
+    this.engineReadyCachePath = String(options.engineReadyCachePath || '').trim();
+    this.engineReadyDiskCache = null;
+    this.fastEnginePidCache = null;
+    this.signatureCachePath = String(options.signatureCachePath || '').trim();
+    this.signatureDiskCache = null;
     this.engineProcessProbe = options.engineProcessProbe
       || ((expectedExecutable) => defaultEngineProcessProbe(
         this.powerShellExecutable,
@@ -2957,7 +3068,268 @@ class WallpaperEngineRuntime {
     return true;
   }
 
+  _windowControlHostEnabled() {
+    return this.residentWindowController === true && this.platform === 'win32' && !this.disposed;
+  }
+
+  // 宿主起不来（没有 PowerShell、脚本编译失败、被杀）时静默退回单次脚本，功能不受影响，
+  // 只是回到每次约 0.95 秒的老开销。宿主自身的问题只在控制台留一行。
   async _nativeWindowControl(action, details = {}) {
+    if (!this._windowControlHostEnabled()) return this._nativeWindowControlOnce(action, details);
+    try {
+      return await this._queueWindowControlHostCommand(action, details);
+    } catch (error) {
+      if (!error || error.hostTransport !== true) throw error;
+      console.warn('[Wallpaper Engine] resident window control host unavailable, using a one-shot helper:', error && (error.nativeDetail || error.code) || error);
+      this._stopWindowControlHost('fallback');
+      return this._nativeWindowControlOnce(action, details);
+    }
+  }
+
+  _queueWindowControlHostCommand(action, details = {}) {
+    const run = () => this._sendWindowControlHostCommand(action, details);
+    const next = this.windowControlCommandChain.then(run, run);
+    this.windowControlCommandChain = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  _ensureWindowControlHost() {
+    if (this.windowControlHost && this.windowControlHost.ready === true && this.windowControlHost.exited !== true) {
+      return Promise.resolve(this.windowControlHost);
+    }
+    if (this.windowControlHostStartPromise) return this.windowControlHostStartPromise;
+    const operation = new Promise((resolve, reject) => {
+      let settled = false;
+      const host = {
+        child: null,
+        ready: false,
+        exited: false,
+        pending: [],
+        buffer: '',
+        stderr: '',
+        startTimer: null,
+        idleTimer: null,
+      };
+      const failStart = (detail) => {
+        if (settled) return;
+        settled = true;
+        if (host.startTimer) clearTimeout(host.startTimer);
+        this.windowControlHost = null;
+        try { host.child && host.child.kill(); } catch (_) { }
+        const failure = runtimeError('WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+        failure.nativeStage = 'host-start';
+        failure.nativeDetail = String(detail || '').slice(0, 400);
+        failure.hostTransport = true;
+        reject(failure);
+      };
+      let child;
+      try {
+        child = this.windowControlSpawn(this.powerShellExecutable, [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-STA',
+          ...this._powerShellHelperArgs('window-control-host', nativeWindowControlHostScript()),
+        ], {
+          windowsHide: true,
+          shell: false,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: this._powerShellEnv({}),
+        });
+      } catch (error) {
+        failStart(error && error.message);
+        return;
+      }
+      host.child = child;
+      this.windowControlHost = host;
+      if (child && typeof child.unref === 'function') child.unref();
+      host.startTimer = setTimeout(() => failStart('host did not report ready'), this.windowControlHostStartTimeoutMs);
+
+      const settleStart = () => {
+        if (settled) return;
+        settled = true;
+        if (host.startTimer) clearTimeout(host.startTimer);
+        host.startTimer = null;
+        host.ready = true;
+        this._touchWindowControlHostIdle(host);
+        resolve(host);
+      };
+      const failPending = (detail) => {
+        for (const entry of host.pending.splice(0)) {
+          if (entry.timer) clearTimeout(entry.timer);
+          const failure = runtimeError(entry.action === 'close'
+            ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+            : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+          failure.nativeStage = 'host-exit';
+          failure.nativeDetail = String(detail || host.stderr || 'resident helper exited').slice(0, 400);
+          failure.hostTransport = true;
+          try { entry.reject(failure); } catch (_) { }
+        }
+      };
+
+      if (child && child.stdin) child.stdin.on('error', () => { });
+      if (child && child.stdout) {
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (chunk) => {
+          host.buffer += String(chunk || '');
+          const parts = host.buffer.split(/\r?\n/);
+          host.buffer = parts.pop();
+          for (const rawLine of parts) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            let record = null;
+            try { record = JSON.parse(line); } catch (_) { record = null; }
+            if (record && record.ready === true) {
+              settleStart();
+              continue;
+            }
+            const entry = host.pending.shift();
+            if (!entry) continue;
+            if (entry.timer) clearTimeout(entry.timer);
+            entry.timer = null;
+            if (!record || typeof record !== 'object') {
+              const failure = runtimeError(entry.action === 'close'
+                ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+                : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+              failure.nativeStage = 'host-parse';
+              failure.nativeDetail = line.slice(0, 400);
+              entry.reject(failure);
+              continue;
+            }
+            entry.resolve(record);
+          }
+        });
+        child.stdout.on('error', () => { });
+      }
+      if (child && child.stderr) {
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('error', () => { });
+        child.stderr.on('data', (chunk) => {
+          host.stderr = (host.stderr + String(chunk || '')).slice(-800);
+        });
+      }
+      if (child && typeof child.on === 'function') {
+        child.on('error', (error) => {
+          host.exited = true;
+          if (!settled) {
+            failStart(error && error.message);
+            return;
+          }
+          failPending(error && error.message);
+        });
+        child.on('exit', (code) => {
+          host.exited = true;
+          if (this.windowControlHost === host) this.windowControlHost = null;
+          if (!settled) {
+            failStart('resident helper exited with code ' + String(code));
+            return;
+          }
+          failPending('resident helper exited with code ' + String(code));
+        });
+      }
+    });
+    this.windowControlHostStartPromise = operation.then(
+      (host) => {
+        this.windowControlHostStartPromise = null;
+        return host;
+      },
+      (error) => {
+        this.windowControlHostStartPromise = null;
+        throw error;
+      }
+    );
+    return this.windowControlHostStartPromise;
+  }
+
+  _sendWindowControlHostCommand(action, details = {}) {
+    const sourceId = String(details.sourceId || '');
+    if (!/^window:\d+:\d+$/.test(sourceId)) throw runtimeError('WALLPAPER_ENGINE_WINDOW_SOURCE_INVALID');
+    return this._ensureWindowControlHost().then((host) => new Promise((resolve, reject) => {
+      const id = ++this.windowControlHostCommandId;
+      const entry = { id, action, resolve, reject, timer: null };
+      entry.timer = setTimeout(() => {
+        const failure = runtimeError(action === 'close'
+          ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+          : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+        // 超时说明宿主还活着但卡住了：收掉它、把这次调用判失败。不退回单次脚本 ——
+        // 一次已经等满整个预算的动作再重来一遍，只会把等待翻倍。
+        failure.nativeStage = 'host-timeout';
+        failure.nativeDetail = String(action) + ' timed out inside the resident helper';
+        reject(failure);
+        this._stopWindowControlHost('timeout');
+      }, this.windowControlHostCommandTimeoutMs);
+      host.pending.push(entry);
+      const payload = JSON.stringify({
+        id,
+        action,
+        sourceId,
+        title: String(details.locationTitle || ''),
+        executable: String(details.executable || ''),
+        hostWindowId: String(details.hostWindowId || ''),
+        hostExecutable: String(details.hostExecutable || ''),
+        cornerRadius: String(Math.max(0, Math.min(512, Number(details.cornerRadius) || 0))),
+      });
+      try {
+        host.child.stdin.write(payload + '\n');
+      } catch (error) {
+        if (entry.timer) clearTimeout(entry.timer);
+        const index = host.pending.indexOf(entry);
+        if (index >= 0) host.pending.splice(index, 1);
+        const failure = runtimeError(action === 'close'
+          ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+          : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+        failure.nativeStage = 'host-write';
+        failure.nativeDetail = String(error && error.message || error).slice(0, 400);
+        failure.hostTransport = true;
+        this._stopWindowControlHost('write-failed');
+        reject(failure);
+      }
+      this._touchWindowControlHostIdle(host);
+    }));
+  }
+
+  _touchWindowControlHostIdle(host) {
+    if (!host) return;
+    if (host.idleTimer) clearTimeout(host.idleTimer);
+    host.idleTimer = setTimeout(() => {
+      if (this.windowControlHost === host) this._stopWindowControlHost('idle');
+    }, this.windowControlHostIdleMs);
+    if (host.idleTimer && typeof host.idleTimer.unref === 'function') host.idleTimer.unref();
+  }
+
+  _stopWindowControlHost(reason = '') {
+    const host = this.windowControlHost;
+    this.windowControlHost = null;
+    if (!host) return;
+    if (host.idleTimer) clearTimeout(host.idleTimer);
+    if (host.startTimer) clearTimeout(host.startTimer);
+    host.idleTimer = null;
+    host.startTimer = null;
+    for (const entry of host.pending.splice(0)) {
+      if (entry.timer) clearTimeout(entry.timer);
+      const failure = runtimeError(entry.action === 'close'
+        ? 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED'
+        : 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+      failure.nativeStage = 'host-stop';
+      failure.nativeDetail = 'resident helper stopped: ' + String(reason || 'unspecified');
+      failure.hostTransport = true;
+      try { entry.reject(failure); } catch (_) { }
+    }
+    const child = host.child;
+    if (!child) return;
+    try { child.stdin.end(); } catch (_) { }
+    // 退出与空闲回收必须当场兑现：这两条路上没有任何还需要它活着的调用，而一个定时器在
+    // 进程已经退出之后不会再被兑现。
+    if (reason === 'idle' || reason === 'quit' || reason === 'dispose') {
+      try { child.kill(); } catch (_) { }
+      return;
+    }
+    const killTimer = setTimeout(() => {
+      try { child.kill(); } catch (_) { }
+    }, 400);
+  }
+
+  async _nativeWindowControlOnce(action, details = {}) {
     const sourceId = String(details.sourceId || '');
     if (!/^window:\d+:\d+$/.test(sourceId)) throw runtimeError('WALLPAPER_ENGINE_WINDOW_SOURCE_INVALID');
     return new Promise((resolve, reject) => {
@@ -3078,6 +3450,20 @@ class WallpaperEngineRuntime {
       session.windowParking = result;
     }
     return result;
+  }
+
+  _rememberWindowFrameDelta(deltaWidth, deltaHeight) {
+    const width = clampInteger(deltaWidth, -WINDOW_FRAME_DELTA_LIMIT, WINDOW_FRAME_DELTA_LIMIT, this.windowFrameDelta.width);
+    const height = clampInteger(deltaHeight, -WINDOW_FRAME_DELTA_LIMIT, WINDOW_FRAME_DELTA_LIMIT, this.windowFrameDelta.height);
+    if (width === this.windowFrameDelta.width && height === this.windowFrameDelta.height) return false;
+    this.windowFrameDelta = { width, height };
+    if (!this.frameDeltaPath) return true;
+    try {
+      fs.writeFileSync(this.frameDeltaPath, JSON.stringify({ width, height }) + '\n', 'utf8');
+    } catch (error) {
+      console.warn('[Wallpaper Engine] window frame delta could not be persisted:', error && error.message || error);
+    }
+    return true;
   }
 
   // 把 WE 播放窗口从任务栏和 Alt+Tab 里摘掉。它只是体验增强，失败时记录但不抛出，
@@ -3724,6 +4110,13 @@ class WallpaperEngineRuntime {
     const stamp = `${Number(stat.size) || 0}:${Math.round(Number(stat.mtimeMs) || 0)}`;
     const cached = this.signatureCache.get(key);
     if (cached && cached.stamp === stamp) return cached.valid;
+    // 签名校验要起一个 PowerShell 跑 Get-AuthenticodeSignature，约 0.9 秒；结论只由「文件
+    // 大小 + 修改时间」决定，落到磁盘后重启也不必再验一遍。
+    const persisted = this._readSignatureDiskCache()[key];
+    if (persisted && persisted.stamp === stamp) {
+      this.signatureCache.set(key, { stamp, valid: persisted.valid });
+      return persisted.valid;
+    }
 
     let valid = false;
     try {
@@ -3752,7 +4145,111 @@ class WallpaperEngineRuntime {
       valid = false;
     }
     this.signatureCache.set(key, { stamp, valid });
+    this._rememberSignatureOnDisk(key, stamp, valid);
     return valid;
+  }
+
+  _readSignatureDiskCache() {
+    if (this.signatureDiskCache) return this.signatureDiskCache;
+    const entries = {};
+    this.signatureDiskCache = entries;
+    if (!this.signatureCachePath) return entries;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.signatureCachePath, 'utf8'));
+      const source = parsed && parsed.entries;
+      if (!source || typeof source !== 'object' || Array.isArray(source)) return entries;
+      for (const [key, value] of Object.entries(source)) {
+        if (!value || typeof value !== 'object') continue;
+        if (typeof value.stamp !== 'string' || !value.stamp) continue;
+        entries[key] = { stamp: value.stamp, valid: value.valid === true };
+      }
+    } catch (_) { }
+    return entries;
+  }
+
+  _rememberSignatureOnDisk(key, stamp, valid) {
+    const entries = this._readSignatureDiskCache();
+    entries[key] = { stamp, valid: valid === true };
+    if (!this.signatureCachePath) return;
+    try {
+      fs.writeFileSync(this.signatureCachePath, JSON.stringify({ version: 1, entries }) + '\n', 'utf8');
+    } catch (error) {
+      console.warn('[Wallpaper Engine] signature cache could not be persisted:', error && error.message || error);
+    }
+  }
+
+  async _fastEnginePids() {
+    const cached = this.fastEnginePidCache;
+    if (cached && this.now() - cached.at <= 1500) return cached.pids;
+    const pids = await new Promise((resolve) => {
+      try {
+        this.nativeExecFile('tasklist.exe', ['/FO', 'CSV', '/NH'], {
+          encoding: 'utf8',
+          windowsHide: true,
+          timeout: 4000,
+          maxBuffer: 4 * 1024 * 1024,
+          shell: false,
+        }, (error, stdout) => {
+          resolve(error ? null : parseTasklistEnginePids(String(stdout || '')));
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+    if (!pids) return null;
+    this.fastEnginePidCache = { at: this.now(), pids };
+    return pids;
+  }
+
+  _readEngineReadyDiskCache() {
+    if (this.engineReadyDiskCache) return this.engineReadyDiskCache;
+    let cache = null;
+    if (this.engineReadyCachePath) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(this.engineReadyCachePath, 'utf8'));
+        if (parsed && typeof parsed === 'object' && typeof parsed.executable === 'string' && parsed.executable) {
+          cache = {
+            executable: parsed.executable,
+            pidsKey: String(parsed.pidsKey || ''),
+            verifiedAt: Number(parsed.verifiedAt) || 0,
+          };
+        }
+      } catch (_) { }
+    }
+    this.engineReadyDiskCache = cache;
+    return cache;
+  }
+
+  _writeEngineReadyDiskCache(executable, pidsKey) {
+    if (!this.engineReadyCachePath || !executable || !pidsKey) return;
+    const entry = { executable: String(executable), pidsKey: String(pidsKey), verifiedAt: this.now() };
+    this.engineReadyDiskCache = entry;
+    try {
+      fs.writeFileSync(this.engineReadyCachePath, JSON.stringify({ version: 1, ...entry }) + '\n', 'utf8');
+    } catch (error) {
+      console.warn('[Wallpaper Engine] engine readiness cache could not be persisted:', error && error.message || error);
+    }
+  }
+
+  // 引擎就绪的完整校验是两次 PowerShell 进程探测加两次控制往返，实测 3.8~5.3 秒。分辨率
+  // 只需要一个事实：还是不是上次那批进程。tasklist 约 0.1 秒就能回答，进程集合一致、签名
+  // 未变、缓存未过期时直接复用上次的结论；任何一项对不上就退回完整校验。
+  async _resolveFastEngineReady(requestedExecutable, silentWindows) {
+    const cache = this._readEngineReadyDiskCache();
+    if (!cache || !cache.executable || !cache.pidsKey) return '';
+    const planned = path.resolve(requestedExecutable);
+    if (path.resolve(cache.executable).toLowerCase() !== planned.toLowerCase()) return '';
+    if (this.now() - cache.verifiedAt > ENGINE_READY_DISK_CACHE_MS) return '';
+    const pids = await this._fastEnginePids();
+    if (!pids || !pids.length) return '';
+    if (pids.join(',') !== cache.pidsKey) return '';
+    const stat = await statFile(planned);
+    if (!stat || !await this._verifyExecutableSignature(planned, stat)) return '';
+    this.engineReadyExecutable = planned;
+    this.engineReadyAt = this.now();
+    this.engineReadyPidsKey = cache.pidsKey;
+    if (silentWindows !== false) this._startEngineWindowIsolationMonitor(ENGINE_WINDOW_ISOLATION_PROCESSES);
+    return planned;
   }
 
   _candidateExecutables(libraries) {
@@ -4078,12 +4575,15 @@ class WallpaperEngineRuntime {
       : 'WALLPAPER_ENGINE_PROCESS_PROBE_FAILED');
   }
 
-  async _waitForEngineControlReady(executable, deadline) {
+  async _waitForEngineControlReady(executable, deadline, knownState = null) {
     let consecutiveSuccesses = 0;
     let readyPidsKey = '';
+    let pendingState = knownState && knownState.ok === true ? knownState : null;
     while (this.wallNow() <= deadline) {
       if (this.disposed) throw runtimeError('WALLPAPER_ENGINE_RUNTIME_DISPOSED');
-      const state = await this._probeEngineProcess(executable);
+      // 刚探测到的状态直接复用：再探一次等于白等一个 PowerShell 往返（约 1.1 秒）。
+      const state = pendingState || await this._probeEngineProcess(executable);
+      pendingState = null;
       if (!state.ok) {
         consecutiveSuccesses = 0;
         readyPidsKey = '';
@@ -4132,6 +4632,10 @@ class WallpaperEngineRuntime {
     }
 
     const operation = (async () => {
+      if (this.fastEngineProbe) {
+        const fastReady = await this._resolveFastEngineReady(requested, silentWindows);
+        if (fastReady) return fastReady;
+      }
       const deadline = this.wallNow() + ENGINE_BOOTSTRAP_TIMEOUT_MS;
       let state = await this._waitForKnownEngineState(requested, deadline);
       if (state.running && !state.matching) {
@@ -4197,7 +4701,8 @@ class WallpaperEngineRuntime {
         && this.engineReadyPidsKey === effectivePidsKey
         && cacheAge >= 0
         && cacheAge <= ENGINE_READY_CACHE_MS;
-      if (!cacheMatches) await this._waitForEngineControlReady(effectiveExecutable, deadline);
+      if (!cacheMatches) await this._waitForEngineControlReady(effectiveExecutable, deadline, effectiveState);
+      this._writeEngineReadyDiskCache(effectiveExecutable, effectivePidsKey);
       return effectiveExecutable;
     })();
 
@@ -4344,6 +4849,11 @@ class WallpaperEngineRuntime {
         const sourceHeight = Math.max(1, Number(embedding.bottom) - Number(embedding.top));
         const scaleX = Math.max(0.5, Math.min(4, Number(session.width) / hostWidth));
         const scaleY = Math.max(0.5, Math.min(4, Number(session.height) / hostHeight));
+        // 差值按开窗单位记：下次直接用「请求尺寸 - 差值」开窗就能一次对齐，不必再关窗重开。
+        this._rememberWindowFrameDelta(
+          Math.round((sourceWidth - hostWidth) * scaleX),
+          Math.round((sourceHeight - hostHeight) * scaleY)
+        );
         const correctedWidth = Math.round(Number(session.launchWidth) - (sourceWidth - hostWidth) * scaleX);
         const correctedHeight = Math.round(Number(session.launchHeight) - (sourceHeight - hostHeight) * scaleY);
         const correctedX = Math.round(Number(session.launchX) + (Number(embedding.hostLeft) - Number(embedding.left)) * scaleX);
@@ -4550,8 +5060,18 @@ class WallpaperEngineRuntime {
       stagedAudioPropertyCount: 0,
       patchedSceneAudioObjectCount: 0,
       mutedScenePackageCacheFile: '',
-      launchWidth: runtimeOptions.width,
-      launchHeight: runtimeOptions.height,
+      launchWidth: clampInteger(
+        runtimeOptions.width - this.windowFrameDelta.width,
+        MIN_WIDTH,
+        MAX_WIDTH,
+        runtimeOptions.width
+      ),
+      launchHeight: clampInteger(
+        runtimeOptions.height - this.windowFrameDelta.height,
+        MIN_HEIGHT,
+        MAX_HEIGHT,
+        runtimeOptions.height
+      ),
       launchX: runtimeOptions.x,
       launchY: runtimeOptions.y,
       runtimeOptions,
@@ -4801,6 +5321,43 @@ class WallpaperEngineRuntime {
     };
   }
 
+  // 退出时提前收掉两个常驻 PowerShell：它们和退出清理没有依赖关系，留在那里只会在窗口已经
+  // 消失之后继续占内存。
+  stopResidentHelpers(reason = 'quit') {
+    this._stopWindowControlHost(reason);
+    this._stopEngineWindowIsolationMonitor();
+  }
+
+  // 用户在壁纸库里翻页的那几秒正好可以用来做掉启用时的固定开销：解析引擎路径、确认引擎就绪、
+  // 把窗口控制宿主编译好、把 DWM 帮手脚本落盘。引擎没在运行时不去拉起它，避免仅仅浏览列表
+  // 就多出一个进程。
+  async warmUp(options = {}) {
+    if (this.disposed || this.platform !== 'win32') return { ok: false, engine: '', helper: false };
+    const result = { ok: true, engine: '', helper: false };
+    try {
+      const installation = await this._discoverExecutable(false);
+      if (installation.available && installation.executable) {
+        const pids = this.fastEngineProbe ? await this._fastEnginePids() : null;
+        if (pids && pids.length) {
+          result.engine = await this._ensureEngineReady(
+            installation.executable,
+            options.silentWindows !== false
+          ).catch(() => '');
+        }
+      }
+    } catch (_) { }
+    if (this._windowControlHostEnabled()) {
+      try {
+        await this._ensureWindowControlHost();
+        result.helper = true;
+      } catch (_) { }
+    }
+    try {
+      this._powerShellHelperArgs('dwm-surface', nativeDwmThumbnailSurfaceScript());
+    } catch (_) { }
+    return result;
+  }
+
   async dispose() {
     if (this.disposed) {
       return {
@@ -4812,13 +5369,17 @@ class WallpaperEngineRuntime {
       };
     }
     this.disposed = true;
-    // 监视器是 runtime 级的存活物，不属于任何会话：dispose 必须无条件收掉，否则会留下一个
-    // 一直枚举窗口的 PowerShell。
-    // The monitor is runtime-scoped and belongs to no session, so dispose must always reap it or
-    // a PowerShell that keeps enumerating windows outlives the app.
-    this._stopEngineWindowIsolationMonitor();
     const isClean = () => !this.active && !this.pending;
     let result = await this.stop();
+    // 监视器与常驻窗口控制宿主都是 runtime 级的存活物，不属于任何会话：dispose 必须无条件
+    // 收掉，否则会留下一个一直枚举窗口、一个一直等 stdin 的 PowerShell。
+    // 顺序放在会话关完之后：关窗要用窗口控制宿主，而它已经编译好了；先收宿主会让退出时那一
+    // 次关窗退回一次性脚本，白等一轮 PowerShell 冷启动。
+    // Both runtime-scoped helpers must be reaped unconditionally, but only once the sessions are
+    // closed: the window-control host is what closes them, and killing it first costs a cold
+    // one-shot PowerShell launch on the way out.
+    this._stopEngineWindowIsolationMonitor();
+    this._stopWindowControlHost('dispose');
     if ((!result || result.stopped !== true) && !isClean()) {
       await this.nativeSleep(180);
       result = await this.stop();
@@ -4862,4 +5423,5 @@ module.exports = {
   readWallpaperPackageScene,
   forceSceneAudioSilent,
   nativeDwmThumbnailSurfaceScript,
+  nativeWindowControlHostScript,
 };

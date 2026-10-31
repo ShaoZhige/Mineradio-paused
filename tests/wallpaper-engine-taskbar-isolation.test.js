@@ -277,14 +277,15 @@ assert.ok(
   'the background service is not a window host and must not be listed'
 );
 
-// 两个分支必须传同一份集合：复用与新拉起在"要静默哪些进程"上不该有差别，否则改一处忘一处。
-// Both branches must pass the same set: reuse and a fresh launch must not differ on which processes
-// get silenced, or a future edit will update one and forget the other.
+// 每个「复用已经跑着的引擎」的分支都必须传同一份集合：复用、新拉起、以及跨启动复用就绪
+// 结论的快路，在"要静默哪些进程"上不该有差别，否则改一处忘一处。
+// Every branch that reuses a running engine must pass the same set: reuse, fresh launch, and the
+// cross-launch readiness fast path must not differ on which processes get silenced.
 const monitorCallSites = runtimeText.match(/_startEngineWindowIsolationMonitor\(ENGINE_WINDOW_ISOLATION_PROCESSES\)/g) || [];
 assert.strictEqual(
   monitorCallSites.length,
-  2,
-  'both the reuse branch and the launch branch must start the monitor with the same set'
+  3,
+  'reuse, launch and the readiness fast path must all start the monitor with the same set'
 );
 
 // ---------------------------------------------------------------------------

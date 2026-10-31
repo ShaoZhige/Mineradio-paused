@@ -113,9 +113,21 @@ function scriptFunctionSource(name) {
   return extractFunction(runtimeText, `function ${name}() {`);
 }
 
+// 脚本函数之间允许共享源码片段：两份窗口控制脚本都从 windowControlCSharpSource 取那段 C#，
+// 单独求值会 ReferenceError。
+// Script functions may share a source fragment: both window-control scripts read the C# from
+// windowControlCSharpSource, which has to be defined in the same context.
+const SCRIPT_FUNCTION_DEPENDENCIES = {
+  nativeWindowControlScript: ['windowControlCSharpSource'],
+  nativeWindowControlHostScript: ['windowControlCSharpSource'],
+};
+
 function measureScript(name) {
   const source = scriptFunctionSource(name);
   const context = vm.createContext({ Buffer, console: { warn() {} } });
+  for (const dependency of SCRIPT_FUNCTION_DEPENDENCIES[name] || []) {
+    vm.runInContext(scriptFunctionSource(dependency), context, { filename: `${dependency}.js` });
+  }
   vm.runInContext(source, context, { filename: `${name}.js` });
   const value = vm.runInContext(name, context)();
   assert.strictEqual(typeof value, 'string', `${name} must return a script string`);

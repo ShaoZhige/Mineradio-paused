@@ -383,6 +383,13 @@ const wallpaperEngineRuntime = new WallpaperEngineRuntime({
   // problem like "why did the engine raise that dialog" no longer requires catching a control
   // process that lives a few dozen milliseconds.
   controlCommandLogPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-commands.log'),
+  frameDeltaPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-window-frame.json'),
+  // 引擎就绪与签名校验的结论都落在用户数据目录：这两件事每次启用都要重做，而它们的结论
+  // 只取决于进程集合与文件指纹。跨启动复用后，启用前只剩一次 tasklist。
+  engineReadyCachePath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-engine-ready.json'),
+  signatureCachePath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-signatures.json'),
+  fastEngineProbe: true,
+  residentWindowController: true,
   library: wallpaperEngineLibrary,
   desktopCapturer,
   hostElevationProbe: systemMemory.probeProcessElevation,
@@ -4730,6 +4737,12 @@ ipcMain.handle('mineradio-wallpaper-engine-list', async (event, payload = {}) =>
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, projects: [], count: 0, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
     const snapshot = await wallpaperEngineLibrary.list({ force: payload && payload.force === true });
     const runtime = await wallpaperEngineRuntime.probe(payload && payload.force === true);
+    // 列表一打开就说明用户在看壁纸，接下来很可能点应用。把启用前的固定开销（引擎就绪、
+    // 常驻帮手编译）放到这里做，点下去时只剩开窗与对齐。
+    // Opening the library is the signal that an apply is likely: pay the fixed start-up cost here.
+    if (payload && payload.force !== true) {
+      void wallpaperEngineRuntime.warmUp({ silentWindows: payload && payload.silentWindows !== false }).catch(() => { });
+    }
     return { ...snapshot, runtime };
   } catch (error) {
     return { ok: false, projects: [], count: 0, error: error.message || 'WALLPAPER_ENGINE_SCAN_FAILED' };
