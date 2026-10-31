@@ -6,7 +6,11 @@ const test = require('node:test');
 const appRoot = path.resolve(__dirname, '..');
 const gate = require(path.join(appRoot, 'scripts', 'audit-prod.js'));
 
-const ALLOWED_ID = 'GHSA-86w9-cpqp-85rv';
+// 夹具用的编号，与**随包发行的**白名单无关：白名单现在是空的（2026-10-31 上游修复后清零），
+// 闸门的判据必须用自带夹具验证，否则一旦清空白名单，这些用例就会连"过期条目要报错"都验不了。
+// A fixture id, deliberately independent of the shipped allowlist: that list is empty as of
+// 2026-10-31, so every behaviour below has to be exercised against local fixtures instead.
+const FIXTURE_ID = 'GHSA-86w9-cpqp-85rv';
 
 function auditOf(vulnerabilities) {
   return {
@@ -36,10 +40,14 @@ function nodeForgeEntry() {
     name: 'node-forge',
     severity: 'high',
     isDirect: false,
-    via: [advisory(ALLOWED_ID, 'node-forge', 'high', 'node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements')],
+    via: [advisory(FIXTURE_ID, 'node-forge', 'high', 'node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements')],
     effects: ['NeteaseCloudMusicApi'],
     range: '*',
   };
+}
+
+function allowEntry(over) {
+  return { id: FIXTURE_ID, package: 'node-forge', severity: 'high', reason: 'r'.repeat(60), recheck: 'c'.repeat(20), ...over };
 }
 
 test('the shipped allowlist is well formed, so a typo cannot turn the gate into a rubber stamp', () => {
@@ -50,10 +58,12 @@ test('the shipped allowlist is well formed, so a typo cannot turn the gate into 
     assert.ok(entry.reason.trim().length >= 60, `${entry.id} 的 reason 太短，无法当依据看`);
     assert.ok(entry.recheck.trim().length >= 20, `${entry.id} 的 recheck 太短，无法当复查条件看`);
   }
+  // 空表是当前健康状态：上游把公告全修完了，靠 overrides 顶版本，不需要任何豁免。
+  // 将来若确实要挂一条，本条循环会自动开始检查它的 reason 与 recheck；闸门的 stale 判据会盯着它不过期。
 });
 
 test('a malformed allowlist is rejected rather than silently waving advisories through', () => {
-  const good = (over) => ({ id: ALLOWED_ID, package: 'node-forge', severity: 'high', reason: 'r'.repeat(60), recheck: 'c'.repeat(20), ...over });
+  const good = (over) => allowEntry(over);
   assert.ok(gate.validateAllowlist([good({ id: 'CVE-2026-0001' })]).length > 0, 'id 不是 GHSA 编号');
   assert.ok(gate.validateAllowlist([good({ severity: 'medium' })]).length > 0, 'severity 不在允许集合');
   assert.ok(gate.validateAllowlist([good({ package: '' })]).length > 0, 'package 缺失');
@@ -75,16 +85,16 @@ test('unparseable audit output fails the gate instead of reading as clean', () =
   assert.strictEqual(parsed.metadata.vulnerabilities.total, 0);
 });
 
-test('the current production tree passes: only the allowlisted advisory remains', () => {
+test('an allowlisted advisory still passes, and its host is only reported as inherited', () => {
   const audit = auditOf({
     NeteaseCloudMusicApi: { name: 'NeteaseCloudMusicApi', severity: 'high', isDirect: true, via: ['node-forge'], effects: [], range: '>=4.14.0' },
     'node-forge': nodeForgeEntry(),
   });
-  const verdict = gate.evaluate(audit, gate.ALLOWED_ADVISORIES);
+  const verdict = gate.evaluate(audit, [allowEntry()]);
   assert.strictEqual(verdict.ok, true);
   assert.deepStrictEqual(verdict.unexpected, []);
   assert.deepStrictEqual(verdict.stale, []);
-  assert.deepStrictEqual(verdict.reported.map((a) => a.id), [ALLOWED_ID]);
+  assert.deepStrictEqual(verdict.reported.map((a) => a.id), [FIXTURE_ID]);
   // via 里只有字符串的包只是"被牵连"，不能当作新公告，否则会多出一条永远匹配不上的假条目。
   assert.deepStrictEqual(verdict.inherited, ['NeteaseCloudMusicApi']);
   assert.strictEqual(verdict.counts.total, 2);
@@ -102,7 +112,7 @@ test('a new advisory fails the gate and is named in the verdict', () => {
       range: '>=7.24.1 <7.29.1',
     },
   });
-  const verdict = gate.evaluate(audit, gate.ALLOWED_ADVISORIES);
+  const verdict = gate.evaluate(audit, [allowEntry()]);
   assert.strictEqual(verdict.ok, false);
   assert.deepStrictEqual(verdict.unexpected.map((a) => a.id), ['GHSA-1111-2222-3333']);
   assert.strictEqual(verdict.unexpected[0].package, 'undici');
@@ -120,13 +130,16 @@ test('a stale allowlist entry fails the gate, so an exemption cannot quietly out
       range: '>=7.24.1 <7.29.1',
     },
   });
-  const verdict = gate.evaluate(audit, gate.ALLOWED_ADVISORIES);
+  const verdict = gate.evaluate(audit, [allowEntry()]);
   assert.strictEqual(verdict.ok, false);
-  assert.deepStrictEqual(verdict.stale, [ALLOWED_ID]);
+  assert.deepStrictEqual(verdict.stale, [FIXTURE_ID]);
 });
 
+// 上游把公告修完之后，生产树必须允许「零公告 + 零豁免」这种状态通过 —— 否则白名单清空的当天，
+// 闸门会从"过期条目"红变成"没有条目"红，等于换个方式常亮。
+// With every advisory fixed upstream, "no advisory and no exemption" has to be a passing state.
 test('a fully clean tree passes with an empty allowlist', () => {
-  const verdict = gate.evaluate(auditOf({}), []);
+  const verdict = gate.evaluate(auditOf({}), gate.ALLOWED_ADVISORIES);
   assert.strictEqual(verdict.ok, true);
   assert.deepStrictEqual(verdict.reported, []);
   assert.deepStrictEqual(verdict.stale, []);

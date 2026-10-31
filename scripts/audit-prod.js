@@ -3,50 +3,42 @@
 
 // 生产依赖漏洞闸门 / Production dependency vulnerability gate.
 //
-// 为什么不直接拿 `npm audit --omit=dev` 的退出码当门禁：生产树里还剩一条**上游没有修复版**的
-// 公告（node-forge 的 RSA PKCS#1 v1.5 验签，公告区间 `<=1.4.0`，而 1.4.0 就是最新版）。
-// npm 愿意给的唯一"修复"是把 NeteaseCloudMusicApi 降级到 4.13.6 —— 拿 19 个次版本的功能与修复
-// 去换一条本项目根本走不到的代码路径，不采纳。直接当门禁的话它会永远是红的，红就成了噪声。
+// 为什么不直接拿 `npm audit --omit=dev` 的退出码当门禁：这套白名单是为「上游确实没有修复版」的公告
+// 准备的。它已经用过一次 —— node-forge 的 RSA PKCS#1 v1.5 验签（公告区间 `<=1.4.0`，而 1.4.0 当时
+// 就是最新版），靠那条豁免才让闸门保持「红了一定有动作可做」而不是常量红噪声。
 //
-// 所以改成白名单制，并且**三个方向都会失败**：
+// 2026-10-31 上游集中披露了一批公告（node-forge 12 条、follow-redirects 1 条），同时把修复版发到
+// node-forge 1.4.1/1.4.2 与 follow-redirects 1.16.2。`overrides` 顶到新版本后生产树是**真的零公告**，
+// 白名单也随之清空 —— 空表是健康状态，不是忘了清理；下次真需要挂豁免时再按下面的格式加条目。
+//
+// 白名单机制保留，并且**三个方向都会失败**：
 //   1. 出现白名单之外的公告          -> 失败（新问题必须有人看见）
 //   2. 白名单里的公告不再被报告      -> 失败（条目已过期，必须删掉；白名单不许长青苔）
-//   3. audit 跑不起来 / 输出不可解析 -> 失败（工具坏了不能当成"没有漏洞"）
+//   3. audit 跑不起来 / 输出不可解析 -> 失败（工具坏了不能当成「没有漏洞」）
 // 这样白名单里每一条都被一条真能失败的判据盯着，而不是一句口头承诺。
 //
-// Why not just gate on the exit code of `npm audit --omit=dev`: one advisory in the production
-// tree has no upstream fix (node-forge RSA PKCS#1 v1.5 signature verification — advisory range
-// `<=1.4.0`, and 1.4.0 is the newest release). The only "fix" npm offers is downgrading
-// NeteaseCloudMusicApi to 4.13.6, trading 19 minor versions of fixes for a code path this app
-// never executes. As a plain gate it would sit red forever, and permanent red is just noise.
+// Why not gate on the exit code of `npm audit --omit=dev`: this allowlist exists for advisories that
+// have no upstream fix, and it has already earned its keep once (node-forge's RSA PKCS#1 v1.5
+// signature verification, range `<=1.4.0` when 1.4.0 was the newest release).
 //
-// Hence an allowlist that can fail in three ways: a new advisory fails, an allowlisted advisory
-// that stops being reported fails (a stale entry is a lie), and a broken `npm audit` fails
-// instead of reading as "clean".
+// On 2026-10-31 upstream disclosed a batch (12 node-forge advisories, 1 follow-redirects) and shipped
+// fixes in node-forge 1.4.1/1.4.2 and follow-redirects 1.16.2. The `overrides` bump clears the
+// production tree completely, so the allowlist is now empty by design rather than by neglect.
+//
+// The mechanism still fails in three ways: a new advisory fails, an allowlisted advisory that stops
+// being reported fails (a stale entry is a lie), and a broken `npm audit` fails instead of reading as
+// "clean".
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// 允许放行的公告。新增条目必须写清 reason（为什么可以放行）与 recheck（什么时候回来复查），
-// 否则 validateAllowlist 会拒绝运行闸门。
-// Allowed advisories. Every entry must state why it is acceptable and when to re-check it.
-const ALLOWED_ADVISORIES = [
-  {
-    id: 'GHSA-86w9-cpqp-85rv',
-    package: 'node-forge',
-    severity: 'high',
-    reason:
-      '上游未发布修复版：公告区间为 `<=1.4.0`，而 node-forge 最新版就是 1.4.0，没有可升的版本（CWE-347）。' +
-      '该公告针对 RSA PKCS#1 v1.5 签名**验签**，而本项目对 node-forge 的全部用法只有 ' +
-      '`forge.pki.publicKeyFromPem()` + `publicKey.encrypt()` + `forge.util.bytesToHex()` ' +
-      '（见 NeteaseCloudMusicApi/util/crypto.js 的 rsaEncrypt），全程不触碰验签路径。' +
-      'npm 给出的降级建议（NeteaseCloudMusicApi 退到 4.13.6）不采纳。',
-    recheck:
-      'node-forge 发布 >1.4.0 时立即复查本条；上游 NeteaseCloudMusicApi 换掉该依赖时删除本条。',
-  },
-];
+// 允许放行的公告。空表 = 生产树无豁免。新增条目必须写清 reason（为什么可以放行）与 recheck
+// （什么时候回来复查），否则 validateAllowlist 会拒绝运行闸门。
+// Allowed advisories. Empty means the production tree needs no exemption. Every entry must state why
+// it is acceptable and when to re-check it.
+const ALLOWED_ADVISORIES = [];
 
 const SEVERITIES = new Set(['low', 'moderate', 'high', 'critical']);
 const GHSA_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;
@@ -250,8 +242,10 @@ function main() {
   }
 
   ok(
-    `production tree is clean apart from ${ALLOWED_ADVISORIES.length} allowlisted advisory(ies) with no upstream fix` +
-      ' / 生产树除白名单外干净。',
+    ALLOWED_ADVISORIES.length
+      ? `production tree is clean apart from ${ALLOWED_ADVISORIES.length} allowlisted advisory(ies) with no upstream fix` +
+          ' / 生产树除白名单外干净。'
+      : 'production tree is clean, no advisory and no allowlist exemption / 生产树完全干净，无公告、无豁免。',
   );
   return 0;
 }

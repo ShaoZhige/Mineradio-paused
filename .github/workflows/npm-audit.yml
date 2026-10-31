@@ -22,8 +22,8 @@ jobs:
           cache: 'npm'
       - run: npm ci
       # 生产依赖闸门：`scripts/audit-prod.js` 跑 `npm audit --omit=dev`，只放行白名单里的公告。
-      # 生产树从 11 项（3 中 / 7 高 / 1 严重）降到 1 项，而那一项上游没有修复版
-      # （node-forge 的 RSA PKCS#1 v1.5 验签，公告区间 `<=1.4.0` 而 1.4.0 就是最新版）。
+      # 2026-10-31 上游集中披露 13 条并把修复版发到 node-forge 1.4.1+ / follow-redirects 1.16.2，
+      # `overrides` 顶版本后生产树降到 **0 项**，白名单也随之清空（空表是健康状态，不是遗漏）。
       # 闸门三个方向都会失败：出现白名单之外的公告、白名单条目过期不再被报告、audit 输出不可解析。
       # 所以这一步是**真门禁**——它红了一定有动作可做，而不是常量红噪声。
       # Production gate: `scripts/audit-prod.js` runs `npm audit --omit=dev` and lets through only
