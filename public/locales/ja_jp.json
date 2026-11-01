@@ -167,7 +167,7 @@
   "bg_compression": "背景圧縮",
   "btn_reset_default": "デフォルトに戻す",
   "queue_title": "プレイリスト / キュー",
-  "queue_sub": "QUEUE · マウスを離すと自動非表示",
+  "queue_sub": "QUEUE",
   "btn_pin_queue": "プレイリストを固定",
   "btn_shuffle": "シャッフル",
   "tab_queue": "現在のキュー",

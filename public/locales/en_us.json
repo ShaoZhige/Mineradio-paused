@@ -167,7 +167,7 @@
   "bg_compression": "Background Compression",
   "btn_reset_default": "Reset to Default",
   "queue_title": "Playlist / Queue",
-  "queue_sub": "QUEUE · Auto-hides when mouse moves away",
+  "queue_sub": "QUEUE",
   "btn_pin_queue": "Pin Playlist",
   "btn_shuffle": "Shuffle",
   "tab_queue": "Current Queue",

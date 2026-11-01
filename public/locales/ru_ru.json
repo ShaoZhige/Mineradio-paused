@@ -167,7 +167,7 @@
   "bg_compression": "Сжатие фона",
   "btn_reset_default": "Сбросить",
   "queue_title": "Плейлист / очередь",
-  "queue_sub": "QUEUE · скрывается, когда курсор уходит",
+  "queue_sub": "QUEUE",
   "btn_pin_queue": "Закрепить плейлист",
   "btn_shuffle": "Перемешать",
   "tab_queue": "Текущая очередь",

@@ -167,7 +167,7 @@
   "bg_compression": "背景压缩",
   "btn_reset_default": "恢复默认",
   "queue_title": "歌单 / 队列",
-  "queue_sub": "QUEUE · 鼠标移开自动隐藏",
+  "queue_sub": "QUEUE",
   "btn_pin_queue": "常开歌单",
   "btn_shuffle": "随机",
   "tab_queue": "当前队列",

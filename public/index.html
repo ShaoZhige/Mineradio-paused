@@ -1213,19 +1213,52 @@
         <div class="queue-head">
           <div>
             <div class="fx-title" data-i18n="queue_title">歌单 / 队列</div>
-            <div class="fx-sub" data-i18n="queue_sub">QUEUE · 鼠标移开自动隐藏</div>
+            <!-- 副标题只说 QUEUE：面板右上角就有「常开」图钉，再写「鼠标移开自动隐藏」
+                 等于同一行里给两句互相打架的提示。 / Subtitle is just "QUEUE": the pin
+                 button on the same row would contradict an auto-hide note. -->
+            <div class="fx-sub" data-i18n="queue_sub">QUEUE</div>
           </div>
+          <!-- 标题行右侧两个图标按钮：图钉用实心字形（斜 45°），随机沿用播放卡片
+               #play-mode-btn 的同款交叉箭头（描边 + 折角箭头）。两者都只用 currentColor 上色。
+               Header icons: a solid tilted pin, plus the same shuffle glyph the player card
+               uses (stroked crossing arrows with square heads). currentColor only. -->
           <div class="queue-head-act">
             <button id="playlist-pin-btn" class="fx-mini-btn ghost playlist-pin-btn"
-              onclick="togglePlaylistPanelPinned()" title="常开歌单" aria-label="常开歌单" data-i18n="btn_pin_queue" data-i18n-attr="aria-label" data-i18n-title="btn_pin_queue"><svg viewBox="0 0 24 24" width="15"
-                height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                stroke-linejoin="round">
-                <path d="M14 4l6 6" />
-                <path d="M5 15l4 4" />
-                <path d="M14 4l-2 5-4 4-3 2 4 4 2-3 4-4 5-2z" />
-                <path d="M9 19l-4 4" />
+              onclick="togglePlaylistPanelPinned()" title="常开歌单" aria-label="常开歌单" data-i18n="btn_pin_queue" data-i18n-attr="aria-label" data-i18n-title="btn_pin_queue"><svg
+                viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+                <!-- 图钉斜 45° 摆放（针指向左下），跟"按在板上"的图钉一致；竖直摆放时在这个
+                     尺寸下只剩一个正立的 T，看不出是图钉。旋转中心取 12,12 —— 正好是原
+                     字形包围盒的中心，所以转完仍然居中（起手写成 translate 反而偏了）。
+                     The pin is tilted 45° (needle to the lower left) about 12,12, which is
+                     the centre of the upright glyph's box — so rotating alone keeps it
+                     centred; an extra translate threw it off centre. -->
+                <g transform="rotate(45 12 12)">
+                  <path
+                    d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.7v6.6l1.3 1.4 1.3-1.4V14H19v-2c-1.66 0-3-1.34-3-3z" />
+                </g>
               </svg></button>
-            <button class="fx-mini-btn ghost" onclick="shuffleQueue()" data-i18n="btn_shuffle">随机</button>
+            <!-- 随机只放交叉箭头图标：按钮在 302px 面板的右上角，与左侧图钉同宽 30px；
+                 文案交给 title / aria-label 走 i18n，否则俄文「Перемешать」这类长词
+                 会把这一行挤爆。 / Icon-only shuffle: the label lives in title + aria-label
+                 because long translations overran this 30px-wide slot. -->
+            <button id="queue-shuffle-btn" class="fx-mini-btn ghost playlist-icon-btn"
+              onclick="shuffleQueue()" title="随机" aria-label="随机" data-i18n="btn_shuffle" data-i18n-attr="aria-label" data-i18n-title="btn_shuffle"><svg
+                viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <!-- 与播放卡片 #play-mode-btn 的「随机」图标同一套路径（交叉箭头 + 直角折角箭头），
+                     只做缩放 —— 之前自己画的实心三角在 15px 下像剪刀，头也太尖。
+                     translate(-.5) 是把描边后的视觉包围盒（3~22 格）摆回 12 格中心。
+                     Same paths as the player card's shuffle icon (crossing arrows with square
+                     chevron heads), only scaled: my solid triangular heads read as scissors.
+                     The -0.5 shift re-centres the stroked box (spans 3..22) on 12. -->
+                <g transform="translate(-.5 0)">
+                  <path d="M16 3h5v5" />
+                  <path d="M4 20 21 3" />
+                  <path d="M21 16v5h-5" />
+                  <path d="M15 15l6 6" />
+                  <path d="M4 4l5 5" />
+                </g>
+              </svg></button>
           </div>
         </div>
         <div class="panel-tabs">

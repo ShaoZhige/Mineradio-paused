@@ -14226,11 +14226,29 @@ html:fullscreen body.desktop-shell #playlist-panel {
   gap: 6px
 }
 
-.playlist-pin-btn {
+/* 面板标题行右侧的图标按钮：图钉与随机共用 30px 方槽。随机原来是文字按钮，
+   俄文「Перемешать」/ 日文「シャッフル」这类长词会把这一行撑开，所以也只放图标。
+   两个按钮都用 flex 居中，不靠按钮默认的行盒 —— svg 是行内元素，靠基线摆放会
+   让图钉比随机高出一两个像素，看起来"没摆到中心"。
+   Icon buttons in the panel header share one 30px square slot. Shuffle used to be a text
+   button; long labels (Russian "Перемешать") overran the row, so it is icon-only too.
+   Both centre the glyph with flex: the default inline baseline would leave the pin a
+   pixel or two higher than the shuffle icon. */
+.playlist-pin-btn,
+.playlist-icon-btn {
   width: 30px;
   min-width: 30px;
   flex: 0 0 auto;
-  padding: 0
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center
+}
+
+.playlist-pin-btn svg,
+.playlist-icon-btn svg {
+  display: block;
+  pointer-events: none
 }
 
 .playlist-pin-btn.active {
