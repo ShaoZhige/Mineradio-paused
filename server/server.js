@@ -192,7 +192,11 @@ const UPDATE_FALLBACK_NOTES = [
 ];
 const OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const OPEN_METEO_GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
-const WEATHER_IP_LOCATION_URL = 'http://ip-api.com/json/';
+// 定位服务用 ipwho.is 而不是 ip-api：ip-api 的免费额度只给 http，等于为了回答「今天什么天气」
+// 把用户的出口 IP 明文放在链路上。ipwho.is 免费、免 key、支持 HTTPS，返回结构也更扁平。
+// ipwho.is instead of ip-api: the ip-api free tier is http-only, which put the user's egress IP
+// on the wire in clear just to answer "what is the weather". ipwho.is is free, key-less, HTTPS.
+const WEATHER_IP_LOCATION_URL = 'https://ipwho.is/';
 const WEATHER_DEFAULT_LOCATION = {
   name: '上海',
   country: 'China',
@@ -2066,24 +2070,28 @@ async function fetchOpenMeteoWeather(params) {
 }
 
 async function fetchIpWeatherLocation() {
+  // ipwho.is 没有 ip-api 那套 fields 白名单，返回固定结构：success / city / region / country /
+  // latitude / longitude / timezone.id / ip。失败时 success 为 false 并在 message 里给原因。
+  // ipwho.is has no fields whitelist; the shape is fixed (success, city, region, country,
+  // latitude, longitude, timezone.id, ip) and a failure comes back as success:false + message.
   const u = new URL(WEATHER_IP_LOCATION_URL);
-  u.searchParams.set('fields', 'status,message,country,regionName,city,lat,lon,timezone,query');
   u.searchParams.set('lang', 'zh-CN');
   const body = await requestJson(u.toString(), { headers: { 'User-Agent': UA } });
-  if (!body || body.status !== 'success' || !Number.isFinite(Number(body.lat)) || !Number.isFinite(Number(body.lon))) {
+  if (!body || body.success === false
+    || !Number.isFinite(Number(body.latitude)) || !Number.isFinite(Number(body.longitude))) {
     const err = new Error(body && body.message || 'IP_LOCATION_FAILED');
     err.body = body;
     throw err;
   }
   return {
-    provider: 'ip-api',
+    provider: 'ipwho.is',
     city: body.city || WEATHER_DEFAULT_LOCATION.name,
-    region: body.regionName || '',
+    region: body.region || '',
     country: body.country || '',
-    latitude: Number(body.lat),
-    longitude: Number(body.lon),
-    timezone: body.timezone || 'auto',
-    ip: body.query || '',
+    latitude: Number(body.latitude),
+    longitude: Number(body.longitude),
+    timezone: (body.timezone && body.timezone.id) || 'auto',
+    ip: body.ip || '',
   };
 }
 
@@ -2788,7 +2796,9 @@ function normalizeQQProfile(body, cookieObj) {
   const uin = qqCookieUin(cookieObj);
   const data = (body && (body.data || body.profile || body.creator || body.result)) || {};
   const creator = (data.creator || data.user || data.profile || data) || {};
-  const vipInfo = data.vipInfo || data.vipinfo || data.vip || creator.vipInfo || creator.vipinfo || {};
+  // 同上：空的 data.vipInfo 不能把 creator 里真正的会员信息挡掉。
+  // Same shape: an empty data.vipInfo must not shadow the real payload under creator.
+  const vipInfo = firstPopulatedObject([data.vipInfo, data.vipinfo, data.vip, creator.vipInfo, creator.vipinfo]);
   const profileNick = decodeQQCookieValue(creator.nick || creator.nickname || creator.name || creator.hostname || creator.title || '');
   const profileAvatar = creator.headpic || creator.avatar || creator.avatarUrl || creator.logo || '';
   const cookieNick = qqCookieNickname(cookieObj, uin);
@@ -4391,11 +4401,26 @@ async function fetchNeteaseVipInfo(userId) {
   if (body) neteaseVipInfoCache.set(userId, { at: Date.now(), value: body });
   return body;
 }
+// 取第一个**真的有字段**的对象。写成 `a || b || c || {}` 时，一个空的 `{}` 也是 truthy，会把
+// 后面真正带内容的那个整段挡住 —— 这些平台的账号接口时不时就回一个空的 vipInfo 壳子。
+// 只影响嵌套的 vipInfo.* 字段；account / profile 本体本来就单独进了 objects 数组。
+// First object that actually carries fields. In `a || b || c || {}` an empty `{}` is truthy and
+// shadows the object that really holds the payload, and these endpoints do return empty vipInfo
+// shells. Only the nested vipInfo.* lookup is affected — account/profile are already in `objects`.
+function firstPopulatedObject(candidates) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  for (const item of list) {
+    if (item && typeof item === 'object' && !Array.isArray(item) && Object.keys(item).length > 0) return item;
+  }
+  return {};
+}
 function normalizeNeteaseVip(profile, account, extra) {
   profile = profile || {};
   account = account || {};
   extra = extra || {};
-  const vipInfo = profile.vipInfo || profile.vipinfo || account.vipInfo || account.vipinfo || extra.vipInfo || extra.vipinfo || {};
+  const vipInfo = firstPopulatedObject([
+    profile.vipInfo, profile.vipinfo, account.vipInfo, account.vipinfo, extra.vipInfo, extra.vipinfo,
+  ]);
   const vipExtra = extra.vipExtra || extra.vip_info || extra.vipInfoV2 || {};
   const vipData = vipExtra.data || vipExtra;
   const objects = [account, profile, vipInfo, extra, vipData];
