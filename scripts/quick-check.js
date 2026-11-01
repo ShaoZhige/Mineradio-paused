@@ -255,9 +255,9 @@ function runWallpaperEngineIdleDisposeRegressionCheck() {
   process.stdout.write(result.stdout || '');
 }
 
-function runWallpaperEngineHiddenHostTeardownCheck() {
-  logStep('Wallpaper Engine hidden host teardown');
-  const testFile = path.join(appRoot, 'tests', 'wallpaper-engine-hidden-host-teardown.test.js');
+function runWallpaperEngineMinimizeResidentRegressionCheck() {
+  logStep('Wallpaper Engine minimize resident regression');
+  const testFile = path.join(appRoot, 'tests', 'wallpaper-engine-minimize-resident.test.js');
   const result = spawnSync(process.execPath, [testFile], {
     cwd: appRoot,
     encoding: 'utf8'
@@ -265,9 +265,29 @@ function runWallpaperEngineHiddenHostTeardownCheck() {
   if (result.status !== 0) {
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
-    fail(`Wallpaper Engine hidden host teardown failed: ${rel(testFile)}`);
+    fail(`Wallpaper Engine minimize resident regression failed: ${rel(testFile)}`);
   }
   process.stdout.write(result.stdout || '');
+}
+
+function runWallpaperEngineHiddenHostTeardownCheck() {
+  logStep('Wallpaper Engine hidden host teardown');
+  const testFiles = [
+    path.join(appRoot, 'tests', 'wallpaper-engine-hidden-host-teardown.test.js'),
+    path.join(appRoot, 'tests', 'quit-hides-wallpaper-surfaces.test.js')
+  ];
+  for (const testFile of testFiles) {
+    const result = spawnSync(process.execPath, [testFile], {
+      cwd: appRoot,
+      encoding: 'utf8'
+    });
+    if (result.status !== 0) {
+      process.stdout.write(result.stdout || '');
+      process.stderr.write(result.stderr || '');
+      fail(`Wallpaper Engine hidden host teardown failed: ${rel(testFile)}`);
+    }
+    process.stdout.write(result.stdout || '');
+  }
 }
 
 function runWallpaperEngineWin10YellowBorderRegressionCheck() {
@@ -8391,6 +8411,7 @@ async function main() {
   runBuiltInPlaylistRegressionCheck();
   runServerModuleRelocationCheck();
   runWallpaperEngineIdleDisposeRegressionCheck();
+  runWallpaperEngineMinimizeResidentRegressionCheck();
   runWallpaperEngineHiddenHostTeardownCheck();
   runWallpaperEngineWin10YellowBorderRegressionCheck();
   runGestureCameraPermissionRegressionCheck();

@@ -420,6 +420,15 @@ let wallpaperEngineHostVisibilityResumePending = false;
 let wallpaperEngineHostVisibilityResumeTimer = null;
 let wallpaperEngineHostVisibilityOperation = 0;
 let wallpaperEngineHostVisibilityStopPromise = null;
+let wallpaperEngineHostVisibilityResidentMinimized = false;
+let wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
+// 渲染进程在最小化时也会自己走一遍 visibilitychange 拆台（prepare + stopWallpaperEngineScene），
+// 这段拆台会打掉主进程刻意保留的原生表面，恢复时只能整轮重启。只在这个短窗口内忽略被限定到
+// 单个会话的停止请求，既覆盖住事件顺序竞争，又不会长期扣住会话。
+// The renderer tears the capture down from its own visibilitychange handler too. Right after a
+// minimize that teardown would kill the surface main deliberately preserved. Scoped stop requests
+// are ignored only inside this short window: enough for the event-order race, not a pinned session.
+const WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS = 3000;
 let fullDesktopModeHostVisibilityTransitionDepth = 0;
 let wallpaperEngineDesktopIconLayeringQueue = Promise.resolve(true);
 const WALLPAPER_ENGINE_CAPTURE_GRANT_MS = 12000;
@@ -1461,14 +1470,44 @@ function finishWallpaperEngineVisibleHostResume(win) {
   setMainWindowBackgroundThrottling(win, desktopMode.enabled === true ? false : MAIN_WINDOW_BACKGROUND_THROTTLING);
 }
 
-// 主窗口一不可见（最小化 / 托盘隐藏），壁纸就必须整块退场：WE 播放窗口、DWM 表面、指针
-// 中继全部收掉，后台只留音乐播放和桌面歌词。渲染进程收到 prepare 后会先自己拆一次台，这里
-// 再走一遍完整停止；两个停止请求对同一个会话是幂等的，谁先到都行。
-// As soon as the host window is not visible the wallpaper leaves the screen entirely — only audio
-// playback and the desktop-lyrics window keep running. The renderer tears its own capture down on
-// `prepare`; the stop issued here is idempotent for the same session, so order does not matter.
+// 隐藏分两种：最小化是高频来回的操作，原生表面留着最省事；托盘关闭和退出是真的要它消失，
+// 走完整停止。区分靠 reason，最小化才是常驻。
+// Minimizing is a frequent toggle, so the native surface stays resident. Tray hide and quit are
+// real exits and stop it outright.
 function suspendWallpaperEngineForHiddenHost(win, reason = 'hidden') {
   if (!win || win.isDestroyed()) return Promise.resolve({ ok: true, stopped: false });
+  const normalizedReason = String(reason || 'hidden').toLowerCase();
+  const runtimeStatus = wallpaperEngineRuntime.getStatus();
+  if (/^minimi[sz]e(?:d)?$/.test(normalizedReason)
+    && runtimeStatus
+    && runtimeStatus.active === true
+    && runtimeStatus.captureMode === 'dwm-thumbnail'
+    && runtimeStatus.dwmSurfaceReady === true) {
+    // DWM 帮手是独立原生表面，Chromium 最小化之后它照样能画。在这里停掉会丢掉 Scene 状态，
+    // 恢复时只能整轮重启：先黑屏，后台再刷新一阵子才重新出图。
+    wallpaperEngineHostVisibilityResidentMinimized = true;
+    wallpaperEngineHostVisibilityResidentMinimizedAt = Date.now();
+    finishWallpaperEngineVisibleHostResume(win);
+    cancelWallpaperEngineHostBoundsRestart();
+    // 渲染进程自己的 visibilitychange 拆台会把刚保留的表面停掉，先告诉它本次不拆台。
+    // Tell the renderer this minimize keeps the surface, so its own visibilitychange teardown does
+    // not stop the very session being preserved.
+    try {
+      win.webContents.send('mineradio-wallpaper-engine-host-bounds-changed', {
+        phase: 'hold',
+        reason: String(reason || 'hidden'),
+        sessionId: String(runtimeStatus.sessionId || ''),
+      });
+    } catch (_) { }
+    return Promise.resolve({
+      ok: true,
+      stopped: false,
+      preserved: true,
+      sessionId: String(runtimeStatus.sessionId || ''),
+    });
+  }
+  wallpaperEngineHostVisibilityResidentMinimized = false;
+  wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
   if (wallpaperEngineHostVisibilitySuspended) {
     return wallpaperEngineHostVisibilityStopPromise || Promise.resolve({ ok: true, stopped: true });
   }
@@ -1490,7 +1529,30 @@ function resumeWallpaperEngineForVisibleHost(win, reason = 'visible') {
   const desktopMode = fullDesktopModeRuntime.getStatus('wallpaper-engine-visible-host');
   if (appQuitting || (desktopMode.enabled === true
     && (desktopMode.interactive !== true || desktopMode.phase !== 'interactive'))) return;
-  if (!wallpaperEngineHostVisibilitySuspended) return;
+  if (!wallpaperEngineHostVisibilitySuspended) {
+    if (!wallpaperEngineHostVisibilityResidentMinimized) return;
+    wallpaperEngineHostVisibilityResidentMinimized = false;
+    wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
+    const residentStatus = wallpaperEngineRuntime.getStatus();
+    if (!residentStatus || residentStatus.active !== true || residentStatus.captureMode !== 'dwm-thumbnail') return;
+    setMainWindowBackgroundThrottling(win, false);
+    syncWallpaperEngineDesktopIconLayering(`resident-${reason || 'visible'}`).catch(() => false);
+    const notifyResident = () => {
+      if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return;
+      try {
+        win.webContents.send('mineradio-wallpaper-engine-host-bounds-changed', {
+          phase: 'resident',
+          reason: String(reason || 'visible'),
+          sessionId: String(residentStatus.sessionId || ''),
+          forceVisibleHost: true,
+        });
+      } catch (_) { }
+    };
+    setTimeout(notifyResident, 80);
+    setTimeout(notifyResident, 420);
+    setTimeout(() => finishWallpaperEngineVisibleHostResume(win), 900);
+    return;
+  }
   wallpaperEngineHostVisibilitySuspended = false;
   wallpaperEngineHostVisibilityResumePending = true;
   const visibilityOperation = ++wallpaperEngineHostVisibilityOperation;
@@ -5127,6 +5189,17 @@ ipcMain.handle('mineradio-wallpaper-engine-stop-scene', async (event, payload = 
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
     const sessionId = String(payload.sessionId || '');
     const stopAll = payload && payload.all === true || !sessionId;
+    // 刚进入最小化的那一小段时间里，渲染进程自己的 visibilitychange 拆台请求会和主进程的
+    // 「保留现场」撞上。只在这个短窗口内、且只对被限定到单个会话的请求保留现场，恢复后渲染
+    // 进程会用 'resident' 阶段重新认领，不会留下无主会话。
+    // Right after a minimize the renderer's own visibilitychange teardown races the preserved
+    // surface. Hold only scoped stops inside this short window; the renderer re-claims the session
+    // on restore, so nothing is left orphaned.
+    if (!stopAll
+      && wallpaperEngineHostVisibilityResidentMinimized === true
+      && Date.now() - wallpaperEngineHostVisibilityResidentMinimizedAt <= WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS) {
+      return { ok: true, stopped: false, preserved: true, sessionId };
+    }
     // Invalidate pending preparation before awaiting the old source shutdown.
     // Otherwise a new start can begin during the close wait and then be
     // incorrectly superseded when this stop handler resumes.
@@ -7009,8 +7082,6 @@ if (!gotSingleInstanceLock) {
       // 常驻 PowerShell 只有在 WE 真正关完之后才能收：窗口控制宿主编译一次要 1.5s 上下，退出时
       // 提前杀掉它会让正在跑的关窗请求退回一次性脚本，白等一轮。dispose 内部也会收，这里兜住
       // dispose 超时或提前返回的情况。
-      // Reap the resident helpers only once WE is really closed. Killing the window-control host
-      // first forces an in-flight close onto the one-shot fallback, which is a wasted round.
       wallpaperEngineRuntime.stopResidentHelpers('quit');
     })();
     const runtimeCleanup = fullDesktopAndWallpaperEngineCleanup;
