@@ -273,6 +273,12 @@ function switchPlaylistTab(tab, opts) {
   // The provider switcher belongs to the playlists tab; it sits in the sticky block, which the
   // display toggles above do not cover, so it has to be hidden on its own.
   if (typeof renderPlaylistProviderTabs === 'function') renderPlaylistProviderTabs(null);
+  // 播客面板有自己的平台切换器；refresh:false 不会走 refreshUserPlaylists，切换器会停在上一次
+  // 的平台列表上，所以这里单独重画一次。
+  if (tab === 'podcasts' && opts.refresh === false
+    && typeof renderMyPodcastCollections === 'function') {
+    renderMyPodcastCollections({ animate: false });
+  }
   if ((tab === 'playlists' || tab === 'podcasts') && opts.refresh !== false) refreshUserPlaylists();
   if (opts.animate !== false) animatePlaylistPanelCurrentTab(document.getElementById('playlist-panel'));
 }
@@ -791,6 +797,8 @@ async function refreshUserPlaylists(force) {
     renderUserPlaylistsList({ animate: isPlaylistPanelVisibleForRender(), preserveScroll: true });
     var podcastListLoggedOut = document.getElementById('podcast-list');
     if (podcastListLoggedOut) podcastListLoggedOut.innerHTML = '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">' + escHtml(playlistPanelText('login_show_podcasts', '登录后显示我的播客')) + '</div>';
+    // 一个平台都没登录时播客切换器要整行收起，只留上面那句提示。
+    if (typeof renderPodcastProviderTabs === 'function') renderPodcastProviderTabs();
     return;
   }
   var catalogNeedsNewProvider = playlistCatalogSyncState.loading && providerRegistryKeysWith('login').some(function (provider) {

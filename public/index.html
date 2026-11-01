@@ -1265,6 +1265,10 @@
         <div id="pl-list" style="margin-top:6px"></div>
       </div>
       <div id="podcast-pane" style="display:none">
+        <!-- 播客的平台切换器，与歌单同款胶囊行：一次只渲染一个平台。目前只有网易云提供播客
+             接口，其余平台给出占位说明而不是空列表。显隐由 renderPodcastProviderTabs() 决定，
+             未登录任何平台时整行收起。 -->
+        <div id="podcast-provider-tabs" class="pl-provider-tabs" style="display:none"></div>
         <div class="queue-toolbar">
           <div class="queue-chip" data-i18n="podcast_hint">收藏 / 创建 / 喜欢</div>
           <button class="fx-mini-btn ghost" onclick="refreshUserPlaylists(true)"

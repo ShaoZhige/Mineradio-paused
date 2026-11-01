@@ -1769,6 +1769,8 @@
   "pl_items_prefix": " 項目 · ",
   "pl_no_podcast_html": "<div style=\"text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px\">ポッドキャストデータがありません</div>",
   "pl_login_podcast_html": "<div style=\"text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px\">ログインするとマイポッドキャストを表示します</div>",
+  "pl_podcast_provider_unsupported_html": "<div style=\"text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px\">{provider} は利用できるポッドキャストAPIがありません</div>",
+  "pod_provider_unsupported_title": "利用できるポッドキャストAPIがありません",
   "pl_not_found_html": "<div style=\"text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px\">プレイリストが見つかりません</div>",
   "pl_loading_bg": "プレイリストをバックグラウンドで読み込み中 · ",
   "pl_count_unit": " 件",

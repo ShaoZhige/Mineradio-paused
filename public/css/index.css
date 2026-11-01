@@ -14629,15 +14629,13 @@ html:fullscreen body.desktop-shell #playlist-panel {
   color: rgba(0, 245, 212, .50)
 }
 
-/* 平台切换器（2026-10-26）：一次只看一个平台的歌单，横向胶囊取代了原来纵向堆叠的分组标题。
-   同一天二次调整：原先它贴在 `.panel-tabs` 下面，高 21px、字号 9.5px，混在页签行里几乎看不见。
-   现在挪进「我的歌单」内容区当第一块卡片，等分宽、高 32px、字号 11.5px，选中项用青色渐变填充。
-   按钮仍用缩写（MR/NE/QQ/KG/QS/SP）：面板只有 302px 可用宽，六个全名一行放不下；
-   全名挂在 title / aria-label 上，悬停与读屏都能拿到完整名称。
-   The switcher used to hug `.panel-tabs` at 21px tall and 9.5px type, where it disappeared into the
-   tab row. It is now the first card inside the playlists pane: equal-width segments, 32px tall,
-   and a filled accent for the active one. The pills keep abbreviations because six full names do
-   not fit the 302px the panel offers; the full name rides on title and aria-label.
+/* 平台切换器：一次只看一个平台，横向胶囊取代原先纵向堆叠的分组标题；它是内容区第一块卡片，
+   等分宽、高 32px、字号 11.5px，选中项用青色渐变填充。歌单与播客两个面板共用这一套尺寸。
+   按钮用缩写（MR/NE/QQ/KG/QS/SP）：面板只有 302px 可用宽，六个全名一行放不下；全名挂在
+   title / aria-label 上，悬停与读屏都能拿到完整名称。
+   The playlists and podcasts panes share one pill geometry: equal-width segments split the row.
+   The pills keep abbreviations because six full names do not fit the 302px the panel offers; the
+   full name rides on title and aria-label.
    注意：主题段有 `#playlist-panel * { backdrop-filter: none !important }`，所以这张卡片用
    渐变实色做层次，不要写毛玻璃。 */
 .pl-provider-tabs {
@@ -14681,6 +14679,17 @@ html:fullscreen body.desktop-shell #playlist-panel {
   border-color: rgba(0, 245, 212, .52);
   color: #f2fffd;
   box-shadow: 0 2px 12px rgba(0, 245, 212, .22), inset 0 1px 0 rgba(255, 255, 255, .16)
+}
+
+/* 播客面板只有一个平台登录时也保留切换器（它是平台归属的唯一标识），但孤零零一颗按等分规则会
+   撑满整行、读起来像一条大按钮，这里让它收回到按钮该有的长度。歌单那边单平台直接收起整行，
+   不会走到这条规则。
+   A lone pill must stay, since it is the only thing naming the provider, but equal split would make
+   it span the row and read as one big button. The playlists pane never gets here: it drops the row. */
+#podcast-provider-tabs .pl-provider-tab:only-child {
+  flex: 0 0 auto;
+  min-width: 92px;
+  padding: 0 18px
 }
 
 /* 展开详情原来是「摘要头 + 操作行 + 内部滚动列表」，现在摘要头整块删掉（卡片上已有歌名、

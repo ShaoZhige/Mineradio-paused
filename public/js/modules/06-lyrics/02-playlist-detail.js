@@ -1060,12 +1060,107 @@ function renderUserPlaylistsList(opts) {
   if (typeof requestNextPlaylistCatalogPage === 'function' && end >= cache.entries.length - 8) requestNextPlaylistCatalogPage('panel-near-end');
   if (opts.animate && seq === playlistRenderSeq) animateVisiblePanelList($pl, '.pl-card', document.getElementById('playlist-panel'));
 }
+// 播客的平台切换器和歌单是同一套胶囊行：列出所有已登录的平台，一次只渲染一个。
+// 但播客接口目前只有网易云提供，其余平台登录了也没有内容可拉——那就明说「暂无可用播客接口」，
+// 让空面板看得出原因，而不是让用户以为数据在加载。
+// Podcasts reuse the playlist pill row and list every logged-in provider, one rendered at a time.
+// Only NetEase exposes podcast endpoints, so the rest say so explicitly instead of showing an
+// empty list that reads as a loading failure.
+var PODCAST_ACTIVE_PROVIDER_KEY = 'mineradio-podcast-active-provider-v1';
+var podcastPanelActiveProvider = (function () {
+  try {
+    return (window.localStorage && window.localStorage.getItem(PODCAST_ACTIVE_PROVIDER_KEY)) || '';
+  } catch (e) {
+    return '';
+  }
+})();
+// 平台清单从注册表派生，顺序即注册表顺序（网易云→QQ→酷狗→汽水→Spotify），
+// 新增平台只改注册表就能出现在这里。
+var PODCAST_PROVIDER_SUPPORTED = { netease: true };
+function podcastPanelAvailableProviders() {
+  return providerRegistryKeysWith('login').filter(function (key) {
+    return typeof playlistCatalogProviderLoggedIn === 'function' && playlistCatalogProviderLoggedIn(key);
+  });
+}
+function podcastPanelProviderSupported(provider) {
+  return PODCAST_PROVIDER_SUPPORTED[normalizePlaylistProvider(provider)] === true;
+}
+function resolvePodcastPanelActiveProvider(available) {
+  available = available || podcastPanelAvailableProviders();
+  if (!available.length) return '';
+  if (available.indexOf(podcastPanelActiveProvider) >= 0) return podcastPanelActiveProvider;
+  // 有网易云就落回网易云：那是唯一真有内容可看的平台，默认落在空平台上等于一进来就是占位。
+  // Prefer NetEase when it is logged in: it is the only provider with content to show.
+  podcastPanelActiveProvider = available.indexOf('netease') >= 0 ? 'netease' : available[0];
+  return podcastPanelActiveProvider;
+}
+function setPodcastPanelActiveProvider(key) {
+  if (!key || key === podcastPanelActiveProvider) return;
+  podcastPanelActiveProvider = key;
+  try {
+    if (window.localStorage) window.localStorage.setItem(PODCAST_ACTIVE_PROVIDER_KEY, key);
+  } catch (e) { }
+  renderMyPodcastCollections({ animate: true });
+}
+function bindPodcastProviderTabs() {
+  var host = document.getElementById('podcast-provider-tabs');
+  if (!host || host.getAttribute('data-podcast-bound') === '1') return;
+  host.setAttribute('data-podcast-bound', '1');
+  host.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-podcast-provider]') : null;
+    if (!btn) return;
+    e.preventDefault();
+    setPodcastPanelActiveProvider(btn.getAttribute('data-podcast-provider'));
+  });
+}
+// 返回当前生效的平台；没有平台登录时收起整行并返回空串。
+function renderPodcastProviderTabs() {
+  var host = document.getElementById('podcast-provider-tabs');
+  var available = podcastPanelAvailableProviders();
+  var active = resolvePodcastPanelActiveProvider(available);
+  if (!host) return active;
+  bindPodcastProviderTabs();
+  // 只要有一个平台登录就显示这一行：播客面板的切换器同时是「当前看的是哪个平台」的唯一标识，
+  // 收掉之后平台归属就无从判断。歌单那边可以按数量收起，是因为平台名在卡片标签上还看得到。
+  // Keep the row whenever any provider is logged in: this switcher is also the only indicator of
+  // which provider the podcast list belongs to. The playlists pane can hide a single pill because
+  // its cards carry a provider tag.
+  if (!available.length) {
+    host.innerHTML = '';
+    host.style.display = 'none';
+    return '';
+  }
+  host.style.display = '';
+  host.innerHTML = available.map(function (key) {
+    var full = playlistProviderName(key);
+    var isActive = key === active;
+    // 没有播客接口的平台在标题里点明，免得点进去才发现是空的。
+    var title = podcastPanelProviderSupported(key)
+      ? full
+      : full + ' · ' + playlistDetailText('pod_provider_unsupported_title', '暂无可用播客接口');
+    return '<button type="button" class="pl-provider-tab' + (isActive ? ' active' : '') + '"'
+      + ' data-podcast-provider="' + escHtml(key) + '"'
+      + ' aria-pressed="' + (isActive ? 'true' : 'false') + '"'
+      + ' title="' + escHtml(title) + '" aria-label="' + escHtml(title) + '">'
+      + escHtml(playlistProviderLabel(key)) + '</button>';
+  }).join('');
+  return active;
+}
 function renderMyPodcastCollections(opts) {
   opts = opts || {};
   var $pod = document.getElementById('podcast-list');
   if (!$pod) return;
-  if (!loginStatus.loggedIn) {
+  var activeProvider = renderPodcastProviderTabs();
+  if (!activeProvider) {
     $pod.innerHTML = playlistDetailText('pl_login_podcast_html');
+    return;
+  }
+  if (!podcastPanelProviderSupported(activeProvider)) {
+    $pod.innerHTML = playlistDetailText(
+      'pl_podcast_provider_unsupported_html',
+      '<div style="text-align:center;padding:14px 0;color:rgba(255,255,255,.28);font-size:11.5px">{provider} 暂无可用播客接口</div>',
+      { provider: escHtml(playlistProviderName(activeProvider)) }
+    );
     return;
   }
   var items = myPodcastCollections || [];
