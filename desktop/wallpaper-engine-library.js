@@ -820,6 +820,7 @@ class WallpaperEngineLibrary {
       id,
       projectFile: manifest.file,
       scenePackage,
+      properties: propertyAnalysis.properties,
       muteProperties: propertyAnalysis.muteProperties,
       propertyCount: propertyAnalysis.propertyCount,
       audioPropertyCount: propertyAnalysis.audioPropertyCount,

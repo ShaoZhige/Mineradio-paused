@@ -5,6 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const childProcess = require('child_process');
 const { discoverSteamLibraries: defaultDiscoverSteamLibraries } = require('./wallpaper-engine-library');
+const {
+  readWallpaperEngineUserProperties,
+  filterSceneUserProperties,
+  buildScenePropertyPayload,
+} = require('./wallpaper-engine-user-properties');
 const portablePaths = require('./portable-paths');
 
 const SIGNER_PATTERN = /\bSkutta Software\b/i;
@@ -3855,11 +3860,38 @@ class WallpaperEngineRuntime {
     session.muteReassertTimers.clear();
   }
 
+  // 用户在 WE 界面里调过的属性存在引擎自己的 config.json 里，而命令行 openWallpaper 不读它
+  // （实测传 project.json / scene.pkg 都是项目默认值）。这里把它取出来，随静音那一发
+  // applyProperties 一起补上，否则 Mineradio 里的壁纸永远长得像"从没设置过"。
+  // Properties the user tuned in the engine UI live in its config.json, which command-line
+  // openWallpaper ignores (measured with both project.json and scene.pkg). Read them here and
+  // replay them with the same applyProperties call the mute path uses.
+  //
+  // 失败只影响观感，绝不能让壁纸起不来：读不到就当没有。
+  // Failure only affects looks, never the start: unreadable means "no user values".
+  async _loadUserProperties(executable, target) {
+    try {
+      if (!executable || !target || !target.scenePackage) return {};
+      const configFile = path.join(path.dirname(executable), 'config.json');
+      const saved = await readWallpaperEngineUserProperties({
+        configFile,
+        packageFile: target.scenePackage,
+        projectFile: target.projectFile,
+      });
+      const filtered = filterSceneUserProperties(saved.properties, target.properties);
+      return Object.keys(filtered).length ? filtered : {};
+    } catch (error) {
+      console.warn('[Wallpaper Engine] user properties unavailable:',
+        String(error && (error.code || error.message) || error).slice(0, 300));
+      return {};
+    }
+  }
+
   async _applySessionMute(session) {
     if (!this._sessionIsCurrent(session) || !session.executable || !session.locationTitle) return false;
     if (session.muteApplyPromise) return session.muteApplyPromise;
     const operation = (async () => {
-      const properties = sanitizeMuteProperties(session.muteProperties);
+      const properties = buildScenePropertyPayload(session.muteProperties, session.userProperties);
       await this._runTransientControl(session.executable, [
         '-control',
         'applyProperties',
@@ -5077,6 +5109,7 @@ class WallpaperEngineRuntime {
       runtimeOptions,
       silentWindows: runtimeOptions.silentWindows,
       muteProperties: sanitizeMuteProperties(null),
+      userProperties: {},
       muteReassertTimers: new Set(),
       audioMuteCommandCount: 0,
       audioMuteLastAt: 0,
@@ -5167,6 +5200,7 @@ class WallpaperEngineRuntime {
         throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
       }
       session.muteProperties = sanitizeMuteProperties(target && target.muteProperties);
+      session.userProperties = await this._loadUserProperties(installation.executable, target);
       startStage = 'prepare-silent-project';
       session.launchFile = projectStat
         ? await this._prepareSilentLaunchFile(session, projectFile, scenePackage)
