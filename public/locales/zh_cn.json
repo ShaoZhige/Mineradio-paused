@@ -2159,6 +2159,8 @@
   "egg_achievement_eyebrow": "已达成成就",
   "egg_achievement_title": "世界和平！",
   "egg_achievement_aria": "已达成成就：世界和平！",
+  "egg_hint_idle": "轻戳一下，它才肯开口",
+  "egg_cinematic_hint": "点击继续",
   "egg_hint_glance": "它好像看了你一眼",
   "egg_hint_tap_more": "再点几下",
   "egg_hint_nervous": "它开始有点紧张了",

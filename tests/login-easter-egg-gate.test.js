@@ -273,7 +273,7 @@ async function run() {
 
     const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'index.css'), 'utf8');
     assert(/#user-btn\.login-eye-avatar[\s\S]{0,180}width:\s*48px[\s\S]{0,180}border-radius:\s*50%/.test(css));
-    assert(css.includes('.login-easter-unlock-cinematic.is-extracting'));
+    assert(css.includes('.login-easter-unlock-cinematic.is-visible'));
     assert(css.includes('@keyframes login-easter-world-float'));
     assert(css.includes('.login-easter-achievement.show'));
     assert(css.includes('.login-easter-achievement-pixel-eyes'));
@@ -305,7 +305,9 @@ async function run() {
     // character count: a full em per character capped English at half the size of Chinese.
     assert(css.includes('calc(90vw / var(--phrase-em, 3.86))'));
     assert(!css.includes('--phrase-chars'), 'the character-count model must not come back');
-    assert(css.includes('transition-delay: var(--extract-delay, 0s)'));
+    // 延迟 = 整排的 lead（等黑幕铺过大半）+ 每个字自己的错开。
+    // The delay is the shared lead (waiting for the veil) plus the per-glyph stagger.
+    assert(css.includes('transition-delay: calc(var(--cine-glyph-lead, 0s) + var(--extract-delay, 0s))'));
     assert(css.includes('.login-easter-unlock-phrase span.is-space'));
 
     const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
@@ -324,6 +326,7 @@ async function run() {
     // Every easter egg string goes through i18n; the Chinese text may only survive as the
     // in-tag fallback for a missing key.
     ['egg_wish_title', 'egg_wish_world_peace', 'egg_eye_tap_label', 'egg_cinematic_continue',
+      'egg_cinematic_hint',
       'egg_achievement_eyebrow', 'egg_achievement_title', 'egg_achievement_aria'].forEach((key) => {
       assert(html.includes(`data-i18n="${key}"`), `index.html must wire ${key}`);
     });

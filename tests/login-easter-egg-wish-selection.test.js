@@ -445,3 +445,189 @@ test('面板揭开前后与重开之后，选项按钮的可聚焦性都由 reve
   egg.syncInert();
   assert.ok('inert' in wish.attributes, 'a replay reset must make the panel inert again');
 });
+
+test('解锁时许愿面板必须在抽字同一帧开始退场，而且退得比大字快', () => {
+  // 现场症状：「世界和平」出来之后，「心愿是 世界和平」还在原地停了约一秒，两处文字叠在一起。
+  // 原因是面板的退场挂在 520ms 的定时器上，而它自己的 opacity 过渡是 1.35s —— 加起来
+  // 要到 1.9 秒才彻底看不见，而全屏大字在 0.5 秒就已经归位亮起。
+  // Symptom: after the phrase appears, "the wish is / world peace" stayed on screen for about a
+  // second and the two overlapped. The panel's exit was hung on a 520ms timer while its own
+  // opacity transition runs 1.35s, so it needed 1.9s to disappear — long after the phrase had
+  // already settled at 0.5s.
+  const fnStart = RENDERER_SOURCE.indexOf('function playLoginEasterEggUnlockCinematic');
+  assert.ok(fnStart > 0, 'playLoginEasterEggUnlockCinematic must exist');
+  const fnEnd = RENDERER_SOURCE.indexOf('function dismissLoginEasterEggCinematic', fnStart);
+  const body = RENDERER_SOURCE.slice(fnStart, fnEnd);
+
+  const extracting = body.indexOf("classList.add('is-visible')");
+  const unlocking = body.indexOf("classList.add('login-easter-egg-unlocking')");
+  assert.ok(extracting > 0, 'the entry class has to be added');
+  assert.ok(unlocking > extracting, 'the panel must start clearing no later than the entry');
+  assert.ok(
+    !/setTimeout\([\s\S]{0,120}?login-easter-egg-unlocking/.test(body),
+    'the panel exit must not be hung on a timer again',
+  );
+
+  // CSS 侧同样不许退回基类的 1.35s：退场走 --cine-panel-out，值必须落在几百毫秒内，而且必须
+  // 短于字的入场延迟，否则残影就会和大字撞上。
+  // The CSS side must not fall back to the 1.35s base transition either: the exit goes through
+  // --cine-panel-out, which has to be a few hundred ms and shorter than the glyph lead.
+  const ruleStart = CSS_SOURCE.indexOf('#login-modal.login-easter-egg-unlocking .login-easter-egg-wish');
+  assert.ok(ruleStart > 0, 'the unlocking rule for the wish panel must exist');
+  const ruleBody = CSS_SOURCE.slice(ruleStart, CSS_SOURCE.indexOf('}', ruleStart));
+  assert.ok(
+    /transition:[^;]*opacity\s+var\(--cine-panel-out/.test(ruleBody),
+    'the wish row must retire on the shared panel beat',
+  );
+  const panelOutValues = Array.from(
+    CSS_SOURCE.matchAll(/--cine-panel-out:\s*(\.?\d+(?:\.\d+)?)s/g),
+  ).map((m) => Number(m[1]) * 1000);
+  assert.ok(panelOutValues.length >= 2, '--cine-panel-out must be declared for both motion profiles');
+  assert.ok(
+    panelOutValues.every((v) => v > 0 && v <= 800),
+    `--cine-panel-out must stay under a second — got ${panelOutValues.join(', ')}ms`,
+  );
+  assert.ok(
+    panelOutValues[1] < panelOutValues[0],
+    'the reduced profile must retire the panel sooner than the full one',
+  );
+  // 黑幕至少要铺过 45% 才允许字入场：这条关系写在 --cine-glyph-lead = --cine-veil-in × .55 里。
+  const lead = CSS_SOURCE.match(/--cine-glyph-lead:\s*calc\(var\(--cine-veil-in\)\s*\*\s*(\.?\d+)\)/);
+  assert.ok(lead, '--cine-glyph-lead must be derived from --cine-veil-in');
+  assert.ok(Number(lead[1]) >= 0.45, `the glyph lead must wait for most of the veil, got ${lead[1]}`);
+
+  // 面板本体（那圈 blur 的灰玻璃连同右上角的 X）必须一起退场。只退「心愿是」这一行的话，
+  // 全屏大字旁边会一直悬着一块矩形 —— 这就是「小可爱还是会滞后，和字重叠」的真身。
+  // The panel itself has to leave too. Fading only the wish row leaves the blurred slab and its X
+  // hanging next to the phrase — that is the reported overlap.
+  const panelRule = CSS_SOURCE.indexOf('#login-modal.login-easter-egg-unlocking .dual-login-modal');
+  assert.ok(panelRule > 0, 'the unlocking rule must also retire the glass panel');
+  const panelBody = CSS_SOURCE.slice(panelRule, CSS_SOURCE.indexOf('}', panelRule));
+  assert.ok(
+    /opacity:\s*0\s*!important/.test(panelBody),
+    'the panel needs opacity 0 !important — gsap leaves an inline opacity behind',
+  );
+  assert.ok(
+    /visibility:\s*hidden\s*!important/.test(panelBody),
+    'the panel must also leave the hit-test/focus order while the cinematic is up',
+  );
+});
+
+test('解锁电影的舞台不吃标题栏、一出现就能点、退场是淡出', () => {
+  // 现场症状四条，全部来自「整段动画只有一条 2.7 秒的定时器 + 一层纯黑」：
+  //   1. 黑幕 z-index 100000，把右上角三个窗口按钮一起吞进黑屏；
+  //   2. 0.6 秒压到 .94、再用 2.2 秒补实黑，快慢反差读起来是"很急促、卡卡的"；
+  //   3. is-ready 之前 pointer-events 关着，那 2.7 秒里画面不动、点击全被吞；
+  //   4. 退场靠一个 1.2 秒 opacity 过渡 + 1250ms 定时器收尸，reduce 下过渡被压成 .01ms，
+  //      于是直接消失。
+  // 这四条各自钉住一条断言，任何一条退回去都要红。
+  // Four symptoms, all from "one 2.7s timer plus a solid black layer": a 100000 z-index that
+  // swallowed the window buttons, a two-beat veil whose contrast read as rushed, a 2.7s stretch
+  // with pointer-events off, and an exit that vanished outright once reduce compressed it.
+  const stageStart = CSS_SOURCE.indexOf('.login-easter-unlock-cinematic {');
+  assert.ok(stageStart > 0, 'the stage rule must exist');
+  const stageBody = CSS_SOURCE.slice(stageStart, CSS_SOURCE.indexOf('}', stageStart));
+  const zIndex = Number((stageBody.match(/z-index:\s*(\d+)/) || [])[1]);
+  assert.ok(zIndex > 50, `the stage must paint above the login mask (z-index 50), got ${zIndex}`);
+  assert.ok(
+    zIndex < 500,
+    `the stage must stay below #desktop-titlebar (z-index 500) or the window buttons go black, got ${zIndex}`,
+  );
+  // 节奏全部走变量：脚本只挂类，改时长不用碰 JS。
+  ['--cine-veil-in', '--cine-veil-out', '--cine-glyph-in', '--cine-glyph-out']
+    .forEach((name) => assert.ok(stageBody.includes(name), `the stage must declare ${name}`));
+
+  // 一出现就要能点：pointer-events 不能等到"播完"才放开。
+  const mountedStart = CSS_SOURCE.indexOf('.login-easter-unlock-cinematic.is-mounted {');
+  assert.ok(mountedStart > 0, 'the mounted rule must exist');
+  const mountedBody = CSS_SOURCE.slice(mountedStart, CSS_SOURCE.indexOf('}', mountedStart));
+  assert.ok(/pointer-events:\s*auto/.test(mountedBody), 'the stage must accept clicks from the first frame');
+
+  // 黑幕是渐变（中间深、四边浅，标题栏那条边留透），不是一块纯黑。
+  const veilStart = CSS_SOURCE.indexOf('.login-easter-unlock-cinematic::before {');
+  assert.ok(veilStart > 0, 'the veil pseudo-element must exist');
+  const veilBody = CSS_SOURCE.slice(veilStart, CSS_SOURCE.indexOf('}', veilStart));
+  assert.ok(/radial-gradient/.test(veilBody), 'the veil must be a gradient so the window chrome stays legible');
+  assert.ok(
+    /opacity:\s*0/.test(veilBody) && /transition:\s*opacity/.test(veilBody),
+    'the veil must fade in through opacity, not appear as a solid slab',
+  );
+
+  // 退场必须是淡出：整排 opacity → 0 + 一条过渡，而不是靠拆类把 display 切回 none。
+  const exitStart = CSS_SOURCE.indexOf('.login-easter-unlock-cinematic.is-dismissing .login-easter-unlock-phrase {');
+  assert.ok(exitStart > 0, 'the exit rule must exist');
+  const exitBody = CSS_SOURCE.slice(exitStart, CSS_SOURCE.indexOf('}', exitStart));
+  assert.ok(/opacity:\s*0/.test(exitBody), 'the exit must fade the row out');
+
+  // 逐字入场不许再逐字跑滤镜：一格 blur 过渡就是每帧一次滤镜重绘，字一多就掉帧。
+  const glyphStart = CSS_SOURCE.indexOf('.login-easter-unlock-phrase span {');
+  const glyphBody = CSS_SOURCE.slice(glyphStart, CSS_SOURCE.indexOf('}', glyphStart));
+  assert.ok(!/filter:\s*blur/.test(glyphBody), 'the entry must not animate a per-glyph blur');
+  assert.ok(/will-change:\s*transform, opacity/.test(glyphBody), 'the entry is transform + opacity only');
+
+  // 脚本侧：没有 2.7 秒的空等，点击死区只用来挡双击的第二下。
+  const playStart = RENDERER_SOURCE.indexOf('function playLoginEasterEggUnlockCinematic');
+  const dismissStart = RENDERER_SOURCE.indexOf('function dismissLoginEasterEggCinematic', playStart);
+  const dismissBody = RENDERER_SOURCE.slice(dismissStart, RENDERER_SOURCE.indexOf('function completeLoginEasterEggUnlock', dismissStart));
+  const playBody = RENDERER_SOURCE.slice(playStart, dismissStart);
+  assert.ok(!/2700/.test(playBody), 'the 2.7s dead wait must not come back');
+  assert.ok(playBody.includes('loginEasterEggCinematicSettleMs'), 'the settled moment is computed from the glyph count');
+  assert.ok(
+    /LOGIN_EASTER_EGG_CINEMATIC_GUARD_MS/.test(dismissBody),
+    'dismiss must only be held off by the double-click guard',
+  );
+  assert.ok(
+    !/cinematicReady\)\s*return/.test(dismissBody),
+    'dismiss must not require the intro to have finished — that is what swallowed every click',
+  );
+
+  // 「点击继续」必须是看得见的一行，不能只活在 aria-label 里。
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.ok(html.includes('id="login-easter-unlock-hint"'), 'index.html must carry the visible hint');
+  assert.ok(html.includes('data-i18n="egg_cinematic_hint"'), 'the hint must go through i18n');
+  // reduce 分支清位移时必须放过提示行的 translateX(-50%)：它是水平居中的手段而不是动效，
+  // 一起清掉这行字会偏到中线右边 33px（实测）。这条规则是那个坑的护栏。
+  // The reduce branch clears transforms, but it has to spare the hint's translateX(-50%): that is
+  // how the line is centred rather than an animation, and clearing it pushed the text 33px right
+  // of centre (measured). This rule is the guard for that trap.
+  const reduceStart = CSS_SOURCE.indexOf('@media (prefers-reduced-motion: reduce)');
+  const reduceBlock = CSS_SOURCE.slice(reduceStart);
+  assert.ok(
+    /\.login-easter-unlock-hint,\s*\n\s*\.login-easter-unlock-cinematic\.is-dismissing \.login-easter-unlock-hint \{\s*\n\s*transform: translate3d\(-50%, 0, 0\) !important/.test(reduceBlock),
+    'the reduce branch must keep the hint horizontally centred',
+  );
+  LANGS.forEach((lang) => {
+    const dict = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'locales', `${lang}.json`), 'utf8'));
+    assert.ok(dict.egg_cinematic_hint, `${lang}: egg_cinematic_hint must exist`);
+  });
+});
+
+test('触发揭示的最后一下点击不再抖', () => {
+  // 现场：第 5 下点完，眼睛并不会立刻让位 —— `tap-feedback` 的 animation 在层叠里压过
+  // `is-revealed` 那句 `transform: translateY(-146px) scale(.82)`，于是必须等 480ms 的抖动
+  // 播完才往上走，读起来是「按了却卡一下才反应」。最后一下改成不抖。
+  // Symptom: the 5th tap did not move the eye right away — the `tap-feedback` animation outranks
+  // the `transform` declared by `is-revealed`, so the eye sat still for the full 480ms shake
+  // before rising, which reads as a stutter. The last tap no longer shakes.
+  const tapStart = RENDERER_SOURCE.indexOf('function handleLoginEasterEggTap');
+  assert.ok(tapStart > 0, 'handleLoginEasterEggTap must exist');
+  const tapBody = RENDERER_SOURCE.slice(
+    tapStart,
+    RENDERER_SOURCE.indexOf('function revealLoginEasterEggWish', tapStart),
+  );
+  assert.ok(/var revealingTap = /.test(tapBody), 'the final tap has to be identified up front');
+  assert.ok(
+    /if \(revealingTap\) \{[^}]*classList\.remove\('tap-feedback'\)/.test(tapBody),
+    'the revealing tap must clear the shake instead of replaying it',
+  );
+  assert.ok(
+    /\} else \{[^}]*replayLoginEasterEggClass\(trigger, 'tap-feedback'\)/.test(tapBody),
+    'the shake must only be replayed on the taps that do not reveal',
+  );
+  // 同一个判据要同时决定「不抖」和「揭示」，否则两者会各走各的条件而重新错开一帧。
+  // One flag drives both decisions, so the two can never drift apart again.
+  assert.ok(
+    /if \(revealingTap\) revealLoginEasterEggWish\(\)/.test(tapBody),
+    'the reveal must hang off the very same flag',
+  );
+});

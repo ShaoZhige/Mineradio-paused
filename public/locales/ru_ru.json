@@ -2159,6 +2159,8 @@
   "egg_achievement_eyebrow": "Достижение получено",
   "egg_achievement_title": "Мир во всём мире!",
   "egg_achievement_aria": "Достижение получено: Мир во всём мире!",
+  "egg_hint_idle": "Коснитесь его — оно кое-что скажет",
+  "egg_cinematic_hint": "Нажмите, чтобы продолжить",
   "egg_hint_glance": "Кажется, оно взглянуло на вас",
   "egg_hint_tap_more": "Нажмите ещё несколько раз",
   "egg_hint_nervous": "Оно начинает нервничать",

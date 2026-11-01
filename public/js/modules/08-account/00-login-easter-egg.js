@@ -34,9 +34,14 @@ function loginEasterEggText(key, fallback, params) {
 // screen has to be the exact string that gets submitted, or a language switch would display
 // one sentence while the gate validates another.
 var LOGIN_EASTER_EGG_WISH_KEY = 'egg_wish_world_peace';
-// 点眼睛四次要给的提示，索引即点击数；首尾为空表示不显示。
-// Hints shown as the eye is tapped, indexed by tap count; the ends are empty on purpose.
-var LOGIN_EASTER_EGG_HINT_KEYS = ['', 'egg_hint_glance', 'egg_hint_tap_more', 'egg_hint_nervous', 'egg_hint_one_more', ''];
+// 点眼睛要给的提示，索引即点击数。**索引 0 必须有文案**：一次都没点时屏幕上只有一个圆眼睛
+// 和一个空 div，用户会把它当成加载失败/卡死（issue #332 就是这么报的）。索引 5 之后为空，
+// 因为那时已经进入许愿面板，提示行会被 CSS 淡出。
+// Hints shown as the eye is tapped, indexed by tap count. **Index 0 must carry copy**: with no
+// tap yet the screen is one round eye plus an empty div, which reads as a frozen gate (that is
+// exactly how issue #332 was reported). Index 5 and up stay empty because the wish panel takes
+// over and CSS fades the hint row out.
+var LOGIN_EASTER_EGG_HINT_KEYS = ['egg_hint_idle', 'egg_hint_glance', 'egg_hint_tap_more', 'egg_hint_nervous', 'egg_hint_one_more', ''];
 // 选择框字号的自适应区间：宽度固定，长词（俄语 16 字符）必须收字号。
 // Fitted font-size range for the select box: the width is fixed, so long labels (16 Cyrillic
 // characters) have to shrink.
@@ -92,6 +97,40 @@ var LOGIN_EASTER_EGG_PIXEL_FONT_STACK = "'Arial', 'Segoe UI', 'Microsoft YaHei',
 // 透明度阈值：把抗锯齿的灰边二值化成实心像素，像素画只有开/关两态。
 // Alpha cutoff: quantises the antialiased grey edge into solid pixels; pixel art has only two states.
 var LOGIN_EASTER_EGG_PIXEL_ALPHA_CUTOFF = 92;
+// 解锁电影的时间线。这几个数字必须与 CSS 里的 --cine-* 对齐：脚本用它们算「什么时候进入
+// 稳定态」，算早了最后一个字还没落位就浮起来，算晚了又是一段干等着没人动。
+// The unlock timeline. These have to track the --cine-* variables in CSS: they decide when the row
+// counts as settled — too early and it floats before the last glyph has landed, too late and there
+// is a stretch with nothing moving at all.
+var LOGIN_EASTER_EGG_GLYPH_STAGGER_MS = 70;
+var LOGIN_EASTER_EGG_GLYPH_IN_MS = 900;
+// reduce 下没有位移，只剩一段 .34s 的淡入（与 CSS 的 --cine-glyph-in 对齐）。
+// Under reduce there is no movement, only a .34s fade (tracks --cine-glyph-in in CSS).
+var LOGIN_EASTER_EGG_GLYPH_IN_MS_REDUCED = 340;
+var LOGIN_EASTER_EGG_STAGGER_SPREAD_MS = 620;
+// 字要等黑幕铺过大半才入场，否则它亮起来时门面板和播放器界面都还在，看着就是"字和卡片重叠"。
+// 这个值必须等于 CSS 的 --cine-glyph-lead（= --cine-veil-in × .55）：normal 1.05s × .55 ≈ 580ms，
+// reduce 的 .5s × .55 ≈ 275ms。改 CSS 的 --cine-veil-in 就得同步改这里，否则 settle 会算错。
+// The row waits until the veil is well past half, otherwise it lights up while the gate panel and
+// the player are both still visible — read as the phrase overlapping the card. This has to equal
+// CSS --cine-glyph-lead (--cine-veil-in x .55): 1.05s x .55 ~= 580ms normal, .5s x .55 ~= 275ms
+// under reduce. Changing --cine-veil-in means changing these two with it or settle drifts.
+var LOGIN_EASTER_EGG_GLYPH_LEAD_MS = 580;
+var LOGIN_EASTER_EGG_GLYPH_LEAD_MS_REDUCED = 275;
+// 点下去之后这段时间里忽略点击：双击许愿按钮的第二下会落在刚铺满的这一层上，没有死区就会
+// 一刀切掉还没开始的画面。
+// Clicks are ignored for this long after the press: the second half of a double-click on the wish
+// button lands on this freshly mounted layer, and without the guard it cuts the intro off at once.
+var LOGIN_EASTER_EGG_CINEMATIC_GUARD_MS = 420;
+// 退场定时器要比 CSS 的 --cine-veil-out 晚一点收尾，早了会把还没淡完的黑幕硬切掉；晚了则黑幕
+// 已经散尽、登录面板却还没回来，屏幕上是一段空窗（实测 360ms 那一帧什么都没有）。
+// reduce 的 --cine-veil-out 是 .42s，所以这一档要跟着缩短。
+// The exit timer has to outlast CSS --cine-veil-out or the veil is cut mid-fade; and it must not
+// run long, or the veil is already gone while the panel has not returned and the screen sits empty
+// (measured: the 360ms frame shows nothing at all). --cine-veil-out is .42s under reduce, so this
+// step shrinks with it.
+var LOGIN_EASTER_EGG_CINEMATIC_EXIT_MS = 720;
+var LOGIN_EASTER_EGG_CINEMATIC_EXIT_MS_REDUCED = 520;
 var LOGIN_EASTER_EGG_BROWSER_PREVIEW_KEY = 'mineradio-login-easter-egg-browser-preview-v1';
 var loginEasterEggStatusPromise = null;
 var loginEasterEggState = {
@@ -105,6 +144,9 @@ var loginEasterEggState = {
   validating: false,
   cinematicActive: false,
   cinematicReady: false,
+  cinematicDismissing: false,
+  cinematicStartedAt: 0,
+  cinematicTimers: [],
   achievementTimer: null
 };
 
@@ -168,6 +210,10 @@ async function prepareLoginEasterEggGate() {
   bindLoginEasterEggGate();
   var unlocked = await ensureLoginEasterEggStatus(false);
   setLoginEasterEggMode(!unlocked);
+  // 未解锁时先写一次提示行：光靠后面的 tap 才渲染，用户第一次打开看到的是一片空白。
+  // Paint the hint row up front while the gate is locked: leaving it for the first tap is what
+  // makes the very first screen look blank.
+  if (!unlocked) renderLoginEasterEggHint();
   // 面板在被揭开之前是透明的，但里面的选项按钮仍在 Tab 顺序里：键盘一路敲下去会停在
   // 一个看不见的按钮上。inert 让它同时退出焦点顺序与辅助技术树。
   // The panel is transparent before it is revealed yet its option button stays in the tab order,
@@ -203,10 +249,64 @@ function replayLoginEasterEggClass(node, className) {
   node.classList.add(className);
 }
 
+function loginEasterEggPrefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+// 整排字的错开总时长有上限：俄语 16 格按 70ms 一个要 1.05 秒，最后一个字还没出来，前面的
+// 已经开始浮了。字数一多就自动收窄步长，整排始终在 .62 秒内出齐。
+// The total spread is capped: 16 Russian glyphs at 70ms each take 1.05s, so the first ones are
+// already floating before the last has arrived. The step narrows with the count to keep the whole
+// row on screen within .62s.
+function loginEasterEggGlyphStaggerMs(glyphCount) {
+  var count = Math.max(1, Number(glyphCount) || 1);
+  if (count < 2) return 0;
+  return Math.min(
+    LOGIN_EASTER_EGG_GLYPH_STAGGER_MS,
+    Math.floor(LOGIN_EASTER_EGG_STAGGER_SPREAD_MS / (count - 1))
+  );
+}
+
+// 稳定态的时刻 = 黑幕铺过大半（字才开始入场）+ 最后一个字落位 + 一点余量。到这一刻才放开
+// 浮动与「点击继续」。
+// Settled = the veil has covered most of the screen (only then does the row enter), the last glyph
+// has landed, plus a little slack. Only then do the float and the click affordance come in.
+function loginEasterEggCinematicSettleMs(glyphCount) {
+  if (loginEasterEggPrefersReducedMotion()) {
+    return LOGIN_EASTER_EGG_GLYPH_LEAD_MS_REDUCED + LOGIN_EASTER_EGG_GLYPH_IN_MS_REDUCED + 120;
+  }
+  return LOGIN_EASTER_EGG_GLYPH_LEAD_MS
+    + Math.max(0, Number(glyphCount) - 1) * loginEasterEggGlyphStaggerMs(glyphCount)
+    + LOGIN_EASTER_EGG_GLYPH_IN_MS + 140;
+}
+
+// 时间线全部挂在这里登记，退场 / 重放 / 重置都能一次清干净：漏一个定时器就会出现
+// 「重开之后上一轮的画面自己冒出来」。
+// Every timer goes through this list so exit, replay and reset can clear them in one call; one
+// missed timer and the previous run's cinematic pops back up on the next open.
+function clearLoginEasterEggCinematicTimers() {
+  var timers = loginEasterEggState.cinematicTimers || [];
+  timers.forEach(function (id) {
+    if (id === null || id === undefined) return;
+    try { window.clearTimeout(id); } catch (_) { }
+    try { window.cancelAnimationFrame(id); } catch (_) { }
+  });
+  loginEasterEggState.cinematicTimers = [];
+}
+
 function renderLoginEasterEggHint() {
   var hint = document.getElementById('login-easter-hint');
   if (!hint) return;
-  hint.textContent = loginEasterEggState.hintKey ? loginEasterEggText(loginEasterEggState.hintKey) : '';
+  // 一次都没点时也显示提示（hintKey 初始为空），否则首屏只有一个圆眼睛。
+  // Keep the hint on screen before the first tap too — an empty hintKey would leave the first
+  // screen with nothing but a round eye.
+  var key = loginEasterEggState.hintKey
+    || (loginEasterEggState.clickCount === 0 ? LOGIN_EASTER_EGG_HINT_KEYS[0] : '');
+  hint.textContent = key ? loginEasterEggText(key) : '';
 }
 
 function handleLoginEasterEggTap() {
@@ -219,13 +319,29 @@ function handleLoginEasterEggTap() {
   }
   loginEasterEggState.clickCount = Math.min(5, loginEasterEggState.clickCount + 1);
   var trigger = document.getElementById('login-easter-eye-trigger');
+  // 最后一下**不抖**。抖动是给「一下一下按」这个过程配的手感，而最后一下的手感是「门开了」；
+  // 更要紧的是 `tap-feedback` 的 animation 会盖住 `is-revealed` 里那句
+  // `transform: translateY(-146px) scale(.82)` —— 只要还在抖，眼睛就上不去，必须等这 480ms
+  // 播完才让位，看起来就是「按了却卡一下才反应」。所以触发揭示的这一次既不挂类，也顺手把
+  // 前一下（可能还没播完）的余震清掉。
+  // The last tap does **not** shake. The shake belongs to the "tap, tap, tap" build-up; the last
+  // tap's feel is "the door opens". Worse, the `tap-feedback` animation outranks the
+  // `transform: translateY(-146px) scale(.82)` in `is-revealed`, so the eye cannot start moving up
+  // until those 480ms are over — which reads as a stutter right when it should react. The tap that
+  // reveals therefore never gets the class, and clears any leftover shake from the previous one.
+  var revealingTap = loginEasterEggState.clickCount >= 5;
   if (trigger) {
-    trigger.style.setProperty('--egg-tap-strength', String(loginEasterEggState.clickCount));
-    replayLoginEasterEggClass(trigger, 'tap-feedback');
+    if (revealingTap) {
+      trigger.classList.remove('tap-feedback');
+      trigger.style.removeProperty('--egg-tap-strength');
+    } else {
+      trigger.style.setProperty('--egg-tap-strength', String(loginEasterEggState.clickCount));
+      replayLoginEasterEggClass(trigger, 'tap-feedback');
+    }
   }
   loginEasterEggState.hintKey = LOGIN_EASTER_EGG_HINT_KEYS[loginEasterEggState.clickCount] || '';
   renderLoginEasterEggHint();
-  if (loginEasterEggState.clickCount >= 5) revealLoginEasterEggWish();
+  if (revealingTap) revealLoginEasterEggWish();
 }
 
 function revealLoginEasterEggWish() {
@@ -307,6 +423,7 @@ async function requestLoginEasterEggReplayReset() {
 
 function resetLoginEasterEggUiForReplay() {
   if (loginEasterEggState.achievementTimer) window.clearTimeout(loginEasterEggState.achievementTimer);
+  clearLoginEasterEggCinematicTimers();
   loginEasterEggStatusPromise = null;
   loginEasterEggState.ready = true;
   loginEasterEggState.unlocked = false;
@@ -316,6 +433,8 @@ function resetLoginEasterEggUiForReplay() {
   loginEasterEggState.validating = false;
   loginEasterEggState.cinematicActive = false;
   loginEasterEggState.cinematicReady = false;
+  loginEasterEggState.cinematicDismissing = false;
+  loginEasterEggState.cinematicStartedAt = 0;
   loginEasterEggState.achievementTimer = null;
   try { localStorage.removeItem(LOGIN_EASTER_EGG_BROWSER_PREVIEW_KEY); } catch (_) { }
   var active = document.activeElement;
@@ -328,10 +447,10 @@ function resetLoginEasterEggUiForReplay() {
   var phrase = document.getElementById('login-easter-unlock-phrase');
   if (phrase) {
     phrase.textContent = '';
-    phrase.style.removeProperty('--extract-x');
-    phrase.style.removeProperty('--extract-y');
     phrase.style.removeProperty('--phrase-em');
   }
+  var hint = document.getElementById('login-easter-unlock-hint');
+  if (hint) hint.textContent = '';
   var gate = document.getElementById('login-easter-egg-gate');
   if (gate) gate.classList.remove('is-revealed');
   var trigger = document.getElementById('login-easter-eye-trigger');
@@ -339,11 +458,13 @@ function resetLoginEasterEggUiForReplay() {
     trigger.classList.remove('tap-feedback');
     trigger.style.removeProperty('--egg-tap-strength');
   }
-  var modal = document.getElementById('login-modal');
-  if (modal) modal.classList.remove('login-easter-egg-unlocking');
+  // 重放时面板必须立刻回来：这里不要淡入，否则重开的门有一秒钟是空窗。
+  // On replay the panel has to be back at once: no fade here, or the reopened gate sits empty
+  // for a second.
+  restoreLoginEasterEggPanel(false);
   var cinematic = document.getElementById('login-easter-unlock-cinematic');
   if (cinematic) {
-    cinematic.classList.remove('is-mounted', 'is-positioned', 'is-extracting', 'is-ready', 'is-dismissing');
+    cinematic.classList.remove('is-mounted', 'is-visible', 'is-settled', 'is-dismissing');
     cinematic.setAttribute('aria-hidden', 'true');
     cinematic.setAttribute('tabindex', '-1');
   }
@@ -406,14 +527,17 @@ function buildLoginEasterEggPhrase(phrase, wish) {
   // 先写一个按字宽估算的行宽，像素烘焙那一步会用量出来的真实字宽覆盖它。
   // Write an estimated row width first; the pixel bake overwrites it with the measured one.
   phrase.style.setProperty('--phrase-em', loginEasterEggPhraseEstimateEm(chars).toFixed(3));
+  // 逐字入场延迟：字数多时步长自动收窄（见 loginEasterEggGlyphStaggerMs），整排才能在
+  // 一个固定窗口内出齐。浮动周期的节奏仍在 CSS 里统一给，逐字不同相位会让字间距一直变。
+  // Entry stagger: the step narrows as the count grows (see loginEasterEggGlyphStaggerMs) so the
+  // whole row lands inside a fixed window. The float cycle stays shared in CSS — per-glyph phases
+  // would make the spacing between glyphs drift.
+  var staggerMs = loginEasterEggGlyphStaggerMs(chars.length);
   return chars.map(function (glyph, index) {
     var span = document.createElement('span');
     span.textContent = glyph;
     if (!glyph.trim()) span.className = 'is-space';
-    // 浮动周期的节奏统一交给 CSS：整排同频同相，逐字错开会让字间距一直变，看着像抖。
-    // Float timing lives in CSS: one shared cycle, since per-glyph offsets make the
-    // spacing between glyphs drift and read as jitter.
-    span.style.setProperty('--extract-delay', (index * 0.08).toFixed(2) + 's');
+    span.style.setProperty('--extract-delay', ((index * staggerMs) / 1000).toFixed(2) + 's');
     phrase.appendChild(span);
     return span;
   });
@@ -511,76 +635,136 @@ function prepareLoginEasterEggPixelPhrase(phrase) {
   return baked;
 }
 
+// 面板退场完全交给 CSS 里 `login-easter-egg-unlocking` 的 !important 规则（连 gsap 的内联
+// opacity 一起压住）。回到界面时由这里补一段淡入：直接拆类会让面板在 cine 已经透明的那一瞬间
+// "啪"地跳回来，那又是一次硬切。
+// The panel's exit is pure CSS (the !important rule under login-easter-egg-unlocking, which also
+// beats gsap's inline opacity). The way back gets a fade here: removing the class alone snaps the
+// panel back the instant the cinematic is already transparent, which is one more hard cut.
+function restoreLoginEasterEggPanel(animate) {
+  var modal = document.getElementById('login-modal');
+  if (!modal) return;
+  modal.classList.remove('login-easter-egg-unlocking');
+  var panel = modal.querySelector('.modal');
+  if (!panel) return;
+  if (window.gsap) {
+    try {
+      window.gsap.killTweensOf(panel);
+      if (animate) {
+        window.gsap.fromTo(panel, { autoAlpha: 0 }, {
+          autoAlpha: 1,
+          duration: 0.34,
+          ease: 'power2.out',
+          overwrite: true,
+          onComplete: function () { window.gsap.set(panel, { clearProps: 'opacity,visibility' }); }
+        });
+      } else {
+        window.gsap.set(panel, { clearProps: 'opacity,visibility' });
+      }
+      return;
+    } catch (_) { }
+  }
+  panel.style.removeProperty('opacity');
+  panel.style.removeProperty('visibility');
+}
+
 function playLoginEasterEggUnlockCinematic() {
   loginEasterEggState.ready = true;
   loginEasterEggState.unlocked = true;
   loginEasterEggState.validating = false;
   loginEasterEggState.cinematicActive = true;
   loginEasterEggState.cinematicReady = false;
+  loginEasterEggState.cinematicDismissing = false;
+  loginEasterEggState.cinematicStartedAt = Date.now();
+  clearLoginEasterEggCinematicTimers();
   setLoginEasterEggStatus('egg_status_accepted', 'success');
   var modal = document.getElementById('login-modal');
   var cinematic = document.getElementById('login-easter-unlock-cinematic');
   var phrase = document.getElementById('login-easter-unlock-phrase');
+  var hint = document.getElementById('login-easter-unlock-hint');
   var source = document.getElementById('login-easter-egg-choice');
   var phraseChars = buildLoginEasterEggPhrase(phrase, loginEasterEggWishLabel());
   prepareLoginEasterEggPixelPhrase(phrase);
+  // 提示行与 aria-label 走同一个键，但这条是**看得见**的那份：整屏可点却不说出来，等于没有关闭方式。
+  // The hint shares a key with the aria-label but this is the visible copy: a screen that dismisses
+  // on click without saying so may as well have no way out.
+  if (hint) hint.textContent = loginEasterEggText('egg_cinematic_hint');
   if (!cinematic || !source || !phraseChars.length) {
     completeLoginEasterEggUnlock();
     return;
   }
-  cinematic.classList.remove('is-positioned', 'is-extracting', 'is-ready', 'is-dismissing');
+  cinematic.classList.remove('is-visible', 'is-settled', 'is-dismissing');
   cinematic.classList.add('is-mounted');
   cinematic.setAttribute('aria-hidden', 'false');
   cinematic.setAttribute('tabindex', '0');
-  phrase.style.removeProperty('--extract-x');
-  phrase.style.removeProperty('--extract-y');
-  window.requestAnimationFrame(function () {
-    // 起点只有一个：选择框的中心。所有字格从同一点炸开，正好对应「从选项里抽出这句话」。
-    // A single origin — the centre of the choice box. Every glyph bursts from that one point,
-    // which is exactly the "the answer is pulled out of the option" beat.
-    var sourceRect = source.getBoundingClientRect();
-    var phraseRect = phrase.getBoundingClientRect();
-    var fromX = sourceRect.left + sourceRect.width / 2 - (phraseRect.left + phraseRect.width / 2);
-    var fromY = sourceRect.top + sourceRect.height / 2 - (phraseRect.top + phraseRect.height / 2);
-    phrase.style.setProperty('--extract-x', fromX.toFixed(2) + 'px');
-    phrase.style.setProperty('--extract-y', fromY.toFixed(2) + 'px');
-    cinematic.classList.add('is-positioned');
+  // 入场必须晚一帧：同一帧里 display:none → grid 与 opacity 0 → 1 会被合并成一次样式计算，
+  // 浏览器直接跳到终态，"啪"一下就是最终画面 —— 这是"很急促"的一半。
+  // The entrance has to start one frame later: display:none -> grid together with opacity 0 -> 1 in
+  // the same frame collapses into a single style resolution, so the browser jumps straight to the
+  // end state and the screen snaps. That snap is half of the "rushed" report.
+  loginEasterEggState.cinematicTimers.push(window.requestAnimationFrame(function () {
     void cinematic.offsetWidth;
-    window.requestAnimationFrame(function () {
-      cinematic.classList.add('is-extracting');
-      window.setTimeout(function () {
-        if (modal) modal.classList.add('login-easter-egg-unlocking');
-      }, 520);
-      window.setTimeout(function () {
-        if (!loginEasterEggState.cinematicActive) return;
-        loginEasterEggState.cinematicReady = true;
-        cinematic.classList.add('is-ready');
-        try { cinematic.focus({ preventScroll: true }); } catch (_) { }
-      }, 2700);
-    });
-  });
+    cinematic.classList.add('is-visible');
+    // 许愿面板的退场与抽字**同一帧**开始。挂到定时器上就会出现「世界和平」已经亮着、
+    // 下面那行「心愿是 世界和平」还停着的重影（曾经是 520ms 定时器 + 1.35s 过渡）。
+    // The wish panel starts clearing on the **same frame** as the row rises. Hanging it on a timer
+    // is what produced the double image of the phrase over the still-visible wish row.
+    if (modal) modal.classList.add('login-easter-egg-unlocking');
+  }));
+  // 稳定态：浮动与「点击继续」一起出现，点击从这一刻起随时可关。
+  // Settled: the float and the affordance arrive together, and any click dismisses from here on.
+  loginEasterEggState.cinematicTimers.push(window.setTimeout(function () {
+    if (!loginEasterEggState.cinematicActive || loginEasterEggState.cinematicDismissing) return;
+    loginEasterEggState.cinematicReady = true;
+    cinematic.classList.add('is-settled');
+    try { cinematic.focus({ preventScroll: true }); } catch (_) { }
+  }, loginEasterEggCinematicSettleMs(phraseChars.length)));
 }
 
 function dismissLoginEasterEggCinematic() {
-  if (!loginEasterEggState.cinematicActive || !loginEasterEggState.cinematicReady) return;
+  if (!loginEasterEggState.cinematicActive || loginEasterEggState.cinematicDismissing) return;
+  // 死区：双击许愿按钮的第二下正好落在这里。这一段画面正在入场，忽略它是唯一合理的反应 ——
+  // 反过来说，超过死区之后**任何一次**点击都必须立刻有反应，不能再有「等它播完」的门槛。
+  // Dead zone: the second half of a double-click lands here, while the intro is still playing, so
+  // ignoring it is the only sane response. Past the dead zone, though, **every** click has to act
+  // right away — no more waiting for the animation to finish.
+  var elapsed = Date.now() - (loginEasterEggState.cinematicStartedAt || 0);
+  if (elapsed < LOGIN_EASTER_EGG_CINEMATIC_GUARD_MS) return;
+  loginEasterEggState.cinematicDismissing = true;
   loginEasterEggState.cinematicReady = false;
+  clearLoginEasterEggCinematicTimers();
   var cinematic = document.getElementById('login-easter-unlock-cinematic');
-  if (cinematic) cinematic.classList.add('is-dismissing');
-  window.setTimeout(completeLoginEasterEggUnlock, 1250);
+  if (cinematic) {
+    // 连同 is-settled 一起挂上：不管在哪一刻点下去，退场都从"已经稳定"的形态开始，
+    // 不会出现浮到一半忽然换一条曲线。
+    // is-settled goes on with it: whatever moment the click lands on, the exit starts from the
+    // settled shape instead of switching curves halfway through the float.
+    cinematic.classList.add('is-settled', 'is-dismissing');
+  }
+  loginEasterEggState.cinematicTimers.push(
+    window.setTimeout(
+      completeLoginEasterEggUnlock,
+      loginEasterEggPrefersReducedMotion()
+        ? LOGIN_EASTER_EGG_CINEMATIC_EXIT_MS_REDUCED
+        : LOGIN_EASTER_EGG_CINEMATIC_EXIT_MS
+    )
+  );
 }
 
 function completeLoginEasterEggUnlock() {
+  clearLoginEasterEggCinematicTimers();
   loginEasterEggState.cinematicActive = false;
   loginEasterEggState.cinematicReady = false;
-  var modal = document.getElementById('login-modal');
+  loginEasterEggState.cinematicDismissing = false;
+  loginEasterEggState.cinematicStartedAt = 0;
   var cinematic = document.getElementById('login-easter-unlock-cinematic');
   if (cinematic) {
-    cinematic.classList.remove('is-mounted', 'is-positioned', 'is-extracting', 'is-ready', 'is-dismissing');
+    cinematic.classList.remove('is-mounted', 'is-visible', 'is-settled', 'is-dismissing');
     cinematic.setAttribute('aria-hidden', 'true');
     cinematic.setAttribute('tabindex', '-1');
   }
   setLoginEasterEggMode(false);
-  if (modal) modal.classList.remove('login-easter-egg-unlocking');
+  restoreLoginEasterEggPanel(true);
   if (typeof resumeLoginModalAfterGate === 'function') resumeLoginModalAfterGate();
   showLoginEasterEggAchievement();
 }

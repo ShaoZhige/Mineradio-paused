@@ -1804,6 +1804,9 @@
       onclick="dismissLoginEasterEggCinematic()">
       <!-- 逐字浮动的字样由 00-login-easter-egg.js 按当前语言的许愿词现算。 / Built from the localized wish at runtime. -->
       <div id="login-easter-unlock-phrase" class="login-easter-unlock-phrase" aria-hidden="true"></div>
+      <!-- 唯一可见的关闭提示：整屏都可点，但玩家得先知道这件事。 / The only visible affordance: the whole screen dismisses, but players have to know that. -->
+      <span id="login-easter-unlock-hint" class="login-easter-unlock-hint" aria-hidden="true"
+        data-i18n="egg_cinematic_hint">点击继续</span>
     </div>
 
     <div id="login-easter-achievement" class="login-easter-achievement" role="status" aria-live="polite"

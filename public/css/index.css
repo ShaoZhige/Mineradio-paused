@@ -7423,7 +7423,11 @@ body.login-guide-active #login-guide-canvas {
 .login-easter-hint {
   min-height: 20px;
   margin-top: 18px;
-  color: rgba(255, 255, 255, .44);
+  /* 0.44 的文白在 11px 下勉强能读，但这行现在是「第一次打开时唯一的引导」，提一档让它在
+     深底上站得住；再亮就会抢走眼睛的注意力。
+     0.44 white is barely legible at 11px, and this line is now the only guidance on first open,
+     so it gets one step brighter — any brighter and it competes with the eye. */
+  color: rgba(255, 255, 255, .56);
   font-size: 11px;
   letter-spacing: .16em;
   transition: opacity .35s ease, transform .35s ease
@@ -7558,47 +7562,158 @@ body.login-guide-active #login-guide-canvas {
   78% { margin-left: 3px }
 }
 
+/* 退场时整块玻璃面板必须跟着走。原来只退了「心愿是」这一行和眼睛，面板本体 —— 那圈
+   blur(28px) 的灰玻璃连同右上角的 X —— 一直留在屏幕上，于是全屏大字旁边悬着一块矩形，
+   正是被反馈的「小可爱还是会滞后，和字重叠一段时间」。
+   时长走 --cine-panel-out，并且刻意**与 --cine-glyph-lead 对齐**：面板退完的那一刻，正好是字
+   开始入场的那一刻。退得比黑幕快（.28s 对 1.05s）会在中间留下一段「面板没了、字还没来」的
+   纯黑空屏，读起来像卡了一下。
+   !important 是为了压过 gsap 在面板上写下的内联 opacity/visibility；visibility 延迟到淡出
+   结束再切，否则元素会在一帧里直接不见。
+   The panel itself has to leave. Only the wish row and the eye used to fade, leaving the blurred
+   slab and its X hanging beside the phrase — the reported overlap. The duration comes from
+   --cine-panel-out, deliberately aligned with --cine-glyph-lead so the panel finishes exactly when
+   the row starts; retiring faster than the veil would leave a stretch of black with neither, which
+   reads as a stall. !important beats the inline opacity/visibility gsap leaves behind, and
+   visibility flips only after the fade so nothing cuts in one frame. */
+#login-modal.login-easter-egg-unlocking {
+  --cine-panel-out: .58s
+}
+
+#login-modal.login-easter-egg-unlocking .dual-login-modal {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: opacity var(--cine-panel-out, .58s) ease, visibility 0s linear var(--cine-panel-out, .58s)
+}
+
 #login-modal.login-easter-egg-unlocking .login-easter-egg-wish {
   opacity: 0;
-  filter: blur(12px);
-  transform: translate(-50%, -12px) scale(1.02)
+  transform: translate(-50%, -12px) scale(1.02);
+  /* 与面板同一步退场，否则会先看到一块"内容已经空了"的玻璃板再等它淡出。
+     Retires on the same beat as the panel, otherwise the glass sits there empty for a moment. */
+  transition: opacity var(--cine-panel-out, .58s) ease, transform var(--cine-panel-out, .58s) cubic-bezier(.16, 1, .3, 1)
 }
 
 #login-modal.login-easter-egg-unlocking .login-easter-eye-trigger {
   opacity: 0;
-  transform: translateY(-146px) scale(.62)
+  transform: translateY(-146px) scale(.62);
+  transition: opacity var(--cine-panel-out, .58s) ease, transform var(--cine-panel-out, .58s) cubic-bezier(.16, 1, .3, 1)
 }
 
+/* ── 解锁电影 ─────────────────────────────────────────────────────────────────
+   整段节奏只由下面这几个变量给：脚本只负责挂状态类（is-visible → is-settled →
+   is-dismissing），时长全部在这里。改快改慢不用碰 JS，两边也不会对不上。
+   The whole tempo lives in these variables: the script only toggles state classes
+   (is-visible -> is-settled -> is-dismissing) and every duration is declared here, so retiming
+   never needs a matching edit in the module. */
 .login-easter-unlock-cinematic {
   position: fixed;
   inset: 0;
-  z-index: 100000;
+  /* 停在标题栏**下面**：最小化 / 最大化 / 关闭住在 #desktop-titlebar（z-index 500）里，而
+     原来那层 z-index 100000 的黑幕把三个按钮一起吞进黑屏，看着像整个窗口坏掉了。
+     Sits **below** the title bar. The minimum / maximum / close buttons live in
+     #desktop-titlebar at z-index 500, and the old 100000 blackout swallowed all three into the
+     dark — which reads as a broken window. */
+  z-index: 420;
   display: none;
   place-items: center;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0);
-  opacity: 1;
+  /* 顶部 78px 用遮罩让整层淡出到全透明：那一条是标题栏的地盘，黑幕连碰都不该碰它 ——
+     窗口按钮于是完全不受影响（不是"在暗色上还能看清"，是根本没被盖住）。用渐变而不是
+     从 44px 处切开，是因为硬边会在标题栏下面留一道横向接缝，比盖黑更难看。
+     The top 78px are masked away to full transparency: that band belongs to the title bar and the
+     veil should not touch it at all, so the window buttons are not "still legible on dark" but
+     simply not covered. A gradient rather than a hard cut at 44px, which would leave a horizontal
+     seam under the title bar — uglier than the blackout it replaced. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, .5) 34px, #000 78px);
+  mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, .5) 34px, #000 78px);
   cursor: pointer;
   outline: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: background 2.2s cubic-bezier(.22, .61, .36, 1), opacity 1.2s ease
+  --cine-veil-in: 1.05s;
+  --cine-veil-out: .62s;
+  --cine-glyph-in: .9s;
+  --cine-glyph-out: .5s;
+  --cine-hint-in: .42s;
+  /* 字的入场要等黑幕铺过大半。黑幕还没盖住底下的界面时字就亮起来，屏幕上就是"字浮在
+     播放器上面"，而且那块玻璃面板还没退干净 —— 这正是被反馈的"和字重叠一段时间"。
+     跟着 --cine-veil-in 走，reduce 改了黑幕时长，这里自动跟着变。
+     The row waits until the veil is well past half. Lighting the glyphs while the app is still
+     showing makes them look pasted on top of the player, with the glass panel still hanging
+     there — the reported overlap. Derived from --cine-veil-in so a reduced-motion veil change
+     carries over automatically. */
+  --cine-glyph-lead: calc(var(--cine-veil-in) * .55)
 }
 
 .login-easter-unlock-cinematic.is-mounted {
   display: grid;
-  pointer-events: none
-}
-
-.login-easter-unlock-cinematic.is-extracting {
-  background: rgba(0, 0, 0, .985)
-}
-
-.login-easter-unlock-cinematic.is-ready {
+  /* 一出现就允许点：原来要等 2.7 秒的 is-ready 才放开 pointer-events，那段时间屏幕一动
+     不动、点击全被吞掉 —— 就是"玩家会狂点鼠标但是没有交互反馈"。防误触交给脚本里的
+     420ms 死区：双击许愿按钮时第二下正好落在这一层上。
+     Clickable from the first frame: pointer-events used to stay off until is-ready 2.7s later,
+     so the screen sat still and every click was swallowed. Accidental double-clicks are handled
+     by the 420ms guard in the script — the second click of a double-click lands on this layer. */
   pointer-events: auto
 }
 
+/* 黑幕是一层渐变而不是一块纯黑：中间深、四边浅，标题栏那条边留一点透，三个窗口按钮于是浮在
+   暗色上而不是被压成黑色。也刻意不再分「0.6 秒压到 .94、再用 2.2 秒补到实黑」两段 ——
+   那个快慢反差正是"很急促、卡卡的"的来源。现在只有一条 1.05 秒的淡入。
+   The stage is a gradient rather than a solid slab: deep in the middle, lighter at the edges, with
+   the title-bar edge left a little transparent so the window buttons sit on dark instead of being
+   crushed to black. The old two-beat veil (down to .94 in .6s, then to solid over 2.2s) is gone;
+   that contrast is exactly what read as rushed. One 1.05s fade instead. */
+.login-easter-unlock-cinematic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(128% 112% at 50% 56%, rgba(5, 7, 12, .965) 0 36%, rgba(5, 7, 12, .935) 64%, rgba(5, 7, 12, .76) 100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cine-veil-in) cubic-bezier(.33, .72, .3, 1)
+}
+
+.login-easter-unlock-cinematic.is-visible::before {
+  opacity: 1
+}
+
+/* 字后面一团暖光：黑幕不再是"一整块黑"，字有了落点。静态渐变 + 只动 opacity。
+   A warm pool of light behind the row: the stage stops reading as one black rectangle and the
+   glyphs get a place to stand. Static gradient, opacity only. */
+.login-easter-unlock-cinematic::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(46% 42% at 50% 50%, rgba(255, 214, 152, .10), rgba(255, 214, 152, 0) 70%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.5s ease
+}
+
+.login-easter-unlock-cinematic.is-settled::after {
+  opacity: 1
+}
+
+.login-easter-unlock-cinematic.is-dismissing {
+  pointer-events: none
+}
+
+/* 退场：黑幕与暖光一起淡回透明，字整排淡出（见下方）。没有任何一步是"消失"。
+   Exit: the stage and the light fade back to nothing while the row fades out as one piece (see
+   below). Nothing switches off. */
+.login-easter-unlock-cinematic.is-dismissing::before,
+.login-easter-unlock-cinematic.is-dismissing::after {
+  opacity: 0;
+  transition-duration: var(--cine-veil-out)
+}
+
 .login-easter-unlock-phrase {
+  /* 压在 ::before 那层黑幕之上：绝对定位的伪元素默认会盖住非定位的行内/块级内容。
+     Stays above the ::before veil — an absolutely positioned pseudo-element would otherwise paint
+     over non-positioned content. */
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -7633,7 +7748,11 @@ body.login-guide-active #login-guide-canvas {
   -webkit-font-smoothing: none;
   font-smooth: never;
   text-rendering: geometricPrecision;
-  transition: filter 1.1s ease, letter-spacing 1.1s cubic-bezier(.16, 1, .3, 1), transform 1.1s cubic-bezier(.16, 1, .3, 1)
+  /* 退场只动 opacity 与 transform，两者都走合成层。原来这里还挂着 letter-spacing 与 filter
+     的 1.1 秒过渡 —— 字一多就是每帧重新排版、重新跑滤镜。
+     Exit touches opacity and transform only, both composited. This used to carry 1.1s
+     letter-spacing and filter transitions, which re-laid-out and re-filtered the row every frame. */
+  transition: opacity var(--cine-glyph-out) ease, transform var(--cine-glyph-out) cubic-bezier(.22, .68, .24, 1)
 }
 
 .login-easter-unlock-phrase span {
@@ -7646,11 +7765,17 @@ body.login-guide-active #login-guide-canvas {
   display: grid;
   place-items: center;
   opacity: 0;
-  filter: blur(5px);
-  transform: translate3d(var(--extract-x, 0), var(--extract-y, 0), 0) scale(.42);
+  /* 只动 opacity 与 transform。原来这里是 blur(5px) → 0 的滤镜过渡，再从选项框中心
+     scale(.42) 炸开：逐字跑滤镜是最贵的一种动画，字一多（俄语 16 格）就掉帧，炸开那一下也
+     太猛。现在是从下方 14px 轻轻浮上来。
+     Opacity and transform only. This used to run a blur(5px) -> 0 filter transition plus a
+     scale(.42) burst out of the option box: per-glyph filters are the expensive kind and dropped
+     frames once the row got long (16 glyphs in Russian), while the burst itself was too violent.
+     A quiet 14px rise instead. */
+  transform: translate3d(0, 14px, 0) scale(.94);
   transform-origin: 50% 50%;
-  transition: transform 1.35s cubic-bezier(.16, 1, .3, 1), opacity .44s ease, filter 1.05s ease;
-  will-change: transform, opacity, filter
+  transition: transform var(--cine-glyph-in) cubic-bezier(.22, .68, .24, 1), opacity calc(var(--cine-glyph-in) * .78) ease;
+  will-change: transform, opacity
 }
 
 /* 词内空格按窄格处理，否则每个空格都会占掉一整个字格宽度。
@@ -7676,20 +7801,20 @@ body.login-guide-active #login-guide-canvas {
   filter: drop-shadow(2px 0 0 #111) drop-shadow(-2px 0 0 #111) drop-shadow(0 2px 0 #111) drop-shadow(0 -2px 0 #111)
 }
 
-.login-easter-unlock-cinematic.is-positioned .login-easter-unlock-phrase span {
-  opacity: 1
-}
-
-.login-easter-unlock-cinematic.is-extracting .login-easter-unlock-phrase span {
-  filter: blur(0);
+.login-easter-unlock-cinematic.is-visible .login-easter-unlock-phrase span {
+  opacity: 1;
   transform: translate3d(0, 0, 0) scale(1);
-  /* 逐字入场延迟由渲染脚本按序号写入；写死 nth-child 撑不住不同语言的字数。 */
-  /* The per-glyph delay comes from the renderer by index; hardcoded nth-child rules cannot
-     cover a label whose length changes with the language. */
-  transition-delay: var(--extract-delay, 0s)
+  /* 逐字入场延迟由渲染脚本按序号写入；写死 nth-child 撑不住不同语言的字数。整排还要再等
+     --cine-glyph-lead（黑幕铺过大半、门面板退干净），否则字会比背景先亮。
+     延迟只挂在**进入**这一侧：过渡延迟取自目标状态的声明，退场走的是整排 opacity，不受它影响。
+     The per-glyph delay comes from the renderer by index; hardcoded nth-child rules cannot cover
+     a label whose length changes with the language. The whole row additionally waits for
+     --cine-glyph-lead so it never lights up before the veil has taken the panel away. The delay
+     lives on the entering state only; the exit fades the row as one piece and never reads it. */
+  transition-delay: calc(var(--cine-glyph-lead, 0s) + var(--extract-delay, 0s))
 }
 
-.login-easter-unlock-cinematic.is-ready .login-easter-unlock-phrase span {
+.login-easter-unlock-cinematic.is-settled .login-easter-unlock-phrase span {
   /* 整排同频同相共用一个周期，字与字之间不再有相对漂移。调快调慢改这里。 */
   /* One shared cycle for the whole row, so glyphs never drift apart. Tune the speed here. */
   animation: login-easter-world-float 4.5s ease-in-out infinite;
@@ -7703,15 +7828,49 @@ body.login-guide-active #login-guide-canvas {
   50% { transform: translate3d(0, -5px, 0) }
 }
 
-.login-easter-unlock-cinematic.is-dismissing {
+.login-easter-unlock-cinematic.is-dismissing .login-easter-unlock-phrase {
+  /* 整排一起淡出 + 极轻的上浮放大：只动 opacity 与 transform，不再走 blur 与字距。
+     The row fades out as one piece with a barely-there lift — opacity and transform only, no
+     blur and no letter-spacing. */
   opacity: 0;
-  pointer-events: none
+  transform: translate3d(0, -12px, 0) scale(1.035)
 }
 
-.login-easter-unlock-cinematic.is-dismissing .login-easter-unlock-phrase {
-  filter: blur(10px) drop-shadow(0 0 34px rgba(255, 255, 255, .08));
-  letter-spacing: .24em;
-  transform: scale(1.08)
+/* 「点击继续」：整屏唯一一个可点的东西，必须写出来。之前这句话只挂在 aria-label 上，
+   视力正常的玩家看到的就是一屏黑字，不知道点哪里、也不知道能不能点。
+   The only affordance on screen, and it has to be visible. This copy used to live in an
+   aria-label alone: sighted players saw black text on black and had no idea what to click. */
+.login-easter-unlock-hint {
+  position: absolute;
+  left: 50%;
+  bottom: max(64px, 10vh);
+  z-index: 1;
+  display: block;
+  margin: 0;
+  transform: translate3d(-50%, 10px, 0);
+  opacity: 0;
+  color: rgba(255, 255, 255, .66);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: .34em;
+  /* 拖尾的字距会把整行视觉重心往左推，用同等字距的首行缩进补回来。 */
+  /* A trailing letter-space drags the optical centre left; the same amount of text-indent puts it back. */
+  text-indent: .34em;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity var(--cine-hint-in) ease, transform var(--cine-hint-in) cubic-bezier(.22, .68, .24, 1)
+}
+
+.login-easter-unlock-cinematic.is-settled .login-easter-unlock-hint {
+  opacity: 1;
+  transform: translate3d(-50%, 0, 0)
+}
+
+.login-easter-unlock-cinematic.is-dismissing .login-easter-unlock-hint {
+  opacity: 0;
+  transform: translate3d(-50%, 6px, 0);
+  transition-duration: calc(var(--cine-hint-in) * .7)
 }
 
 .login-easter-achievement {
@@ -7851,7 +8010,24 @@ body.login-guide-active #login-guide-canvas {
   .login-easter-eye-trigger,
   .login-easter-egg-wish,
   .login-easter-hint { transition-duration: .01ms !important }
-  .login-easter-eye-trigger.tap-feedback,
+  /* 但**解锁那一步的退场要留时间**，否则上面那条 .01ms 会让门内容一帧消失、只剩一块空玻璃
+     在慢慢淡 —— 比硬切还怪。这里的 .28s 与 reduce 的 --cine-glyph-lead（.275s）对齐。
+     The unlock exit keeps a real duration: the .01ms above would blink the gate contents away in
+     one frame and leave an empty glass slab fading on its own, which reads worse than a hard cut.
+     .28s lines up with the reduced --cine-glyph-lead (.275s). */
+  #login-modal.login-easter-egg-unlocking { --cine-panel-out: .28s }
+  #login-modal.login-easter-egg-unlocking .login-easter-egg-wish,
+  #login-modal.login-easter-egg-unlocking .login-easter-eye-trigger {
+    transition-duration: var(--cine-panel-out) !important
+  }
+  /* 错误抖动压到 .01ms，因为失败时还有一行状态文字兜底。但**点击反馈不能压**：
+     它是一次性的 0.48s、幅度 ±6px 的抖动，是「这一下点到了」的唯一信号 —— 屏幕上本来就只有
+     一只眼睛和一个空框，压掉之后用户就完全摸不着头脑了（本机 prefers-reduced-motion 恒为真，
+     这条不是理论问题）。一次性动画压到 .01ms 不会像循环动画那样疯狂重绘，但会静默消失，
+     等于没有。 / The error shake is compressed because a status line still explains the failure.
+     The tap feedback must NOT be: it is a one-shot 0.48s, ±6px nudge and the only signal that the
+     press registered — the screen holds nothing but one eye and an empty box at that point, so
+     compressing it to .01ms silently erases the feedback instead of calming it. */
   .login-easter-egg-wish.error-shake { animation-duration: .01ms !important }
   /* 解锁彩蛋的浮动刻意不受「减少动态」约束：它是这个彩蛋的奖励感来源，幅度只有 ±5px / 4.5s，
      比入场动画温和得多。曾经写 `.01ms !important` 想让它静下来，结果适得其反 —— 循环动画压时长
@@ -7859,9 +8035,54 @@ body.login-guide-active #login-guide-canvas {
      The unlock float deliberately opts out of reduced motion: it is the reward of this easter egg,
      gentle at ±5px over 4.5s. Shrinking a looping animation to .01ms backfires — every frame lands
      on a random phase and the text looks like it is shaking itself apart. Never compress, only omit. */
-  .login-easter-unlock-cinematic,
+  /* 解锁动画在 reduce 下不是"压时长"，而是**去掉位移、只留淡变**。原来这一族元素被统一压到
+     .01ms，结果是黑幕一帧盖满、字一帧跳到位、退场一帧消失 —— 屏幕上只剩两次硬切，也就是被
+     反馈的"很急促""没有淡出，直接消失"。淡变本身不是前庭刺激，压掉它反而更吓人，所以这里
+     保留（并且缩短）opacity 过渡，把所有 translate / scale 去掉。
+     Under reduce the unlock is not "compressed", it is **motion-free but still fading**. This
+     family used to be forced to .01ms, which meant the veil covered the screen in one frame, the
+     glyphs snapped into place in one frame and the exit vanished in one frame — two hard cuts,
+     which is the "rushed" and "no fade out, just gone" report. A fade is not a vestibular
+     trigger, so the opacity transitions stay (shortened) while every translate and scale goes. */
+  .login-easter-unlock-cinematic {
+    --cine-veil-in: .5s;
+    --cine-veil-out: .42s;
+    --cine-glyph-in: .34s;
+    --cine-glyph-out: .3s
+  }
+  /* 容器上没有任何动画，!important 是安全的。 / Nothing animates on the container. */
   .login-easter-unlock-phrase,
+  .login-easter-unlock-cinematic.is-dismissing .login-easter-unlock-phrase {
+    transform: none !important
+  }
+  /* 字格上**绝不能用 !important 清 transform**：is-settled 的浮动是 animation，而作者
+     !important 声明在层叠里压过动画值，浮动会整个消失（本机 prefers-reduced-motion 恒真，
+     等于永久没有浮动 —— 正是被反馈的「之前的字会浮动，现在没了」）。这里靠同等特异性 +
+     更靠后出现来覆盖入场位移，动画仍然压在它上面。
+     Never clear the glyph transform with !important: the settled float is an animation, and an
+     author !important declaration wins over the animation's own value, so the float vanishes
+     outright — permanent on a machine where reduced motion is always on, which is exactly the
+     "the floating text is gone" report. Same specificity plus a later position overrides the
+     entry offset while the animation keeps painting on top. */
   .login-easter-unlock-phrase span,
+  .login-easter-unlock-cinematic.is-visible .login-easter-unlock-phrase span {
+    transform: none
+  }
+  /* 提示行的 translateX(-50%) 是**水平居中**，不是动效：一起清掉它，这行字就会偏到屏幕
+     中线右边 33px（实测），所以这里只清掉纵向那一段。
+     The hint's translateX(-50%) is how it is centred, not an animation: clearing it too pushes
+     the line 33px right of centre (measured), so only the vertical part goes here. */
+  .login-easter-unlock-hint,
+  .login-easter-unlock-cinematic.is-dismissing .login-easter-unlock-hint {
+    transform: translate3d(-50%, 0, 0) !important
+  }
+  .login-easter-unlock-phrase span {
+    /* 逐字错开去掉：没有位移之后，错开的只有不透明度，看起来像在闪。整体那 0.3 秒的等待
+       要留着 —— 它挡的是「字比黑幕先亮」的重叠，不是动效。
+       The per-glyph stagger goes: with no movement it only staggers opacity, which flickers. The
+       shared lead stays — it is what keeps the row from lighting up before the veil, not motion. */
+    transition-delay: var(--cine-glyph-lead, 0s) !important
+  }
   .login-easter-achievement { transition-duration: .01ms !important }
 }
 

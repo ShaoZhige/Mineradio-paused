@@ -2159,6 +2159,8 @@
   "egg_achievement_eyebrow": "Achievement unlocked",
   "egg_achievement_title": "World Peace!",
   "egg_achievement_aria": "Achievement unlocked: World Peace!",
+  "egg_hint_idle": "Give it a tap — it has something to say",
+  "egg_cinematic_hint": "Click to continue",
   "egg_hint_glance": "It seems to have glanced at you",
   "egg_hint_tap_more": "Tap a few more times",
   "egg_hint_nervous": "It is getting a little nervous",
