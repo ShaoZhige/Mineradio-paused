@@ -15,6 +15,13 @@ const {
   registerLocalMusicScheme,
 } = require('./local-music-library');
 const { BuiltInPlaylistLibrary } = require('./built-in-playlist-library');
+const {
+  buildTransferPayload,
+  defaultExportFileName,
+  parseTransferPayload,
+  readTransferFile,
+  writeTransferFile,
+} = require('./playlist-transfer');
 const { WallpaperEngineRuntime } = require('./wallpaper-engine-runtime');
 const { FullDesktopModeRuntime } = require('./full-desktop-mode-runtime');
 const windowsGameMode = require('./windows-game-mode');
@@ -5321,6 +5328,106 @@ ipcMain.handle('mineradio-built-in-playlist-remove-track', async (event, id, ind
 ipcMain.handle('mineradio-built-in-playlist-reorder-track', async (event, id, fromIndex, toIndex) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
   try { return await builtInPlaylistLibrary.reorderTrack(id, fromIndex, toIndex); } catch (error) { return builtInPlaylistMutationError(error); }
+});
+
+// 歌单文件分享：导出把前端已经收集齐的曲目落成一份 JSON；导入则一次做完「读 → 校验 → 建歌单
+// → 批量加曲目」，不把中间态露给渲染层（否则前端分两步调用的中途失败会留下一个空歌单）。
+// Playlist file sharing. Export writes the tracks the renderer already collected; import does
+// read → validate → create → bulk-add in one call so a mid-way failure can never leave an empty
+// playlist behind for the user to clean up.
+ipcMain.handle('mineradio-playlist-export-file', async (event, payload = {}) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+  try {
+    const built = buildTransferPayload({ name: payload.name, tracks: payload.tracks });
+    if (!built.total) return { ok: false, error: 'PLAYLIST_TRANSFER_EMPTY', skippedInvalid: built.skippedInvalid };
+    const owner = getSenderWindow(event);
+    const result = await dialog.showSaveDialog(owner, {
+      title: desktopText('desktop_export_playlist_title', '导出歌单文件'),
+      defaultPath: defaultExportFileName(built.payload.name || 'playlist'),
+      filters: [
+        { name: 'Mineradio Playlist', extensions: ['json'] },
+      ],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    writeTransferFile(result.filePath, JSON.stringify(built.payload, null, 2));
+    return { ok: true, filePath: result.filePath, count: built.total };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error && (error.code || error.message) || 'PLAYLIST_TRANSFER_EXPORT_FAILED',
+    };
+  }
+});
+
+ipcMain.handle('mineradio-playlist-import-file', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+  let createdId = '';
+  try {
+    const owner = getSenderWindow(event);
+    const result = await dialog.showOpenDialog(owner, {
+      title: desktopText('desktop_import_playlist_title', '导入歌单文件'),
+      properties: ['openFile'],
+      filters: [
+        { name: 'Mineradio Playlist', extensions: ['json'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths[0]) return { ok: false, canceled: true };
+    const filePath = result.filePaths[0];
+    const parsed = parseTransferPayload(readTransferFile(filePath));
+    if (!parsed.ok) return { ...parsed, filePath };
+    // 空歌单不建：导入一份只有本地曲目（跨机器无意义）的文件时，建出来的会是个点不响的空壳。
+    // No empty playlist: a file holding only local tracks would produce a silent shell.
+    if (!parsed.tracks.length) {
+      return {
+        ok: false,
+        error: 'PLAYLIST_TRANSFER_EMPTY',
+        skippedLocal: parsed.skippedLocal,
+        skippedInvalid: parsed.skippedInvalid,
+        skippedDuplicate: parsed.skippedDuplicate,
+        filePath,
+      };
+    }
+    const fallbackName = path.basename(filePath)
+      .replace(/\.mineradio\.json$/i, '')
+      .replace(/\.json$/i, '')
+      .trim();
+    const created = await builtInPlaylistLibrary.create(parsed.name || fallbackName || '导入的歌单');
+    createdId = created && created.playlist && created.playlist.id || '';
+    if (!createdId) throw Object.assign(new Error('BUILT_IN_PLAYLIST_NOT_FOUND'), { code: 'BUILT_IN_PLAYLIST_NOT_FOUND' });
+    const added = await builtInPlaylistLibrary.addTracks(createdId, parsed.tracks);
+    if (!added || !added.added) {
+      // 一首都没进库（全是重复或超上限）也不留空壳。
+      // Nothing landed (all duplicates or over the cap), so the shell goes away too.
+      await builtInPlaylistLibrary.delete(createdId).catch(() => {});
+      createdId = '';
+      return {
+        ok: false,
+        error: 'PLAYLIST_TRANSFER_NOTHING_ADDED',
+        duplicate: added && added.duplicate || 0,
+        overflow: added && added.overflow || 0,
+        skippedLocal: parsed.skippedLocal,
+        filePath,
+      };
+    }
+    createdId = '';
+    return {
+      ok: true,
+      playlist: added.playlist || (created && created.playlist) || null,
+      added: added.added || 0,
+      duplicate: added.duplicate || 0,
+      overflow: added.overflow || 0,
+      skippedLocal: parsed.skippedLocal,
+      skippedInvalid: parsed.skippedInvalid,
+      skippedDuplicate: parsed.skippedDuplicate,
+      filePath,
+    };
+  } catch (error) {
+    if (createdId) await builtInPlaylistLibrary.delete(createdId).catch(() => {});
+    return {
+      ok: false,
+      error: error && (error.code || error.message) || 'PLAYLIST_TRANSFER_IMPORT_FAILED',
+    };
+  }
 });
 
 ipcMain.handle('mineradio-local-library-lyric', async (event, localFileId) => {

@@ -14590,6 +14590,25 @@ html:fullscreen body.desktop-shell #playlist-panel {
   line-height: 1
 }
 
+/* 「我的歌单」工具条在长语言里放不下：俄语的「+ Новый встроенный」一个就 141px，再加导入与
+   刷新，整排实测 455px 塞进 310px 的面板，右边直接被裁掉。允许换行而不是溢出 —— 面板本身是
+   overflow:auto，多一行不会撑破布局，中文与英文仍然是一行。
+   The 我的歌单 toolbar does not fit in long languages: the Russian "new built-in" button alone is
+   141px, and with import and refresh the row measured 455px inside a 310px panel, so the right
+   edge was simply clipped. Wrapping instead of overflowing — the panel scrolls, and Chinese or
+   English still stay on one line. */
+#pl-pane .queue-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px
+}
+
+/* 按钮组是整块，不许被压缩到字里行间；要挤就挤 chip。 */
+/* The button group stays intact; if something has to give, it is the chip. */
+#pl-pane .queue-toolbar > div {
+  flex: 0 0 auto;
+  max-width: 100%
+}
+
 .pl-card {
   display: flex;
   align-items: center;

@@ -352,13 +352,20 @@ function playlistPanelDetailHtml(pl, provider, detailWindow) {
     ? playlistDetailText('pl_rename_delete_buttons')
     : '';
   var multiButton = '<button type="button" class="pl-detail-multi' + (typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('detail', key) ? ' active' : '') + '" data-pl-detail-multi="' + escHtml(key) + '">' + escHtml(playlistDetailText('ms_select', '多选')) + '</button>';
+  // 「导出」对所有歌单都给（内置和平台都能导成文件分享）；只有虚拟的本地曲库不给 ——
+  // 它的曲目 id 绑的是本机文件，导出去在别人机器上是一排点不响的灰条。
+  // Export is offered for every playlist, built-in or platform; only the virtual local library is
+  // excluded, since its ids point at files on this machine.
+  var exportButton = !(pl && pl.virtual)
+    ? '<button class="fx-mini-btn ghost pl-detail-aux-btn" type="button" data-pl-detail-export="' + escHtml(key) + '">' + escHtml(playlistDetailText('pl_export_file', '导出歌单')) + '</button>'
+    : '';
   // 摘要头（封面 / 歌单名 / 曲目数 / 已载入计数）整块去掉：这些在未展开的卡片上已经有了，
   // 展开后再重复一遍等于同一个信息说两次，还把「播放歌单」按钮挤到下面。
   // 现在详情从卡片下沿直接接按钮行，再跟曲目和分页条。
   // The summary block is gone: the collapsed card already carries cover, name and track count, so
   // repeating it pushed the actions down for nothing. The detail now starts with the action row.
   return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '">' +
-    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + multiButton + '</div>' +
+    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + playlistDetailText('pl_play_button_suffix') + collectionButton + builtInActions + exportButton + multiButton + '</div>' +
     '<div class="pl-detail-list" data-pl-detail-scroll="' + escHtml(key) + '">' + rows + '</div>' +
     playlistPanelDetailPagerHtml() +
     '</div>';
@@ -1221,6 +1228,22 @@ document.getElementById('pl-list').addEventListener('click', function (e) {
     e.preventDefault();
     e.stopPropagation();
     if (playlistPanelDetailState.playlist) renameBuiltInPlaylist(playlistPanelDetailState.playlist.id, playlistPanelDetailState.playlist.name);
+    return;
+  }
+  // 导出走当前展开的那一份数据（playlistPanelDetailState），名字用它，而不是从 key 反解 ——
+  // 平台歌单的 key 里只有 id，取不到标题。
+  // Export reads the currently expanded playlist for its name; the panel key only carries the id.
+  var exportFile = e.target && e.target.closest ? e.target.closest('[data-pl-detail-export]') : null;
+  if (exportFile) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof exportPlaylistByPanelKey === 'function') {
+      var exportPlaylist = playlistPanelDetailState.playlist || null;
+      exportPlaylistByPanelKey(
+        playlistPanelDetailState.key,
+        exportPlaylist && exportPlaylist.name || ''
+      );
+    }
     return;
   }
   var removePlaylist = e.target && e.target.closest ? e.target.closest('[data-pl-detail-delete]') : null;

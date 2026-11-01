@@ -139,6 +139,9 @@
     'js/modules/06-lyrics/05-upload-dragdrop.js',
     'js/modules/06-lyrics/06-lyric-timing-offset.js',
     'js/modules/06-lyrics/07-playlist-multiselect.js',
+    // 歌单文件分享（导入/导出）依赖 builtInPlaylistTracksPage、apiJson 与 normalizePlaylistProvider，
+    // 所以排在它们之后。/ Playlist file sharing needs those three, so it loads after them.
+    'js/modules/06-lyrics/08-playlist-transfer.js',
     'js/modules/07-fx/00-preset-archive-data.js',
     'js/modules/07-fx/01-lyric-color-controls.js',
     'js/modules/07-fx/02-accent-background-controls.js',

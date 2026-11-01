@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   addBuiltInPlaylistTracks: (id, tracks) => ipcRenderer.invoke('mineradio-built-in-playlist-add-tracks', String(id || ''), Array.isArray(tracks) ? tracks : []),
   removeBuiltInPlaylistTrack: (id, index) => ipcRenderer.invoke('mineradio-built-in-playlist-remove-track', String(id || ''), Number(index)),
   reorderBuiltInPlaylistTrack: (id, fromIndex, toIndex) => ipcRenderer.invoke('mineradio-built-in-playlist-reorder-track', String(id || ''), Number(fromIndex), Number(toIndex)),
+  exportPlaylistFile: (payload) => ipcRenderer.invoke('mineradio-playlist-export-file', payload || {}),
+  importPlaylistFile: () => ipcRenderer.invoke('mineradio-playlist-import-file'),
   importLocalMusicFiles: async (files) => {
     const entries = [];
     for (const file of Array.from(files || [])) {
