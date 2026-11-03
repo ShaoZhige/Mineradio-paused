@@ -19,15 +19,25 @@
 (function (root) {
   var STORAGE_KEY = 'mineradio-lang';
   var DEFAULT_LANG = 'zh_cn';
-  var SUPPORTED_LANGS = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
-  var LANG_LABELS = { 'zh_cn': '中文', en_us: 'English', ja_jp: '日本語', ru_ru: 'Русский' };
+  var SUPPORTED_LANGS = ['zh_cn', 'zh_tw', 'zh_hk', 'en_us', 'es_es', 'ja_jp', 'ru_ru'];
+  var LANG_LABELS = { 'zh_cn': '简体中文', 'zh_tw': '繁體中文（台灣）', 'zh_hk': '繁體中文（香港）', en_us: 'English', es_es: 'Español', ja_jp: '日本語', ru_ru: 'Русский' };
   // document.documentElement.lang 走标准 BCP47，与文件名（xx_xx）解耦。
   // document.documentElement.lang uses standard BCP47, decoupled from the xx_xx file names.
-  var DOC_LANG = { 'zh_cn': 'zh-CN', en_us: 'en', ja_jp: 'ja', ru_ru: 'ru' };
+  var DOC_LANG = { 'zh_cn': 'zh-CN', 'zh_tw': 'zh-TW', 'zh_hk': 'zh-HK', en_us: 'en', es_es: 'es', ja_jp: 'ja', ru_ru: 'ru' };
   // 缺键回退链：俄语优先退到英文再退中文，避免在俄语界面里蹦出中文。
-  // Missing-key fallback: Russian prefers English before Chinese, so a Russian UI
-  // never drops back into Chinese mid-sentence.
-  var FALLBACK_CHAIN = { 'zh_cn': [], en_us: ['zh_cn'], ja_jp: ['zh_cn'], ru_ru: ['en_us', 'zh_cn'] };
+  // 两个繁体版本都是全量词典，回退只为兜住「将来新增、这批还没翻」的键。
+  // Missing-key fallback: Russian prefers English before Chinese, so a Russian UI never
+  // drops back into Chinese mid-sentence. Both traditional variants are complete
+  // dictionaries; their fallback only covers keys added after the next translation pass.
+  var FALLBACK_CHAIN = { 'zh_cn': [], 'zh_tw': ['zh_cn'], 'zh_hk': ['zh_cn'], en_us: ['zh_cn'], 'es_es': ['en_us', 'zh_cn'], ja_jp: ['zh_cn'], ru_ru: ['en_us', 'zh_cn'] };
+  // 拼接句子用的标点：中文/日文用全角「。」「：」，其余语言用半角。
+  // 这些标点原本硬编码在播放链路的代码里，西语界面上会拼出「…VIP。」这种半中半西的句子。
+  // Joining punctuation for assembled sentences: CJK uses the full-width forms, every other
+  // language uses ASCII. These were hardcoded in the playback chain, so a Spanish UI ended a
+  // sentence with a Chinese full stop ("...VIP。").
+  var SENTENCE_END = { 'zh_cn': '。', 'zh_tw': '。', 'zh_hk': '。', ja_jp: '。', en_us: '.', 'es_es': '.', ru_ru: '.' };
+  var LABEL_SEPARATOR = { 'zh_cn': '：', 'zh_tw': '：', 'zh_hk': '：', ja_jp: '：', en_us: ': ', 'es_es': ': ', ru_ru: ': ' };
+  var LIST_SEPARATOR = { 'zh_cn': '、', 'zh_tw': '、', 'zh_hk': '、', ja_jp: '、', en_us: ', ', 'es_es': ', ', ru_ru: ', ' };
 
   var currentLang = DEFAULT_LANG;
   var dictionaries = {};   // lang -> flat { key: text }
@@ -41,6 +51,24 @@
   // locale, which is how an English UI ends up printing a Chinese weekday.
   function htmlLang() {
     return DOC_LANG[currentLang] || 'en';
+  }
+
+  // 拼接句子时由调用方补的句末标点，跟着界面语言走。
+  // The terminator callers append when they assemble a sentence; follows the UI language.
+  function sentenceEnd() {
+    return SENTENCE_END[currentLang] || '.';
+  }
+
+  // 标题/正文拼接用的分隔符（"标题：正文" / "Title: body"）。
+  // Separator for "title + body" toasts; ASCII languages get a colon plus a space.
+  function labelSeparator() {
+    return LABEL_SEPARATOR[currentLang] || ': ';
+  }
+
+  // 列表连接符：中文顿号「、」在西语/英语/俄语里应该是一逗号加空格。
+  // List separator: the CJK ideographic comma must become a comma plus space elsewhere.
+  function listSeparator() {
+    return LIST_SEPARATOR[currentLang] || ', ';
   }
 
   // 从指定语言表里取一个键；表还没加载或没有这个键时返回 undefined，
@@ -70,8 +98,18 @@
       if (SUPPORTED_LANGS[i].toLowerCase() === raw) return SUPPORTED_LANGS[i];
     }
     var base = raw.split('_')[0];
-    if (base === 'zh') return 'zh_cn';
+    var region = raw.split('_')[1] || '';
+    // 中文按地区分流：zh-TW / zh-Hant → 台灣，zh-HK / zh-MO → 香港，其余（含裸 zh）→ 简体。
+    // Chinese splits by region: zh-TW/zh-Hant → Taiwan, zh-HK/zh-MO → Hong Kong, else simplified.
+    if (base === 'zh') {
+      if (region === 'mo' || region === 'hk') return 'zh_hk';
+      if (region === 'tw' || region === 'hant') return 'zh_tw';
+      return 'zh_cn';
+    }
     if (base === 'en') return 'en_us';
+    // 西班牙语目前只有一套通行译法，任何 es-* 地区变体都收敛到这里。
+    // Only one Spanish translation ships today, so every es-* region variant collapses here.
+    if (base === 'es') return 'es_es';
     if (base === 'ja') return 'ja_jp';
     if (base === 'ru') return 'ru_ru';
     return DEFAULT_LANG;
@@ -251,6 +289,9 @@
     setLanguage: setLanguage,
     getLanguage: function () { return currentLang; },
     htmlLang: htmlLang,
+    sentenceEnd: sentenceEnd,
+    labelSeparator: labelSeparator,
+    listSeparator: listSeparator,
     onLanguageChange: onLanguageChange,
     getSupportedLangs: function () { return SUPPORTED_LANGS.slice(); },
     langLabel: function (lang) { return LANG_LABELS[normalizeLang(lang)]; },

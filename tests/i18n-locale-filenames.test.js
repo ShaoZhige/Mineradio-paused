@@ -1,11 +1,12 @@
 'use strict';
 
-// 语言文件命名守卫：文件名统一为 Minecraft 风格的 xx_xx.json（zh_cn / en_us / ja_jp /
-// ru_ru），且 i18n 模块的语言码与磁盘文件名一一对应，旧式命名（zh-CN.json / en.json /
-// ja.json / ru.json）不应残留。任何一处漂移都会让词典加载 404 或语言切换失效。
-// Locale filename guard: filenames follow Minecraft's xx_xx.json convention (zh_cn / en_us /
-// ja_jp / ru_ru); the i18n module's language codes must map 1:1 onto the on-disk files and no
-// deprecated name may linger. Either drift makes dictionary loads 404 or breaks language switch.
+// 语言文件命名守卫：文件名统一为 Minecraft 风格的 xx_xx.json（zh_cn / zh_tw / zh_hk /
+// en_us / es_es / ja_jp / ru_ru），且 i18n 模块的语言码与磁盘文件名一一对应，旧式命名
+// （zh-CN.json / en.json / ja.json / ru.json）不应残留。任何一处漂移都会让词典加载 404
+// 或语言切换失效。
+// Locale filename guard: filenames follow Minecraft's xx_xx.json convention; the i18n
+// module's language codes must map 1:1 onto the on-disk files and no deprecated name may
+// linger. Either drift makes dictionary loads 404 or breaks language switch.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -20,13 +21,20 @@ const i18nSrc = fs.readFileSync(
   path.join(root, 'public', 'js', 'modules', '00-state', '13-i18n.js'), 'utf8');
 const mainSrc = fs.readFileSync(path.join(root, 'desktop', 'main.js'), 'utf8');
 
-const EXPECTED = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
+const EXPECTED = ['zh_cn', 'zh_tw', 'zh_hk', 'en_us', 'es_es', 'ja_jp', 'ru_ru'];
 const DEPRECATED_FILES = ['zh-CN.json', 'en.json', 'ja.json', 'ru.json'];
 
-test('四份词典文件都按 xx_xx 命名存在', () => {
+test('每份词典文件都按 xx_xx 命名存在', () => {
   for (const code of EXPECTED) {
     assert.ok(fs.existsSync(path.join(localesDir, code + '.json')), `缺少词典文件 ${code}.json`);
   }
+  // 反向：磁盘上不许有「没登记进 EXPECTED」的词典，否则就是加了文件却忘了接线。
+  const onDisk = fs.readdirSync(localesDir).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -5));
+  assert.deepStrictEqual(
+    onDisk.slice().sort(),
+    EXPECTED.slice().sort(),
+    '词典文件名与预期清单不一致：' + onDisk.join(', ')
+  );
 });
 
 test('不存在旧式命名（zh-CN.json / en.json / ja.json / ru.json）', () => {

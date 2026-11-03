@@ -179,6 +179,13 @@ function qishuiTrackStartResumeSeconds(media, current, startTime) {
   return Math.max(0, target);
 }
 
+// 标题与正文之间的分隔符跟界面语言走：中文「：」，其它语言 ": "。
+// Title/body separator follows the UI language: 「：」 for CJK, ": " elsewhere.
+function playerControlsLabelSeparator() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.labelSeparator === 'function' ? i18n.labelSeparator() : '：';
+}
+
 function showQishuiTrackStartStallNotice() {
   var now = performance.now();
   if (now - (playbackResumeRecovery.lastQishuiStartNoticeAt || 0) < 8000) return;
@@ -186,7 +193,7 @@ function showQishuiTrackStartStallNotice() {
   var title = playerControlsText('pc_qishui_unresponsive');
   var body = playerControlsText('pc_decode_stuck');
   if (typeof showSourceFallbackNotice === 'function') showSourceFallbackNotice(title, body);
-  else if (typeof showToast === 'function') showToast(title + '：' + body);
+  else if (typeof showToast === 'function') showToast(title + playerControlsLabelSeparator() + body);
 }
 
 function playbackFreshUrlRecoverySongKey(song) {

@@ -35,6 +35,14 @@ function playbackStartAudioText(key, fallback, params) {
   }
   return out;
 }
+
+// 句末标点跟界面语言走：中文/日文「。」，其它语言「.」。别在西方语言界面里写死中文句号。
+// Sentence terminator follows the UI language: 「。」 for CJK, "." elsewhere.
+function playbackStartAudioSentenceEnd() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.sentenceEnd === 'function' ? i18n.sentenceEnd() : '。';
+}
+
 function albumGaplessSongKey(song) {
   if (!song) return '';
   if (song.__albumGaplessKey) return String(song.__albumGaplessKey);
@@ -1331,9 +1339,9 @@ async function playQueueAt(idx, opts) {
       var qualityDowngraded = !!(data && data.level && playbackQualityWasDowngraded(requestedQuality, data.level, playbackProvider));
       if (qualityDowngraded && !customSourcePlayback) markPlaybackQualityRuntimeCap(song, playbackProvider, data.level, 'resolved-lower');
       if (!opts.startupAutoplay && !isQQPlayback && qualityDowngraded && !customSourcePlayback) {
-        showSourceFallbackNotice((isKugouPlayback ? playbackStartAudioText('search_kugou') : (isQishuiPlayback ? playbackStartAudioText('dash_qishui') : playbackStartAudioText('login_netease', '网易云'))) + playbackStartAudioText('psa_quality_downgraded'), playbackStartAudioText('psa_requesting') + playbackQualityLabel(requestedQuality, playbackProvider) + playbackStartAudioText('psa_actual_play_suffix') + resolvedQualityText + '。');
+        showSourceFallbackNotice((isKugouPlayback ? playbackStartAudioText('search_kugou') : (isQishuiPlayback ? playbackStartAudioText('dash_qishui') : playbackStartAudioText('login_netease', '网易云'))) + playbackStartAudioText('psa_quality_downgraded'), playbackStartAudioText('psa_requesting') + playbackQualityLabel(requestedQuality, playbackProvider) + playbackStartAudioText('psa_actual_play_suffix') + resolvedQualityText + playbackStartAudioSentenceEnd());
       } else if (!opts.startupAutoplay && opts.qualitySwitch) {
-        showSourceFallbackNotice(playbackStartAudioText('psa_quality_switched'), playbackStartAudioText('psa_actual_play') + resolvedQualityText + '。');
+        showSourceFallbackNotice(playbackStartAudioText('psa_quality_switched'), playbackStartAudioText('psa_actual_play') + resolvedQualityText + playbackStartAudioSentenceEnd());
       }
       if (data.trial) {
         var txt;

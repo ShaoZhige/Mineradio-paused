@@ -122,8 +122,8 @@ function playbackRestrictionNotice(song, data) {
   if (category === 'vip_required' || category === 'paid_required' || category === 'trial_only') {
     var needText = category === 'paid_required' ? playbackI18nText('pf_purchase_or_higher') : (category === 'trial_only' ? playbackI18nText('pf_full_playback') : playbackI18nText('pf_vip_permission'));
     var title = membershipPending ? playbackI18nText('pf_qq_vip_pending') : (loggedIn ? playbackI18nText('pf_platform_no_vip_status') : playbackI18nText('pf_platform_no_vip'));
-    var body = message || (provider + playbackI18nText('pf_paid_track_status_prefix') + membership + playbackI18nText('pf_missing_comma') + needText + '。');
-    if (loggedIn && body.indexOf(playbackI18nText('pf_current_status')) < 0) body += playbackI18nText('pf_status_is_infix') + membership + '。';
+    var body = message || (provider + playbackI18nText('pf_paid_track_status_prefix') + membership + playbackI18nText('pf_missing_comma') + needText + playbackSentenceEnd());
+    if (loggedIn && body.indexOf(playbackI18nText('pf_current_status')) < 0) body += playbackI18nText('pf_status_is_infix') + membership + playbackSentenceEnd();
     return { category: category, title: title, body: body + playbackI18nText('pf_vip_or_switch_suffix'), action: 'upgrade', toast: title };
   }
   if (category === 'login_required') {
@@ -240,6 +240,23 @@ function playbackI18nText(key, fallback, params) {
   }
   return out;
 }
+
+// 拼出来的句子由这里补句末标点：中文/日文是「。」，其它语言是「.」。
+// 以前直接写死 '。'，西语界面上会拼出「...VIP。」这种半中半西的句子。
+// Assembled sentences take their terminator from here: CJK gets 「。」, other languages
+// get ".". It used to be a hardcoded '。', which made a Spanish UI print "...VIP。".
+function playbackSentenceEnd() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.sentenceEnd === 'function' ? i18n.sentenceEnd() : '。';
+}
+
+// 平台列表的连接符也跟着语言走，别在西方语言里留下顿号。
+// Provider-list separator follows the UI language too; no ideographic commas in Latin copy.
+function playbackListSeparator() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.listSeparator === 'function' ? i18n.listSeparator() : '、';
+}
+
 function qishuiVipClientHintText(hint) {
   hint = hint || {};
   var fallback = hint.message || playbackI18nText('pf_vip_preview_only');
@@ -333,7 +350,7 @@ async function retryQQPlaybackWithCompatibleQuality(song, idx, token, opts, data
   var nextQuality = candidates[0];
   var resolvedQuality = normalizePlaybackQuality(data && data.level);
   markPlaybackQualityRuntimeCap(song, 'qq', nextQuality, 'qq-url-unavailable');
-  if (!opts.startupAutoplay) showSourceFallbackNotice(playbackI18nText('pf_qq_quality_compat'), playbackI18nText('pf_quality_fail_switch_prefix') + playbackQualityLabel(nextQuality, 'qq') + '。');
+  if (!opts.startupAutoplay) showSourceFallbackNotice(playbackI18nText('pf_qq_quality_compat'), playbackI18nText('pf_quality_fail_switch_prefix') + playbackQualityLabel(nextQuality, 'qq') + playbackSentenceEnd());
   var retryResumeAt = opts.resumeAt;
   if (retryResumeAt == null && opts.startupAutoplay && pendingPlaybackResumeAt > 0) retryResumeAt = pendingPlaybackResumeAt;
   var retryStarted = await playQueueAt(idx, Object.assign({}, opts, {
@@ -945,7 +962,7 @@ async function tryAutoPlaybackFallback(song, data, idx, token, opts) {
     return await skipFailedQueueItem(idx, token, playbackI18nText('pf_unplayable_no_takeover'), skipOpts);
   }
   if (!opts.startupAutoplay) {
-    showSourceFallbackNotice(playbackI18nText('pf_auto_switching'), fromLabel + playbackI18nText('pf_unplayable_checking_infix') + alternateProviders.map(sourceFallbackProviderTitle).join('、') + playbackI18nText('pf_same_title_artist_suffix'));
+    showSourceFallbackNotice(playbackI18nText('pf_auto_switching'), fromLabel + playbackI18nText('pf_unplayable_checking_infix') + alternateProviders.map(sourceFallbackProviderTitle).join(playbackListSeparator()) + playbackI18nText('pf_same_title_artist_suffix'));
   }
   for (var providerIndex = 0; providerIndex < alternateProviders.length; providerIndex++) {
     var alternateProvider = alternateProviders[providerIndex];
@@ -995,7 +1012,7 @@ async function tryAutoPlaybackFallback(song, data, idx, token, opts) {
       if (fallbackToken !== trackSwitchToken) return false;
       if (fallbackStarted === true) {
         completeSourceFallbackRecovery(recovery);
-        if (!opts.startupAutoplay) showSourceFallbackNotice(playbackI18nText('pf_source_switched'), (song.name || playbackI18nText('track_current_song')) + playbackI18nText('pf_from_infix') + fromLabel + playbackI18nText('pf_switched_to_infix') + targetLabel + '。');
+        if (!opts.startupAutoplay) showSourceFallbackNotice(playbackI18nText('pf_source_switched'), (song.name || playbackI18nText('track_current_song')) + playbackI18nText('pf_from_infix') + fromLabel + playbackI18nText('pf_switched_to_infix') + targetLabel + playbackSentenceEnd());
         return true;
       }
       restoreSourceFallbackQueueItem(idx, originalSong, committedCandidate, fallbackToken);

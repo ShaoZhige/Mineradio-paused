@@ -57,6 +57,20 @@ function fail(message) {
   throw new Error(message);
 }
 
+// 已接入语言列表：一律从 i18n 模块推导，别写死。
+// 写死的列表会让新接入的语言悄悄绕过校验 —— 而「绕过」的后果恰好是它本该拦住的静默回退。
+// Wired languages are derived from the i18n module: a hardcoded list lets a newly wired
+// language slip past these checks, and slipping past is exactly the silent fallback they exist
+// to catch.
+function supportedLangs() {
+  const match = /var SUPPORTED_LANGS = \[([^\]]*)\]/.exec(
+    fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '13-i18n.js'), 'utf8')
+  );
+  return match
+    ? match[1].split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+    : [];
+}
+
 // 校验若干 i18n 键在每一种已接入语言的词典里都存在且非空。
 // Guards that a UI string is present must look it up through the dictionaries
 // rather than grepping hardcoded Chinese out of JS: once a string is wired to
@@ -1870,7 +1884,7 @@ function checkExternalUpdatePageBridgeGuard() {
     || !/extractReleaseDownloadPages/.test(serverText)
     || !/downloadPages/.test(serverText)
     || !/error:\s*'UPDATE_EXTERNAL_ONLY'/.test(serverText)
-    || !/openUpdateDownloadSource/.test(updateUiText)
+    || !/selectUpdateDownloadSource/.test(updateUiText)
     || !/update-download-source/.test(updateUiText)
     || !/desktopWindow\.openUpdatePage\(target\)/.test(updateUiText)
   ) {
@@ -4626,7 +4640,7 @@ function checkBeatAnalysisToggleGuard() {
 
   // 7) 四语都要有文案：缺一份，那个语言的开关就显示裸键。
   ['toggle_beat_analysis', 'fx_beat_analysis_title', 'bind_beat_analysis_on', 'bind_beat_analysis_off'].forEach(function (key) {
-    ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'].forEach(function (lang) {
+    supportedLangs().forEach(function (lang) {
       const dict = fs.readFileSync(path.join(appRoot, 'public', 'locales', lang + '.json'), 'utf8');
       if (!dict.includes('"' + key + '"')) fail('locale ' + lang + ' is missing the key ' + key);
     });
@@ -4942,7 +4956,7 @@ function checkProviderRegistryGuard() {
   // 7) 四语词条齐全（缺一份，那个语言的下拉与提示就显示裸键）。
   ['settings_preferred_source', 'settings_preferred_source_sub', 'settings_preferred_source_auto',
     'settings_preferred_source_on', 'settings_preferred_source_off'].forEach(function (key) {
-    ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'].forEach(function (lang) {
+    supportedLangs().forEach(function (lang) {
       const dict = fs.readFileSync(path.join(appRoot, 'public', 'locales', lang + '.json'), 'utf8');
       if (!dict.includes('"' + key + '"')) fail('locale ' + lang + ' is missing the key ' + key);
     });
@@ -5422,7 +5436,7 @@ function checkPlaylistMultiselectGuard() {
   const multiselectKeys = ['ms_select', 'ms_select_all', 'ms_clear_all', 'ms_selected_count', 'ms_add_to_playlist',
     'ms_pick_songs_first', 'ms_picker_title', 'ms_no_builtin_target', 'ms_batch_added', 'ms_batch_added_partial', 'ms_batch_dup_all'];
   const keyPositions = {};
-  ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'].forEach(function (lang) {
+  supportedLangs().forEach(function (lang) {
     const dict = JSON.parse(readText('public/locales/' + lang + '.json'));
     const order = Object.keys(dict);
     multiselectKeys.forEach(function (key) {

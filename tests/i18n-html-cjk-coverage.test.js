@@ -24,20 +24,13 @@ const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'i
 const I18N_ATTRS = ['data-i18n', 'data-i18n-title', 'data-i18n-placeholder', 'data-i18n-attr'];
 
 // 故意不带 i18n 声明的显示点 / display points deliberately left without i18n
-//  - DIY 视觉控制台里 #fx-lang-row 的语言自称（中文 / 日本語）：翻译语言自称没有意义。
-//    原来标题栏按钮上那个「中」已随语言控件一起移走，所以豁免只剩这两条。
-//    Language endonyms in #fx-lang-row inside the DIY visual console — translating a
-//    language's own name is pointless. The title bar button's initial "中" left with the
-//    switcher, so only these two exemptions remain.
-// 登录彩蛋曾在这里占掉十一条豁免（拼字用字格、打字框、成就文案…）。彩蛋改成选择框并接入
-// i18n 之后全部下架，剩下这两条都与彩蛋无关。
-// The login easter egg used to own eleven exemptions here (the spelling cells, the typing
-// field, the achievement copy). Turning it into a select box and wiring i18n retired all of
-// them; the two left have nothing to do with the egg.
-const EXEMPT = [
-  ['text', '中文'],
-  ['text', '日本語'],
-];
+// 语言菜单（#fx-lang-row）里的语言自称不再写进这张清单：它们靠 data-lang 属性豁免。
+// 翻译一个语言的「本名」没有意义（中文 / 日本語 / Русский 在任何界面语言下都该这么写），
+// 而逐个列举的清单每加一种语言就得改一次，且会漏 —— 改成结构性判据。
+// Language endonyms are exempt structurally through their data-lang attribute instead of
+// being listed here: a language's own name should not be translated, and a hand-maintained
+// list would need an edit for every new language — and could silently miss one.
+const EXEMPT = [];
 
 // 页面里有大量十进制/十六进制字符引用（&#35009; 裁、&#x5730; 地），不解码的话
 // CJK 判据对这些文本一律失效 —— 正是接线脚本当初漏掉 13 个 FX 标签的同一个坑。
@@ -103,7 +96,9 @@ function scanUnwired(source) {
       const body = selfClosing ? raw.slice(0, -1) : raw;
       const attrs = parseAttrs(body);
       const name = (body.match(/^[^\s/]+/) || [''])[0].toLowerCase();
-      const hasI18n = I18N_ATTRS.some((k) => Object.prototype.hasOwnProperty.call(attrs, k));
+      const hasI18n = I18N_ATTRS.some((k) => Object.prototype.hasOwnProperty.call(attrs, k))
+        // 语言自称按 data-lang 结构性豁免：新增语言不必再改这份测试。
+        || Object.prototype.hasOwnProperty.call(attrs, 'data-lang');
       const redirected = (attrs['data-i18n-attr'] || '').split(',').map((s) => s.trim());
       for (const prop of ['title', 'aria-label', 'placeholder']) {
         const value = decodeEntities(attrs[prop] || '');

@@ -66,6 +66,13 @@ function safePlaybackStep(label, fn) {
   }
 }
 
+// 标题与正文之间的分隔符跟界面语言走：中文「：」，其它语言 ": "。
+// Title/body separator follows the UI language: 「：」 for CJK, ": " elsewhere.
+function playbackSwitchLabelSeparator() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.labelSeparator === 'function' ? i18n.labelSeparator() : '：';
+}
+
 function playbackFailureNoticeFromError(err) {
   if (typeof playbackRestrictionNotice !== 'function') return null;
   var msg = String(err && err.message ? err.message : (err || '')).trim();
@@ -83,7 +90,7 @@ function playbackFailureNoticeFromError(err) {
 
 function playbackFailureToastText(err) {
   var contextualNotice = playbackFailureNoticeFromError(err);
-  if (contextualNotice) return contextualNotice.title + '：' + contextualNotice.body;
+  if (contextualNotice) return contextualNotice.title + playbackSwitchLabelSeparator() + contextualNotice.body;
   if (isPlaybackRecursionError(err)) return playbackSwitchCoreText('psc_prepare_error');
   var msg = String(err && err.message ? err.message : (err || '')).trim();
   var lower = msg.toLowerCase();
