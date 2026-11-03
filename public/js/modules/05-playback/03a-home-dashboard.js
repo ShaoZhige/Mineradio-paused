@@ -467,7 +467,7 @@ function renderHomeDashboardHero() {
     homeDashboardHeroFingerprint = fingerprint;
     var quote = hero.querySelector('.daily-review-quote');
     var source = hero.querySelector('.daily-review-source');
-    if (quote) quote.textContent = '“' + review.text + '”';
+    if (quote) quote.textContent = homeDashboardQuoteOpen() + review.text + homeDashboardQuoteClose();
     if (source) source.textContent = '— ' + (review.source || homeDashboardText('dash_daily_reviews'));
   }
   homeDashboardRenderVideoActions();
@@ -1399,3 +1399,14 @@ if (typeof window !== 'undefined' && window.MineradioI18n
 bindHomeDashboardVideoControls();
 bindHomePlatformRecommendationControls();
 renderHomeDashboard();
+
+// 引号对跟界面语言走：台湾/香港用「」，其余语言沿用弯引号。
+// Quote pair follows the UI language (「」 for zh_tw / zh_hk).
+function homeDashboardQuoteOpen() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.quoteOpen === 'function' ? i18n.quoteOpen() : '\u201C';
+}
+function homeDashboardQuoteClose() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.quoteClose === 'function' ? i18n.quoteClose() : '\u201D';
+}

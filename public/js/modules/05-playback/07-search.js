@@ -440,7 +440,7 @@ $input.addEventListener('input', function () {
   }
   if (isMusicSearchMode(searchMode)) {
     setSearchHistorySurface(false);
-    $results.innerHTML = searchPanelText('search_searching_quote_prefix_html') + escHtml(q) + '”…</div>';
+    $results.innerHTML = searchPanelText('search_searching_quote_prefix_html') + escHtml(q) + searchQuoteClose() + '…</div>';
     $results.classList.add('show');
   }
   searchTimer = setTimeout(function () { doSearch(q); }, 180);
@@ -1446,3 +1446,10 @@ async function doSearch(q, opts) {
 
 // ============================================================
 //  音频上下文 & 频谱分析
+
+// 搜索占位里的收尾引号：台湾/香港是「」的后半，其余语言是弯引号。
+// Closing quote for the "searching for ..." placeholder.
+function searchQuoteClose() {
+  var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
+  return i18n && typeof i18n.quoteClose === 'function' ? i18n.quoteClose() : '\u201D';
+}

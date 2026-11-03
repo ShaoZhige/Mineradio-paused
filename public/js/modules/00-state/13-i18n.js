@@ -38,6 +38,10 @@
   var SENTENCE_END = { 'zh_cn': '。', 'zh_tw': '。', 'zh_hk': '。', ja_jp: '。', en_us: '.', 'es_es': '.', ru_ru: '.' };
   var LABEL_SEPARATOR = { 'zh_cn': '：', 'zh_tw': '：', 'zh_hk': '：', ja_jp: '：', en_us: ': ', 'es_es': ': ', ru_ru: ': ' };
   var LIST_SEPARATOR = { 'zh_cn': '、', 'zh_tw': '、', 'zh_hk': '、', ja_jp: '、', en_us: ', ', 'es_es': ', ', ru_ru: ', ' };
+  // 引号按语言走：台湾/香港用「」，其余语言沿用弯引号；代码里拼接引号的地方都走这里。
+  // Quote pairs follow the language: 「」 for Taiwan/Hong Kong, curly quotes elsewhere.
+  var QUOTE_OPEN = { 'zh_cn': '\u201C', 'zh_tw': '\u300C', 'zh_hk': '\u300C', ja_jp: '\u201C', en_us: '\u201C', 'es_es': '\u201C', ru_ru: '\u201C' };
+  var QUOTE_CLOSE = { 'zh_cn': '\u201D', 'zh_tw': '\u300D', 'zh_hk': '\u300D', ja_jp: '\u201D', en_us: '\u201D', 'es_es': '\u201D', ru_ru: '\u201D' };
 
   var currentLang = DEFAULT_LANG;
   var dictionaries = {};   // lang -> flat { key: text }
@@ -71,6 +75,15 @@
     return LIST_SEPARATOR[currentLang] || ', ';
   }
 
+  // 文案里要包住用户输入时用这两个，别再硬编码弯引号。
+  // Use these when wrapping user input in copy; never hardcode curly quotes again.
+  function quoteOpen() {
+    return QUOTE_OPEN[currentLang] || '\u201C';
+  }
+
+  function quoteClose() {
+    return QUOTE_CLOSE[currentLang] || '\u201D';
+  }
   // 从指定语言表里取一个键；表还没加载或没有这个键时返回 undefined，
   // 由 t() 决定走回退链还是退回键名本身。t() 依赖这个 undefined 语义，
   // 所以这里不能返回空串——空串会让回退链失效，非中文界面直接空掉。
@@ -292,6 +305,8 @@
     sentenceEnd: sentenceEnd,
     labelSeparator: labelSeparator,
     listSeparator: listSeparator,
+    quoteOpen: quoteOpen,
+    quoteClose: quoteClose,
     onLanguageChange: onLanguageChange,
     getSupportedLangs: function () { return SUPPORTED_LANGS.slice(); },
     langLabel: function (lang) { return LANG_LABELS[normalizeLang(lang)]; },
