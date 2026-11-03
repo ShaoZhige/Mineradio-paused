@@ -2180,6 +2180,7 @@
   "upd_calling_browser": "Запуск системного браузера…",
   "upd_go_drive": "Скачать из облака",
   "upd_go": "Перейти",
+  "upd_password_hint": "Для этого зеркала нужен код {code}",
   "upd_current_latest": "Уже актуальная версия",
   "upd_retry_open": "Повторить открытие",
   "upd_page_opened": "Страница загрузки открыта",

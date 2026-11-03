@@ -621,6 +621,20 @@ function compareVersions(a, b) {
 const RELEASE_NOTE_LIMIT = 30;
 const RELEASE_NOTE_MAX_CHARS = 320;
 const RELEASE_NOTE_SUMMARY_CHARS = 96;
+// 正文里「## 下载」之后是发布样板：网盘链接、安装包名、SHA-256 校验和。这些是给 GitHub
+// 发布页看的，不属于更新日志。早先只按行挡「下载 / 安装包」，而实际那两行是
+// 「完整安装包：…」与「SHA-256 校验文件：…」—— 开头不匹配，于是连校验和那行十六进制
+// 都漏进了弹窗。现在改成**遇到下载小节标题就截断**，再加几条精确的行级兜底：
+// 以后往模板里加任何下载说明都不会再漏进来。
+// Everything after the download heading is release boilerplate: mirror links, the installer
+// name and the checksum. It belongs on the GitHub page, not in the in-app changelog. The old
+// guard only matched lines starting with 下载/安装包, while the real lines start with
+// 完整安装包：/ SHA-256 校验文件：, so they — and the raw checksum line — leaked through.
+const RELEASE_DOWNLOAD_HEADING = /^#{1,6}\s*(下载|下载与校验|下载地址)\s*$/;
+const RELEASE_BOILERPLATE_LABEL = /^(完整安装包|安装包|补丁包|快速补丁|SHA-?256\s*校验文件|校验文件|校验和)\s*[：:]/i;
+const RELEASE_ASSET_NAME = /Mineradio-\d+(?:\.\d+)*[A-Za-z0-9.-]*-(?:Setup\.exe|SHA256SUMS\.txt)/i;
+const RELEASE_TITLE_LINE = /^Mineradio\s+v?\d+(?:\.\d+)*$/i;
+const RELEASE_CHECKSUM_LINE = /^[0-9a-f]{32,128}\s{1,}\S+/i;
 function cleanReleaseLine(line) {
   return String(line || '')
     .replace(/^\s*#{1,6}\s*/, '')
@@ -630,18 +644,38 @@ function cleanReleaseLine(line) {
     .replace(/`/g, '')
     .trim();
 }
+// 一行文本是否属于「发布样板」。extractReleaseNotes 与 release.notes 两条路径共用这一套判据，
+// 否则修好一条、另一条还在漏（release.notes 之前只做了 cleanReleaseLine，完全没过滤）。
+function releaseNoteLineIsBoilerplate(text) {
+  if (!text) return true;
+  if (/^(what'?s changed|changes|changelog|full changelog|更新日志|更新内容)$/i.test(text)) return true;
+  if (RELEASE_TITLE_LINE.test(text)) return true;
+  if (/https?:\/\//i.test(text)) return true;
+  // 下载小节的标题词，以及「标签：…」式的引导行。
+  // 这里故意**不按「安装包」这种裸前缀**过滤：「安装包体积从 107MB 降到 97MB」是真实条目，
+  // 旧的宽前缀规则会把它整条吞掉，弹窗里凭空少一条。
+  if (/^(下载|下载地址|网盘|夸克盘|百度(?:云|网盘)|蓝奏(?:云|网盘)|安装包|完整安装包|补丁包|快速补丁)(?:[：:]|$)/i.test(text)) return true;
+  if (RELEASE_BOILERPLATE_LABEL.test(text)) return true;
+  if (RELEASE_ASSET_NAME.test(text)) return true;
+  if (RELEASE_CHECKSUM_LINE.test(text)) return true;
+  return false;
+}
 function extractReleaseNotes(body) {
   const notes = [];
-  String(body || '').split(/\r?\n/).forEach(line => {
-    if (/<!--[\s\S]*?-->/i.test(line)) return;
-    const text = cleanReleaseLine(line);
-    if (!text) return;
-    if (/^(what'?s changed|changes|changelog|full changelog|更新日志|更新内容)$/i.test(text)) return;
-    if (/https?:\/\//i.test(text)) return;
-    if (/^(下载|网盘|夸克盘|百度(?:云|网盘)|蓝奏(?:云|网盘)|安装包)/i.test(text)) return;
-    if (text.length > RELEASE_NOTE_MAX_CHARS) return;
+  const lines = String(body || '').split(/\r?\n/);
+  for (const line of lines) {
+    const raw = String(line || '').trim();
+    if (!raw) continue;
+    // 下载小节之后全是发布样板，直接截断 —— 比逐行挡更稳，模板怎么加都不会漏。
+    if (RELEASE_DOWNLOAD_HEADING.test(raw)) break;
+    if (/<!--[\s\S]*?-->/i.test(raw)) continue;
+    const text = cleanReleaseLine(raw);
+    if (!text) continue;
+    if (releaseNoteLineIsBoilerplate(text)) continue;
+    if (text.length > RELEASE_NOTE_MAX_CHARS) continue;
     notes.push(text);
-  });
+    if (notes.length >= RELEASE_NOTE_LIMIT) break;
+  }
   return notes.slice(0, RELEASE_NOTE_LIMIT);
 }
 // 弹窗顶部那行摘要只放一条短句：完整条目可能很长，直接拿来当摘要会把头部撑成一段。
@@ -675,8 +709,14 @@ function normalizeUpdateDownloadPages(values, fallbackLabel) {
       .replace(/[<>|]/g, '')
       .slice(0, 24)
       .trim() || `下载线路 ${index + 1}`;
+    // 网盘提取码（目前只有蓝奏云需要）。没有就不加这个键 —— 保持无密码线路的对象形状不变。
+    const password = String(item.password || '')
+      .replace(/[<>\s|]/g, '')
+      .slice(0, 24);
     seen.add(url);
-    pages.push({ label, url });
+    const page = { label, url };
+    if (password) page.password = password;
+    pages.push(page);
   });
   return pages.slice(0, 6);
 }
@@ -691,11 +731,41 @@ function extractReleaseDownloadPages(body) {
       url: hidden[2],
     });
   }
-  if (pages.length) return normalizeUpdateDownloadPages(pages);
-  const visiblePattern = /^\s*[-*]?\s*(夸克盘|百度(?:云|网盘)|蓝奏(?:云|网盘)|网盘|下载(?:地址|页面|链接)?)\s*[:：]\s*(?:\[[^\]]*]\()?(https:\/\/[^\s<>)\]]+)/gmi;
-  let visible = null;
-  while ((visible = visiblePattern.exec(raw))) {
-    pages.push({ label: visible[1], url: visible[2] });
+  if (!pages.length) {
+    const visiblePattern = /^\s*[-*]?\s*(夸克盘|百度(?:云|网盘)|蓝奏(?:云|网盘)|网盘|下载(?:地址|页面|链接)?)\s*[:：]\s*(?:\[[^\]]*]\()?(https:\/\/[^\s<>)\]]+)/gmi;
+    let visible = null;
+    while ((visible = visiblePattern.exec(raw))) {
+      pages.push({ label: visible[1], url: visible[2] });
+    }
+  }
+  // 网盘密码走**独立标记**，不塞进上面那条 URL 标记里：
+  // 已经发出去的旧客户端会把 URL 之后的任何字符都当成 URL 的一部分，
+  // 往 URL 里加「|9izq」会让它们的网盘入口直接失效（静默退回 Release 页面）。
+  // The password uses its OWN marker. Older shipped clients treat everything after the URL
+  // as part of the URL, so stuffing it into the page marker would break their mirror entry.
+  const passwordPattern = /<!--\s*mineradio-download-password\s*:\s*([^|<>\r\n]{1,24})\s*\|\s*([^\s<>\r\n]{1,24})\s*-->/gi;
+  let passwordMatch = null;
+  while ((passwordMatch = passwordPattern.exec(raw))) {
+    const label = String(passwordMatch[1] || '').trim().toLowerCase();
+    const password = String(passwordMatch[2] || '').trim();
+    if (!password) continue;
+    for (const page of pages) {
+      const pageLabel = String(page.label || '').toLowerCase();
+      if (!pageLabel) continue;
+      if (pageLabel === label || pageLabel.includes(label) || label.includes(pageLabel)) {
+        page.password = password;
+      }
+    }
+  }
+  // 兜底：2.7.0 及更早的发布正文里只有「… 密码 9izq」这一行，没有专用标记。
+  // 蓝奏云没有密码页面打不开，所以宁可做一次有界的猜测，也不要在弹窗里留个打不开的链接。
+  if (pages.some((page) => /蓝奏/.test(page.label || '') && !page.password)) {
+    const legacy = /密码\s*[:：]?\s*([A-Za-z0-9]{2,24})/.exec(raw);
+    if (legacy) {
+      for (const page of pages) {
+        if (/蓝奏/.test(page.label || '') && !page.password) page.password = legacy[1];
+      }
+    }
   }
   return normalizeUpdateDownloadPages(pages);
 }
@@ -735,7 +805,7 @@ function normalizeManifestUpdateInfo(data) {
   const externalUrl = downloadPages.length ? downloadPages[0].url : '';
   const downloadPageUrl = externalUrl || htmlUrl;
   const notes = Array.isArray(release.notes) && release.notes.length
-    ? release.notes.slice(0, RELEASE_NOTE_LIMIT).map(cleanReleaseLine).filter(Boolean)
+    ? release.notes.slice(0, RELEASE_NOTE_LIMIT).map(cleanReleaseLine).filter(text => text && !releaseNoteLineIsBoilerplate(text))
     : (extractReleaseNotes(release.body || data.body).length ? extractReleaseNotes(release.body || data.body) : UPDATE_FALLBACK_NOTES);
   return {
     configured: true,

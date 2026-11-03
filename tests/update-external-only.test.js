@@ -86,7 +86,12 @@ test('release body preserves all three labelled HTTPS download pages', () => {
 test('renderer opens the external page without local installer or patch calls', () => {
   assert.match(updateUiText, /desktopWindow\.openUpdatePage\(target\)/);
   assert.match(updateUiText, /new URL\(raw\)\.protocol === 'https:'/);
-  assert.match(updateUiText, /function openUpdateDownloadSource\(index\)/);
+  assert.match(updateUiText, /function selectUpdateDownloadSource\(index\)/);
+  // 选中线路不得直接打开网页：一个控件只做一件事，打开交给「前往」按钮。
+  // 这里只截取该函数体，避免把紧随其后的 startUpdatePreviewDownload 声明误判进来。
+  const selectStart = updateUiText.indexOf('function selectUpdateDownloadSource(index)');
+  const selectFn = updateUiText.slice(selectStart, updateUiText.indexOf('\n}', selectStart));
+  assert.doesNotMatch(selectFn, /startUpdatePreviewDownload\(/, '点线路不能直接打开网页');
   assert.match(updateUiText, /Array\.isArray\(release\.downloadPages\)/);
   assert.match(updateUiText, /Array\.isArray\(data\.downloadPages\)/);
   assert.match(updateUiText, /explicitPages === null/);

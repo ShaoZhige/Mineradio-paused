@@ -177,6 +177,11 @@ jobs:
             # `mineradio-download-page` from the body to build its mirror-download entry.
             echo '<!-- mineradio-download-page: 阿里云盘|https://www.alipan.com/s/36YiXCzvuKt -->'
             echo '<!-- mineradio-download-page: 蓝奏云|https://wwars.lanzouq.com/b014xlh7gb -->'
+            # 提取码单独一条标记：已发出去的旧客户端会把 URL 之后的内容当成 URL 的一部分，
+            # 塞进上面那条会让它们的网盘入口失效。软件内的更新弹窗读这条把密码显示在线路按钮上。
+            # The password gets its OWN marker: older shipped clients treat everything after the
+            # URL as part of the URL, so inlining it would break their mirror entry.
+            echo '<!-- mineradio-download-password: 蓝奏云|9izq -->'
           } > release-notes.md
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

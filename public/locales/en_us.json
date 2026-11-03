@@ -2180,6 +2180,7 @@
   "upd_calling_browser": "Opening the system browser…",
   "upd_go_drive": "Download from cloud drive",
   "upd_go": "Go to",
+  "upd_password_hint": "This mirror needs extraction code {code}",
   "upd_current_latest": "Already up to date",
   "upd_retry_open": "Retry opening",
   "upd_page_opened": "Download page opened",

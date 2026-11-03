@@ -67,8 +67,11 @@ function normalizeUpdateDownloadPages(values) {
       .replace(/[<>|]/g, '')
       .trim()
       .slice(0, 24) || (updatePreviewText('upd_line') + (index + 1));
+    var password = String(item.password || '')
+      .replace(/[<>\s|]/g, '')
+      .slice(0, 24);
     seen[url] = true;
-    pages.push({ label: label, url: url });
+    pages.push({ label: label, url: url, password: password });
   });
   return pages.slice(0, 6);
 }
@@ -237,10 +240,12 @@ function renderUpdateDownloadSources() {
     button.type = 'button';
     button.className = 'update-download-source';
     button.dataset.index = String(index);
+    // 按钮只写平台名。提取码是「打开之后要自己输入」的东西，塞进按钮文案既不是名字、
+    // 也会把按钮撑长；它改由下方说明行提示（见 syncUpdatePreviewStateClass）。
     button.textContent = page.label;
     button.title = updatePreviewText('upd_use') + page.label + updatePreviewText('upd_download');
     button.onclick = function () {
-      openUpdateDownloadSource(index);
+      selectUpdateDownloadSource(index);
     };
     container.appendChild(button);
   });
@@ -288,6 +293,10 @@ function syncUpdatePreviewStateClass() {
     if (isOpening) foot.textContent = updatePreviewText('upd_calling_browser');
     else if (isError) foot.textContent = updatePreviewText('upd_open_failed_prefix') + (updatePreviewState.errorReason || updatePreviewText('upd_retry_later'));
     else if (!updatePreviewState.updateAvailable) foot.textContent = updatePreviewText('already_latest', '当前版本已是最新。');
+    // 网盘需要提取码时，把「要输什么」写在说明行：用户点「前往」之前就知道。
+    else if (selectedPage && selectedPage.password) {
+      foot.textContent = updatePreviewText('upd_password_hint', '该网盘需要提取码 {code}', { code: selectedPage.password });
+    }
     else if (downloadPages.length || updatePreviewState.externalUrl) foot.textContent = updatePreviewText('upd_drive_hint');
     else foot.textContent = updatePreviewText('upd_github_hint');
   }
@@ -355,12 +364,16 @@ function animateUpdatePanelContents() {
   }
 }
 
-function openUpdateDownloadSource(index) {
+// 点线路按钮只**切换选中**，不打开浏览器。
+// 打开网页是下面那颗「前往<线路>」按钮的职责：一个控件只做一件事，
+// 也让用户可以先把线路挑好（顺便看清提取码）再决定要不要跳转。
+// Selecting a source only switches the choice. Opening the page belongs to the primary
+// "Go to <source>" button below — one control, one job.
+function selectUpdateDownloadSource(index) {
   var pages = currentUpdateDownloadPages();
   if (!pages[index]) return;
   updatePreviewState.selectedDownloadPageIndex = index;
   syncUpdatePreviewStateClass();
-  startUpdatePreviewDownload(index);
 }
 
 async function startUpdatePreviewDownload(preferredIndex) {

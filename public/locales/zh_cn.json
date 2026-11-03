@@ -2180,6 +2180,7 @@
   "upd_calling_browser": "正在调用系统浏览器。",
   "upd_go_drive": "前往网盘下载",
   "upd_go": "前往",
+  "upd_password_hint": "该网盘需要提取码 {code}",
   "upd_current_latest": "当前已是最新",
   "upd_retry_open": "重试打开",
   "upd_page_opened": "下载页已打开",

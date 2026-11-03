@@ -125,8 +125,11 @@ test('renderer replaces three old sources with two latest sources and opens only
   assert.match(nodes['update-list'].innerHTML, /本次更新已更换分发地址/);
   assert.doesNotMatch(nodes['update-list'].innerHTML, /旧公告/);
   assert.match(nodes['update-footnote'].textContent, /upd_drive_hint/);
-  await context.openUpdateDownloadSource(1);
-  assert.deepEqual(opened, [pages[1].url]);
+  // 点线路只切换选中，不打开；打开由「前往」（startUpdatePreviewDownload）负责。
+  await context.selectUpdateDownloadSource(1);
+  assert.deepEqual(opened, [], '点线路不应打开浏览器');
+  await context.startUpdatePreviewDownload();
+  assert.deepEqual(opened, [pages[1].url], '「前往」打开的应是当前选中的线路');
 });
 
 test('renderer clears retired sources and previous notes when the next payload omits the announcement', () => {

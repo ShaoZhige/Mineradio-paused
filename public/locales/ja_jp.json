@@ -2180,6 +2180,7 @@
   "upd_calling_browser": "システムブラウザを起動しています…",
   "upd_go_drive": "網盤でダウンロード",
   "upd_go": "移動",
+  "upd_password_hint": "このミラーには抽出コード {code} が必要です",
   "upd_current_latest": "すでに最新です",
   "upd_retry_open": "開き直す",
   "upd_page_opened": "ダウンロードページを開きました",
