@@ -14,6 +14,7 @@
     "test:electron": "node scripts/run-electron-tests.js",
     "test:custom-source-host": "electron tests/custom-source-electron-smoke.js",
     "check:quick": "node scripts/quick-check.js",
+    "check:budget": "node scripts/check-resource-budget.js",
     "check:package": "node scripts/verify-package.js",
     "audit:prod": "node scripts/audit-prod.js",
     "archive:release": "node scripts/archive-release-build.mjs",

@@ -8364,6 +8364,19 @@ function checkWorkflowGatingHonestyGuard() {
 // The DJ beat-analysis decode/FFT must run in a utilityProcess. Reverting that one require
 // silently restores the blocking behaviour: nothing fails, nothing turns red, the main
 // process just goes back to being occupied for the whole analysis.
+function checkResourceBudgetGuard() {
+  logStep('Resource budget guard');
+  // 资源有界性：关键上限钉死预期值 + 前端体积相对基线不超容差。
+  // 单独跑：`node scripts/check-resource-budget.js`；更体积基线：`--write-baseline`。
+  // Resource boundedness: pinned critical caps plus a bundle-size ceiling against a committed
+  // baseline. Standalone: `node scripts/check-resource-budget.js`.
+  const { runResourceBudgetCheck } = require('./check-resource-budget');
+  const result = runResourceBudgetCheck();
+  for (const warning of result.warnings) console.log(`[WARN] ${warning}`);
+  if (!result.ok) return fail('资源预算越界：' + result.failures.join('；'));
+  console.log(`[OK] ${result.pinned.length} 项上限仍在预期值，${result.bundleSummary}`);
+}
+
 function checkDjAnalyzerIsolationGuard() {
   logStep('DJ analysis isolation guard');
   const serverPath = path.join(appRoot, 'server', 'server.js');
@@ -8485,6 +8498,7 @@ async function main() {
   checkIdleGuideCanvasReleaseGuard();
   checkWorkflowGatingHonestyGuard();
   checkFxConsoleWorkspaceGuard();
+  checkResourceBudgetGuard();
   checkDjAnalyzerIsolationGuard();
   if (runElectron) {
     runElectronRuntimeCheck();

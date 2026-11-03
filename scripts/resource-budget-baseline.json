@@ -1,0 +1,7 @@
+{
+  "note": "体积基线。更新方式：node scripts/check-resource-budget.js --write-baseline（只在有意增体积时执行，并在提交信息里说明原因）",
+  "tolerancePercent": 10,
+  "publicJsBytes": 3317840,
+  "publicCssBytes": 500552,
+  "updatedAt": "2026-11-03"
+}

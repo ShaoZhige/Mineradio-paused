@@ -966,4 +966,18 @@ module.exports = {
   localFileId,
   parseByteRange,
   registerLocalMusicScheme,
+  // 资源上限集中出口：让 check:budget 与测试能钉住这些数字。
+  // 这类常数顺手就能改大，改大不会报任何错，只会让内存和索引在真机上慢慢失控。
+  // Budget constants in one place so the resource gate can pin them: each is easy to bump
+  // casually and bumping one fails nothing — it just lets memory creep on real machines.
+  resourceBudgets: {
+    maxImportFiles: MAX_IMPORT_FILES,
+    metadataConcurrency: METADATA_CONCURRENCY,
+    maxLibraryIndexBytes: MAX_LIBRARY_INDEX_BYTES,
+    maxLyricBytes: MAX_LYRIC_BYTES,
+    maxCoverBytes: MAX_COVER_BYTES,
+    maxUnknownDimensionCoverBytes: MAX_UNKNOWN_DIMENSION_COVER_BYTES,
+    maxCoverDimension: MAX_COVER_DIMENSION,
+    maxCoverPixels: MAX_COVER_PIXELS,
+  },
 };
