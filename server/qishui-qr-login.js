@@ -8,6 +8,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const qishuiAuthV6 = require('./qishui-auth-v6');
+// 凭证加密层（与 server.js 共用；safeStorage 由 main.js 注入）。
+// Credential encryption layer shared with server.js; safeStorage injected by main.js.
+const credentialCrypto = require('../desktop/credential-crypto');
 
 // 项目根：本文件住在 server/ 下，扫码登录配置一直落在仓库根目录，位置不变。
 // Project root: this file lives under server/ while the QR-login config always sat at the
@@ -30,7 +33,13 @@ function defaultConfig() {
 function readConfig(file) {
   try {
     if (!file || !fs.existsSync(file)) return defaultConfig();
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
+    // 密文信封则解密再 JSON.parse；明文 JSON 直接 parse（过渡期兼容）。
+    // Decrypt envelope then JSON.parse; plaintext JSON parses directly.
+    const text = credentialCrypto.isEncryptedEnvelope(raw)
+      ? credentialCrypto.decryptCredential(raw, credentialCrypto.defaultKeyPathFor(file))
+      : raw;
+    const parsed = JSON.parse(text);
     return { ...defaultConfig(), ...(parsed && typeof parsed === 'object' ? parsed : {}) };
   } catch (error) {
     console.warn('[QishuiQrLogin] ignored invalid config:', error && error.message || error);
@@ -41,7 +50,12 @@ function readConfig(file) {
 function writeConfig(file, value) {
   if (!file) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
+  // 加密写盘；safeStorage 不可用时降级明文。
+  // Encrypt at rest; falls back to plaintext when safeStorage is unavailable.
+  const payload = credentialCrypto.encryptCredential(JSON.stringify(value, null, 2), credentialCrypto.defaultKeyPathFor(file));
+  const tmp = file + '.tmp-' + process.pid;
+  fs.writeFileSync(tmp, payload, 'utf8');
+  fs.renameSync(tmp, file);
 }
 
 // 与 qishui-api.js 的 qishuiCookieHasLogin 保持完全一致：那边用这 6 个字段判断会话是否有效，

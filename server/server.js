@@ -61,6 +61,11 @@ const path = require('path');
 const crypto = require('crypto');
 const tls = require('tls');
 const { fileURLToPath } = require('url');
+// 凭证加密层：safeStorage 由 main.js 在 require server.js 之前注入到 credential-crypto。
+// 在纯 Node 测试环境（没有 safeStorage）下自动降级为明文，凭证永远能读写。
+// Credential encryption: safeStorage is injected into credential-crypto by main.js before
+// requiring server.js. In plain-Node test envs (no safeStorage) it falls back to plaintext.
+const credentialCrypto = require('../desktop/credential-crypto');
 // 走代理而不是直接 require('./dj-analyzer')：解码与频谱计算要放进 utilityProcess，
 // 否则整首歌的 O(n) 计算会占住主进程事件循环，分析期间所有 IPC 一起变慢。
 // 代理在没有 utilityProcess 的环境（纯 Node 测试）会自动退回进程内调用。
@@ -349,7 +354,14 @@ function getQishuiCookieFile() {
 }
 function readConfiguredCookieFile(file) {
   try {
-    if (file && fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim();
+    if (file && fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      // 密文信封则解密，明文（含空串）原样返回——过渡期兼容旧文件。
+      // Encrypted envelope → decrypt; plaintext (incl. empty) → return as-is.
+      return credentialCrypto.isEncryptedEnvelope(raw)
+        ? credentialCrypto.decryptCredential(raw, credentialCrypto.defaultKeyPathFor(file)).trim()
+        : raw;
+    }
   } catch (_) {}
   return '';
 }
@@ -357,8 +369,17 @@ function writeConfiguredCookieFile(file, value) {
   try {
     if (!file) return;
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, String(value || ''), 'utf8');
-  } catch (_) {}
+    // 一律加密写盘；safeStorage 不可用时 encryptCredential 原样返回明文。
+    // Always encrypt; falls back to plaintext when safeStorage is unavailable.
+    const payload = credentialCrypto.encryptCredential(String(value || ''), credentialCrypto.defaultKeyPathFor(file));
+    const tmp = file + '.tmp-' + process.pid;
+    fs.writeFileSync(tmp, payload, 'utf8');
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    // 加密失败时退回明文直接写，绝不因为加密层故障而丢凭证。
+    // Encryption failure must never lose the credential — fall back to direct write.
+    try { fs.writeFileSync(file, String(value || ''), 'utf8'); } catch (_) {}
+  }
 }
 const configuredCookieStores = {
   netease: { file: '', value: '', getFile: getCookieFile },

@@ -7,6 +7,9 @@ const https = require('https');
 const path = require('path');
 
 const qishuiClientBridge = require('./qishui-client-bridge');
+// 凭证加密层（与 server.js 共用同一份；safeStorage 由 main.js 注入）。
+// Credential encryption layer shared with server.js; safeStorage injected by main.js.
+const credentialCrypto = require('../desktop/credential-crypto');
 
 // 项目根：本文件住在 server/ 下，而凭据/令牌一直落在仓库根目录。代码搬进文件夹不该把运行时
 // 数据也搬走 —— 那会让已登录用户凭空掉登录态（新目录没有旧文件，旧文件又不再被读）。
@@ -72,6 +75,19 @@ function normalizeQishuiOAuthFileConfig(raw, file) {
   };
 }
 
+// 读一个可能是「加密信封」的 JSON 凭证文件：MR1 信封先解密再 parse，明文 JSON 直接 parse。
+// 凭证落盘已改 AES-256-GCM（见 desktop/credential-crypto.js），任何绕开这里的裸 JSON.parse
+// 都会在文件加密之后静默失效 —— 表现是「功能没了但不报错」，排查成本极高。
+// Read a JSON credential file that may be an MR1 envelope: decrypt first, then parse.
+// A bare JSON.parse here would silently break once the file is encrypted.
+function readCredentialJsonFile(file) {
+  const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
+  const text = credentialCrypto.isEncryptedEnvelope(raw)
+    ? credentialCrypto.decryptCredential(raw, credentialCrypto.defaultKeyPathFor(file))
+    : raw;
+  return JSON.parse(text);
+}
+
 function qishuiOAuthConfigFileCandidates() {
   const candidates = [];
   const add = (value) => {
@@ -92,7 +108,7 @@ function readQishuiOAuthFileConfig() {
   for (const file of candidates) {
     try {
       if (!fs.existsSync(file)) continue;
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+      const parsed = readCredentialJsonFile(file);
       const config = normalizeQishuiOAuthFileConfig(parsed, file);
       if (config.clientKey || config.clientSecret || config.redirectUri || config.scope) return config;
     } catch (e) {
@@ -464,7 +480,14 @@ function qishuiAccessTokenInfo() {
   const file = qishuiTokenFile();
   try {
     if (fs.existsSync(file)) {
-      const token = normalizeQishuiToken(fs.readFileSync(file, 'utf8'));
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      // 密文信封则解密，明文兼容（过渡期）。
+      // Decrypt envelope; plaintext passes through for legacy compatibility.
+      const token = normalizeQishuiToken(
+        credentialCrypto.isEncryptedEnvelope(raw)
+          ? credentialCrypto.decryptCredential(raw, credentialCrypto.defaultKeyPathFor(file))
+          : raw
+      );
       if (token) return { token, source: 'file', file };
     }
   } catch (_) {}
@@ -484,7 +507,12 @@ function saveQishuiAccessToken(value) {
   }
   const file = qishuiTokenFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, token, 'utf8');
+  // 加密写盘；safeStorage 不可用时降级明文。
+  // Encrypt at rest; falls back to plaintext when safeStorage is unavailable.
+  const payload = credentialCrypto.encryptCredential(token, credentialCrypto.defaultKeyPathFor(file));
+  const tmp = file + '.tmp-' + process.pid;
+  fs.writeFileSync(tmp, payload, 'utf8');
+  fs.renameSync(tmp, file);
   clearQishuiRuntimeCaches();
   return { ...getQishuiStatus(), saved: true };
 }
@@ -3268,9 +3296,13 @@ const QISHUI_PC_TRACK_V2_UA = 'LunaPC/3.7.0(30080000)';
 
 function qishuiPersistedDeviceId() {
   // 扫码登录用的设备身份：签名与登录态绑定，两处 device_id 一致才能通过服务端校验。
+  // 这个文件由 qishui-qr-login.js 的 writeConfig 加密落盘，这里必须走同一套解密；
+  // 裸 JSON.parse 会在加密后静默返回空串，签名设备身份与登录时不一致。
+  // The file is stored encrypted by writeConfig; a bare JSON.parse would silently
+  // yield an empty id after encryption and desync the signing device identity.
   const file = process.env.QISHUI_QR_CONFIG_FILE || path.join(PROJECT_ROOT, '.qishui-qr-login.json');
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    const parsed = readCredentialJsonFile(file);
     const value = normalizeText(parsed && parsed.deviceId);
     return /^\d{6,24}$/.test(value) ? value : '';
   } catch (_) {
@@ -3861,5 +3893,10 @@ module.exports = {
     resolveQishuiSeoPlayback,
     buildQishuiTrackV2Request,
     fetchQishuiPlayerInfoStreams,
+    // 凭证文件读取：加密信封必须解密，否则 OAuth 配置与签名设备身份会静默失效。
+    // Credential readers: encrypted envelopes must be decrypted or these silently break.
+    readCredentialJsonFile,
+    readQishuiOAuthFileConfig,
+    qishuiPersistedDeviceId,
   },
 };

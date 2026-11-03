@@ -4,6 +4,10 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
+// 凭证加密层（与 server.js 共用；safeStorage 由 main.js 注入）。
+// Credential encryption layer shared with server.js; safeStorage injected by main.js.
+const credentialCrypto = require('../desktop/credential-crypto');
+
 // 项目根：本文件住在 server/ 下，而 Spotify 的凭据与令牌一直落在仓库根目录，位置不变。
 // Project root: this file lives under server/ while Spotify's credentials and token always sat at
 // the repository root; the location is deliberately preserved.
@@ -127,7 +131,7 @@ function readSpotifyFileConfig() {
   for (const file of candidates) {
     try {
       if (!fs.existsSync(file)) continue;
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+      const parsed = readCredentialJsonFile(file);
       const config = normalizeSpotifyFileConfig(parsed, file);
       if (config.clientId || config.clientSecret || config.redirectUri || config.scopes.length || config.market) return config;
     } catch (err) {
@@ -195,7 +199,7 @@ function readStoredSpotifyToken() {
   const file = getSpotifyTokenFile();
   try {
     if (!file || !fs.existsSync(file)) return { file, accessToken: '', refreshToken: '', expiresAt: 0 };
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    const raw = readCredentialJsonFile(file);
     return {
       file,
       accessToken: normalizeText(raw.accessToken || raw.access_token),
@@ -214,7 +218,24 @@ function readStoredSpotifyToken() {
 
 function writeJsonFile(file, payload) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8');
+  // 加密写盘；safeStorage 不可用时降级明文。
+  // Encrypt at rest; falls back to plaintext when safeStorage is unavailable.
+  const text = JSON.stringify(payload, null, 2);
+  const stored = credentialCrypto.encryptCredential(text, credentialCrypto.defaultKeyPathFor(file));
+  const tmp = file + '.tmp-' + process.pid;
+  fs.writeFileSync(tmp, stored, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
+// 读回 JSON 凭证文件：密文信封先解密再 parse，明文 JSON 直接 parse（过渡期兼容）。
+// Read back JSON credential file: decrypt envelope then parse, or parse plaintext directly.
+function readCredentialJsonFile(file) {
+  if (!file || !fs.existsSync(file)) return null;
+  const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
+  const text = credentialCrypto.isEncryptedEnvelope(raw)
+    ? credentialCrypto.decryptCredential(raw, credentialCrypto.defaultKeyPathFor(file))
+    : raw;
+  return JSON.parse(text);
 }
 
 function saveSpotifyOAuthToken(payload) {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, screen, session, globalShortcut, dialog, Tray, Menu, protocol, desktopCapturer, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, screen, session, globalShortcut, dialog, Tray, Menu, protocol, desktopCapturer, powerMonitor, safeStorage } = require('electron');
 const net = require('net');
 const http = require('http');
 const path = require('path');
@@ -5567,6 +5567,22 @@ ipcMain.handle('mineradio-hotkeys-configure-global', (_event, bindings) => {
   return configureMineradioGlobalHotkeys(bindings);
 });
 
+// 凭证导出：文件可能是 MR1 密文信封（凭证已改 AES-256-GCM 落盘），导出前必须解密，
+// 否则用户拿到的是一串密文而不是 cookie。
+// Credential export: files may be MR1 envelopes; decrypt before writing the export,
+// otherwise the user receives ciphertext instead of a usable cookie.
+function readCredentialTextForExport(file) {
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    const credentialCrypto = require('./credential-crypto');
+    if (!credentialCrypto.isEncryptedEnvelope(raw)) return raw;
+    return credentialCrypto.decryptCredential(raw, credentialCrypto.defaultKeyPathFor(file));
+  } catch (error) {
+    console.warn('[CredentialExport] read failed for', file, ':', error.message);
+    return '';
+  }
+}
+
 function loginCookieExportMeta(provider) {
   const key = String(provider || '').toLowerCase();
   const userData = app.getPath('userData');
@@ -5585,10 +5601,10 @@ ipcMain.handle('mineradio-export-login-cookie', async (_event, provider) => {
     const meta = loginCookieExportMeta(provider);
     if (!meta) return { ok: false, error: 'UNKNOWN_PROVIDER', message: '未知平台，无法导出登录 cookie' };
     const source = (meta.files || []).filter(Boolean).find((file) => {
-      try { return fs.existsSync(file) && fs.statSync(file).isFile() && fs.readFileSync(file, 'utf8').trim(); } catch (_) { return false; }
+      try { return fs.existsSync(file) && fs.statSync(file).isFile() && readCredentialTextForExport(file).trim(); } catch (_) { return false; }
     });
     if (!source) return { ok: false, error: 'COOKIE_NOT_FOUND', message: `${meta.label} 当前没有可导出的登录 cookie` };
-    const text = fs.readFileSync(source, 'utf8');
+    const text = readCredentialTextForExport(source);
     const safeName = String(`${meta.label}_登录cookie.txt`).replace(/[\\/:*?"<>|]+/g, '-');
     // 导出目录固定在软件目录内的 userdata/exports/，绝不往桌面写登录凭证。
     // Exports stay inside the app's own data folder; login credentials are never written to
@@ -6152,7 +6168,16 @@ function appOwnedMigrationFileValid(name, file) {
     if (!file || !fs.existsSync(file)) return false;
     const stat = fs.statSync(file);
     if (!stat.isFile() || stat.size <= 0 || stat.size > 16 * 1024 * 1024) return false;
-    const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
+    const text0 = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
+    if (!text0) return false;
+    // 凭证文件可能已经是 MR1 密文信封：先解密再校验，否则加密后的文件永远判为「无效」，
+    // 用户数据真丢了也恢复不回来。非信封文件原样通过。
+    // Credentials may already be MR1 envelopes: decrypt before validating, or an encrypted
+    // file always looks invalid and can never be restored.
+    const credentialCrypto = require('./credential-crypto');
+    const text = credentialCrypto.isEncryptedEnvelope(text0)
+      ? credentialCrypto.decryptCredential(text0, credentialCrypto.defaultKeyPathFor(file)).trim()
+      : text0;
     if (!text) return false;
     if (name === '.cookie') return neteaseCookieHasLogin(text);
     if (name === '.qq-cookie') return qqCookieHasLogin(text);
@@ -6327,6 +6352,84 @@ function migrateLegacyAuthStorage() {
   }
 }
 
+// 把现有明文凭证文件原地加密。必须在 require('server/server.js') 之前调用，
+// 因为 server 启动时会立刻读这些文件——读到密文就会走解密分支。
+// 注意：主密钥也落在这个目录里（.credential-key），但它本身被 safeStorage(DPAPI) 加密。
+// Encrypt existing plaintext credential files in place. Must run before require('server.js'),
+// since the server reads these files on startup — encrypted content goes through decrypt path.
+// The master key also lives in this dir (.credential-key) but is itself safeStorage(DPAPI)-encrypted.
+// 凭证文件清单：主密钥解锁、明文迁移、导出解密都读这一份，别再各自抄一遍。
+// 漏一个文件的表现是「那个平台的登录态永远明文落盘」，不会报错，所以清单只能有一处。
+// One list for every credential file. A file missing here is silently left in plain text,
+// so the list must exist exactly once.
+function credentialFilePaths() {
+  return [...new Set([
+    process.env.COOKIE_FILE,
+    process.env.QQ_COOKIE_FILE,
+    process.env.KUGOU_COOKIE_FILE,
+    process.env.QISHUI_COOKIE_FILE,
+    process.env.QISHUI_TOKEN_FILE,
+    process.env.QISHUI_QR_CONFIG_FILE,
+    process.env.SPOTIFY_TOKEN_FILE,
+    process.env.SPOTIFY_CONFIG_FILE,
+    // OAuth 客户端密钥（clientKey / clientSecret）同样是凭证，之前整条漏掉了。
+    // The OAuth client key/secret file is a credential too — it used to be left out.
+    process.env.QISHUI_OAUTH_CONFIG_FILE,
+    // Spotify 的配置路径允许被 MINERADIO_SPOTIFY_CONFIG_FILE 覆盖；一旦覆盖，SPOTIFY_CONFIG_FILE
+    // 可能根本没被赋值（见 configureLocalServerEnvironment），所以两条路都要纳入。
+    // The Spotify config path may be overridden, in which case SPOTIFY_CONFIG_FILE is never set.
+    process.env.MINERADIO_SPOTIFY_CONFIG_FILE,
+  ].filter(Boolean))];
+}
+
+// 启动阶段解锁主密钥。Electron 45 起 safeStorage 的同步 API 已弃用，官方要求走
+// isAsyncEncryptionAvailable / encryptStringAsync / decryptStringAsync；主密钥在这里一次性
+// 异步解开并缓存，往后同步的加解密只读内存，不再碰 DPAPI。
+// Unlock the master key once at startup: the sync safeStorage API is deprecated as of
+// Electron 45, so the DPAPI calls happen here and the synchronous crypto path only reads
+// the cached key afterwards.
+async function unlockCredentialCrypto() {
+  if (!safeStorage) return false;
+  const credentialCrypto = require('./credential-crypto');
+  credentialCrypto.installSafeStorage(safeStorage);
+  const keyPaths = [...new Set(credentialFilePaths().map((file) => credentialCrypto.defaultKeyPathFor(file)))];
+  let ready = false;
+  for (const keyPath of keyPaths) {
+    try {
+      if (await credentialCrypto.prepareMasterKeyAsync(safeStorage, keyPath)) ready = true;
+    } catch (error) {
+      console.warn('[CredentialCrypto] unlock failed for', keyPath, ':', error.message);
+    }
+  }
+  return ready;
+}
+
+// 把现有明文凭证文件原地加密。必须在 require('server/server.js') 之前调用，
+// 因为 server 启动时会立刻读这些文件——读到密文就会走解密分支。
+// 注意：主密钥也落在这个目录里（.credential-key），但它本身被 safeStorage(DPAPI) 加密。
+// Encrypt existing plaintext credential files in place. Must run before require('server.js'),
+// since the server reads these files on startup — encrypted content goes through decrypt path.
+// The master key also lives in this dir (.credential-key) but is itself safeStorage(DPAPI)-encrypted.
+function migratePlainCredentialsToEncrypted() {
+  if (!safeStorage) return;
+  const credentialCrypto = require('./credential-crypto');
+  if (!credentialCrypto.hasSafeStorage()) {
+    // 系统凭据库不可用（非 Electron 运行时 / 测试环境）→ credential-crypto 自动降级明文，无需迁移。
+    return;
+  }
+  let migrated = 0;
+  for (const file of credentialFilePaths()) {
+    try {
+      if (credentialCrypto.encryptFileInPlace(file)) migrated += 1;
+    } catch (e) {
+      console.warn('[CredentialMigration] failed for', file, ':', e.message);
+    }
+  }
+  if (migrated > 0) {
+    console.log('[CredentialMigration] encrypted', migrated, 'plaintext credential file(s) in place.');
+  }
+}
+
 async function ensureLocalServerStarted() {
   if (localServer && localServer.listening) return localServer;
   if (localServerStartPromise) return localServerStartPromise;
@@ -6338,6 +6441,11 @@ async function ensureLocalServerStarted() {
     configureLocalAppPermissions();
     configureLocalServerEnvironment(port);
     migrateLegacyAuthStorage();
+    // 先异步解锁主密钥（Electron 45 起同步 safeStorage 已弃用），再做明文就地加密。
+    // Unlock the master key asynchronously first (sync safeStorage is deprecated in
+    // Electron 45), then encrypt any remaining plaintext credentials in place.
+    await unlockCredentialCrypto();
+    migratePlainCredentialsToEncrypted();
     await initializeLoginEasterEggGate();
 
     const serverModulePath = path.join(__dirname, '..', 'server', 'server.js');

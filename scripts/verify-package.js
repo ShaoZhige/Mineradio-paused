@@ -51,7 +51,10 @@ if (!fs.existsSync(distDir)) {
   const dangerous = [
     '.cookie', '.qq-cookie', '.kugou-cookie', '.qishui-cookie', '.qishui-token',
     '.qishui-oauth.json', '.qishui-qr-identity.json', '.qishui-qr-login.json',
-    '.spotify-credentials.json', '.env',
+    '.spotify-credentials.json', '.spotify-token.json',
+    // 主密钥：本身被 DPAPI 加密，但和密文一起被拷走就等于把整套凭证一起交出去。
+    // The DPAPI-wrapped master key ships next to the ciphertext, so it must not leak either.
+    '.credential-key', '.env',
   ];
   for (const bad of dangerous) {
     if (allFiles.some(f => f.endsWith(bad) || f.includes(bad))) {
