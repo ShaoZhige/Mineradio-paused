@@ -131,3 +131,9 @@ userdata/
 # Local workspace data: throwaway probes, verification logs, screenshots and temp archives land in
 # .workbuddy/ — machine-specific, never committable. The directory itself must not be deleted.
 .workbuddy/
+
+# ⚠️ 交接文档只服务本机会话：含绝对路径、环境修复记录与逐轮决策，不进版本库。
+#    要长期留给仓库的说明写进 docs/LX_CUSTOM_SOURCE.md / THIRD_PARTY_PORTS.md 这类正式文档。
+# Handover notes are local-session material (absolute paths, machine fixes, per-round decisions);
+# they stay out of the repo. Anything worth sharing belongs in the proper docs/ files.
+docs/HANDOFF*.md
