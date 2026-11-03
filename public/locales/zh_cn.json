@@ -607,6 +607,7 @@
   "fx_apply": "应用",
   "fx_undo_to_here": "撤销至此项前",
   "fx_undo": "撤销",
+  "fx_history_label": "历史",
   "fx_history_hint": "调整设置后会在这里留下可回退记录",
   "fx_recent_ops_html": "<strong>最近操作</strong><small>当前会话 · 最多 40 条</small>",
   "fx_undo_failed": "回退失败，请重试",

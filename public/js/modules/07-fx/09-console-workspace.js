@@ -524,8 +524,81 @@ function fxConsoleMakeToolbar(panel) {
     btn.textContent = meta.label;
     tabs.appendChild(btn);
   });
+  // —— 撤销 / 历史入口 ——
+  // 撤销栈（fxConsoleHistory）、40 条上限、650ms 合并窗口、「撤销至此项前」这些语义一直都在，
+  // 只是工具栏曾被整体删掉，这两个按钮跟着没人创建 —— 于是撤销默认 disabled、历史浮层永远空着，
+  // 等于把已经写好的能力锁死。这里只把入口补回来，历史语义一行没动。
+  // 摆放顺序：历史在左、撤销靠右（撤销是主操作，贴着面板右缘更好点）。
+  // Undo/history entry points. The stack, the 40-entry cap, the 650ms merge window and
+  // "undo up to here" were always there; the toolbar removal is what left undo disabled and
+  // the history popover empty. Only the entry points come back — the history semantics are
+  // untouched. History sits left, undo hugs the right edge as the primary action.
+  var actions = document.createElement('div');
+  actions.className = 'fx-console-toolbar-actions';
+
+  var historyToggle = document.createElement('button');
+  historyToggle.type = 'button';
+  historyToggle.id = 'fx-console-history-toggle';
+  historyToggle.className = 'fx-console-tool-btn';
+  historyToggle.textContent = consoleWorkspaceText('fx_history_label', '历史');
+  historyToggle.setAttribute('aria-controls', 'fx-console-history');
+  historyToggle.setAttribute('aria-expanded', 'false');
+
+  var undoButton = document.createElement('button');
+  undoButton.type = 'button';
+  undoButton.id = 'fx-console-undo';
+  undoButton.className = 'fx-console-tool-btn';
+  undoButton.textContent = consoleWorkspaceText('fx_undo', '撤销');
+  undoButton.disabled = true;
+  undoButton.addEventListener('click', function () { undoFxConsoleHistory(); });
+
+  var historyPopover = document.createElement('div');
+  historyPopover.id = 'fx-console-history';
+  // fx-console-history-popover 是上游 2.1.0/2.2.0 原样的类名，留着自己以后做区分用。
+  historyPopover.className = 'fx-console-popover fx-console-history-popover';
+  historyPopover.hidden = true;
+
+  historyToggle.addEventListener('click', function () {
+    setFxConsoleHistoryOpen(historyPopover.hidden);
+  });
+
+  actions.appendChild(historyToggle);
+  actions.appendChild(undoButton);
+  // 浮层挂在 actions 里，absolute 相对这一行定位（.fx-console-toolbar 是 sticky，
+  // 但那一层还带 padding，贴着 actions 定位更稳）。
+  actions.appendChild(historyPopover);
+  toolbar.appendChild(actions);
   panel.appendChild(toolbar);
+  // 首次渲染一次：把撤销按钮置为 disabled、历史浮层填上空态文案。
+  renderFxConsoleHistory();
   return toolbar;
+}
+
+// 打开/关闭历史浮层。第一次打开时才挂 document 上的「点外面关掉」与 Escape 监听，
+// 避免面板全程常驻两个全局监听（这个控制台是重型面板，能少一个是一个）。
+// Toggle the history popover. The outside-click and Escape listeners are attached on first
+// open only, so a closed console carries no global listeners at all.
+var fxConsoleHistoryDismissBound = false;
+
+function setFxConsoleHistoryOpen(open) {
+  var popover = document.getElementById('fx-console-history');
+  var toggle = document.getElementById('fx-console-history-toggle');
+  if (!popover) return;
+  var next = !!open;
+  popover.hidden = !next;
+  if (toggle) toggle.setAttribute('aria-expanded', next ? 'true' : 'false');
+  if (!next) return;
+  renderFxConsoleHistory();
+  if (fxConsoleHistoryDismissBound) return;
+  fxConsoleHistoryDismissBound = true;
+  document.addEventListener('click', function (event) {
+    var bar = document.getElementById('fx-console-toolbar');
+    if (bar && event.target && bar.contains(event.target)) return;
+    setFxConsoleHistoryOpen(false);
+  }, true);
+  document.addEventListener('keydown', function (event) {
+    if (event && event.key === 'Escape') setFxConsoleHistoryOpen(false);
+  });
 }
 
 function fxConsoleMakeGroup(page, tabMeta, groupMeta) {

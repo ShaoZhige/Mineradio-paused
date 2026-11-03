@@ -394,13 +394,22 @@ test('a panel built from i18n text repaints when the dictionary becomes ready', 
   );
 });
 
-test('the visual console no longer ships the search / undo / history toolbar', () => {
-  // 工具栏（搜索框 / 撤销 / 历史）已整体移除：撤销默认 disabled、历史浮层长期为空，
-  // 搜索框几乎不用，却要各自维护浮层与事件绑定，还每次重贴都得跟着重建。
-  // 面板现在从分类标签页开始。
-  // The toolbar is gone: undo shipped disabled, the history popover stayed empty, the
-  // search box barely got used — yet each needed its own popover, event bindings and a
-  // rebuild on every repaint. The panel now starts at the category tabs.
+test('the visual console ships undo / history but not the search box', () => {
+  // 上游 v2.1.0 / v2.2.0 的 fxConsoleMakeToolbar 一直带三个节点（撤销按钮、历史开关、
+  // 历史浮层）—— 本仓库是从 2.2.0 分叉的，也就是说是自家祖传代码，不是外来功能。
+  // 本仓库把整条工具栏删掉了，当时的理由写在这条用例的旧版本里：「撤销默认 disabled、
+  // 历史浮层长期为空」。那是症状：真正的根因是 initFxConsoleSearchAndHistory() 的早退条件里
+  // 还带着被删掉的搜索框，条件永不成立，下面所有事务监听一起被跳过，滑块拖拽不再产生快照，
+  // 历史自然永远是空的。
+  // 现在按上游恢复：搜索框不回来（它确实没人用，还拖着浮层与事件绑定），撤销与历史回到 2.2.0 的样子。
+  // Upstream v2.1.0 / v2.2.0 always shipped the undo button, the history toggle and the history
+  // popover; this repo forked from 2.2.0, so that is our own inherited code, not a foreign
+  // feature. It was removed here on the grounds that "undo shipped disabled and the history
+  // popover stayed empty" — a symptom. The cause was the early-return guard in
+  // initFxConsoleSearchAndHistory() still naming the deleted search box: it never passed, every
+  // transaction listener below was skipped, and no snapshot was ever captured.
+  // Restored to upstream parity: the search box stays gone (genuinely unused, and it dragged its
+  // own popover and bindings along), while undo and history come back.
   const rel = 'js/modules/07-fx/09-console-workspace.js';
   const src = fs.readFileSync(path.join(ROOT, 'public', rel), 'utf8');
   const buildStart = src.indexOf('function fxConsoleMakeToolbar(');
@@ -408,25 +417,27 @@ test('the visual console no longer ships the search / undo / history toolbar', (
   const buildEnd = src.indexOf('\nfunction ', buildStart + 10);
   const build = src.slice(buildStart, buildEnd < 0 ? src.length : buildEnd);
 
-  // 工具栏的 innerHTML 只能拼分类标签页，不能再有搜索/撤销/历史。
-  for (const gone of ['fx_search_input_html', 'fx_undo_btn_html', 'fx_history_btn_html',
-    'fx-console-search-row', 'fx-console-search-results', 'fx-console-history']) {
+  // 搜索框确实没人用，保持移除状态。
+  for (const gone of ['fx_search_input_html', 'fx-console-search-row', 'fx-console-search-results']) {
     assert.ok(
       build.indexOf(gone) < 0,
-      `fxConsoleMakeToolbar() 里又出现了 ${gone}，工具栏不该被恢复`
+      `fxConsoleMakeToolbar() 里又出现了 ${gone}，搜索框不该被恢复`
     );
+  }
+  // 撤销与历史的入口必须在，否则已经写好的撤销栈等于被锁死。
+  for (const needed of ['fx-console-undo', 'fx-console-history-toggle', 'fx-console-history']) {
+    assert.ok(build.indexOf(needed) >= 0, `fxConsoleMakeToolbar() 缺少 ${needed}`);
   }
   // 仍必须保留分类标签页，否则整个面板没有入口。
   assert.ok(build.includes('fx_panel_tabs_html'), '工具栏移除后必须保留分类标签页');
 
   // 关键：滑块拖拽事务的绑定不能因为搜索框消失而早退。
   // 这才是真正要防的回归 —— 早退条件里带着已删除的搜索框，会把下面所有事务监听
-  // 一起跳过，拖动滑块将不再产生快照。closeFxConsolePopovers() 里那些
-  // getElementById('fx-console-search') 只是判空取值（元素没了返回 null），无害，不在此列。
+  // 一起跳过，拖动滑块将不再产生快照，撤销就会重新变回永久 disabled。
   // The regression that matters is the early-return guard: a guard that still required the
-  // removed search box would skip every transaction listener below. The
-  // getElementById('fx-console-search') reads inside closeFxConsolePopovers are harmless
-  // null-guarded lookups, so they are deliberately not policed here.
+  // removed search box would skip every transaction listener below and leave undo disabled
+  // again. The getElementById('fx-console-search') reads inside closeFxConsolePopovers are
+  // harmless null-guarded lookups, so they are deliberately not policed here.
   assert.ok(
     /function initFxConsoleSearchAndHistory\(\)\s*\{\s*var panel = document\.getElementById\('fx-panel'\);\s*\n\s*if \(!panel \|\| panel\._fxConsoleSearchHistoryBound\) return;/.test(src),
     'initFxConsoleSearchAndHistory 的早退守卫必须只判 panel；'

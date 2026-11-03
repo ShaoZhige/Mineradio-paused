@@ -17085,6 +17085,39 @@ body.panel-reordering .mini-queue-item.is-reordering {
   filter: invert(1)
 }
 
+.fx-console-toolbar-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 5px 2px 0;
+  padding: 0 2px
+}
+
+/* 撤销是主操作，靠右贴边 */
+.fx-console-toolbar-actions #fx-console-undo {
+  margin-left: auto
+}
+
+.fx-console-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  max-height: min(46vh, 340px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 12px;
+  background: rgba(7, 9, 13, .96);
+  box-shadow: 0 22px 58px rgba(0, 0, 0, .52), inset 0 1px 0 rgba(255, 255, 255, .07);
+  /* 模糊跟着性能档位走，别写死像素 —— 和 .fx-console-toolbar 那一套保持一致 */
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12)
+}
+
 .fx-console-tool-btn {
   display: inline-flex;
   align-items: center;

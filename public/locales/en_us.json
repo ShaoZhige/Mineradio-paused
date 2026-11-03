@@ -607,6 +607,7 @@
   "fx_apply": "Apply",
   "fx_undo_to_here": "Undo up to here",
   "fx_undo": "Undo",
+  "fx_history_label": "History",
   "fx_history_hint": "Changes are logged here so you can roll them back",
   "fx_recent_ops_html": "<strong>Recent operations</strong><small>This session · up to 40 entries</small>",
   "fx_undo_failed": "Rollback failed, please retry",

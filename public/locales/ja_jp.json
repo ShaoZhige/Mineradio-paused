@@ -607,6 +607,7 @@
   "fx_apply": "適用",
   "fx_undo_to_here": "ここまで戻す",
   "fx_undo": "元に戻す",
+  "fx_history_label": "履歴",
   "fx_history_hint": "変更するとここに履歴が残り、元に戻せます",
   "fx_recent_ops_html": "<strong>最近の操作</strong><small>このセッション · 最大 40 件</small>",
   "fx_undo_failed": "元に戻せませんでした。再試行してください",
