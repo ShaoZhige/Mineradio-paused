@@ -71,6 +71,18 @@ function supportedLangs() {
     : [];
 }
 
+// 各语言的自称（简体中文 / 繁體中文（台灣）…），顺序与 SUPPORTED_LANGS 一致。
+// 安装器首屏的下拉列表必须和它逐项对齐 —— 两边各写一份清单迟早会漏掉新语言。
+// The endonyms, ordered like SUPPORTED_LANGS. The installer's first-page dropdown has to match
+// this list item for item; two hand-kept lists always drift once a language is added.
+function langLabels() {
+  const source = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '13-i18n.js'), 'utf8');
+  const line = (source.match(/var LANG_LABELS = \{([^}]*)\};/) || [])[1] || '';
+  const labels = {};
+  for (const hit of line.matchAll(/'?([a-z]{2}_[a-z]{2})'?\s*:\s*'([^']*)'/g)) labels[hit[1]] = hit[2];
+  return supportedLangs().map((code) => labels[code]).filter(Boolean);
+}
+
 // 校验若干 i18n 键在每一种已接入语言的词典里都存在且非空。
 // Guards that a UI string is present must look it up through the dictionaries
 // rather than grepping hardcoded Chinese out of JS: once a string is wired to
@@ -4056,9 +4068,23 @@ function checkInstallerPackagingGuard() {
     fail('installer must not fall back to four inline language radios — they do not open into a list');
   }
   const langEntries = [...installerCode.matchAll(/CB_ADDSTRING\} 0 "STR:([^"]+)"/g)].map((m) => m[1]);
-  if (langEntries.join('|') !== '中文|English|日本語|Русский') {
-    fail(`installer language dropdown must list the four endonyms in order, got: ${langEntries.join('|') || '(none)'}`);
+  const expectedLangEntries = langLabels();
+  if (!expectedLangEntries.length) {
+    fail('could not derive the language endonyms from 13-i18n.js LANG_LABELS');
   }
+  if (langEntries.join('|') !== expectedLangEntries.join('|')) {
+    fail(
+      'installer language dropdown must list every wired language in app-menu order: expected '
+      + expectedLangEntries.join('|') + ', got ' + (langEntries.join('|') || '(none)')
+    );
+  }
+  // 每一行都要能被预选，索引与上面的顺序绑定；少一行就意味着 /APP_LANG= 落不到它上面。
+  // Every row must be preselectable and the index mapping must cover all of them.
+  langEntries.forEach((label, index) => {
+    if (!new RegExp('CB_SETCURSEL\\} ' + index + ' 0').test(installerCode)) {
+      fail(`installer cannot preselect dropdown row ${index} (${label})`);
+    }
+  });
   if (!/\$\{CB_GETCURSEL\} 0 0[\s\S]{0,80}?Pop \$0/.test(installerCode)) {
     fail('installer must read the dropdown selection back on page leave (arrow keys change it too)');
   }

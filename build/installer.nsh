@@ -79,10 +79,12 @@
 !define MINERADIO_BODY_Y 66
 !define MINERADIO_LANG_CAPTION_Y 88
 !define MINERADIO_LANG_ROW_Y 100
-; 展开高度按「四项各一行」给足，系统会吸附到整数项高度，不会留半行。
-; Enough height for four rows; Windows snaps it to a whole number of items.
+; 展开高度按「七项各一行」给足，系统会吸附到整数项高度，不会留半行。
+; 原先四项给 62 单位，按同一比例七项约 108。
+; Enough height for seven rows; Windows snaps it to a whole number of items. Four rows used
+; 62 units, so seven lands at roughly 108.
 !ifndef MINERADIO_LANG_DROP_HEIGHT
-  !define MINERADIO_LANG_DROP_HEIGHT 62
+  !define MINERADIO_LANG_DROP_HEIGHT 108
 !endif
 ; 欢迎页正文只占一行：安装位置下一步就能改，第一页没必要塞满话。
 !ifndef MINERADIO_INSTALL_BODY
@@ -810,7 +812,11 @@ Function MineradioResolveLanguage
   ClearErrors
   ${GetOptions} $R0 "/APP_LANG=" $R1
   ${IfNot} ${Errors}
-    ${If} $R1 == "en_us"
+    ${If} $R1 == "zh_cn"
+    ${OrIf} $R1 == "zh_tw"
+    ${OrIf} $R1 == "zh_hk"
+    ${OrIf} $R1 == "en_us"
+    ${OrIf} $R1 == "es_es"
     ${OrIf} $R1 == "ja_jp"
     ${OrIf} $R1 == "ru_ru"
       StrCpy $MineradioLanguage "$R1"
@@ -861,10 +867,12 @@ Function MineradioWelcomeShow
   SendMessage $0 ${WM_SETFONT} $MineradioTitleFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ; 点开式下拉列表，不是一行铺四个单选：平时只占一行，点箭头才展开可选的语言。
-  ; 每一项用各自的自称（中文 / English / 日本語 / Русский），任何语言的用户都能认出自己那一项。
-  ; A collapsed dropdown instead of four inline radios: it takes one row until the arrow is
-  ; clicked, then opens the list. Each entry keeps its endonym so anyone recognises their own.
+  ; 点开式下拉列表，不是一行铺七个单选：平时只占一行，点箭头才展开可选的语言。
+  ; 顺序与应用内语言菜单一致（简繁两种繁体分列、西语在英语后面），每一项用各自的自称，
+  ; 任何语言的用户都能认出自己那一项。
+  ; A collapsed dropdown instead of seven inline radios: it takes one row until the arrow is
+  ; clicked. The order mirrors the in-app language menu, and each entry keeps its own endonym
+  ; so anyone recognises their own.
   nsDialogs::CreateControl "COMBOBOX" \
       "${DEFAULT_STYLES}|${WS_VSCROLL}|${CBS_DROPDOWNLIST}" \
       0 22u ${MINERADIO_LANG_ROW_Y}u 120u ${MINERADIO_LANG_DROP_HEIGHT}u ""
@@ -873,17 +881,26 @@ Function MineradioWelcomeShow
     Abort
   ${EndIf}
   SendMessage $MineradioLangCombo ${WM_SETFONT} $MineradioBodyFont 1
-  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:中文"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:简体中文"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:繁體中文（台灣）"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:繁體中文（香港）"
   SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:English"
+  SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:Español"
   SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:日本語"
   SendMessage $MineradioLangCombo ${CB_ADDSTRING} 0 "STR:Русский"
 
-  ${If} $MineradioLanguage == "en_us"
+  ${If} $MineradioLanguage == "zh_tw"
     SendMessage $MineradioLangCombo ${CB_SETCURSEL} 1 0
-  ${ElseIf} $MineradioLanguage == "ja_jp"
+  ${ElseIf} $MineradioLanguage == "zh_hk"
     SendMessage $MineradioLangCombo ${CB_SETCURSEL} 2 0
-  ${ElseIf} $MineradioLanguage == "ru_ru"
+  ${ElseIf} $MineradioLanguage == "en_us"
     SendMessage $MineradioLangCombo ${CB_SETCURSEL} 3 0
+  ${ElseIf} $MineradioLanguage == "es_es"
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 4 0
+  ${ElseIf} $MineradioLanguage == "ja_jp"
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 5 0
+  ${ElseIf} $MineradioLanguage == "ru_ru"
+    SendMessage $MineradioLangCombo ${CB_SETCURSEL} 6 0
   ${Else}
     SendMessage $MineradioLangCombo ${CB_SETCURSEL} 0 0
   ${EndIf}
@@ -898,14 +915,20 @@ Function MineradioWelcomeLeave
   SendMessage $MineradioLangCombo ${CB_GETCURSEL} 0 0
   Pop $0
   ${If} $0 == 1
-    StrCpy $MineradioLanguage "en_us"
+    StrCpy $MineradioLanguage "zh_tw"
   ${ElseIf} $0 == 2
-    StrCpy $MineradioLanguage "ja_jp"
+    StrCpy $MineradioLanguage "zh_hk"
   ${ElseIf} $0 == 3
+    StrCpy $MineradioLanguage "en_us"
+  ${ElseIf} $0 == 4
+    StrCpy $MineradioLanguage "es_es"
+  ${ElseIf} $0 == 5
+    StrCpy $MineradioLanguage "ja_jp"
+  ${ElseIf} $0 == 6
     StrCpy $MineradioLanguage "ru_ru"
   ${Else}
-    ; 0 是中文，-1（没选中）也落回中文，不会把空值写进标记文件。
-    ; 0 is Chinese; -1 (nothing selected) also falls back to it, so no empty code is written.
+    ; 0 是简体中文，-1（没选中）也落回简体中文，不会把空值写进标记文件。
+    ; 0 is Simplified Chinese; -1 (nothing selected) also falls back to it, so no empty code is written.
     StrCpy $MineradioLanguage "zh_cn"
   ${EndIf}
 FunctionEnd

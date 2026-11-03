@@ -4433,7 +4433,7 @@ function closeOverlayWindows(reason = 'overlay-close') {
 // dictionary file. Inside a package that path lives in the asar archive, which fs reads
 // like any other file — the same path.join(__dirname, '..') idiom the codebase already uses.
 const LOCALES_DIR = path.join(__dirname, '..', 'public', 'locales');
-const SUPPORTED_LOCALES = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
+const SUPPORTED_LOCALES = ['zh_cn', 'zh_tw', 'zh_hk', 'en_us', 'es_es', 'ja_jp', 'ru_ru'];
 const FALLBACK_LOCALE = 'zh_cn';
 let desktopLocale = FALLBACK_LOCALE;
 const desktopLocaleCache = new Map();
@@ -4442,7 +4442,14 @@ function normalizeDesktopLocale(value) {
   const raw = String(value || '').trim();
   if (SUPPORTED_LOCALES.includes(raw)) return raw;
   const base = raw.toLowerCase().split(/[-_]/)[0];
-  if (base === 'zh') return 'zh_cn';
+  if (base === 'zh') {
+    // 中文按地区分流，和渲染端 normalizeLang 保持一致：zh-TW / zh-Hant → 台灣，zh-HK / zh-MO → 香港。
+    // Chinese splits by region exactly like normalizeLang in the renderer.
+    const region = raw.toLowerCase().replace(/_/g, '-').split('-')[1] || '';
+    if (region === 'tw' || region === 'hant') return 'zh_tw';
+    if (region === 'hk' || region === 'mo') return 'zh_hk';
+    return 'zh_cn';
+  }
   const hit = SUPPORTED_LOCALES.find((code) => code.toLowerCase().split(/[-_]/)[0] === base);
   return hit || FALLBACK_LOCALE;
 }

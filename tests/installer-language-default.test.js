@@ -52,40 +52,40 @@ test('installer welcome page offers the four supported languages in an openable 
     'the four inline radios must be gone — they do not open into a list'
   );
 
-  // 四项保持各自的自称，顺序必须与 CB_SETCURSEL / CB_GETCURSEL 的索引一一对应。
-  // Each entry keeps its endonym, and the order has to match the index mapping both ways.
-  const options = ['中文', 'English', '日本語', 'Русский'];
+  // 每一项保持各自的自称，顺序必须与 CB_SETCURSEL / CB_GETCURSEL 的索引一一对应。
+  // 期望值从 i18n 的 LANG_LABELS 推导：两边各写一份清单，加语言时一定会漏掉一边。
+  // Each entry keeps its endonym and the order has to match the index mapping both ways.
+  // The expectation is derived from LANG_LABELS: two hand-kept lists always drift apart.
+  const labelLine = (i18nText.match(/var LANG_LABELS = \{([^}]*)\};/) || [])[1] || '';
+  const labels = {};
+  for (const hit of labelLine.matchAll(/'?([a-z]{2}_[a-z]{2})'?\s*:\s*'([^']*)'/g)) labels[hit[1]] = hit[2];
+  const langOrder = (i18nText.match(/var SUPPORTED_LANGS = \[([^\]]*)\]/) || [])[1]
+    .split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  const options = langOrder.map((code) => labels[code]);
   const added = [...installerCode.matchAll(/CB_ADDSTRING\} 0 "STR:([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(added, options, 'the dropdown must list exactly these four endonyms, in order');
+  assert.deepEqual(added, options, 'the dropdown must list every wired language endonym, in app-menu order');
 
-  // 四行都要能被预选（/APP_LANG= 或默认值落到哪一行）；索引与上面的四项顺序绑定。
+  // 每一行都要能被预选（/APP_LANG= 或默认值落到哪一行）；索引与上面的顺序绑定。
   // Every row must be preselectable (/APP_LANG= or the default lands on one of them).
-  for (const index of [0, 1, 2, 3]) {
+  for (let index = 0; index < options.length; index++) {
     assert.match(
       installerCode,
       new RegExp(`CB_SETCURSEL\\} ${index} 0`),
       `the dropdown must be able to preselect row ${index}`
     );
   }
-  assert.match(
-    installerCode,
-    new RegExp(`\\$\\{If\\} \\$0 == 1[\\s\\S]{0,120}?StrCpy \\$MineradioLanguage "en_us"`),
-    'index 1 must map onto en_us'
-  );
-  assert.match(
-    installerCode,
-    new RegExp(`\\$\\{ElseIf\\} \\$0 == 2[\\s\\S]{0,120}?StrCpy \\$MineradioLanguage "ja_jp"`),
-    'index 2 must map onto ja_jp'
-  );
-  assert.match(
-    installerCode,
-    new RegExp(`\\$\\{ElseIf\\} \\$0 == 3[\\s\\S]{0,120}?StrCpy \\$MineradioLanguage "ru_ru"`),
-    'index 3 must map onto ru_ru'
-  );
-  assert.match(
-    installerCode,
-    new RegExp(`StrCpy \\$MineradioLanguage "zh_cn"`),
-    'index 0 must map onto zh_cn'
+
+  // 离开页面时按索引把语言码写回去，索引顺序必须与标签顺序完全一致。
+  // 第一项（简体中文）落在 ${Else} 兜底分支里，所以它写在最后。
+  // The leave handler maps the index back to a language code in the same order; the first
+  // entry (Simplified Chinese) lives in the ${Else} fallback, so it is written last.
+  const leave = installerCode.slice(installerCode.indexOf('Function MineradioWelcomeLeave'));
+  const leaveBody = leave.slice(0, leave.indexOf('FunctionEnd'));
+  const written = [...leaveBody.matchAll(/StrCpy \$MineradioLanguage "([a-z]{2}_[a-z]{2})"/g)].map((m) => m[1]);
+  assert.deepEqual(
+    written,
+    langOrder.slice(1).concat(langOrder[0]),
+    'the leave handler must map rows onto language codes in order, default last'
   );
 
   // 键盘上下键也能换选项，不经过点击回调，所以离开页面时必须读回当前选中项。
@@ -139,18 +139,32 @@ function loadTakeInstallerLanguage(stableDir, portableDir) {
   assert.notEqual(fnStart, -1);
   const fnEnd = mainText.indexOf('\n}', fnStart) + 2;
   const source = mainText.slice(start, fnEnd);
+  // 语言清单从 main.js 里解析，别在这份测试里再抄一遍：抄的那份会先过期。
+  // Parse the locale list out of main.js instead of copying it here; the copy is what goes stale.
+  const locales = (mainText.match(/const SUPPORTED_LOCALES = \[([^\]]*)\]/) || [])[1]
+    .split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
   const sandbox = {
     fs: require('node:fs'),
     path: require('node:path'),
     STABLE_USER_DATA_PATH: stableDir,
     PORTABLE_USER_DATA_PATH: portableDir,
-    SUPPORTED_LOCALES: ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'],
+    SUPPORTED_LOCALES: locales,
   };
   return require('node:vm').runInNewContext(`${source}\ntakeInstallerLanguage;`, sandbox);
 }
 
-test('the marker is consumed exactly once, whatever the app data root is', () => {
-  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mineradio-installer-lang-'));
+test('main process locale list stays in sync with the renderer', () => {
+  // 主进程这份清单决定安装器写的语言码会不会被接受；两边不一致时，新语言会在首启被静默丢回中文。
+  // This list decides whether the installer's code is accepted at all; when it drifts, a newly
+  // added language is silently dropped on first launch.
+  const renderer = (i18nText.match(/var SUPPORTED_LANGS = \[([^\]]*)\]/) || [])[1]
+    .split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  const main = (mainText.match(/const SUPPORTED_LOCALES = \[([^\]]*)\]/) || [])[1]
+    .split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  assert.deepEqual(main, renderer, 'main.js SUPPORTED_LOCALES must match the renderer language list');
+});
+
+test('the marker is consumed exactly once, whatever the app data root is', () => {  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mineradio-installer-lang-'));
   try {
     const userdata = path.join(root, 'userdata');
     fs.mkdirSync(userdata, { recursive: true });

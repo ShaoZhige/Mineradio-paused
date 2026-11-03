@@ -104,11 +104,18 @@ test('缺键退回兜底而不是把键名显示给用户', () => {
   assert.strictEqual(sandbox.desktopText('no_such_key_at_all', '兜底文案'), '兜底文案');
 });
 
-test('语言归一化：区域码取基语言，未知语言退回中文', () => {
+test('语言归一化：中文按地区分流，其它语言取基语言，未知语言退回中文', () => {
   const sandbox = mainSandbox({ desktopLocale: 'zh_cn' });
+  // 裸 zh 与无法识别的区域仍然落回简体；TW / HK / Hant / MO 各自落到对应繁体。
+  // Bare zh and unknown regions stay simplified; TW / HK / Hant / MO land on their own variant.
   assert.strictEqual(sandbox.normalizeDesktopLocale('zh'), 'zh_cn');
-  assert.strictEqual(sandbox.normalizeDesktopLocale('zh-TW'), 'zh_cn');
+  assert.strictEqual(sandbox.normalizeDesktopLocale('zh-CN'), 'zh_cn');
+  assert.strictEqual(sandbox.normalizeDesktopLocale('zh-TW'), 'zh_tw');
+  assert.strictEqual(sandbox.normalizeDesktopLocale('zh-Hant'), 'zh_tw');
+  assert.strictEqual(sandbox.normalizeDesktopLocale('zh-HK'), 'zh_hk');
+  assert.strictEqual(sandbox.normalizeDesktopLocale('zh-MO'), 'zh_hk');
   assert.strictEqual(sandbox.normalizeDesktopLocale('en-US'), 'en_us');
+  assert.strictEqual(sandbox.normalizeDesktopLocale('es-ES'), 'es_es');
   assert.strictEqual(sandbox.normalizeDesktopLocale('ja-JP'), 'ja_jp');
   assert.strictEqual(sandbox.normalizeDesktopLocale('ru-RU'), 'ru_ru');
   assert.strictEqual(sandbox.normalizeDesktopLocale('xx'), 'zh_cn');
