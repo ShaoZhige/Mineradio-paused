@@ -60,6 +60,17 @@ test('浮层容器有定位样式（只留 -head 子规则会飘到文档流里�
   assert.match(CSS, /\.fx-console-toolbar-actions\s*\{[^}]*display:\s*flex/, '缺少工具栏操作区排版');
 });
 
+test('撤销 / 历史是面板顶栏，排在分类标签页上方', () => {
+  // 顺序反了就会退回「标签页在上、按钮挤在右侧」的老排版。
+  // A regression here silently restores the old "tabs on top, buttons squeezed right" layout.
+  const build = section('fxConsoleMakeToolbar');
+  assert.match(build, /toolbar\.insertBefore\(actions,\s*tabs\)/, '撤销 / 历史没有插到标签页前面');
+  assert.ok(!/toolbar\.appendChild\(actions\)/.test(build), '撤销 / 历史又挂到标签页后面去了');
+  // 间距靠操作区下边距撑开，标签页自己不再留上边距，否则顶栏会多出一条空隙。
+  assert.match(CSS, /\.fx-console-toolbar-actions\s*\{[^}]*margin:\s*0 2px 7px/, '操作区缺少下方间距');
+  assert.match(CSS, /\.fx-console-toolbar \.fx-panel-tabs\s*\{[^}]*margin:\s*0[;\s]/, '标签页仍在留上边距');
+});
+
 test('四种语言都有历史按钮文案', () => {
   for (const name of LOCALES) {
     const dict = readLocale(name);

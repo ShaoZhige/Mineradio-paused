@@ -567,7 +567,11 @@ function fxConsoleMakeToolbar(panel) {
   // 浮层挂在 actions 里，absolute 相对这一行定位（.fx-console-toolbar 是 sticky，
   // 但那一层还带 padding，贴着 actions 定位更稳）。
   actions.appendChild(historyPopover);
-  toolbar.appendChild(actions);
+  // 撤销 / 历史放在分类标签页**上方**，作为面板的顶栏：发丝级的分隔比塞在标签页右侧
+  // 更容易看见，也不会和多出来的第 7、8 个分类抢横向空间。
+  // Undo / history sit ABOVE the category tabs as the panel's top bar: they read as a
+  // header instead of competing with the tabs for horizontal room as categories grow.
+  toolbar.insertBefore(actions, tabs);
   panel.appendChild(toolbar);
   // 首次渲染一次：把撤销按钮置为 disabled、历史浮层填上空态文案。
   renderFxConsoleHistory();
