@@ -4733,6 +4733,123 @@ function loginEasterEggGateUnlocked() {
 // Injected by the Electron main process at startup; without it the custom source is inactive.
 let customSourceResolver = null;
 
+// ---------------------------------------------------------------------------
+// 歌词取数 / Lyric loading
+//
+// 两条上游线路各管一半信息：lyric_new 给 yrc（逐字）与主歌词，lyric（旧接口）常带翻译。
+// 早先是串行：先等 lyric_new，缺翻译再等 lyric —— 而「没有翻译」是最常见的情况，
+// 于是绝大多数歌曲都要白等两趟网络（实测单次 ~270ms，其中约一半是第二趟）。
+//
+// 现在两趟并发发出，再按「lyric_new 优先、lyric 补缺」合并，首屏歌词的等待变成 max(两趟)
+// 而不是 sum(两趟)。并发只在进程内做一次，同一首歌的重复/并发请求由短时缓存与 in-flight
+// 合流兜住，所以并没有把上游请求量翻倍——客户端本来就有持久缓存，同一首歌很少二次取。
+//
+// Two upstream routes carry different halves: lyric_new has yrc (word-level) plus main lines,
+// the legacy lyric route often carries translations. They used to run in series — and "no
+// translation" is the common case, so most songs paid two round trips (~270ms, about half of
+// it the second hop). Running them concurrently turns the wait into max(a, b) instead of
+// sum(a, b); a short cache plus in-flight coalescing keeps the extra request from multiplying.
+const LYRIC_RESPONSE_TTL_MS = 10 * 60 * 1000;
+const LYRIC_RESPONSE_CACHE_LIMIT = 200;
+const lyricResponseCache = new Map(); // id -> { at, payload }
+const lyricInflight = new Map(); // id -> Promise
+
+function lyricNodeText(body, key) {
+  return body && body[key] && typeof body[key].lyric === 'string' ? body[key].lyric : '';
+}
+
+function lyricBodyHasPrimary(body) {
+  return !!(lyricNodeText(body, 'lrc') || lyricNodeText(body, 'yrc'));
+}
+
+function lyricBodyHasTranslation(body) {
+  return !!(lyricNodeText(body, 'tlyric') || lyricNodeText(body, 'ytlrc'));
+}
+
+function mergeLyricBodies(primary, fallback) {
+  const merged = Object.assign({}, fallback || {}, primary || {});
+  ['lrc', 'tlyric', 'yrc', 'ytlrc', 'romalrc', 'yromalrc', 'klyric'].forEach((key) => {
+    if (!lyricNodeText(merged, key) && fallback && fallback[key]) merged[key] = fallback[key];
+  });
+  return merged;
+}
+
+function lyricPayloadFromBody(body, source) {
+  return {
+    lyric: (body.lrc && body.lrc.lyric) || '',
+    tlyric: (body.tlyric && body.tlyric.lyric) || '',
+    yrc: (body.yrc && body.yrc.lyric) || '',
+    ytlrc: (body.ytlrc && body.ytlrc.lyric) || '',
+    romalrc: (body.romalrc && body.romalrc.lyric) || '',
+    yromalrc: (body.yromalrc && body.yromalrc.lyric) || '',
+    source,
+  };
+}
+
+function readLyricResponseCache(id) {
+  const entry = lyricResponseCache.get(id);
+  if (!entry) return null;
+  if (Date.now() - entry.at > LYRIC_RESPONSE_TTL_MS) {
+    lyricResponseCache.delete(id);
+    return null;
+  }
+  return entry.payload;
+}
+
+function writeLyricResponseCache(id, payload, body) {
+  // 空结果不缓存：那多半是一时的上游抽风，留 10 分钟只会让用户一直看到「无歌词」。
+  if (!body || (!lyricBodyHasPrimary(body) && !lyricBodyHasTranslation(body))) return;
+  lyricResponseCache.set(id, { at: Date.now(), payload });
+  while (lyricResponseCache.size > LYRIC_RESPONSE_CACHE_LIMIT) {
+    const oldest = lyricResponseCache.keys().next();
+    if (oldest.done) break;
+    lyricResponseCache.delete(oldest.value);
+  }
+}
+
+async function loadNeteaseLyricBundle(id, cookie) {
+  const cached = readLyricResponseCache(id);
+  if (cached) return cached;
+  if (lyricInflight.has(id)) return lyricInflight.get(id);
+  const task = (async () => {
+    const [newResult, legacyResult] = await Promise.allSettled([
+      typeof lyric_new === 'function'
+        ? lyric_new({ id, cookie, timestamp: Date.now() })
+        : Promise.reject(new Error('lyric_new unavailable')),
+      lyric({ id, cookie, timestamp: Date.now() }),
+    ]);
+    let body = {};
+    let source = 'lyric';
+    if (newResult.status === 'fulfilled') {
+      body = (newResult.value && newResult.value.body) || {};
+      source = 'lyric_new';
+    } else {
+      console.warn('[LyricNew]', (newResult.reason && newResult.reason.message) || newResult.reason);
+    }
+    if (legacyResult.status === 'fulfilled') {
+      const legacyBody = (legacyResult.value && legacyResult.value.body) || {};
+      if (source === 'lyric_new') {
+        body = mergeLyricBodies(body, legacyBody);
+        source = 'lyric_new+lyric';
+      } else {
+        body = legacyBody;
+        source = 'lyric';
+      }
+    } else {
+      console.warn('[Lyric]', (legacyResult.reason && legacyResult.reason.message) || legacyResult.reason);
+    }
+    const payload = lyricPayloadFromBody(body, source);
+    writeLyricResponseCache(id, payload, body);
+    return payload;
+  })();
+  lyricInflight.set(id, task);
+  try {
+    return await task;
+  } finally {
+    lyricInflight.delete(id);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   refreshConfiguredCookieStores(false);
   const url = new URL(req.url, 'http://localhost:' + PORT);
@@ -6589,55 +6706,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---------- 歌词 ----------
-  function lyricNodeText(body, key) {
-    return body && body[key] && typeof body[key].lyric === 'string' ? body[key].lyric : '';
-  }
 
-  function lyricBodyHasPrimary(body) {
-    return !!(lyricNodeText(body, 'lrc') || lyricNodeText(body, 'yrc'));
-  }
 
-  function lyricBodyHasTranslation(body) {
-    return !!(lyricNodeText(body, 'tlyric') || lyricNodeText(body, 'ytlrc'));
-  }
+  // 取数实现已上移到模块作用域（缓存必须跨请求存活），见文件上方。
 
-  function mergeLyricBodies(primary, fallback) {
-    const merged = Object.assign({}, fallback || {}, primary || {});
-    ['lrc', 'tlyric', 'yrc', 'ytlrc', 'romalrc', 'yromalrc', 'klyric'].forEach((key) => {
-      if (!lyricNodeText(merged, key) && fallback && fallback[key]) merged[key] = fallback[key];
-    });
-    return merged;
-  }
 
   if (pn === '/api/lyric') {
     try {
       const id = url.searchParams.get('id');
       if (!id) { sendJSON(res, { error: 'Missing song id', lyric: '' }, 400); return; }
-      let body = {};
-      let source = 'lyric';
-      try {
-        if (typeof lyric_new === 'function') {
-          const nr = await lyric_new({ id, cookie: userCookie, timestamp: Date.now() });
-          body = nr.body || {};
-          source = 'lyric_new';
-        }
-      } catch (errNew) {
-        console.warn('[LyricNew]', errNew.message);
-      }
-      if (!lyricBodyHasPrimary(body) || !lyricBodyHasTranslation(body)) {
-        const r = await lyric({ id, cookie: userCookie, timestamp: Date.now() });
-        body = mergeLyricBodies(body, r.body || {});
-        source = source === 'lyric_new' ? 'lyric_new+lyric' : 'lyric';
-      }
-      sendJSON(res, {
-        lyric: (body.lrc && body.lrc.lyric) || '',
-        tlyric: (body.tlyric && body.tlyric.lyric) || '',
-        yrc: (body.yrc && body.yrc.lyric) || '',
-        ytlrc: (body.ytlrc && body.ytlrc.lyric) || '',
-        romalrc: (body.romalrc && body.romalrc.lyric) || '',
-        yromalrc: (body.yromalrc && body.yromalrc.lyric) || '',
-        source,
-      });
+      // 取数全部交给 loadNeteaseLyricBundle：两趟上游并发 + 短时缓存 + in-flight 合流。
+      // All upstream work lives in loadNeteaseLyricBundle: concurrent fetch, short cache,
+      // and in-flight coalescing.
+      sendJSON(res, await loadNeteaseLyricBundle(id, userCookie));
     } catch (err) {
       console.error('[Lyric]', err);
       sendJSON(res, { error: err.message, lyric: '' }, 500);
