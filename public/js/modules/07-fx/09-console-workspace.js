@@ -528,19 +528,37 @@ function fxConsoleMakeToolbar(panel) {
   // 撤销栈（fxConsoleHistory）、40 条上限、650ms 合并窗口、「撤销至此项前」这些语义一直都在，
   // 只是工具栏曾被整体删掉，这两个按钮跟着没人创建 —— 于是撤销默认 disabled、历史浮层永远空着，
   // 等于把已经写好的能力锁死。这里只把入口补回来，历史语义一行没动。
-  // 摆放顺序：历史在左、撤销靠右（撤销是主操作，贴着面板右缘更好点）。
   // Undo/history entry points. The stack, the 40-entry cap, the 650ms merge window and
   // "undo up to here" were always there; the toolbar removal is what left undo disabled and
   // the history popover empty. Only the entry points come back — the history semantics are
-  // untouched. History sits left, undo hugs the right edge as the primary action.
+  // untouched.
+  //
+  // 排版：顶栏左侧放面板标题（视觉控制台），右侧把两枚按钮**成组**靠右，中间用一条发丝线
+  // 与标签页分隔。早先是「历史贴左、撤销贴右」，中间空出一大片，看起来像没做完的占位。
+  // Layout: the panel title sits on the left, the two buttons stay grouped on the right, and a
+  // hairline separates the header from the tabs. The earlier split (history hard left, undo hard
+  // right) left a dead gap in the middle that read as an unfinished placeholder.
+  var head = document.createElement('div');
+  head.className = 'fx-console-head';
+
+  var headTitle = document.createElement('span');
+  headTitle.className = 'fx-console-head-title';
+  headTitle.textContent = consoleWorkspaceText('visual_console', '视觉控制台');
+  head.appendChild(headTitle);
+
   var actions = document.createElement('div');
   actions.className = 'fx-console-toolbar-actions';
+
+  // 图标 + 文字：纯文字在 10px 字号下认不出是「撤销」还是「重做」，纯图标又太隐晦。
+  // Icon plus label: at 10px a bare word is ambiguous, and an icon alone is too cryptic.
+  var ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H10"/></svg>';
+  var ICON_HISTORY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4.5V9h4.5"/><path d="M12 8v4.4l3 1.8"/></svg>';
 
   var historyToggle = document.createElement('button');
   historyToggle.type = 'button';
   historyToggle.id = 'fx-console-history-toggle';
   historyToggle.className = 'fx-console-tool-btn';
-  historyToggle.textContent = consoleWorkspaceText('fx_history_label', '历史');
+  historyToggle.innerHTML = ICON_HISTORY + '<span>' + consoleWorkspaceText('fx_history_label', '历史') + '</span>';
   historyToggle.setAttribute('aria-controls', 'fx-console-history');
   historyToggle.setAttribute('aria-expanded', 'false');
 
@@ -548,7 +566,7 @@ function fxConsoleMakeToolbar(panel) {
   undoButton.type = 'button';
   undoButton.id = 'fx-console-undo';
   undoButton.className = 'fx-console-tool-btn';
-  undoButton.textContent = consoleWorkspaceText('fx_undo', '撤销');
+  undoButton.innerHTML = ICON_UNDO + '<span>' + consoleWorkspaceText('fx_undo', '撤销') + '</span>';
   undoButton.disabled = true;
   undoButton.addEventListener('click', function () { undoFxConsoleHistory(); });
 
@@ -562,16 +580,22 @@ function fxConsoleMakeToolbar(panel) {
     setFxConsoleHistoryOpen(historyPopover.hidden);
   });
 
+  // 撤销是主操作，放在最右（贴着面板右缘），历史在它左边。
+  // Undo is the primary action, so it sits rightmost; history tucks in to its left.
   actions.appendChild(historyToggle);
   actions.appendChild(undoButton);
-  // 浮层挂在 actions 里，absolute 相对这一行定位（.fx-console-toolbar 是 sticky，
-  // 但那一层还带 padding，贴着 actions 定位更稳）。
-  actions.appendChild(historyPopover);
-  // 撤销 / 历史放在分类标签页**上方**，作为面板的顶栏：发丝级的分隔比塞在标签页右侧
-  // 更容易看见，也不会和多出来的第 7、8 个分类抢横向空间。
-  // Undo / history sit ABOVE the category tabs as the panel's top bar: they read as a
-  // header instead of competing with the tabs for horizontal room as categories grow.
-  toolbar.insertBefore(actions, tabs);
+  head.appendChild(actions);
+  // 浮层挂在**顶栏**而不是按钮组里：按钮组只有百来像素宽，挂进去浮层会被压成一条窄柱。
+  // 顶栏是 position:relative，浮层左右各 0 就能撑满面板宽度。
+  // The popover hangs off the HEADER, not the button group: the group is only ~100px wide and
+  // would squeeze the list into a narrow column. The header is position:relative, so a
+  // left/right:0 popover spans the panel width.
+  head.appendChild(historyPopover);
+  // 整个顶栏排在分类标签页**上方**：发丝级的分隔比塞在标签页右侧更容易看见，
+  // 也不会和多出来的第 7、8 个分类抢横向空间。
+  // The header sits ABOVE the category tabs: it reads as a panel header instead of competing
+  // with the tabs for horizontal room as categories grow.
+  toolbar.insertBefore(head, tabs);
   panel.appendChild(toolbar);
   // 首次渲染一次：把撤销按钮置为 disabled、历史浮层填上空态文案。
   renderFxConsoleHistory();

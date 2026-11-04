@@ -17085,19 +17085,54 @@ body.panel-reordering .mini-queue-item.is-reordering {
   filter: invert(1)
 }
 
-/* 撤销 / 历史是面板顶栏，排在分类标签页上面 */
-.fx-console-toolbar-actions {
+/* 顶栏：左侧面板标题、右侧成组的撤销 / 历史，底边一条发丝线把它和分类标签页分开。
+   早先是「历史贴左、撤销贴右」，中间空出一大片，看起来像没做完的占位。
+   Panel header: title on the left, the two buttons grouped on the right, a hairline under it.
+   The earlier split (history hard left, undo hard right) left a dead gap in the middle. */
+.fx-console-head {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 2px 7px;
-  padding: 0 2px
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 2px 8px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, .055)
 }
 
-/* 撤销是主操作，靠右贴边 */
-.fx-console-toolbar-actions #fx-console-undo {
-  margin-left: auto
+.fx-console-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font: 700 9.5px/1 var(--font-sans);
+  letter-spacing: .16em;
+  color: rgba(255, 255, 255, .34);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+/* 标题前的小圆点跟随界面高亮色，像面板的电源指示灯 */
+/* A tiny accent dot, so the title reads as part of the panel rather than stray label text */
+.fx-console-head-title::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(var(--fc-accent-rgb), .9);
+  box-shadow: 0 0 9px rgba(var(--fc-accent-rgb), .6)
+}
+
+.fx-console-toolbar-actions {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0
 }
 
 .fx-console-popover {
@@ -17119,27 +17154,41 @@ body.panel-reordering .mini-queue-item.is-reordering {
   -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12)
 }
 
+/* 幽灵按钮：默认只有图标和文字、没有边框和底色，悬停才浮出来。
+   顶栏本来就窄，再给两枚描边胶囊会显得比标签页还重。
+   Ghost buttons: no border or fill until hover — two outlined pills up here would outweigh
+   the tabs below. */
 .fx-console-tool-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  height: 27px;
+  gap: 5px;
+  height: 24px;
   padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, .08);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(255, 255, 255, .035);
-  color: rgba(255, 255, 255, .62);
-  font: 700 10px/1 var(--font-sans);
+  background: transparent;
+  color: rgba(255, 255, 255, .46);
+  font: 600 10px/1 var(--font-sans);
   cursor: pointer;
-  transition: color .18s, background .18s, border-color .18s, opacity .18s
+  transition: color .16s, background .16s, border-color .16s, opacity .16s
 }
 
-.fx-console-tool-btn:hover:not(:disabled),
+.fx-console-tool-btn svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto
+}
+
+.fx-console-tool-btn:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, .06)
+}
+
 .fx-console-tool-btn[aria-expanded="true"] {
   color: #fff;
-  border-color: rgba(var(--fc-accent-rgb), .28);
-  background: rgba(var(--fc-accent-rgb), .10)
+  border-color: rgba(var(--fc-accent-rgb), .22);
+  background: rgba(var(--fc-accent-rgb), .14)
 }
 
 .fx-console-tool-btn:disabled {

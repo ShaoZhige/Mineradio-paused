@@ -64,11 +64,20 @@ test('撤销 / 历史是面板顶栏，排在分类标签页上方', () => {
   // 顺序反了就会退回「标签页在上、按钮挤在右侧」的老排版。
   // A regression here silently restores the old "tabs on top, buttons squeezed right" layout.
   const build = section('fxConsoleMakeToolbar');
-  assert.match(build, /toolbar\.insertBefore\(actions,\s*tabs\)/, '撤销 / 历史没有插到标签页前面');
-  assert.ok(!/toolbar\.appendChild\(actions\)/.test(build), '撤销 / 历史又挂到标签页后面去了');
-  // 间距靠操作区下边距撑开，标签页自己不再留上边距，否则顶栏会多出一条空隙。
-  assert.match(CSS, /\.fx-console-toolbar-actions\s*\{[^}]*margin:\s*0 2px 7px/, '操作区缺少下方间距');
+  assert.match(build, /toolbar\.insertBefore\(head,\s*tabs\)/, '顶栏没有插到标签页前面');
+  assert.ok(!/toolbar\.appendChild\(head\)/.test(build), '顶栏又挂到标签页后面去了');
+  // 顶栏左侧是面板标题、右侧是成组的按钮；两枚按钮不再贴左右两端。
+  assert.match(build, /fx-console-head-title/, '顶栏缺少左侧标题');
+  assert.match(build, /consoleWorkspaceText\('visual_console'/, '标题应复用已有的 visual_console 文案');
+  assert.ok(!/#fx-console-undo\s*\{[^}]*margin-left:\s*auto/.test(CSS), '撤销按钮不该再靠 auto 外边距贴右缘');
+  // 间距与分隔线落在顶栏上，标签页自己不再留上边距。
+  assert.match(CSS, /\.fx-console-head\s*\{[^}]*border-bottom/, '顶栏缺少与标签页之间的分隔线');
+  assert.match(CSS, /\.fx-console-toolbar-actions\s*\{[^}]*margin:\s*0[;\s]/, '操作区不该再自己撑间距');
   assert.match(CSS, /\.fx-console-toolbar \.fx-panel-tabs\s*\{[^}]*margin:\s*0[;\s]/, '标签页仍在留上边距');
+  // 图标按钮：按钮里要有 svg，且默认是幽灵态（无底色）。
+  assert.match(build, /ICON_UNDO/, '撤销按钮缺少图标');
+  assert.match(build, /ICON_HISTORY/, '历史按钮缺少图标');
+  assert.match(CSS, /\.fx-console-tool-btn\s*\{[^}]*background:\s*transparent/, '按钮应保持幽灵态直到悬停');
 });
 
 test('四种语言都有历史按钮文案', () => {
