@@ -496,6 +496,10 @@ function resetLyricsForTrackSwitch() {
   lyricsTranslationLines = [];
   lyricsTranslationSource = 'none';
   lyricsLines = [];
+  // 切歌瞬间就把缓存指向新歌（此时是标题兜底），别让上一首的当前句继续留在缓存里。
+  // Point the cache at the new track right away (title fallback for now), so the previous
+  // track's line cannot linger there.
+  if (typeof syncLyricRuntimeState === 'function') syncLyricRuntimeState('track-switch-reset');
   if (typeof invalidateStageLyricPayloadForNewLyrics === 'function') invalidateStageLyricPayloadForNewLyrics('track-switch-pending');
   else if (typeof clearStageLyrics === 'function') clearStageLyrics();
   updateCustomLyricControls();
@@ -540,6 +544,163 @@ async function fetchLyric(songOrId, token, attempt) {
 function currentLyricFallbackText() {
   return lyricFallbackTextForSong(currentLyricSong() || {});
 }
+
+// —— 歌词运行时缓存：把「缓存」和「渲染」拆开 ——
+// 最小化 / 进托盘时 Chromium 会挂起 requestAnimationFrame，主循环跟着停摆，这是对的：
+// 看不见就不该画。但「现在唱到哪一句、这一句走到哪儿了」属于缓存，不属于渲染，它必须继续
+// 推进 —— 否则恢复窗口时歌词还停在切走之前那一首的位置，要等下一次切歌才追上。
+// 缓存由两个与可见性无关的驱动源推进：
+//   1) audio 自身的 timeupdate / seeked / play / pause / ended —— 后台照常派发；
+//   2) 250ms 心跳 —— 后台会被节流但不会停，兜住 timeupdate 稀疏的情况。
+// 渲染侧（3D 歌词、桌面歌词）统一读这份缓存，不再各自算一套「当前句」。
+// The lyric runtime cache, decoupled from rendering. Chromium suspends rAF for hidden
+// windows and the main loop stalls with it — that is correct, nobody can see the window. But
+// "which line is current, and how far into it" is cache state, not painting: it has to keep
+// advancing, or restoring the window lands on the line from the track we left. Two
+// visibility-independent drivers keep it fresh: the audio element's own events, and a 250ms
+// heartbeat (throttled in background, never stopped). Renderers read this cache instead of
+// each computing their own idea of the current line.
+var lyricRuntimeCache = { songKey: '', index: -1, t: 0, text: '', progress: 0, span: 4.8, playing: false, updatedAt: 0, source: '' };
+var lyricRuntimeSyncTimer = 0;
+var lyricRuntimeAudioBound = null;
+
+function lyricRuntimeSongRef() {
+  try {
+    if (typeof playQueue !== 'undefined' && Array.isArray(playQueue) && typeof currentIdx !== 'undefined' && currentIdx >= 0) {
+      return playQueue[currentIdx] || null;
+    }
+  } catch (e) { }
+  return null;
+}
+
+function lyricRuntimeSongKeyOf(song) {
+  if (!song) return '';
+  try {
+    if (typeof queueItemKey === 'function') return String(queueItemKey(song) || '');
+  } catch (e) { }
+  return String(song.id || song.mid || song.hash || song.name || '');
+}
+
+// 纯计算：给一份歌词行和一个播放秒数，算出当前句与句内进度。不碰 DOM、不读时钟，
+// 这样测试可以直接对着它跑，不用担心定时器和可见性。
+// Pure: lines + seconds -> current line and in-line progress. No DOM, no clock, so tests can
+// drive it directly without timers or visibility.
+function computeLyricRuntimeState(lines, seconds, playingNow, fallbackText) {
+  var list = Array.isArray(lines) ? lines : [];
+  var t = isFinite(Number(seconds)) ? Number(seconds) : 0;
+  var idx = -1;
+  for (var i = 0; i < list.length; i++) {
+    if (Number(list[i].t) <= t + 0.05) idx = i;
+    else break;
+  }
+  if (playingNow && list.length && idx >= 0) {
+    var cur = list[idx];
+    var next = list[idx + 1];
+    var nextT = next && Number(next.t) > Number(cur.t) ? Number(next.t) : Number(cur.t) + Number(cur.duration || 4.8);
+    return {
+      index: idx,
+      t: t,
+      text: String(cur.text || fallbackText || ''),
+      progress: typeof getLyricLineProgress === 'function' ? getLyricLineProgress(cur, next, t) : 0,
+      span: Math.max(0.75, nextT - Number(cur.t))
+    };
+  }
+  if (playingNow && list.length) {
+    var first = list[0];
+    var introEnd = first && Number(first.t) > 0 ? Number(first.t) : 4.8;
+    return {
+      index: -1,
+      t: t,
+      text: String(fallbackText || ''),
+      progress: typeof getLyricLineProgress === 'function'
+        ? getLyricLineProgress({ t: 0, text: String(fallbackText || ''), duration: Math.max(0.8, introEnd), charCount: Math.max(1, String(fallbackText || '').length), fallback: true }, null, t)
+        : 0,
+      span: Math.max(0.8, introEnd)
+    };
+  }
+  return {
+    index: idx,
+    t: t,
+    text: String(idx >= 0 && list[idx] ? (list[idx].text || fallbackText || '') : (fallbackText || '')),
+    progress: 0,
+    span: 4.8
+  };
+}
+
+function syncLyricRuntimeState(source) {
+  var song = lyricRuntimeSongRef();
+  var rawT = (typeof audio !== 'undefined' && audio && isFinite(Number(audio.currentTime))) ? Number(audio.currentTime) : 0;
+  var t = typeof getAdjustedLyricPlaybackTime === 'function' ? getAdjustedLyricPlaybackTime(rawT) : rawT;
+  var playingNow = (typeof playing !== 'undefined') ? !!playing : false;
+  var next = computeLyricRuntimeState(
+    typeof lyricsLines !== 'undefined' ? lyricsLines : [],
+    t,
+    playingNow,
+    typeof currentLyricFallbackText === 'function' ? currentLyricFallbackText() : ''
+  );
+  next.songKey = lyricRuntimeSongKeyOf(song);
+  next.playing = playingNow;
+  next.updatedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  next.source = String(source || '');
+  lyricRuntimeCache = next;
+  return lyricRuntimeCache;
+}
+
+function lyricRuntimeCacheAgeMs() {
+  if (!lyricRuntimeCache || !lyricRuntimeCache.updatedAt) return Infinity;
+  var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  return Math.max(0, now - lyricRuntimeCache.updatedAt);
+}
+
+// 渲染侧的统一入口：缓存够新就直接用，否则现算一次（首次进曲、心跳还没跑到时兜底）。
+// Renderer entry point: use the cache while it is fresh, otherwise compute once.
+function lyricRuntimeSnapshot(freshMs) {
+  if (!lyricRuntimeCache || lyricRuntimeCacheAgeMs() > (freshMs || 900)) syncLyricRuntimeState('snapshot');
+  return lyricRuntimeCache;
+}
+
+function bindLyricRuntimeAudioEvents() {
+  var media = (typeof audio !== 'undefined') ? audio : null;
+  if (!media || typeof media.addEventListener !== 'function' || lyricRuntimeAudioBound === media) return;
+  lyricRuntimeAudioBound = media;
+  ['timeupdate', 'seeked', 'play', 'pause', 'ended', 'loadedmetadata', 'emptied'].forEach(function (name) {
+    media.addEventListener(name, function () { syncLyricRuntimeState('audio-' + name); });
+  });
+}
+
+function startLyricRuntimeSync() {
+  bindLyricRuntimeAudioEvents();
+  if (lyricRuntimeSyncTimer) return;
+  lyricRuntimeSyncTimer = setInterval(function () {
+    bindLyricRuntimeAudioEvents();
+    if (typeof playing === 'undefined' || !playing) return;
+    syncLyricRuntimeState('heartbeat');
+  }, 250);
+}
+
+function stopLyricRuntimeSync() {
+  if (!lyricRuntimeSyncTimer) return;
+  clearInterval(lyricRuntimeSyncTimer);
+  lyricRuntimeSyncTimer = 0;
+}
+
+// 从后台回到前台：立刻刷新缓存、清掉挂在 rAF 上的过期预热（隐藏期间永远不会回调，
+// 其句柄一直挂着会让首帧的歌词推进一直 bail out），并强制把桌面歌词推一次。
+// Returning to the foreground: refresh the cache, drop prewarm work stranded on a rAF that
+// never fired while hidden (its handle keeps the first frame bailing out), and force one
+// desktop-lyrics push.
+function resumeLyricsAfterBackground(reason) {
+  syncLyricRuntimeState('resume-' + String(reason || 'background'));
+  if (typeof clearStaleStageLyricWarmup === 'function') clearStaleStageLyricWarmup(reason || 'resume');
+  if (typeof pushDesktopLyricsState === 'function') pushDesktopLyricsState(true);
+  return lyricRuntimeCache;
+}
+
+startLyricRuntimeSync();
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('pagehide', stopLyricRuntimeSync);
+}
+
 function isNoLyricText(text) {
   var compact = String(text || '').replace(/\s+/g, '').replace(/[，,。.!！?？、~～]/g, '');
   return !compact ||

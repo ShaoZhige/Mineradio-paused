@@ -893,6 +893,9 @@ function applyLyricsState(lines, hasNativeKaraoke, timingSource, translationLine
   lyricsTranslationLines = cloneLyricLines(prepared.translationLines);
   lyricsTranslationSource = prepared.translationSource;
   lyricsLines = cloneLyricLines(prepared.lines);
+  // 歌词换了，运行时缓存立刻跟着换：缓存与渲染解耦之后，缓存不再等下一帧。
+  // Lyrics changed — refresh the runtime cache immediately; it no longer waits for a frame.
+  if (typeof syncLyricRuntimeState === 'function') syncLyricRuntimeState('lyrics-applied');
   renderLyrics(renderOptions || {});
   updateCustomLyricControls();
 }
@@ -944,6 +947,9 @@ function applyCustomLyricState(song, silent, renderOptions) {
   lyricsTranslationLines = cloneLyricLines(prepared.translationLines);
   lyricsTranslationSource = prepared.translationSource;
   lyricsLines = cloneLyricLines(prepared.lines);
+  // 歌词换了，运行时缓存立刻跟着换：缓存与渲染解耦之后，缓存不再等下一帧。
+  // Lyrics changed — refresh the runtime cache immediately; it no longer waits for a frame.
+  if (typeof syncLyricRuntimeState === 'function') syncLyricRuntimeState('lyrics-applied');
   renderLyrics(renderOptions || {});
   updateCustomLyricControls();
   return true;

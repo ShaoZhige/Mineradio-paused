@@ -164,8 +164,14 @@ function isDeepBackgroundMode() {
   // Electron may briefly leave document.hidden stale after a tray restore.
   // The native BrowserWindow state is authoritative for desktop power policy;
   // browser-only builds still use the Page Visibility API.
+  // 原生状态也可能反过来落后：窗口已经隐藏、desktopRuntimeState 还写着 visible。
+  // 两边取「或」，任何一边说看不见就按后台处理 —— 否则主循环会挂着等一个永远不会来的
+  // requestAnimationFrame，连后台的兜底节奏都进不去。
+  // The native state can lag the other way too (window hidden, state still says visible). Treat
+  // "either side says hidden" as background: otherwise the loop waits on a rAF that never
+  // arrives and never even reaches the background timer cadence.
   if (desktopRuntimeState.desktop) {
-    return !!(desktopRuntimeState.minimized || desktopRuntimeState.visible === false);
+    return !!(desktopRuntimeState.minimized || desktopRuntimeState.visible === false || document.hidden);
   }
   return !!document.hidden;
 }

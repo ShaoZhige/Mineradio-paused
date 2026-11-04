@@ -217,8 +217,19 @@ function tickDeepBackgroundFrame(now, dt) {
 }
 document.addEventListener('visibilitychange', function () {
   if (!mainLoopDeepBackgroundSleeping()) wakeMainLoopFromBackground();
+  // 回前台时把歌词缓存对齐到当前播放位置，并丢掉后台期间挂死的预热任务。
+  // hidden 期间 rAF 不回调，预热句柄会一直挂着，歌词推进被卡在切走之前那一首。
+  // On return, align the lyric cache with the current playback position and drop prewarm work
+  // stranded on a rAF that never fired — that stranded handle is what left the lyrics stuck on
+  // the previous track.
+  if (!document.hidden && typeof resumeLyricsAfterBackground === 'function') {
+    resumeLyricsAfterBackground('visibilitychange');
+  }
 });
-window.addEventListener('focus', wakeMainLoopFromBackground);
+window.addEventListener('focus', function () {
+  wakeMainLoopFromBackground();
+  if (typeof resumeLyricsAfterBackground === 'function') resumeLyricsAfterBackground('focus');
+});
 function mainLoopInteractionActive(now) {
   return (typeof isRenderInteractionActive === 'function') && isRenderInteractionActive(now);
 }

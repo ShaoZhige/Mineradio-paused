@@ -957,6 +957,22 @@ function normalizeDesktopLyricText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 function currentDesktopLyricSnapshot() {
+  // 先问运行时缓存：窗口隐藏时渲染循环会停，但缓存由音频事件 + 250ms 心跳推进，
+  // 所以这里拿到的一定是当前这一首的当前句，而不是上一首留下的残影。
+  // Ask the runtime cache first. The render loop stalls while the window is hidden, but the
+  // cache keeps advancing on audio events and a heartbeat, so this never returns the line we
+  // were on before the track changed.
+  var cached = typeof lyricRuntimeSnapshot === 'function' ? lyricRuntimeSnapshot(900) : null;
+  if (cached && cached.updatedAt) {
+    var cachedText = normalizeDesktopLyricText(cached.text || '');
+    if (cachedText) {
+      return {
+        text: cachedText,
+        progress: clampRange(Number(cached.progress) || 0, 0, 1),
+        progressSpan: Math.max(0.75, Number(cached.span) || 4.8)
+      };
+    }
+  }
   var rawT = audio && isFinite(audio.currentTime) ? Number(audio.currentTime) : 0;
   var t = typeof getAdjustedLyricPlaybackTime === 'function' ? getAdjustedLyricPlaybackTime(rawT) : rawT;
   var lines = Array.isArray(lyricsLines) ? lyricsLines : [];
