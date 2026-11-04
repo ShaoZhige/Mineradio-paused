@@ -1,20 +1,5 @@
-// 本模块界面文案统一走 i18n；缺键时退回内置中文模板，不会渲染空串或裸 key。
-// UI copy in this module goes through i18n and falls back to the built-in Chinese
-// template, so nothing ever renders an empty string or a raw key.
-// params 既透传给 t()，也插值进兜底模板，缺词典时占位符仍会被替换掉。
-// params goes to both t() and the fallback template so placeholders still resolve
-// when the dictionary entry is missing.
-// 本模块界面文案统一走 i18n，词典是唯一文案来源。
-// UI copy in this module goes through i18n; the dictionary is the single source of copy.
-// 两种形态：
-//   xxxText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
-//   xxxText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
-//   xxxText('key', '含 {p} 的模板', {p: v}) —— 带插值。params 同时喂给 t() 与兜底模板。
-// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
-// Two call shapes. A missing key returns the key itself on purpose: an empty string would
-// make an untranslated string fail silently, while a bare key is self-identifying on screen.
-// params 同时透传给 t() 并插值进兜底模板，缺词典时占位符仍会被替换掉。
-// params goes to both t() and the fallback template so placeholders still resolve.
+// 文案统一走 i18n：缺键返回键名（不返回空串），params 同时喂给词典与兜底模板。
+// Copy goes through i18n; a missing key returns the key itself rather than an empty string.
 function consoleWorkspaceText(key, fallback, params) {
   var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
   var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';
@@ -37,11 +22,8 @@ function consoleWorkspaceText(key, fallback, params) {
 }
 'use strict';
 
-// ⚠️ 同样是函数，原因与 fxConsoleLayout() 完全一致：顶层求值会把解析期取到的键名固化下来，
-// 6 个分类标签页会一直显示 fx_cat_common / fx_cat_ui / hotkey_cat_lyrics 等键名。
-// Same reason as fxConsoleLayout(): evaluating at module scope freezes the key names resolved
-// during parse, leaving the six category tabs labelled fx_cat_common / fx_cat_ui /
-// hotkey_cat_lyrics instead of 常用 / 界面 / 歌词.
+// 同样是函数：顶层求值会把解析期取到的键名固化，标签页会显示成 fx_cat_common 之类的键名。
+// A function for the same reason as below: module-level evaluation freezes the raw key names.
 function fxConsoleTabs() {
   return [
     { key: 'home', label: consoleWorkspaceText('fx_cat_common') },
@@ -68,25 +50,10 @@ function fxConsoleItem(ref, title, aliases, history, child) {
   };
 }
 
-// ⚠️ 必须是**函数**，不能在模块顶层求值成常量。
-// 这里的 consoleWorkspaceText() 在解析期就会跑，而词典要等 DOMContentLoaded 才异步加载完，
-// 于是取到的是键名本身。写成 `var FX_CONSOLE_LAYOUT = [...]` 时，这份数据在首次求值那一刻
-// 就被永久固化成键名 —— 之后无论重建多少次 DOM，标题栏那些 hint 都还是 fx_xxx_hint，
-// 因为**坏的是数据源，不是显示层**。改成函数后，每次重建都重新取词。
-// （实测：修好之前 6 个分组标题里仍显示 fx_preset_flow_hint / fx_background_hint 等 21 处键名。）
-//
-// 分类标签页数据同理，同样必须是函数：顶层求值会把解析期取到的键名固化，
-// 6 个标签页会一直显示 fx_cat_common / fx_cat_ui / hotkey_cat_lyrics 等键名。
-// The tab metadata is a function for the same reason: as a module-level constant it froze the
-// key names resolved during parse, leaving all six tabs labelled fx_cat_common / fx_cat_ui /
-// hotkey_cat_lyrics.
-//
-// It must be a FUNCTION, not a module-level constant. The consoleWorkspaceText() calls below
-// run during parse, but the dictionary only finishes loading asynchronously at
-// DOMContentLoaded, so they resolve to the key itself. As a `var ... = [...]` constant that
-// text was frozen into the data at first evaluation — no amount of DOM rebuilding could fix
-// it, because the data source, not the view, was stale. Measured before this change: 21 key
-// names such as fx_preset_flow_hint / fx_background_hint still showed in group headings.
+// 必须是函数，不能是模块顶层常量：consoleWorkspaceText() 在解析期就执行，而词典要到
+// DOMContentLoaded 才异步加载完 —— 常量会把那一刻取到的键名永久固化进数据，界面就只剩键名。
+// Must be a function: the text calls run during parse while the dictionary only loads at
+// DOMContentLoaded, so a constant would freeze the raw key names into the data.
 function fxConsoleLayout() {
   return [
   {
@@ -99,11 +66,8 @@ function fxConsoleLayout() {
         fxConsoleItem('user-archive-grid', '用户存档', '方案 快照 预设码 应用 回退')
       ] },
       { key: 'reset', title: consoleWorkspaceText('fx_cat_reset'), hint: consoleWorkspaceText('fx_reset_all'), items: [
-        // 用 id 而不是 `.fx-actions`：那个类名是排版用的，面板里一旦出现第二个同类的按钮行，
-        // 全局选择器就会抓到错的那一条（本轮新增音响块时实测被抢走的就是它）。
-        // By id rather than `.fx-actions`: the class is a layout utility, and the moment a second
-        // button row with it appears in the panel, the global selector grabs the wrong one —
-        // exactly what happened when the speaker block was added.
+        // 用 id 取节点：.fx-actions 是排版类名，面板里出现第二处同类按钮行时会抓错。
+        // Select by id: .fx-actions is a layout class and grabs the wrong row once a second exists.
         fxConsoleItem({ selector: '#fx-reset-actions' }, '恢复默认', '重置 全部默认')
       ] }
     ]
@@ -111,11 +75,10 @@ function fxConsoleLayout() {
   {
     key: 'interface',
     groups: [
-      // 语言切换从标题栏搬到这里：主界面那一排控件太挤，而切语言是低频操作。
-      // index.html 提供 #fx-lang-row 作为源节点，14-i18n-switcher.js 负责绑定点击。
-      // The language switcher moved here from the title bar — that row was crowded and switching
-      // language is a low-frequency action. index.html ships #fx-lang-row as the source node and
-      // 14-i18n-switcher.js wires the clicks.
+      // 语言切换放在这里：主界面控件拥挤，切语言又是低频操作。
+      // #fx-lang-row 由 index.html 提供，14-i18n-switcher.js 负责绑定点击。
+      // The switcher lives here because the main control row is crowded and switching is rare.
+      // index.html ships #fx-lang-row; 14-i18n-switcher.js wires the clicks.
       { key: 'language', title: consoleWorkspaceText('fx_interface_language', '界面语言'), hint: consoleWorkspaceText('fx_language_hint'), open: true, items: [
         fxConsoleItem('fx-lang-row', consoleWorkspaceText('fx_interface_language', '界面语言'), '语言 language English 日本語 Русский 中文 zh en ja ru', false)
       ] },
@@ -243,16 +206,12 @@ function fxConsoleLayout() {
         fxConsoleItem('fx-intensity', consoleWorkspaceText('rhythm_intensity', '律动强度'), '音乐响应 节奏'),
         fxConsoleItem('fx-depth', consoleWorkspaceText('fx_scene_depth'), '立体感 深度'),
         fxConsoleItem('fx-coverres', consoleWorkspaceText('cover_clarity', '封面清晰度'), '粒子数量 分辨率'),
-        // 背景星河是预设自带的背景层，不是通用粒子参数：它按预设决定透明度（星河/音域预设为 0，
-        // 因为那两套预设的云本身就叫星河；骷髅 0.38；9-12 号 0.10~0.18；其余 0.34），并在星河/
-        // 音域预设下顺带压掉主封面粒子云。放进"基础画面"，和画面构成级别的开关在一起。
-        // The background star river is a preset-owned background layer rather than a generic particle
-        // parameter: its opacity is preset-driven (0 on the star-river/sonic presets, whose own cloud is
-        // the river; 0.38 skull; 0.10-0.18 on presets 9-12; 0.34 otherwise) and it also mutes the main
-        // cover cloud on those two presets. It belongs with the scene-level switches, not the particles.
-        // 别名只放中文同义措辞：之前这里拼的是另一个词典键，而那个键的值与标题逐字相同，
-        // 对搜索没有任何增益（搜同一串字本来就命中标题）。真正有用的是「星空」「粒子背景」
-        // 这类标题里没有的说法。
+        // 背景星河是预设自带的背景层：透明度按预设决定（星河/音域 0、骷髅 0.38、9-12 号
+        // 0.10~0.18、其余 0.34），并在星河/音域下压掉主封面粒子云，所以归到基础画面。
+        // 搜索别名只写标题里没有的说法（星空、粒子背景），重复标题的字眼没有意义。
+        // The star river is a preset-owned layer: opacity follows the preset and it mutes the cover
+        // particle cloud on the star-river presets, so it sits with the scene switches. Search
+        // aliases only add wording the title does not already contain.
         // The alias carries Chinese synonyms only: it used to append a second dictionary key whose
         // text was identical to the title, which adds nothing to search. The useful part is wording
         // the title does not contain.
@@ -480,31 +439,22 @@ function fxConsoleResolveBlock(ref) {
 }
 
 function fxConsoleMakeToolbar(panel) {
-  // 工具栏（搜索框 / 撤销 / 历史）已整体移除：撤销默认 disabled、历史浮层长期为空，
-  // 搜索框也几乎不用，而它们要在词典就绪后重贴、还要各自维护一套浮层与事件绑定。
-  // 面板现在直接从分类标签页开始。下方仍保留 fx-console-toolbar 这个 class 名，
-  // 因为 fxConsoleClickIsReversible / fxConsoleFindUnclassifiedControls 靠它排除
-  // 工具栏区域的控件（分类排除项比同步改判据更稳）。
-  // The toolbar (search box / undo / history) is gone: undo ships disabled, the history
-  // popover stays empty, and the search box barely gets used — yet all three needed a
-  // repaint after the dictionary loads plus their own popovers and event bindings. The
-  // panel now starts straight at the category tabs. The .fx-console-toolbar class name is
-  // kept below because fxConsoleClickIsReversible and fxConsoleFindUnclassifiedControls
-  // use it to exclude that region (renaming the exclusions is riskier than keeping it).
+  // 面板顶栏：左侧标题、右侧撤销 / 历史，分类标签页在下面一行。
+  // .fx-console-toolbar 这个 class 名保留 —— fxConsoleClickIsReversible 与
+  // fxConsoleFindUnclassifiedControls 用它排除顶栏区域的控件。
+  // Panel header: title left, undo / history right, category tabs below. The .fx-console-toolbar
+  // class name stays because the reversible-click and unclassified-control guards exclude it.
   var toolbar = document.createElement('div');
   toolbar.className = 'fx-console-toolbar';
   toolbar.id = 'fx-console-toolbar';
   toolbar.innerHTML = consoleWorkspaceText('fx_panel_tabs_html');
   var tabs = toolbar.querySelector('#fx-panel-tabs');
-  // 词典还没加载完时，fx_panel_tabs_html 会退化成键名本身，innerHTML 里就没有
-  // #fx-panel-tabs 这个壳，querySelector 返回 null。这里必须自己兜一个空壳出来：
-  // index-loader 把所有模块拼成同一个脚本，这行一旦抛错，后面 18 个模块（含 splash
-  // 揭幕、startup 绑定与主循环）全部不会执行，界面就成了只剩外壳的黑屏。
-  // Before the dictionary resolves, fx_panel_tabs_html degrades to its own key, so the
-  // innerHTML has no #fx-panel-tabs shell and querySelector returns null. An empty shell
-  // must be synthesized here: index-loader concatenates every module into one script, so a
-  // throw on this line would stop the 18 modules after it (splash reveal, startup bindings
-  // and the main loop) from ever running — a black screen with nothing but the frame left.
+  // 词典未就绪时 fx_panel_tabs_html 退化成键名，innerHTML 里没有 #fx-panel-tabs，
+  // querySelector 返回 null，必须自己兜一个空壳。index-loader 把所有模块拼成一个脚本，
+  // 这里抛错会让后面的模块（splash、startup 绑定、主循环）全部不执行，界面只剩黑屏。
+  // Before the dictionary resolves the html key degrades to its own name, so the shell is
+  // missing and must be synthesized. A throw here would skip every later module (the loader
+  // concatenates them into one script) and leave a black screen.
   if (!tabs) {
     tabs = document.createElement('div');
     tabs.id = 'fx-panel-tabs';
@@ -525,19 +475,9 @@ function fxConsoleMakeToolbar(panel) {
     tabs.appendChild(btn);
   });
   // —— 撤销 / 历史入口 ——
-  // 撤销栈（fxConsoleHistory）、40 条上限、650ms 合并窗口、「撤销至此项前」这些语义一直都在，
-  // 只是工具栏曾被整体删掉，这两个按钮跟着没人创建 —— 于是撤销默认 disabled、历史浮层永远空着，
-  // 等于把已经写好的能力锁死。这里只把入口补回来，历史语义一行没动。
-  // Undo/history entry points. The stack, the 40-entry cap, the 650ms merge window and
-  // "undo up to here" were always there; the toolbar removal is what left undo disabled and
-  // the history popover empty. Only the entry points come back — the history semantics are
-  // untouched.
-  //
-  // 排版：顶栏左侧放面板标题（视觉控制台），右侧把两枚按钮**成组**靠右，中间用一条发丝线
-  // 与标签页分隔。早先是「历史贴左、撤销贴右」，中间空出一大片，看起来像没做完的占位。
-  // Layout: the panel title sits on the left, the two buttons stay grouped on the right, and a
-  // hairline separates the header from the tabs. The earlier split (history hard left, undo hard
-  // right) left a dead gap in the middle that read as an unfinished placeholder.
+  // 撤销栈、40 条上限、650ms 合并窗口与「撤销至此项前」都在本文件实现；这里只负责放入口。
+  // Undo / history entry points. The stack, its 40-entry cap, the 650ms merge window and
+  // "undo up to here" live in this file; this block only builds the entry points.
   var head = document.createElement('div');
   head.className = 'fx-console-head';
 
@@ -1215,17 +1155,11 @@ function fxConsoleCommitRangeTxn(target) {
 }
 
 
-// 视觉控制台的交互绑定。工具栏（搜索框 / 撤销 / 历史）已移除，搜索与历史相关的绑定
-// 一并删掉；但**滑块拖拽事务**（pointerdown/focusin → fxConsoleBeginRangeTxn →
-// fxConsoleCommitRangeTxn）与搜索无关，必须照旧绑定。
-// 这里的守卫只判 panel，不再判 search —— 早退条件里带着已删除的搜索框，
-// 会连带把下面这些事务监听一起跳过，拖动滑块将不再产生一次可撤销的快照。
-//
-// Interaction wiring for the visual console. The toolbar (search / undo / history) is
-// gone along with its bindings, but the slider drag transactions are unrelated to search
-// and must stay bound. The guard checks only `panel` now: a guard that also required the
-// removed search box would skip every transaction listener below, and dragging a slider
-// would silently stop producing a snapshot.
+// 视觉控制台的交互绑定入口。滑块拖拽事务（pointerdown/focusin → fxConsoleBeginRangeTxn →
+// fxConsoleCommitRangeTxn）都在这里挂载，守卫只判 panel，不依赖任何输入框节点。
+// Interaction wiring for the visual console. The slider drag transactions
+// (pointerdown/focusin → fxConsoleBeginRangeTxn → fxConsoleCommitRangeTxn) are bound here,
+// guarded by the panel alone — no input node required.
 function initFxConsoleSearchAndHistory() {
   var panel = document.getElementById('fx-panel');
   if (!panel || panel._fxConsoleSearchHistoryBound) return;
@@ -1293,8 +1227,8 @@ function initFxConsoleSearchAndHistory() {
     var history = document.getElementById('fx-console-history');
     if ((!results || results.hidden) && (!history || history.hidden)) return;
     closeFxConsolePopovers();
-    // 原来这里会把焦点还给搜索框；搜索框已删，焦点交给仍在焦点位的元素即可。
-    // The search box used to regain focus here; it is gone, so leave focus where it is.
+    // 焦点留在原处：这里没有需要归还焦点的输入框。
+    // Leave focus where it is: there is no input to hand focus back to.
   }, true);
   window.addEventListener('blur', function () {
     if (fxConsoleHistoryTxn) fxConsoleCommitRangeTxn(null);

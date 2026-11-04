@@ -317,14 +317,10 @@ function invalidateStageLyricPayloadForNewLyrics(reason) {
   stageLyricWarmup.reason = reason || stageLyricWarmup.reason || '';
 }
 
-// 后台回来时清掉「挂在 rAF 上的过期预热」。
-// 最小化期间 requestAnimationFrame 不会回调，预热任务的句柄就一直挂着；而 tickLyricsParticles
-// 在 currentIdx<0 且预热未完成时会直接 return —— 结果是窗口恢复了、歌词却卡在切走之前那一首。
-// 这里把挂起的预热取消并清掉 warmup 窗口，下一帧按当前播放时间重新建句。
-// Drop prewarm work stranded on a rAF that never fired while the window was hidden. The tick
-// bails out while a warmup is pending, so after a restore the lyrics could stay stuck at the
-// line from the track we left. Cancelling here lets the next frame rebuild from the current
-// playback time.
+// 清掉挂在 rAF 上的过期预热：隐藏期间 rAF 不回调，句柄一直非零，而 tickLyricsParticles
+// 在「预热未完成」时会直接 return —— 不清理的话恢复窗口后歌词会卡在切走之前那一首。
+// Dropping warmup stranded on a dead rAF: the tick bails out while warmup is pending, so
+// without this the lyrics could stay stuck on the previous track after a restore.
 function clearStaleStageLyricWarmup(reason) {
   if (stageLyricPrewarm.workRaf) {
     try { cancelAnimationFrame(stageLyricPrewarm.workRaf); } catch (e) { }

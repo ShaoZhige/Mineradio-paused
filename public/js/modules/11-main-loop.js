@@ -217,11 +217,8 @@ function tickDeepBackgroundFrame(now, dt) {
 }
 document.addEventListener('visibilitychange', function () {
   if (!mainLoopDeepBackgroundSleeping()) wakeMainLoopFromBackground();
-  // 回前台时把歌词缓存对齐到当前播放位置，并丢掉后台期间挂死的预热任务。
-  // hidden 期间 rAF 不回调，预热句柄会一直挂着，歌词推进被卡在切走之前那一首。
-  // On return, align the lyric cache with the current playback position and drop prewarm work
-  // stranded on a rAF that never fired — that stranded handle is what left the lyrics stuck on
-  // the previous track.
+  // 回前台时对齐歌词缓存并清掉后台挂死的预热（否则歌词会停在切走之前那一首）。
+  // On return, align the lyric cache and drop warmup stranded on a dead rAF.
   if (!document.hidden && typeof resumeLyricsAfterBackground === 'function') {
     resumeLyricsAfterBackground('visibilitychange');
   }

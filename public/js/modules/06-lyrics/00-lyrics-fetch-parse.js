@@ -545,21 +545,13 @@ function currentLyricFallbackText() {
   return lyricFallbackTextForSong(currentLyricSong() || {});
 }
 
-// —— 歌词运行时缓存：把「缓存」和「渲染」拆开 ——
-// 最小化 / 进托盘时 Chromium 会挂起 requestAnimationFrame，主循环跟着停摆，这是对的：
-// 看不见就不该画。但「现在唱到哪一句、这一句走到哪儿了」属于缓存，不属于渲染，它必须继续
-// 推进 —— 否则恢复窗口时歌词还停在切走之前那一首的位置，要等下一次切歌才追上。
-// 缓存由两个与可见性无关的驱动源推进：
-//   1) audio 自身的 timeupdate / seeked / play / pause / ended —— 后台照常派发；
-//   2) 250ms 心跳 —— 后台会被节流但不会停，兜住 timeupdate 稀疏的情况。
-// 渲染侧（3D 歌词、桌面歌词）统一读这份缓存，不再各自算一套「当前句」。
-// The lyric runtime cache, decoupled from rendering. Chromium suspends rAF for hidden
-// windows and the main loop stalls with it — that is correct, nobody can see the window. But
-// "which line is current, and how far into it" is cache state, not painting: it has to keep
-// advancing, or restoring the window lands on the line from the track we left. Two
-// visibility-independent drivers keep it fresh: the audio element's own events, and a 250ms
-// heartbeat (throttled in background, never stopped). Renderers read this cache instead of
-// each computing their own idea of the current line.
+// —— 歌词运行时缓存（与渲染解耦）——
+// 隐藏窗口里 Chromium 会挂起 rAF，主循环随之停摆；渲染可以停，但「当前第几句、句内进度」
+// 不能停，否则回到前台还停在上一次切歌之前那一首。缓存由 audio 事件与 250ms 心跳推进，
+// 两者在后台都会继续跑；3D 歌词与桌面歌词统一读这份缓存。
+// The lyric runtime cache, decoupled from rendering: rAF stalls while the window is hidden,
+// so painting may stop, but the current line and its progress must keep advancing. Audio
+// events plus a 250ms heartbeat drive it; renderers read the cache instead of recomputing.
 var lyricRuntimeCache = { songKey: '', index: -1, t: 0, text: '', progress: 0, span: 4.8, playing: false, updatedAt: 0, source: '' };
 var lyricRuntimeSyncTimer = 0;
 var lyricRuntimeAudioBound = null;
@@ -581,10 +573,8 @@ function lyricRuntimeSongKeyOf(song) {
   return String(song.id || song.mid || song.hash || song.name || '');
 }
 
-// 纯计算：给一份歌词行和一个播放秒数，算出当前句与句内进度。不碰 DOM、不读时钟，
-// 这样测试可以直接对着它跑，不用担心定时器和可见性。
-// Pure: lines + seconds -> current line and in-line progress. No DOM, no clock, so tests can
-// drive it directly without timers or visibility.
+// 纯计算：行 + 秒数 → 当前句与句内进度。不碰 DOM、不读时钟，方便测试直接驱动。
+// Pure: lines + seconds -> current line and progress. No DOM, no clock, easy to test.
 function computeLyricRuntimeState(lines, seconds, playingNow, fallbackText) {
   var list = Array.isArray(lines) ? lines : [];
   var t = isFinite(Number(seconds)) ? Number(seconds) : 0;
@@ -652,8 +642,8 @@ function lyricRuntimeCacheAgeMs() {
   return Math.max(0, now - lyricRuntimeCache.updatedAt);
 }
 
-// 渲染侧的统一入口：缓存够新就直接用，否则现算一次（首次进曲、心跳还没跑到时兜底）。
-// Renderer entry point: use the cache while it is fresh, otherwise compute once.
+// 渲染侧入口：缓存够新就用，否则现算一次（进曲瞬间兜底）。
+// Renderer entry point: use the cache while fresh, otherwise compute once.
 function lyricRuntimeSnapshot(freshMs) {
   if (!lyricRuntimeCache || lyricRuntimeCacheAgeMs() > (freshMs || 900)) syncLyricRuntimeState('snapshot');
   return lyricRuntimeCache;
@@ -684,11 +674,8 @@ function stopLyricRuntimeSync() {
   lyricRuntimeSyncTimer = 0;
 }
 
-// 从后台回到前台：立刻刷新缓存、清掉挂在 rAF 上的过期预热（隐藏期间永远不会回调，
-// 其句柄一直挂着会让首帧的歌词推进一直 bail out），并强制把桌面歌词推一次。
-// Returning to the foreground: refresh the cache, drop prewarm work stranded on a rAF that
-// never fired while hidden (its handle keeps the first frame bailing out), and force one
-// desktop-lyrics push.
+// 回到前台：刷新缓存、清掉挂在 rAF 上的过期预热、强制推一次桌面歌词。
+// On foreground: refresh the cache, drop warmup stranded on a dead rAF, push desktop lyrics.
 function resumeLyricsAfterBackground(reason) {
   syncLyricRuntimeState('resume-' + String(reason || 'background'));
   if (typeof clearStaleStageLyricWarmup === 'function') clearStaleStageLyricWarmup(reason || 'resume');

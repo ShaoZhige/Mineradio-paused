@@ -1,12 +1,5 @@
-// 本模块界面文案统一走 i18n；词典是唯一文案来源。
-// UI copy in this module goes through i18n; the dictionary is the single source of copy.
-// 两种形态：
-//   loginEasterEggText('key')            —— 推荐。词典缺键时返回键名本身，漏译一眼可见。
-//   loginEasterEggText('key', '兜底')     —— 仅在「缺键时该显示什么」有明确要求时用。
-//   loginEasterEggText('key', '含 {p} 的模板', {p: v}) —— 带插值，params 同时喂给 t() 与兜底模板。
-// 缺键刻意返回键名而不是空串：空串会让漏译静默发生，键名在界面上是一眼能认出的错误。
-// Two call shapes. A missing key returns the key itself on purpose: an empty string would make
-// an untranslated string fail silently, while a bare key is self-identifying on screen.
+// 文案统一走 i18n：缺键返回键名（不返回空串），params 同时喂给词典与兜底模板。
+// Copy goes through i18n; a missing key returns the key itself rather than an empty string.
 function loginEasterEggText(key, fallback, params) {
   var i18n = (typeof window !== 'undefined' && window.MineradioI18n) || null;
   var text = i18n && typeof i18n.t === 'function' ? i18n.t(key, params) : '';

@@ -284,19 +284,11 @@
 `;
 
   // ── 注入 ────────────────────────────────────────────────────────────────────
-  // 只保留分文件注入。以前还有一条「把所有模块拼成一个 <script>」的路径，默认走它、靠
-  // 跨文件函数提升兜住后向引用；那条路径已经整个删掉：它每次都要 117 次**同步** XHR
-  // （`open(..., false)`，直接阻塞主线程），换来的是一个两万行的巨型 script，栈里只有
-  // `mineradio-index-modules.js:64467`，还得靠行号映射反查文件。分文件后每个模块有自己的
-  // URL，栈里直接是 `js/modules/xxx.js:12`，也不用再跟浏览器解释一个巨型脚本。
-  // Split injection is the only path left. The old "concatenate everything into one <script>"
-  // route is gone: it cost 117 *synchronous* XHRs (open(..., false) blocks the main thread),
-  // produced one 20k-line script whose stacks only said `mineradio-index-modules.js:64467`, and
-  // needed a line map just to name the failing file. Each module now has its own URL, so a stack
-  // already reads `js/modules/xxx.js:12`.
-  // 跨文件函数提升随之消失 —— 那正是 2026-10-28 这一轮把读取层前移的原因。见文件头注释。
-  // Cross-file hoisting is gone with it, which is why the read layer had to move ahead of its
-  // consumers; see the header comment.
+  // 只保留分文件注入：每个模块一个 URL，报错栈直接指向 js/modules/xxx.js，不必靠行号映射反查。
+  // 分文件后没有跨文件函数提升：被调用的模块必须排在调用方之前，或用 __mineradioDefer 推迟
+  // （读取层因此排在消费者之前，逐条顺序见文件头）。
+  // Split injection only: each module has its own URL, so a stack names the file directly. With
+  // no cross-file hoisting a callee must load before its caller or be deferred; see the header.
 
   function moduleUrl(path) {
     return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + moduleCacheBust;
