@@ -93,6 +93,7 @@
     "desktopLyricsHighlight": false,
     "desktopLyricsFps": 0,
     "wallpaperMode": false,
+    "desktopWallpaperBackdrop": true,
     "wallpaperOpacity": 1,
     "wallpaperFps": 60,
     "floatLayer": false,

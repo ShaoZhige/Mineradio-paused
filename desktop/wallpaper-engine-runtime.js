@@ -1578,11 +1578,22 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
             bool enabled = String.Equals(value, "1", StringComparison.Ordinal);
             try {
               if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() {
-                desktopIconLayeringEnabled = enabled;
-                if (!enabled) desktopIconHost = IntPtr.Zero;
-                FollowHost();
-                Console.WriteLine("{\"ok\":true,\"iconLayering\":true,\"enabled\":"
-                  + (enabled ? "true" : "false") + "}");
+                bool applied = false;
+                string failure = "";
+                try {
+                  desktopIconLayeringEnabled = enabled;
+                  if (!enabled) desktopIconHost = IntPtr.Zero;
+                  FollowHost();
+                  applied = true;
+                } catch (Exception layeringError) {
+                  // Never swallow this: without an ACK the caller waits, then keeps a broken
+                  // z-order — that is exactly what a flickering desktop backdrop looks like.
+                  failure = (layeringError.GetType().Name + ": " + layeringError.Message)
+                    .Replace("\\", "/").Replace("\"", "'").Replace("\r", " ").Replace("\n", " ");
+                }
+                Console.WriteLine("{\"ok\":" + (applied ? "true" : "false")
+                  + ",\"iconLayering\":true,\"enabled\":" + (enabled ? "true" : "false")
+                  + ",\"error\":\"" + failure + "\"}");
                 Console.Out.Flush();
               }));
             } catch { }
@@ -2418,6 +2429,11 @@ class WallpaperEngineRuntime {
                 && typeof result.enabled === 'boolean' && session.dwmSurfaceProcess === child) {
                 session.dwmDesktopIconLayering = result.enabled === true;
                 session.dwmDesktopIconLayeringAckToken = (Number(session.dwmDesktopIconLayeringAckToken) || 0) + 1;
+              } else if (result && result.iconLayering === true && result.ok !== true) {
+                // 帮手明确报了失败原因：记下来，再让调用方的重试逻辑决定下一步。
+                // The helper reported why the reorder failed; surface it instead of a bare timeout.
+                console.warn('[WallpaperEngine] DWM icon layering rejected by helper:',
+                  String(result.error || 'unknown'));
               }
               if (result && result.ok === true && result.ready === true
                 && String(result.hostWindowHandle || '') === hostWindowId

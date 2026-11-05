@@ -134,7 +134,7 @@ function currentFxAutosaveTouchedKeys(reason, payload) {
     memorySystemIntervalMin: ['memorySystemIntervalMin'],
     memorySystemThresholdPercent: ['memorySystemThresholdPercent'],
     wallpaperEngineSilentWindows: ['wallpaperEngineSilentWindows'],
-    wallpaperEngineSilentWindows: ['wallpaperEngineSilentWindows'],
+    desktopWallpaperBackdrop: ['desktopWallpaperBackdrop'],
     windowsGameMode: ['windowsGameMode'],
     wallpaperEngineGlassSampler: ['wallpaperEngineGlassSampler']
   };
@@ -445,6 +445,7 @@ function saveLyricLayout(opts) {
       sonicWorkshopPeakColorMode: fx.sonicWorkshopPeakColorMode === 'custom' ? 'custom' : 'cover',
       sonicWorkshopPeakColor: normalizeHexColor(fx.sonicWorkshopPeakColor || fxDefaults.sonicWorkshopPeakColor || '#99c4ff', fxDefaults.sonicWorkshopPeakColor || '#99c4ff'),
       wallpaperMode: false,
+      desktopWallpaperBackdrop: fx.desktopWallpaperBackdrop !== false,
       wallpaperOpacity: clampRange(fx.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(fx.wallpaperOpacity), 0.35, 1),
       wallpaperFps: normalizeWallpaperFps(fx.wallpaperFps),
       wallpaperEngineSilentWindows: fx.wallpaperEngineSilentWindows !== false,

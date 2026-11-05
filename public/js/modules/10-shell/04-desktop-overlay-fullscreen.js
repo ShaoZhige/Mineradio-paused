@@ -49,7 +49,11 @@ var desktopModeControlDockState = {
   open: false,
   hideTimer: 0,
   peek: false,
-  peekTimer: 0
+  peekTimer: 0,
+  openTimer: 0,
+  // 用户主动点关闭后，鼠标还停在把手上时不要立刻又悬停展开。
+  // After an explicit click-to-close, hover must not immediately reopen while the pointer stays.
+  hoverReopenBlocked: false
 };
 var desktopPointerRouteReporter = {
   timer: 0,
@@ -75,6 +79,7 @@ var DESKTOP_ICON_SHIELD_TARGETS = [
   { selector: '#top-right', kind: 'account-actions' },
   { selector: '#desktop-mode-control-handle', kind: 'desktop-controls' },
   { selector: '#desktop-mode-control-panel', kind: 'desktop-controls' },
+  { selector: '#desktop-tools-zone', kind: 'desktop-controls' },
   { selector: '#fx-panel', kind: 'fx-panel' },
   { selector: '#fx-fab', kind: 'fx-launcher' },
   { selector: '#fx-fab-hide-btn', kind: 'fx-launcher-toggle' },
@@ -347,6 +352,26 @@ function collectDesktopIconShieldRects() {
       if (shelfRects[shelfIndex]) rects.push(shelfRects[shelfIndex]);
     }
   }
+  // 锁定软件操作时，右上角必须保留一小块可交互区域：它是唯一能把输入重新接回
+  // Mineradio 的通道。把手本身可能处在自动隐藏的过渡里，所以这里按固定几何补一块，
+  // 保证这条恢复走廊不会随把手一起从窗口区域里消失。
+  // While the software is locked the top-right corner has to stay interactive: it is the only
+  // way input can reach Mineradio again. The handle may still be mid auto-hide, so the corridor
+  // is added from fixed geometry instead of relying on the handle being visible.
+  if (rects.length < 64 && desktopIconShieldModeState().active
+    && desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true) {
+    var corridorStyle = null;
+    try { corridorStyle = window.getComputedStyle(document.documentElement); } catch (_) { }
+    var corridorSafeTop = corridorStyle ? parseFloat(corridorStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
+    var corridorSafeRight = corridorStyle ? parseFloat(corridorStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
+    rects.push({
+      x: Math.max(0, viewportWidth - corridorSafeRight - 92),
+      y: Math.max(0, corridorSafeTop),
+      width: Math.min(92, viewportWidth),
+      height: Math.min(104, viewportHeight),
+      kind: 'desktop-controls'
+    });
+  }
   return { width: viewportWidth, height: viewportHeight, rects: rects };
 }
 
@@ -378,6 +403,40 @@ function applyDesktopIconRevealMask(shieldRects) {
   clearDesktopIconRevealMask();
 }
 
+// 锁定期间把除控制器外的 body 子层逐个钉成 pointer-events:none（内联 !important），
+// 因为桌面模式里有几条带 !important 的规则会把 #empty-home / #bottom-bar 强制设回 auto，
+// 单靠一条通用 CSS 选择器压不住它们。
+// While locked, pin every body child except the controller to pointer-events:none with an inline
+// !important. Desktop mode has a few !important rules that force #empty-home / #bottom-bar back
+// to auto, so a single generic CSS selector cannot win against them.
+function syncDesktopSoftwareLockPointerShield(locked) {
+  if (!document.body) return;
+  var dock = document.getElementById('desktop-mode-control-dock');
+  var roots = Array.prototype.slice.call(document.body.children);
+  var shell = document.getElementById('desktop-window-shell');
+  if (shell) roots = roots.concat(Array.prototype.slice.call(shell.children));
+  for (var i = 0; i < roots.length; i++) {
+    var node = roots[i];
+    if (!node || node === dock || node.contains(dock)) continue;
+    var tag = node.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK') continue;
+    if (locked) {
+      if (!node.hasAttribute('data-lock-pointer-prev')) {
+        node.setAttribute('data-lock-pointer-prev', node.style.getPropertyValue('pointer-events'));
+        node.setAttribute('data-lock-pointer-prev-priority', node.style.getPropertyPriority('pointer-events'));
+      }
+      node.style.setProperty('pointer-events', 'none', 'important');
+    } else if (node.hasAttribute('data-lock-pointer-prev')) {
+      var previous = node.getAttribute('data-lock-pointer-prev');
+      var priority = node.getAttribute('data-lock-pointer-prev-priority') || '';
+      node.removeAttribute('data-lock-pointer-prev');
+      node.removeAttribute('data-lock-pointer-prev-priority');
+      if (previous) node.style.setProperty('pointer-events', previous, priority);
+      else node.style.removeProperty('pointer-events');
+    }
+  }
+}
+
 function updateDesktopModeControl(status) {
   status = status || desktopWallpaperRuntimeState || {};
   var api = getDesktopWindowApi();
@@ -397,6 +456,17 @@ function updateDesktopModeControl(status) {
   }
   if (softwareLockState) softwareLockState.textContent = softwareLocked ? desktopOverlayFullscreenText('overlay_locked_unlock_here') : desktopOverlayFullscreenText('overlay_controls_normal');
   if (document.body) document.body.classList.toggle('desktop-software-locked', active && softwareLocked);
+  syncDesktopSoftwareLockPointerShield(active && softwareLocked);
+  syncDesktopControllerZoneTicker(active && softwareLocked);
+  // 锁定软件操作后，这块把手就是唯一的解锁入口：它不能被自动隐藏带走，否则用户
+  // 既看不到也点不到同一个开关。锁定期间强制保持可见，解锁后再交还给自动隐藏。
+  // While the software is locked this handle is the only way back, so it must survive the
+  // auto-hide: keep it visible until the lock is released.
+  if (active && softwareLocked) {
+    setDesktopModeControlPeek(true);
+    cancelDesktopModeControlHide();
+    cancelDesktopModeControlPeekHide();
+  }
   if (iconsButton) {
     var iconsSupported = !!(api && typeof api.setDesktopIconsVisible === 'function');
     iconsButton.setAttribute('aria-checked', iconsVisible ? 'true' : 'false');
@@ -405,6 +475,10 @@ function updateDesktopModeControl(status) {
     iconsButton.title = iconsVisible ? desktopOverlayFullscreenText('overlay_hide_icons') : desktopOverlayFullscreenText('overlay_show_icons');
   }
   if (iconsState) iconsState.textContent = iconsVisible ? desktopOverlayFullscreenText('overlay_icons_shown_short') : desktopOverlayFullscreenText('overlay_icons_hidden_short');
+  // 控制器区域的屏幕矩形随锁定/展开/图标层状态变化，随时同步给主进程的光标轮询。
+  // The controller's screen rect changes with the lock, the panel and the icon layer; keep the
+  // main-process cursor poll fed.
+  reportDesktopControllerZone();
 }
 
 function updateDesktopIconLockControl(status) {
@@ -540,6 +614,33 @@ function cancelDesktopModeControlPeekHide() {
   desktopModeControlDockState.peekTimer = 0;
 }
 
+function cancelDesktopModeControlOpen() {
+  if (!desktopModeControlDockState.openTimer) return;
+  clearTimeout(desktopModeControlDockState.openTimer);
+  desktopModeControlDockState.openTimer = 0;
+}
+
+// 鼠标停在把手上片刻即展开控制面板，移开就收起来；面板里两个开关（锁定/图标）随之可点。
+// Hovering the handle for a moment expands the control panel, leaving collapses it; the two
+// switches inside (software lock / desktop icons) are then clickable.
+function scheduleDesktopModeControlOpen(delay, force) {
+  cancelDesktopModeControlOpen();
+  if (desktopModeControlDockState.open || desktopModeControlDockState.hoverReopenBlocked) return;
+  desktopModeControlDockState.openTimer = setTimeout(function () {
+    desktopModeControlDockState.openTimer = 0;
+    if (desktopModeControlDockState.open || desktopModeControlDockState.hoverReopenBlocked) return;
+    // 主进程轮询出来的悬停不需要再用转发坐标复核（锁定期间渲染进程根本收不到 mousemove）。
+    // Hover reported by the main-process cursor poll cannot be re-checked against forwarded
+    // coordinates: while locked the renderer receives no mousemove at all.
+    if (force !== true) {
+      if (!desktopPointerRouteReporter.hasPointer) return;
+      var pointState = desktopControlPointState(desktopPointerRouteReporter.x, desktopPointerRouteReporter.y);
+      if (!pointState.overHotspot && !pointState.overPanel && !pointState.overDock) return;
+    }
+    setDesktopModeControlsOpen(true);
+  }, Math.max(60, Number(delay) || 160));
+}
+
 function setDesktopModeControlPeek(peek) {
   peek = peek === true && desktopIconShieldModeState().active;
   if (peek) cancelDesktopModeControlPeekHide();
@@ -547,9 +648,16 @@ function setDesktopModeControlPeek(peek) {
   desktopModeControlDockState.peek = peek;
   if (document.body) document.body.classList.toggle('desktop-mode-control-peek', peek);
   scheduleDesktopIconShieldReport(false);
+  reportDesktopControllerZone();
 }
 
 function scheduleDesktopModeControlPeekHide(delay) {
+  // 锁定软件操作时把手是唯一解锁入口，永远不自动隐藏。
+  // While the software is locked this handle is the only way back, so it never hides itself.
+  if (desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true) {
+    setDesktopModeControlPeek(true);
+    return;
+  }
   cancelDesktopModeControlPeekHide();
   desktopModeControlDockState.peekTimer = setTimeout(function () {
     desktopModeControlDockState.peekTimer = 0;
@@ -563,6 +671,7 @@ function scheduleDesktopModeControlPeekHide(delay) {
 function setDesktopModeControlsOpen(open) {
   open = open === true && desktopIconShieldModeState().active;
   cancelDesktopModeControlHide();
+  cancelDesktopModeControlOpen();
   if (open) setDesktopModeControlPeek(true);
   if (desktopModeControlDockState.open === open) return;
   desktopModeControlDockState.open = open;
@@ -582,7 +691,12 @@ function setDesktopModeControlsOpen(open) {
   document.body.classList.toggle('desktop-mode-controls-open', open);
   if (!open) scheduleDesktopModeControlPeekHide(900);
   scheduleDesktopIconShieldReport(false);
-  scheduleDesktopPointerRouteReport(null, true);
+  // 锁定期间不能拿上一帧的坐标去重算路由（否则面板刚由悬停展开就被判成「鼠标已离开」）。
+  // While locked, stale coordinates must not re-run the route right after hover opened the panel.
+  if (!(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true)) {
+    scheduleDesktopPointerRouteReport(null, true);
+  }
+  reportDesktopControllerZone();
 }
 
 function scheduleDesktopModeControlHide(delay) {
@@ -597,6 +711,84 @@ function scheduleDesktopModeControlHide(delay) {
 
 function desktopPointInClientRect(x, y, rect) {
   return !!rect && x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
+}
+
+// 锁定期间主进程要靠这个矩形判断光标是否落在控制器上；坐标换算成屏幕坐标（DIP）。
+// The main process polls the real cursor against this rect while locked, so report it in screen
+// (DIP) coordinates.
+function desktopControllerScreenRect() {
+  var mode = desktopIconShieldModeState();
+  if (!mode.active) return null;
+  var rects = [];
+  function pushNode(node) {
+    if (!node) return;
+    var rect = node.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) rects.push(rect);
+  }
+  // 控制器是本进程自己的元素，直接取矩形：锁定后界面整体退出命中，可见性辅助函数会把
+  // pointer-events:none 的元素判成不可用，反而把它排除在轮询区之外。
+  pushNode(document.getElementById('desktop-mode-control-handle'));
+  if (desktopModeControlDockState.open) {
+    pushNode(document.getElementById('desktop-mode-control-panel'));
+    pushNode(document.getElementById('desktop-mode-control-dock'));
+  }
+  var rootStyle = null;
+  try { rootStyle = window.getComputedStyle(document.documentElement); } catch (_) { }
+  var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
+  var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
+  rects.push({
+    left: Math.max(0, window.innerWidth - safeRight - 92),
+    top: safeTop,
+    right: Math.max(0, window.innerWidth - safeRight),
+    bottom: safeTop + 104
+  });
+  var left = Infinity;
+  var top = Infinity;
+  var right = -Infinity;
+  var bottom = -Infinity;
+  for (var i = 0; i < rects.length; i += 1) {
+    left = Math.min(left, rects[i].left);
+    top = Math.min(top, rects[i].top);
+    right = Math.max(right, rects[i].right);
+    bottom = Math.max(bottom, rects[i].bottom);
+  }
+  if (!isFinite(left) || right <= left || bottom <= top) return null;
+  var offsetX = Number(window.screenX) || 0;
+  var offsetY = Number(window.screenY) || 0;
+  return {
+    x: Math.round(offsetX + left),
+    y: Math.round(offsetY + top),
+    width: Math.round(right - left),
+    height: Math.round(bottom - top)
+  };
+}
+
+function reportDesktopControllerZone() {
+  var api = getDesktopWindowApi();
+  if (!api || typeof api.setDesktopControllerZone !== 'function') return;
+  var rect = desktopControllerScreenRect();
+  try {
+    api.setDesktopControllerZone(rect || { x: 0, y: 0, width: 0, height: 0 });
+  } catch (_) { }
+}
+
+// 锁定期间面板会展开、尺寸会变，主进程的光标轮询必须拿到最新矩形；除了状态变化时同步，
+// 再挂一个低频心跳兜底，避免漏报导致「面板看得见但点不到」。
+// While locked the panel expands and changes size, and the main-process cursor poll needs the
+// current rect; besides syncing on state changes, a low-frequency heartbeat makes sure a missed
+// report cannot leave the panel visible but unclickable.
+var desktopControllerZoneTicker = 0;
+function syncDesktopControllerZoneTicker(active) {
+  active = active === true;
+  if (!active) {
+    if (desktopControllerZoneTicker) {
+      clearInterval(desktopControllerZoneTicker);
+      desktopControllerZoneTicker = 0;
+    }
+    return;
+  }
+  if (desktopControllerZoneTicker) return;
+  desktopControllerZoneTicker = setInterval(reportDesktopControllerZone, 250);
 }
 
 function desktopControlPointState(x, y) {
@@ -614,11 +806,19 @@ function desktopControlPointState(x, y) {
   var overPanel = !!(desktopModeControlDockState.open && panel
     && desktopIconShieldElementVisible(panel, { ignoreAriaHidden: true })
     && desktopPointInClientRect(x, y, panel.getBoundingClientRect()));
+  // 面板展开后，把手与面板之间有几像素空隙；算上整个 dock 才不会在移过去的中途被判定为「已离开」。
+  // The gap between handle and panel is a few pixels; counting the whole dock keeps moving into
+  // the panel from being read as "pointer left the controls".
+  var dock = document.getElementById('desktop-mode-control-dock');
+  var overDock = !!(desktopModeControlDockState.open && dock
+    && desktopIconShieldElementVisible(dock, { ignoreAriaHidden: true })
+    && desktopPointInClientRect(x, y, dock.getBoundingClientRect()));
   return {
     overRevealEdge: overRevealEdge,
     overHotspot: overHotspot,
     overPanel: overPanel,
-    overControls: overRevealEdge || overHotspot || overPanel
+    overDock: overDock,
+    overControls: overRevealEdge || overHotspot || overPanel || overDock
   };
 }
 
@@ -640,21 +840,37 @@ function flushDesktopPointerRouteReport(force) {
   var api = getDesktopWindowApi();
   if (!api || typeof api.updateDesktopPointerRoute !== 'function') return;
   var mode = desktopIconShieldModeState();
+  var softwareLocked = !!(desktopWallpaperRuntimeState
+    && desktopWallpaperRuntimeState.softwareInteractionLocked === true);
   var overSoftwareUi = false;
   var overDesktopControls = false;
-  if (mode.active && desktopPointerRouteReporter.hasPointer) {
+  // 锁定期间窗口是点击穿透的，转发坐标可能根本收不到；可点击区域交给主进程轮询。
+  // While locked the window is click-through and forwarded coordinates may never arrive, so the
+  // clickable route is driven by the main-process poll instead.
+  if (mode.active && desktopPointerRouteReporter.hasPointer && !softwareLocked) {
     var pointState = desktopControlPointState(desktopPointerRouteReporter.x, desktopPointerRouteReporter.y);
     overDesktopControls = pointState.overControls;
     if (overDesktopControls) {
       setDesktopModeControlPeek(true);
       cancelDesktopModeControlHide();
       cancelDesktopModeControlPeekHide();
+      // 鼠标停在把手上 → 展开；（点关闭后要等鼠标移开才允许再次悬停展开）
+      // Hovering the handle expands the panel; after an explicit close it waits for the pointer
+      // to leave before hover may reopen it.
+      if (pointState.overHotspot || pointState.overPanel || pointState.overDock) {
+        scheduleDesktopModeControlOpen(160);
+      } else {
+        cancelDesktopModeControlOpen();
+      }
     }
-    else if (desktopModeControlDockState.open) {
-      scheduleDesktopModeControlHide(desktopWallpaperRuntimeState
-        && desktopWallpaperRuntimeState.softwareInteractionLocked === true ? 120 : 680);
+    else {
+      cancelDesktopModeControlOpen();
+      desktopModeControlDockState.hoverReopenBlocked = false;
+      if (desktopModeControlDockState.open) {
+        scheduleDesktopModeControlHide(desktopWallpaperRuntimeState
+          && desktopWallpaperRuntimeState.softwareInteractionLocked === true ? 220 : 680);
+      } else scheduleDesktopModeControlPeekHide(980);
     }
-    else scheduleDesktopModeControlPeekHide(980);
     overSoftwareUi = desktopPointerOverSoftwareUi(desktopPointerRouteReporter.x, desktopPointerRouteReporter.y);
   }
   var key = (overSoftwareUi ? '1' : '0') + '|' + (overDesktopControls ? '1' : '0');
@@ -702,7 +918,11 @@ function initDesktopModeControls(api) {
   setDesktopModeControlsOpen(false);
   handle.addEventListener('click', function (event) {
     consumeDesktopModeControlEvent(event);
-    setDesktopModeControlsOpen(!desktopModeControlDockState.open);
+    var nextOpen = !desktopModeControlDockState.open;
+    // 点关闭后鼠标通常还停在把手上，此时禁止悬停立即重开，等指针离开再恢复。
+    // Clicking to close usually leaves the pointer on the handle; block hover-reopen until it leaves.
+    desktopModeControlDockState.hoverReopenBlocked = !nextOpen;
+    setDesktopModeControlsOpen(nextOpen);
   });
   handle.addEventListener('keydown', function (event) {
     if (event.key === 'ArrowDown') {
@@ -748,6 +968,27 @@ function initDesktopModeControls(api) {
   document.addEventListener('mousemove', function (event) {
     scheduleDesktopPointerRouteReport(event, false);
   }, { passive: true });
+  // 锁定期间渲染进程收不到任何鼠标事件，悬停/移开的判定改由主进程轮询真实光标后推送。
+  // While locked the renderer receives no mouse events at all, so hover/leave is reported by the
+  // main process after polling the real cursor.
+  if (typeof api.onDesktopControllerHover === 'function') {
+    api.onDesktopControllerHover(function (over) {
+      if (over) {
+        setDesktopModeControlPeek(true);
+        cancelDesktopModeControlHide();
+        cancelDesktopModeControlPeekHide();
+        scheduleDesktopModeControlOpen(40, true);
+        return;
+      }
+      cancelDesktopModeControlOpen();
+      // 转发坐标仍认为指针在控制器上时，不要因为轮询的矩形偏差把面板收掉。
+      // Do not close on a poll miss while forwarded coordinates still say the pointer is on the
+      // controller.
+      if (desktopPointerRouteReporter.overControls) return;
+      setDesktopModeControlsOpen(false);
+    });
+  }
+  window.addEventListener('resize', reportDesktopControllerZone);
   window.addEventListener('blur', function () {
     setDesktopModeControlsOpen(false);
     scheduleDesktopModeControlPeekHide(360);
@@ -1130,8 +1371,64 @@ function wallpaperPayload() {
     preset: fx.preset,
     opacity: clampRange(fx.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(fx.wallpaperOpacity), 0.35, 1),
     frameRate: normalizeWallpaperFps(fx.wallpaperFps),
+    // 背景来源：desktop 让真实桌面壁纸透出（WE 桌面壁纸也在其中），mineradio 用自带视觉。
+    // Backdrop source: desktop shows the real wallpaper through, mineradio keeps our visuals.
+    backdrop: fx.desktopWallpaperBackdrop === false ? 'mineradio' : 'desktop',
     colors: desktopOverlayColors()
   };
+}
+function desktopBackdropUsesDesktopWallpaper() {
+  return !!(fx && fx.wallpaperMode === true && fx.desktopWallpaperBackdrop !== false);
+}
+function maybeShowDesktopBackdropHint(result) {
+  if (fx.desktopWallpaperBackdrop === false) return;
+  var backdrop = result && result.backdrop;
+  // 桌面壁纸本来就是 WE 提供的：什么都不用提示，用户已经看到了。
+  // WE already owns the desktop wallpaper, so there is nothing to explain.
+  if (backdrop && backdrop.weOwnsBackground === true) return;
+  var selection = typeof wallpaperEngineSelection === 'object' && wallpaperEngineSelection ? wallpaperEngineSelection : null;
+  if (!selection || selection.active !== true) return;
+  var hintKey = 'mineradio.desktopBackdropHintShown';
+  try { if (window.localStorage && localStorage.getItem(hintKey) === '1') return; } catch (_) { }
+  try { if (window.localStorage) localStorage.setItem(hintKey, '1'); } catch (_) { }
+  if (typeof showToast === 'function') showToast(desktopOverlayFullscreenText('fx_desktop_backdrop_hint'));
+}
+function resumeWallpaperEngineAfterDesktopMode() {
+  var selection = typeof wallpaperEngineSelection === 'object' && wallpaperEngineSelection ? wallpaperEngineSelection : null;
+  if (!selection || selection.active !== true || selection.kind !== 'engine') return;
+  if (typeof restartWallpaperEngineAfterHostBoundsChange !== 'function') return;
+  // 退出桌面模式时主进程刚解除挂起，第一次拉起可能撞上它自己的清理流程；失败就隔两秒
+  // 再试，最多四次，直到会话真的活着。
+  // Leaving desktop mode right after main clears its suspend latch can lose the first start to
+  // in-flight cleanup, so retry up to four times until the session is actually alive.
+  var attempts = 0;
+  function attempt() {
+    attempts += 1;
+    try { restartWallpaperEngineAfterHostBoundsChange(); } catch (_) { }
+    if (attempts >= 4) return;
+    setTimeout(function () {
+      if (fx.wallpaperMode === true) return;
+      var api = typeof getDesktopWindowApi === 'function' ? getDesktopWindowApi() : null;
+      if (!api || typeof api.getWallpaperEngineRuntimeStatus !== 'function') return;
+      Promise.resolve(api.getWallpaperEngineRuntimeStatus({ force: false })).then(function (status) {
+        if (status && status.active === true) return;
+        attempt();
+      }).catch(function () { });
+    }, 2200);
+  }
+  attempt();
+}
+function suspendWallpaperEngineLayerForDesktopBackdrop() {
+  // 主进程会停掉 WE 会话，但渲染层还留着上一帧的捕获画面（那正是压在界面上的矩形），
+  // 必须在这里一起清掉，否则桌面模式里会看到一张冻结的壁纸残影。
+  // The main process stops the session, but the renderer still holds the last captured frame —
+  // exactly the rectangle seen over the UI — so tear the layer down here as well.
+  if (typeof clearWallpaperEngineLayerMedia === 'function') {
+    try { clearWallpaperEngineLayerMedia(0); } catch (_) { }
+  }
+  if (typeof restoreOriginalBackgroundAfterWallpaperEngine === 'function') {
+    try { restoreOriginalBackgroundAfterWallpaperEngine(); } catch (_) { }
+  }
 }
 function desktopWallpaperStatusPayload(payload) {
   if (payload && payload.status && typeof payload.status === 'object') return payload.status;
@@ -1190,12 +1487,22 @@ function syncDesktopWallpaperBodyClasses(status, enabled, interactive) {
   interactive = enabled && interactive === true;
   var explorerLayeredColorkey = enabled && desktopUsesLayeredExplorerColorkey(status);
   var iconsHidden = enabled && !desktopIconsAreVisible(status);
+  var desktopBackdrop = enabled && fx.desktopWallpaperBackdrop !== false;
   document.documentElement.classList.toggle('desktop-explorer-layered-colorkey-root', explorerLayeredColorkey);
   document.body.classList.toggle('desktop-wallpaper-mode', enabled);
+  document.body.classList.toggle('desktop-backdrop-desktop', desktopBackdrop);
+  document.body.classList.toggle('desktop-backdrop-mineradio', enabled && !desktopBackdrop);
   document.body.classList.toggle('desktop-wallpaper-interactive', interactive);
   document.body.classList.toggle('desktop-explorer-layered-colorkey', explorerLayeredColorkey);
   document.body.classList.toggle('desktop-software-locked', interactive && status.softwareInteractionLocked === true);
   document.body.classList.toggle('desktop-icons-hidden', iconsHidden);
+  // 桌面模式会隐藏整条标题栏，标题栏里的工具按钮改停到 #desktop-tools-zone；
+  // 退出来再搬回标题栏（或仍在全屏时搬回全屏工具行）。
+  // Desktop mode hides the whole title bar, so its tool buttons dock in #desktop-tools-zone and
+  // move back on exit (or to the fullscreen row if the window is still fullscreen).
+  if (typeof syncFullscreenToolsRow === 'function') {
+    syncFullscreenToolsRow(desktopFullscreenActive === true);
+  }
   if (!interactive) {
     setDesktopModeControlsOpen(false);
     setDesktopModeControlPeek(false);
@@ -1244,20 +1551,29 @@ function ensureDesktopWallpaperFunctionalUi(reason) {
     if (typeof setHomeControlsLocked === 'function') setHomeControlsLocked(false);
     else body.classList.remove('home-controls-locked');
   }
-  if (typeof controlsHideTimer !== 'undefined' && controlsHideTimer) {
-    clearTimeout(controlsHideTimer);
-    controlsHideTimer = null;
-  }
-  if (typeof controlsRevealHoldUntil !== 'undefined') {
-    controlsRevealHoldUntil = Math.max(controlsRevealHoldUntil || 0, performance.now() + 900);
-  }
+  // 这个函数被 320ms 的健康检查反复调用，作用是「原生切换后别把界面留在坏状态」。
+  // 一旦用户开了控制栏自动隐藏，控制条显示与否就归自动隐藏逻辑管：这里再把它拉出来、
+  // 并把 900ms 的展示保持时间续上，会形成「每次检查都续期 → 永远不隐藏」的死循环。
+  // This runs on the 320ms health watch to recover from stuck native transitions. Once the
+  // user enables console auto-hide, visibility belongs to that logic: re-revealing here and
+  // extending the 900ms reveal hold each tick creates a loop where the console never hides.
   var bar = document.getElementById('bottom-bar');
-  if (bar) {
-    bar.classList.add('visible');
-    bar.classList.remove('soft-hidden');
-    bar.style.pointerEvents = '';
+  var autoHideOwnsVisibility = typeof controlsAutoHide !== 'undefined' && controlsAutoHide;
+  if (!autoHideOwnsVisibility) {
+    if (typeof controlsHideTimer !== 'undefined' && controlsHideTimer) {
+      clearTimeout(controlsHideTimer);
+      controlsHideTimer = null;
+    }
+    if (typeof controlsRevealHoldUntil !== 'undefined') {
+      controlsRevealHoldUntil = Math.max(controlsRevealHoldUntil || 0, performance.now() + 900);
+    }
+    if (bar) {
+      bar.classList.add('visible');
+      bar.classList.remove('soft-hidden');
+      bar.style.pointerEvents = '';
+    }
+    if (typeof setControlsHidden === 'function') setControlsHidden(false);
   }
-  if (typeof setControlsHidden === 'function') setControlsHidden(false);
   if (typeof updateControlsChromeState === 'function') updateControlsChromeState();
   return !!bar;
 }
@@ -1348,6 +1664,13 @@ function applyDesktopWallpaperRuntimeStatus(payload) {
   if (isFinite(generation) && generation < desktopWallpaperStatusGeneration) return desktopWallpaperRuntimeState;
   if (isFinite(generation)) desktopWallpaperStatusGeneration = generation;
   desktopWallpaperRuntimeState = Object.assign({}, desktopWallpaperRuntimeState, status);
+  // 桌面「刷新」触发的重绑会连发几条中间状态（queued / recovering-icon-layer）。这些状态只
+  // 说明图标层正在重挂，界面本身没变；逐条重跑安全区、类名和 UI 浮现会让歌词行在下一行闪一下。
+  // A desktop refresh emits several transient statuses while the icon layer rebinds. Nothing about
+  // the layout changed, so re-running the safe area, body classes and reveal logic on each one
+  // makes the lyric line flicker; keep the previous layout until the final status arrives.
+  var transientHostRecovery = String(status.phase || '') === 'recovering-icon-layer';
+  if (transientHostRecovery) return desktopWallpaperRuntimeState;
   var nextEnabled = status.enabled === true || status.active === true
     ? true
     : (status.attaching === true ? !!fx.wallpaperMode : false);
@@ -1474,6 +1797,14 @@ function applyWallpaperModeState(force) {
       fx.wallpaperMode = result.enabled === true || failedStatus.enabled === true || failedStatus.active === true;
       updateFxInputs();
     }
+    if (payload.enabled) {
+      if (result.ok === true && fx.desktopWallpaperBackdrop !== false) suspendWallpaperEngineLayerForDesktopBackdrop();
+      maybeShowDesktopBackdropHint(result);
+    } else if (result.ok === true) {
+      // 退出桌面模式后把应用内 WE 会话按当前窗口尺寸重新拉起来。
+      // After leaving desktop mode, restart the in-app WE scene at the current window size.
+      setTimeout(resumeWallpaperEngineAfterDesktopMode, 420);
+    }
     return result;
   }).catch(function (error) {
     if (operation !== desktopWallpaperRendererOperation) return { ok: false, enabled: false, rendererStale: true, error: String(error && error.message || error) };
@@ -1584,6 +1915,14 @@ function toggleFullscreen() {
   var maxIcon = maxBtn && maxBtn.querySelector('.icon-maximize');
   var restoreIcon = maxBtn && maxBtn.querySelector('.icon-restore');
   function applyState(state) {
+    // 主进程会重复上报同一份窗口状态（例如桌面刷新后重新确认嵌入状态）。内容没变时不要再
+    // 重跑安全区、类名和图标报告，否则歌词和界面会被无意义地重排一次。
+    // The main process repeats the same window state (for example after a desktop refresh
+    // re-confirms the embedding). Re-running the safe area, classes and icon report for an
+    // unchanged state needlessly reflows the lyrics and UI.
+    var stateKey = JSON.stringify(state || {});
+    if (stateKey === applyState.lastKey) return;
+    applyState.lastKey = stateKey;
     var wasHidden = !!desktopWindowState.isMinimized || desktopWindowState.isVisible === false;
     desktopWindowState = Object.assign(desktopWindowState, state || {});
     var isHidden = !!desktopWindowState.isMinimized || desktopWindowState.isVisible === false;

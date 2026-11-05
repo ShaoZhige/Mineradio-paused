@@ -15,6 +15,11 @@ const { startNativeDesktopIconLayer } = require('./desktop-native-icon-layer-run
 
 const ICON_HOST_RECOVERY_CIRCUIT_WINDOW_MS = 12000;
 const ICON_HOST_RECOVERY_CIRCUIT_LIMIT = 2;
+// Explorer 的桌面刷新会重建图标宿主。它可恢复、且用户可能连按几次，阈值放宽到 8 次/12 秒；
+// watcher 自身崩溃仍按 2 次/12 秒熔断，避免真正的死循环。
+// A desktop refresh rebuilds the icon host: recoverable and possibly repeated, so it gets
+// 8 rebinds per 12s while genuine watcher crashes keep the tighter 2-per-12s circuit.
+const ICON_HOST_CHANGED_RECOVERY_CIRCUIT_LIMIT = ICON_HOST_RECOVERY_CIRCUIT_LIMIT * 4;
 const ICON_HOST_RECOVERY_STABLE_MS = 10000;
 
 function normalizeBounds(value, fallback = {}) {
@@ -1026,7 +1031,8 @@ class FullDesktopModeRuntime {
         }
         if (!this.enabled || !this.interactive || this.disposeRequested) return;
         if (shouldRebind) {
-          const recoveryReason = watcherFailureCode === 'DESKTOP_ICON_HOST_CHANGED'
+          const hostChanged = watcherFailureCode === 'DESKTOP_ICON_HOST_CHANGED';
+          const recoveryReason = hostChanged
             ? 'desktop-icon-host-changed'
             : 'desktop-icon-watcher-restarted';
           const recoveryEvents = this.recordIconHostRecoveryEvent();
@@ -1038,7 +1044,15 @@ class FullDesktopModeRuntime {
           // existing renderer visible while the serialized rebind is queued.
           if (this.isWindowAlive()) safeCall(this.window, 'showInactive', null);
           this.generation += 1;
-          if (recoveryEvents >= ICON_HOST_RECOVERY_CIRCUIT_LIMIT) {
+          // 桌面右键「刷新」会重建图标宿主，这是用户主动操作、必然可恢复的场景：
+          // 它比 watcher 崩溃常见得多，不能两次就把桌面模式关掉，否则连点几下刷新就退回窗口模式。
+          // A desktop refresh rebuilds the icon host. That is a user action with a guaranteed
+          // rebind, far more common than a watcher crash, so it gets a much wider circuit budget
+          // instead of exiting desktop mode after two refreshes.
+          const recoveryLimit = hostChanged
+            ? ICON_HOST_CHANGED_RECOVERY_CIRCUIT_LIMIT
+            : ICON_HOST_RECOVERY_CIRCUIT_LIMIT;
+          if (recoveryEvents >= recoveryLimit) {
             this.openIconHostRecoveryCircuit(recoveryReason);
             return;
           }
@@ -1155,10 +1169,10 @@ class FullDesktopModeRuntime {
   applyInteractivePointerRoute(win = this.window, options = {}) {
     if (!this.isWindowAlive(win)) return null;
     // A locked desktop surface passes normal Mineradio areas through to
-    // Explorer, but forwarded move events keep the renderer informed. The
-    // right-top controller is the permanent recovery island: entering its
-    // reveal corridor immediately restores native input so the same switch can
-    // always unlock the software again.
+    // Explorer. Forwarded moves stay enabled so the renderer still sees the
+    // pointer for diagnostics, but hover/click are suppressed in the UI layer
+    // (pointer-events + global observer guards) and the permanent controller
+    // island is driven by the main-process cursor poll.
     const ignoreMouseEvents = this.softwareInteractionLocked === true
       && this.pointerRoute.overDesktopControls !== true;
     if (options.force === true || this.pointerIgnoreMouseEvents !== ignoreMouseEvents) {
@@ -1240,13 +1254,13 @@ class FullDesktopModeRuntime {
       this.iconInteractionLocked = desired;
       this.iconInteractionLockError = '';
       if (desired) {
+        // 只让出焦点，不要让窗口变成不可聚焦：Electron 的
+        // setIgnoreMouseEvents(true, { forward: true }) 依靠转发鼠标移动来维持右上角
+        // 恢复走廊，窗口一旦不可聚焦，转发就会停，锁定后连解锁按钮都收不到指针。
+        // Blur only. Making the window non-focusable stopped forwarded mouse moves, which
+        // is the only channel the top-right unlock island has while input passes through.
         safeCall(this.window && this.window.webContents, 'blur', null);
         safeCall(this.window, 'blur', null);
-        safeCall(this.window, 'setFocusable', null, false);
-      } else {
-        // Unlock only makes the child eligible for focus. A subsequent real
-        // pointerdown restores web-content focus without stealing it here.
-        safeCall(this.window, 'setFocusable', null, true);
       }
       const ignoreMouseEvents = this.applyInteractivePointerRoute(this.window, { force: true });
       this.generation += 1;
@@ -1778,9 +1792,15 @@ class FullDesktopModeRuntime {
 
   async reconcileInteractiveInternal(reason = 'interactive-reconcile') {
     const display = this.displaySnapshot(this.window);
+    // Explorer 刷新触发的重绑不隐藏窗口：hide/show 会让渲染进程收到一次可见性切换，
+    // 歌词和界面看起来像被重新加载了一遍。原地重绑即可，窗口始终保持可见。
+    // A rebind caused by an Explorer refresh must not hide the window: the hide/show pair is a
+    // visibility change for the renderer and makes lyrics/UI look reloaded. Rebinding in place
+    // keeps the window visible the whole time.
+    const keepVisible = /desktop-icon-host-changed/.test(String(reason || ''));
     try {
       await this.stopIconShapeWatcher();
-      safeCall(this.window, 'hide', null);
+      if (!keepVisible) safeCall(this.window, 'hide', null);
       const cleared = this.clearIconShapeState(this.window, {
         preserveShields: true,
         preserveDesktopIconsVisible: true,

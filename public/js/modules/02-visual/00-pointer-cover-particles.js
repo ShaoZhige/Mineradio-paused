@@ -96,6 +96,10 @@ window.addEventListener('mousedown', function (e) {
   beginParticlePointerDrag(e);
 }, true);
 window.addEventListener('mousemove', function (e) {
+  // 锁定软件操作时，鼠标属于桌面：自动隐藏、引导提示、自由视角等联动全部不参与。
+  // While the software is locked the pointer belongs to the desktop, so none of the
+  // pointer-driven UI reactions (auto-hide, idle guide, free camera) may run.
+  if (typeof desktopSoftwarePointerIgnored === 'function' && desktopSoftwarePointerIgnored()) return;
   updateControlsAutoHideFromPointer(e.clientX, e.clientY);
   idleGuidePointerMove(e);
   if (freeCamera && freeCamera.active) {

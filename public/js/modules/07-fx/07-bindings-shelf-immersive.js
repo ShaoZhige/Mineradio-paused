@@ -430,7 +430,7 @@ function toggleFx(key) {
   if (toggle) toggle.classList.toggle('on', fx[key]);
   if (key === 'lyricGlow' || key === 'lyricGlowBeat') updateLyricGlowControls();
   syncFxUniforms();
-  if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'lyricVerticalFloat' || key === 'lyricLiveViewportFit' || key === 'lyricContextHighQuality' || key === 'lyricBackdropAdapt' || key === 'coverBackdropAdapt' || key === 'backgroundStarRiver' || key === 'lyricPauseHold' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'aiDepth' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'sonicGroundFloatingEnabled' || key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep' || key === 'memoryAutoTrimApp' || key === 'memoryAutoTrimOnBackground' || key === 'memoryAutoSystemTrim' || key === 'memorySystemAutoElevate' || key === 'wallpaperEngineSilentWindows' || key === 'wallpaperEngineGlassSampler' || key === 'beatAnalysis') saveLyricLayout({ user: true, reason: key });
+  if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'lyricVerticalFloat' || key === 'lyricLiveViewportFit' || key === 'lyricContextHighQuality' || key === 'lyricBackdropAdapt' || key === 'coverBackdropAdapt' || key === 'backgroundStarRiver' || key === 'lyricPauseHold' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'aiDepth' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'sonicGroundFloatingEnabled' || key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep' || key === 'memoryAutoTrimApp' || key === 'memoryAutoTrimOnBackground' || key === 'memoryAutoSystemTrim' || key === 'memorySystemAutoElevate' || key === 'wallpaperEngineSilentWindows' || key === 'wallpaperEngineGlassSampler' || key === 'desktopWallpaperBackdrop' || key === 'beatAnalysis') saveLyricLayout({ user: true, reason: key });
   // 自动节奏分析：关掉时要把已经排队的分析和预热一起撤掉，否则关闭后仍会跑完一次分析。
   // 打开时立刻给队列预热，不然要等到下一首切歌才看得到效果。
   // Off must drop both the queued analysis and the prefetch, or one more pass still runs after the
@@ -507,6 +507,15 @@ function toggleFx(key) {
     showToast(fx.wallpaperEngineSilentWindows !== false
       ? bindingsShelfImmersiveText('bind_we_quiet_on')
       : bindingsShelfImmersiveText('bind_we_quiet_off'));
+  }
+  if (key === 'desktopWallpaperBackdrop') {
+    // 桌面模式下切换背景来源：立刻重算 body 层级并把新的 backdrop 下发给主进程。
+    // Switching the backdrop while desktop mode is on: re-apply the body classes and send the
+    // new backdrop value down to the main process right away.
+    if (typeof syncDesktopWallpaperBodyClasses === 'function' && typeof desktopWallpaperRuntimeState === 'object') {
+      syncDesktopWallpaperBodyClasses(desktopWallpaperRuntimeState, fx.wallpaperMode === true, desktopWallpaperRuntimeState.interactive === true);
+    }
+    if (fx.wallpaperMode === true && typeof applyWallpaperModeState === 'function') applyWallpaperModeState(true);
   }
   if (key === 'wallpaperEngineGlassSampler') {
     var glassSamplerEnabled = fx.wallpaperEngineGlassSampler !== false;

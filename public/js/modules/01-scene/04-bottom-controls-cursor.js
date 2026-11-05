@@ -47,10 +47,13 @@ function desktopWallpaperKeepsPlayerConsoleVisible() {
   if (!body
     || !body.classList.contains('desktop-wallpaper-mode')
     || !body.classList.contains('desktop-wallpaper-interactive')) return false;
-  // Home and the 3D shelf are complete Mineradio surfaces of their own. In the
-  // ordinary desktop stage, however, allowing the generic inactivity timer to
-  // hide the only player console makes the renderer look as if it fell behind
-  // the wallpaper/Explorer plane.
+  // 用户自己开了「控制栏自动隐藏」就以用户的设置为准：这里再无条件钉住控制条，
+  // 开关在完整桌面模式下就完全看不出效果。
+  // An explicit auto-hide preference wins: pinning the console here made the toggle look dead
+  // in full desktop mode.
+  if (controlsAutoHide) return false;
+  // Home and the 3D shelf are complete Mineradio surfaces of their own. In the ordinary desktop
+  // stage, keeping the only player console visible is the default when auto-hide is off.
   if (body.classList.contains('empty-home-active')
     || body.classList.contains('home-controls-locked')) return false;
   try {

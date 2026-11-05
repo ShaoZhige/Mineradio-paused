@@ -382,6 +382,7 @@ function readSavedLyricLayout() {
       sonicWorkshopPeakColorMode: raw.sonicWorkshopPeakColorMode === 'custom' ? 'custom' : 'cover',
       sonicWorkshopPeakColor: normalizeHexColor(raw.sonicWorkshopPeakColor || fxDefaults.sonicWorkshopPeakColor || '#99c4ff', fxDefaults.sonicWorkshopPeakColor || '#99c4ff'),
       wallpaperMode: false,
+      desktopWallpaperBackdrop: raw.desktopWallpaperBackdrop !== false,
       wallpaperOpacity: clampRange(raw.wallpaperOpacity == null ? fxDefaults.wallpaperOpacity : Number(raw.wallpaperOpacity), 0.35, 1),
       wallpaperFps: normalizeWallpaperFps(raw.wallpaperFps),
       wallpaperEngineSilentWindows: raw.wallpaperEngineSilentWindows !== false,

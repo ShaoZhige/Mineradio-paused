@@ -350,16 +350,31 @@ var FULLSCREEN_TOOL_SELECTORS = ['#visual-guide-btn', '#update-entry', '#hotkey-
 // progress live on the nodes themselves, so clones would each need their own syncing. The restore
 // anchor is the cluster's first window button: re-inserting in array order before it reproduces the
 // original sequence with no captured state, and repeated calls are idempotent.
+// 锁定软件操作后，软件界面不参与鼠标命中：全局 pointermove 观察者（视差、自动隐藏、
+// 悬停提示等）必须先问一句，否则鼠标划过桌面时界面还在跟着动。
+// With the software locked the UI is out of hit testing; global pointermove observers
+// (parallax, auto-hide, hover cues) must bail out or the UI keeps reacting to desktop movement.
+function desktopSoftwarePointerIgnored() {
+  return !!(typeof document !== 'undefined' && document.body
+    && document.body.classList && document.body.classList.contains('desktop-software-locked'));
+}
+
 function syncFullscreenToolsRow(isFullscreen) {
   var zone = document.getElementById('fullscreen-tools-zone');
+  var desktopZone = document.getElementById('desktop-tools-zone');
   var bar = document.querySelector('.desktop-window-controls');
   if (!zone || !bar) return;
+  // 完整桌面模式下标题栏整条隐藏，工具按钮改停到右上角控制器左侧；桌面模式优先于全屏。
+  // In full desktop mode the title bar is hidden, so the tool buttons dock beside the top-right
+  // controller instead. Desktop mode wins over fullscreen when both flags are set.
+  var desktopMode = !!(document.body && document.body.classList.contains('desktop-wallpaper-mode'));
+  var target = desktopMode && desktopZone ? desktopZone : (isFullscreen ? zone : bar);
   var anchor = bar.querySelector('[data-window-action="minimize"]') || null;
   for (var i = 0; i < FULLSCREEN_TOOL_SELECTORS.length; i++) {
     var node = document.querySelector(FULLSCREEN_TOOL_SELECTORS[i]);
     if (!node) continue;
-    if (isFullscreen) {
-      if (node.parentNode !== zone) zone.appendChild(node);
+    if (target !== bar) {
+      if (node.parentNode !== target) target.appendChild(node);
     } else if (node.parentNode !== bar) {
       bar.insertBefore(node, anchor);
     }
@@ -367,7 +382,7 @@ function syncFullscreenToolsRow(isFullscreen) {
   syncDiyModeButton();
   // 搬移会改变行宽（不同语言的按钮文案长度不同），而位置依赖行宽 —— 搬完必须重新量一次。
   // Moving changes the row width and the position depends on it, so re-measure right after.
-  if (isFullscreen) layoutFullscreenToolsZone();
+  if (!desktopMode && isFullscreen) layoutFullscreenToolsZone();
 }
 function layoutFullscreenToolsZone() {
   var zone = document.getElementById('fullscreen-tools-zone');

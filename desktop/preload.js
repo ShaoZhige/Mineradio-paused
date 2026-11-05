@@ -221,6 +221,21 @@ contextBridge.exposeInMainWorld('desktopWindow', {
     overSoftwareUi: payload && payload.overSoftwareUi === true,
     overDesktopControls: payload && payload.overDesktopControls === true,
   }),
+  // 锁定软件操作时，渲染进程把「控制器在屏幕上的矩形」交给主进程轮询光标用。
+  // While the software is locked the renderer reports the controller's screen rect so the main
+  // process can poll the real cursor against it.
+  setDesktopControllerZone: (zone) => ipcRenderer.send('mineradio-full-desktop-controller-zone', {
+    x: Number(zone && zone.x) || 0,
+    y: Number(zone && zone.y) || 0,
+    width: Number(zone && zone.width) || 0,
+    height: Number(zone && zone.height) || 0,
+  }),
+  onDesktopControllerHover: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, over) => callback(over === true);
+    ipcRenderer.on('mineradio-full-desktop-controller-hover', listener);
+    return () => ipcRenderer.removeListener('mineradio-full-desktop-controller-hover', listener);
+  },
   onWallpaperModeState: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});

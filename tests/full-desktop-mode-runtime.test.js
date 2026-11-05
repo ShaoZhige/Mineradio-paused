@@ -520,8 +520,13 @@ test('software lock blurs keyboard focus and rejects focus requests until unlock
   const locked = await runtime.setSoftwareInteractionLocked(true, 'keyboard-lock-on');
   assert.equal(locked.ok, true);
   assert.equal(win.webContents.isFocused(), false);
-  assert.equal(win.focusable, false);
+  // 锁定时只模糊焦点，不能把窗口设成不可聚焦：转发鼠标移动是右上角解锁入口的唯一
+  // 输入通道，窗口一旦不可聚焦，锁定后就再也点不到同一个开关。
+  // Locking blurs but must keep the window focusable: forwarded mouse moves are the only
+  // channel the top-right unlock island has while input passes through.
+  assert.equal(win.focusable, true);
   assert.equal(win.calls.some((call) => call[0] === 'blur'), true);
+  assert.equal(win.calls.some((call) => call[0] === 'setFocusable' && call[2] === false), false);
   const rejected = runtime.requestKeyboardFocus('keyboard-while-locked');
   assert.equal(rejected.ok, false);
   assert.equal(rejected.error, 'DESKTOP_SOFTWARE_LOCKED');
@@ -1164,6 +1169,40 @@ test('repeated unexpected watcher exits open a recovery circuit instead of flick
   assert.equal(status.lastError, 'DESKTOP_ICON_RECOVERY_CIRCUIT_OPEN');
   assert.equal(win.visible, true, 'circuit fallback must restore the ordinary Mineradio window');
   assert.equal(calls.status.some((entry) => /circuit-open/.test(entry.reason)), true);
+});
+
+test('desktop refresh rebinds keep the window visible and survive repeated refreshes', async () => {
+  const win = new FakeBrowserWindow();
+  const watcherCallbacks = [];
+  const { runtime } = makeRuntime({
+    startDesktopIconWatcher: (input, _count, watcher) => {
+      watcherCallbacks.push(input);
+      return watcher;
+    },
+  });
+
+  await runtime.enable(win, { interactive: true, reason: 'refresh-enable' });
+  const hidesBefore = win.calls.filter((call) => call[0] === 'hide').length;
+
+  // 桌面「刷新」会重建图标宿主：这是可恢复的用户操作，连续几次不能退出桌面模式。
+  // A desktop refresh rebuilds the icon host: recoverable user action, so repeated refreshes
+  // must neither exit desktop mode nor hide the renderer (which would reload lyrics/UI).
+  for (let i = 0; i < 3; i += 1) {
+    const callbacks = watcherCallbacks[watcherCallbacks.length - 1];
+    callbacks.onError(new Error('DESKTOP_ICON_HOST_CHANGED'));
+    callbacks.onExit({ code: 0, signal: '', restored: true });
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    assert.equal(runtime.getStatus('refresh-' + i).enabled, true, 'desktop refresh exited desktop mode');
+    assert.equal(win.visible, true, 'desktop refresh left the Mineradio window hidden');
+  }
+
+  const hidesAfter = win.calls.filter((call) => call[0] === 'hide').length;
+  assert.equal(hidesAfter, hidesBefore, 'rebinding after a desktop refresh must not hide the window');
+  const status = runtime.getStatus('refresh-final');
+  assert.equal(status.enabled, true);
+  assert.equal(status.interactive, true);
+  assert.equal(status.lastError, '');
+  assert.ok(watcherCallbacks.length >= 2, 'desktop refresh did not rebind the icon host watcher');
 });
 
 test('setInteractive true repairs a stale enabled interactive state instead of returning unchanged', async () => {

@@ -372,6 +372,9 @@ window.addEventListener('blur', function () {
   setTimeout(function () { closePlaylistPanelSoft('window-blur'); }, 60);
 });
 window.addEventListener('mousemove', function (e) {
+  // 锁定软件操作时，胶囊/控制台/工具行的鼠标联动和悬停提示一律不触发。
+  // While the software is locked, none of the pointer-driven peeks or hover cues may fire.
+  if (typeof desktopSoftwarePointerIgnored === 'function' && desktopSoftwarePointerIgnored()) return;
   var sa = document.getElementById('search-area');
   var fp = document.getElementById('fx-panel');
   var pp = document.getElementById('playlist-panel');

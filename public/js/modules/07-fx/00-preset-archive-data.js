@@ -395,6 +395,10 @@ function normalizeFxArchiveSnapshot(raw) {
     // index-encoded and a code produced by an older build has no such key at all: `!== false` would
     // turn analysis on when importing someone's archive that never expressed an opinion about it.
     beatAnalysis: raw.beatAnalysis === true,
+    // 默认开：旧分享码里没有这个键，`!== false` 让它们保持「跟随桌面壁纸」的默认行为。
+    // Default on: older share codes carry no such key, so `!== false` keeps the desktop-wallpaper
+    // default for them.
+    desktopWallpaperBackdrop: raw.desktopWallpaperBackdrop !== false,
     visualTintMode: raw.visualTintMode === 'custom' ? 'custom' : 'auto',
     visualTintColor: normalizeHexColor(raw.visualTintColor || fxDefaults.visualTintColor),
     uiAccentColor: normalizeHexColor(raw.uiAccentColor || fxDefaults.uiAccentColor, fxDefaults.uiAccentColor),

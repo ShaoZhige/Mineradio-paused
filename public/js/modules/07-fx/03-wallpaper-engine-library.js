@@ -1439,6 +1439,15 @@ async function ensureWallpaperEngineGlassSamplerCapture(sessionId, layerToken, a
 }
 
 async function startWallpaperEngineNativeBackground(item, token) {
+  // 完整桌面模式期间不允许拉起 WE 原生场景：背景由桌面壁纸提供，拉起只会多出一个
+  // 按自己矩形合成的窗口盖在界面上。
+  // Never launch the native WE scene while desktop mode owns the backdrop: it would add a
+  // window composited at its own rectangle on top of the UI.
+  if (typeof desktopBackdropUsesDesktopWallpaper === 'function' && desktopBackdropUsesDesktopWallpaper()) {
+    var skipped = new Error('WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE');
+    skipped.code = 'WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE';
+    throw skipped;
+  }
   var api = wallpaperEngineDesktopApi();
   if (!api || typeof api.startWallpaperEngineScene !== 'function') throw new Error('WALLPAPER_ENGINE_RUNTIME_UNAVAILABLE');
   if (!wallpaperEngineNativeStartIsCurrent(item, token)) throw new Error('WALLPAPER_ENGINE_START_SUPERSEDED');
@@ -1828,7 +1837,7 @@ function applyWallpaperEngineBackground(item, quiet) {
     if (kind === 'engine') {
       startWallpaperEngineNativeBackground(item, token).catch(function (error) {
         if (token !== wallpaperEngineLayerToken) return;
-        if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED/.test(String(error && (error.code || error.message) || error || ''))) return;
+        if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED|WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE/.test(String(error && (error.code || error.message) || error || ''))) return;
         console.warn('[Wallpaper Engine Scene]', error);
         wallpaperEngineRuntimeError = wallpaperEngineRuntimeErrorText(error);
         wallpaperEngineLayerFailed(item, kind, token, error);
@@ -1870,6 +1879,32 @@ function activateWallpaperEngineItem(id) {
   var item = wallpaperEngineProjectById(id);
   if (!item || (!item.playable && !item.enginePlayable && !item.hasPreview)) {
     showToast(wallpaperEngineLibraryText('we_no_safe_media'));
+    return;
+  }
+  // 完整桌面模式下背景由真实桌面壁纸提供：记住这次选择（退出桌面模式后会恢复），
+  // 但不要在这里拉起 WE 窗口，否则它又会按自己的矩形压在界面上。
+  // Full desktop mode takes the backdrop from the real desktop wallpaper: remember the choice
+  // (it is restored after leaving desktop mode) but never launch the WE window here.
+  if (typeof desktopBackdropUsesDesktopWallpaper === 'function' && desktopBackdropUsesDesktopWallpaper()) {
+    wallpaperEngineSelection = normalizeWallpaperEngineSelection({
+      active: true,
+      id: item.id,
+      title: item.title,
+      kind: item.enginePlayable ? 'engine' : (item.playable ? 'media' : 'preview'),
+      mediaType: item.enginePlayable ? 'video' : (item.playable ? item.mediaType : 'image'),
+      mediaAnimated: item.mediaAnimated,
+      projectType: item.projectType,
+      hasPreview: item.hasPreview,
+      previewAnimated: item.previewAnimated,
+      visualOpacity: wallpaperEngineSelection.visualOpacity,
+      visualPositionX: wallpaperEngineSelection.visualPositionX,
+      visualPositionY: wallpaperEngineSelection.visualPositionY,
+      visualScale: wallpaperEngineSelection.visualScale,
+      updatedAt: item.updatedAt
+    });
+    saveWallpaperEngineSelection();
+    closeWallpaperEngineLibrary();
+    showToast(wallpaperEngineLibraryText('fx_desktop_backdrop_hint'));
     return;
   }
   // 用户主动发起（含界面上的"重试原生运行"），把自动补试的额度重置，否则上面那次
@@ -1976,7 +2011,7 @@ function restartWallpaperEngineAfterHostBoundsChange() {
   updateWallpaperEngineEntryUi(wallpaperEngineLibraryText('we_restoring_prefix') + (item.title || 'Wallpaper Engine') + '…');
   startWallpaperEngineNativeBackground(item, token).catch(function (error) {
     if (token !== wallpaperEngineLayerToken) return;
-    if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED/.test(String(error && (error.code || error.message) || error || ''))) return;
+    if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED|WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE/.test(String(error && (error.code || error.message) || error || ''))) return;
     console.warn('[Wallpaper Engine Scene bounds restart]', error);
     wallpaperEngineRuntimeError = wallpaperEngineRuntimeErrorText(error);
     wallpaperEngineLayerFailed(item, 'engine', token);

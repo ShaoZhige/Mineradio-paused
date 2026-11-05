@@ -885,6 +885,9 @@
             <div class="fx-toggle" id="t-wallpaperMode" onclick="toggleFx('wallpaperMode')"
               title="把当前完整 Mineradio 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标，Esc 退出" data-i18n-title="fx_fullscreen_title">
               <span><span data-i18n="toggle_wallpaper">完整桌面模式</span><em class="fx-dev-badge" data-i18n="dev_in_progress">试验</em></span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-desktopWallpaperBackdrop" onclick="toggleFx('desktopWallpaperBackdrop')"
+              title="完整桌面模式下透出系统桌面壁纸；想让 WE 壁纸出现，请在 Wallpaper Engine 里把它设为桌面壁纸" data-i18n-title="fx_desktop_backdrop_title">
+              <span data-i18n="fx_desktop_backdrop">桌面壁纸作背景</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-wallpaperEngineSilentWindows" onclick="toggleFx('wallpaperEngineSilentWindows')"
               title="把 Wallpaper Engine 的运行窗口从任务栏和 Alt+Tab 里隐藏，播放壁纸时不再弹任务栏提醒；只影响本程序拉起的窗口" data-i18n-title="fx_we_silent_title">
               <span data-i18n="fx_we_silent">WE 窗口静默</span><span class="dot"></span></div>
@@ -2156,6 +2159,14 @@
     </div>
 
   </div>
+
+  <!-- 桌面模式下的工具按钮行：标题栏整条隐藏后，? / 更新 / 热键 / DIY 由脚本搬到这里，
+       固定在右上角控制器左侧，退出桌面模式再搬回标题栏。窗口的最小化/最大化/关闭留在
+       标题栏里一起隐藏，因为桌面模式下它们本来就不该出现。
+       Tool row for desktop mode: the title bar is hidden in that mode, so the guide / update /
+       hotkey / DIY buttons are moved here (left of the top-right controller) and moved back on
+       exit. The minimize / maximize / close buttons stay hidden with the title bar by design. -->
+  <div id="desktop-tools-zone" role="toolbar"></div>
 
   <div id="desktop-mode-control-dock" aria-label="桌面模式控制器" data-i18n="dc_controller_aria" data-i18n-attr="aria-label">
     <button id="desktop-mode-control-handle" type="button" title="打开桌面模式控制"

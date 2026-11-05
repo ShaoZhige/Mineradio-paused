@@ -411,6 +411,109 @@ const fullDesktopModeRuntime = new FullDesktopModeRuntime({
   requestReconcile: (reason) => reconcileFullDesktopMode(reason),
   onStatus: (status) => broadcastDesktopWallpaperStatus(status),
 });
+
+// 桌面锁定后，软件窗口对鼠标完全透明：主进程轮询真实光标位置，只有落在右上角控制器
+// （把手 + 展开的面板）范围内时才把窗口放回可交互，其余区域一律 ignoreMouseEvents。
+// 这样界面既收不到 hover 也收不到点击，鼠标完全属于桌面。
+// Once the software is locked the window is transparent to the mouse: the main process polls the
+// real cursor and only makes the window interactive while it is inside the top-right controller
+// (handle + open panel). Everywhere else ignoreMouseEvents stays on, so the UI receives neither
+// hover nor clicks and the pointer belongs entirely to the desktop.
+let desktopControllerZone = null;
+let desktopControllerHoverActive = false;
+let desktopControllerPollTimer = null;
+
+function normalizeDesktopControllerZone(zone) {
+  if (!zone || typeof zone !== 'object') return null;
+  const x = Number(zone.x);
+  const y = Number(zone.y);
+  const width = Number(zone.width);
+  const height = Number(zone.height);
+  if (![x, y, width, height].every(Number.isFinite)) return null;
+  if (width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
+}
+
+function sendDesktopControllerHover(over) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('mineradio-full-desktop-controller-hover', over === true);
+    }
+  } catch (_) { }
+}
+
+function setDesktopControllerHoverActive(over) {
+  over = over === true;
+  if (desktopControllerHoverActive === over) return;
+  desktopControllerHoverActive = over;
+  sendDesktopControllerHover(over);
+}
+
+function stopDesktopControllerPointerPoll(reason = 'controller-poll-stop') {
+  if (desktopControllerPollTimer) {
+    clearInterval(desktopControllerPollTimer);
+    desktopControllerPollTimer = null;
+  }
+  setDesktopControllerHoverActive(false);
+  try {
+    fullDesktopModeRuntime.updatePointerRoute({ overSoftwareUi: false, overDesktopControls: false }, reason);
+  } catch (_) { }
+  // 轮询期间可能把主窗口提到了图标层上面；停下时交还顺序，别让桌面图标被盖住。
+  // The poll may have raised the main window above the icon layer; hand the order back on stop so
+  // desktop icons are never left behind the wallpaper.
+  try {
+    const status = fullDesktopModeRuntime.getStatus(reason + '-order');
+    if (status && status.enabled === true && status.interactive === true) {
+      fullDesktopModeRuntime.ensureIconLayerOrder().catch(() => {});
+    }
+  } catch (_) { }
+}
+
+function syncDesktopControllerPointerPoll() {
+  const status = fullDesktopModeRuntime.getStatus('controller-pointer-poll');
+  const active = !!(status && status.enabled === true && status.interactive === true);
+  const locked = !!(status && status.softwareInteractionLocked === true);
+  if (!active || !locked || !desktopControllerZone) {
+    stopDesktopControllerPointerPoll();
+    return;
+  }
+  if (desktopControllerPollTimer) return;
+  desktopControllerPollTimer = setInterval(() => {
+    const zone = desktopControllerZone;
+    const current = fullDesktopModeRuntime.getStatus('controller-pointer-tick');
+    if (!zone || !current || current.enabled !== true || current.interactive !== true
+      || current.softwareInteractionLocked !== true) {
+      stopDesktopControllerPointerPoll();
+      return;
+    }
+    let point = null;
+    try { point = screen.getCursorScreenPoint(); } catch (_) { point = null; }
+    if (!point) return;
+    const over = point.x >= zone.x && point.x <= zone.x + zone.width
+      && point.y >= zone.y && point.y <= zone.y + zone.height;
+    if (over !== desktopControllerHoverActive) {
+      setDesktopControllerHoverActive(over);
+      // 桌面图标层是 Mineradio 的兄弟窗口，锁定时它在最上面会把点击吃掉；指针进入控制器时把
+      // 主窗口提到最上层（控制器那一片本来就被面板盖住），离开时再交还图标层顺序。
+      // The desktop icon layer is a sibling window and eats clicks while locked; raise the main
+      // window while the pointer is on the controller, and restore the icon order on leave.
+      try {
+        if (over && mainWindow && !mainWindow.isDestroyed()) mainWindow.moveTop();
+        else if (!over) fullDesktopModeRuntime.ensureIconLayerOrder().catch(() => {});
+      } catch (_) { }
+    }
+    // 路由每个 tick 都重放一次：锁定瞬间图标层可能还在恢复，第一次 over 的路由没有被应用，
+    // 只按变化上报会永远停在 ignore=true（面板看得见、点不到）。
+    // Replay the route every tick: right after locking the icon layer may still be recovering and
+    // the first "over" report is not applied; change-only reporting would stay ignore=true
+    // forever (panel visible but unclickable).
+    try {
+      fullDesktopModeRuntime.updatePointerRoute({ overSoftwareUi: false, overDesktopControls: over }, 'desktop-controller-poll');
+    } catch (_) { }
+  }, 60);
+  if (desktopControllerPollTimer && typeof desktopControllerPollTimer.unref === 'function') desktopControllerPollTimer.unref();
+}
+
 let wallpaperEngineCaptureSourceId = '';
 let wallpaperEngineCaptureGrant = null;
 let gestureCameraPermissionGrant = null;
@@ -438,6 +541,12 @@ let wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
 const WALLPAPER_ENGINE_HOST_RESIDENT_STOP_HOLD_MS = 3000;
 let fullDesktopModeHostVisibilityTransitionDepth = 0;
 let wallpaperEngineDesktopIconLayeringQueue = Promise.resolve(true);
+// 完整桌面模式期间应用内 WE 会话被主动停掉，退出时要让渲染层按当前窗口尺寸重开。
+// The in-app WE session is stopped for the whole desktop-mode stay and restarted on exit.
+let wallpaperEngineDesktopBackdropSuspended = false;
+// 渲染层最后一次请求的桌面背景来源，用于状态查询与调试。
+// The backdrop source the renderer last asked for, surfaced through the status query.
+let mainDesktopBackdropKind = 'desktop';
 const WALLPAPER_ENGINE_CAPTURE_GRANT_MS = 12000;
 const WALLPAPER_ENGINE_CAPTURE_PREPARE_TIMEOUT_MS = 9000;
 // Windows Graphics Capture may still be releasing the previous exact HWND for
@@ -1068,15 +1177,82 @@ function broadcastDesktopWallpaperStatus(status) {
     escapeShortcutRegistered: fullDesktopEscapeRegistered === true,
   });
   if (tray) createOrUpdateTray();
+  // 锁状态、启用/退出、图标层变化都会广播状态，顺手同步「锁定期间的光标轮询」。
+  // Lock changes, enable/exit and icon-layer updates all broadcast status; keep the locked-mode
+  // cursor poll in sync from here.
+  syncDesktopControllerPointerPoll();
 }
 
-function wallpaperEngineProvidesDesktopBackdrop() {
-  const status = wallpaperEngineRuntime.getStatus();
-  return !!(status && status.active === true
-    && status.captureMode === 'dwm-thumbnail'
-    && status.dwmSurfaceReady === true
-    && status.dwmSurfaceActive === true
-    && Number(status.dwmSurfaceWindowId) > 0);
+// 桌面壁纸是否由 Wallpaper Engine 提供：WE 作为 Windows 桌面壁纸时，它的渲染窗口挂在
+// Progman/WorkerW 底下。命中就不必再提示用户去设置 —— 完整桌面模式已经能直接看到它。
+// Whether Wallpaper Engine owns the Windows desktop wallpaper: its render window then lives
+// under Progman/WorkerW, and the transparent full-desktop window shows it as-is.
+const WALLPAPER_ENGINE_DESKTOP_PROBE_TTL_MS = 15000;
+let weBackgroundOwnerCache = { at: 0, value: false };
+let weBackgroundOwnerProbe = null;
+
+function wallpaperEngineOwnsDesktopBackground() {
+  return weBackgroundOwnerCache.value === true;
+}
+
+function probeWallpaperEngineOwnsDesktopBackground() {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  const cacheAge = Date.now() - Number(weBackgroundOwnerCache.at || 0);
+  if (cacheAge >= 0 && cacheAge < WALLPAPER_ENGINE_DESKTOP_PROBE_TTL_MS) {
+    return Promise.resolve(wallpaperEngineOwnsDesktopBackground());
+  }
+  if (weBackgroundOwnerProbe) return weBackgroundOwnerProbe;
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$source = @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public static class MineradioWeDesktopProbe {
+  delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr lParam);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hWnd, StringBuilder text, int count);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+  public static bool HasWallpaperEngineChild() {
+    bool found = false;
+    EnumWindows(delegate(IntPtr top, IntPtr unused) {
+      StringBuilder name = new StringBuilder(64);
+      GetClassNameW(top, name, name.Capacity);
+      string className = name.ToString();
+      if (className != "Progman" && className != "WorkerW") return true;
+      EnumChildWindows(top, delegate(IntPtr child, IntPtr unused2) {
+        uint pid;
+        GetWindowThreadProcessId(child, out pid);
+        if (pid == 0) return true;
+        try {
+          string processName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
+          if (processName == "wallpaper64" || processName == "wallpaper32") { found = true; return false; }
+        } catch { }
+        return true;
+      }, IntPtr.Zero);
+      return !found;
+    }, IntPtr.Zero);
+    return found;
+  }
+}
+'@
+Add-Type -TypeDefinition $source -Language CSharp
+if ([MineradioWeDesktopProbe]::HasWallpaperEngineChild()) { Write-Output 'YES' } else { Write-Output 'NO' }
+`.trim();
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  weBackgroundOwnerProbe = new Promise((resolve) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
+      { timeout: 4000, windowsHide: true }, (error, stdout) => {
+        const value = !error && /YES/i.test(String(stdout || ''));
+        if (!error) weBackgroundOwnerCache = { at: Date.now(), value };
+        weBackgroundOwnerProbe = null;
+        resolve(wallpaperEngineOwnsDesktopBackground());
+      });
+  });
+  return weBackgroundOwnerProbe;
 }
 
 function clearWallpaperEngineCaptureGrant(sessionId = '') {
@@ -1614,6 +1790,16 @@ function requestFullDesktopEscapeExit(reason = 'escape-key') {
   const status = fullDesktopModeRuntime.getStatus(`${reason}-request`);
   if (fullDesktopEscapeExitPending
     || (status.enabled !== true && fullDesktopEnablePending !== true)) return false;
+  // 锁定软件操作时，第一下 Esc 先解锁：锁定期间点击会穿透到桌面，万一右上角
+  // 恢复走廊没把输入接回来，键盘是唯一稳定的退路。再按一次 Esc 才退出桌面模式。
+  // While the software is locked the first Escape releases the lock: clicks pass through to the
+  // desktop then, so the keyboard has to be a guaranteed way back. A second Escape exits.
+  if (status.enabled === true && status.softwareInteractionLocked === true) {
+    fullDesktopModeRuntime.setSoftwareInteractionLocked(false, `${reason}-unlock`).catch((error) => {
+      console.warn('[FullDesktopMode] Escape unlock failed:', error && error.message || error);
+    });
+    return true;
+  }
   fullDesktopEscapeExitPending = true;
   fullDesktopEnableOperation += 1;
   fullDesktopEnablePending = false;
@@ -1710,14 +1896,51 @@ function syncWallpaperEngineDesktopIconLayering(reason = 'desktop-state', desire
 function syncWallpaperEngineWithFullDesktopMode(win, reason = 'desktop-state') {
   if (!win || win.isDestroyed()) return;
   const desktopMode = fullDesktopModeRuntime.getStatus(reason);
-  // Passive WorkerW mode keeps the selected project's static preview and no
-  // native WE session. Returning to the top-level interactive host restarts the
-  // same saved engine selection through the existing renderer lifecycle.
-  if (!appQuitting && (desktopMode.enabled !== true || desktopMode.interactive === true)) {
+  // 桌面模式期间壁纸由真实桌面提供，应用内 WE 会话保持停止；退出后交给渲染层按当前
+  // 窗口尺寸重开，这里不再走 capture/resume 那条链。
+  // While desktop mode is on the backdrop comes from the real desktop, so the in-app WE
+  // session stays stopped; on exit the renderer restarts it at the current window size.
+  if (desktopMode.enabled === true) {
+    wallpaperEngineDesktopBackdropSuspended = true;
+  } else if (wallpaperEngineDesktopBackdropSuspended) {
+    wallpaperEngineDesktopBackdropSuspended = false;
+    // 桌面模式期间置上的挂起位必须在这里清掉，否则渲染层退出后请求重开 WE 会被
+    // WALLPAPER_ENGINE_HOST_SUSPENDED 直接拒绝。
+    // Clear the suspend latch raised for desktop mode, otherwise the renderer's restart
+    // request after leaving the mode is rejected with WALLPAPER_ENGINE_HOST_SUSPENDED.
+    wallpaperEngineHostVisibilitySuspended = false;
+  } else if (!appQuitting && desktopMode.interactive !== false) {
     resumeWallpaperEngineForVisibleHost(win, `full-desktop-${reason}`);
   }
   if (tray) createOrUpdateTray();
   sendWindowState(win);
+}
+
+// 停掉应用内 WE 会话，把桌面背景完全交给系统/WE 的桌面壁纸。
+// Stop the in-app WE session so the backdrop is purely the desktop wallpaper.
+async function suspendWallpaperEngineForDesktopBackdrop(reason = 'desktop-backdrop') {
+  const active = wallpaperEngineRuntime.active || null;
+  if (!active || !active.sessionId) {
+    wallpaperEngineDesktopBackdropSuspended = true;
+    return { ok: true, stopped: false };
+  }
+  const sessionId = String(active.sessionId || '');
+  wallpaperEngineHostVisibilitySuspended = true;
+  wallpaperEngineHostVisibilityOperation += 1;
+  finishWallpaperEngineVisibleHostResume(mainWindow);
+  cancelWallpaperEngineHostBoundsRestart();
+  wallpaperEngineCaptureOperation += 1;
+  clearWallpaperEngineCaptureGrant();
+  try {
+    const stopped = await wallpaperEngineRuntime.stop(sessionId);
+    if (!stopped || stopped.stopped !== true) {
+      return { ok: false, error: String(stopped && stopped.reason || 'FULL_DESKTOP_WALLPAPER_ENGINE_SUSPEND_FAILED') };
+    }
+    wallpaperEngineDesktopBackdropSuspended = true;
+    return { ok: true, stopped: true, reason };
+  } catch (error) {
+    return { ok: false, error: String(error && (error.message || error.name) || error) };
+  }
 }
 
 async function enableFullDesktopMode(win, options = {}) {
@@ -1729,18 +1952,31 @@ async function enableFullDesktopMode(win, options = {}) {
   // must not suspend the already-running Wallpaper Engine session.
   fullDesktopModeHostVisibilityTransitionDepth += 1;
   try {
-    if (!options || options.interactive !== false) {
-      // Put the unique DWM base below Explorer before the host HWND becomes a
-      // child of the icon WorkerW. The host stays hidden until its shape lands.
-      await syncWallpaperEngineDesktopIconLayering('enable-coexist-preflight', true);
+    // 完整桌面模式的背景改由真实桌面壁纸提供，应用内的 WE 会话必须停掉：它的
+    // playInWindow 窗口只能按自己的尺寸合成，留在桌面上就会压着界面闪。
+    // Full desktop mode takes its backdrop from the real desktop wallpaper, so the in-app
+    // WE session has to stop: its playInWindow window composites at its own size and would
+    // otherwise sit on top of the UI and flicker.
+    const suspendResult = await suspendWallpaperEngineForDesktopBackdrop('full-desktop-enable');
+    if (suspendResult && suspendResult.ok !== true) {
+      return { ok: false, enabled: false, error: suspendResult.error || 'FULL_DESKTOP_WALLPAPER_ENGINE_SUSPEND_FAILED' };
     }
     if (enableOperation !== fullDesktopEnableOperation || fullDesktopEnablePending !== true) {
       return { ok: false, enabled: false, cancelled: true, error: 'FULL_DESKTOP_ENABLE_CANCELLED' };
     }
-    return await fullDesktopModeRuntime.enable(win, options);
+    const result = await fullDesktopModeRuntime.enable(win, options);
+    if (result && result.ok === true && result.enabled === true) {
+      // 桌面模式里窗口被其它应用或桌面图标层盖住时，Chromium 会把页面判成 occluded
+      // 并把定时器降频：控制栏自动隐藏的 70ms 计时器会拖到几十秒后，看起来就是开关无效。
+      // 完整桌面模式是一块持续运行的桌面表面，必须保持正常的计时精度。
+      // While desktop mode is behind other windows Chromium may treat the page as occluded and
+      // throttle timers, which turns the 70ms auto-hide timer into tens of seconds. Desktop mode
+      // is a continuously running desktop surface, so keep full timer cadence.
+      setMainWindowBackgroundThrottling(win, false);
+    }
+    return result;
   } finally {
     if (enableOperation === fullDesktopEnableOperation) fullDesktopEnablePending = false;
-    await syncWallpaperEngineDesktopIconLayering('enable-settled').catch(() => false);
     fullDesktopModeHostVisibilityTransitionDepth = Math.max(0, fullDesktopModeHostVisibilityTransitionDepth - 1);
     syncWallpaperEngineWithFullDesktopMode(win, 'enable-settled');
     if (fullDesktopModeRuntime.getStatus('enable-settled-cleanup').enabled !== true) {
@@ -1797,6 +2033,9 @@ async function disableFullDesktopMode(reason = 'disabled') {
     syncWallpaperEngineWithFullDesktopMode(mainWindow, `${reason}-settled`);
     if (fullDesktopModeRuntime.getStatus(`${reason}-cleanup`).enabled !== true) {
       releaseFullDesktopModeRecoveryTray();
+      // 退出桌面模式后恢复默认的节流策略（隐藏/最小化时省电）。
+      // Restore the default throttling policy once desktop mode is really off.
+      setMainWindowBackgroundThrottling(mainWindow, MAIN_WINDOW_BACKGROUND_THROTTLING);
     }
     syncFullDesktopEscapeShortcut(`${reason}-escape`);
   }
@@ -4393,16 +4632,20 @@ function positionWallpaperWindow(reason = 'display-change') {
 }
 
 async function createWallpaperWindow(payload = {}) {
+  const backdropUsesDesktop = !payload || payload.backdrop !== 'mineradio';
+  mainDesktopBackdropKind = backdropUsesDesktop ? 'desktop' : 'mineradio';
   const result = await enableFullDesktopMode(mainWindow, {
     interactive: true,
     reason: String(payload && payload.reason || 'renderer-enabled'),
   });
   if (result && result.ok === true && result.enabled === true) {
+    const weOwnsBackground = backdropUsesDesktop ? await probeWallpaperEngineOwnsDesktopBackground() : false;
     const backdrop = {
       ok: true,
       enabled: true,
       active: true,
-      kind: wallpaperEngineProvidesDesktopBackdrop() ? 'wallpaper-engine-dwm' : 'system-desktop',
+      kind: backdropUsesDesktop ? 'system-desktop' : 'mineradio',
+      weOwnsBackground,
     };
     return { ...result, backdropReady: true, backdrop };
   }
@@ -4601,9 +4844,17 @@ ipcMain.handle('mineradio-full-desktop-set-icons-visible', async (event, visible
   return fullDesktopModeRuntime.setDesktopIconsVisible(visible !== false, 'renderer-icons-visible');
 });
 
+ipcMain.on('mineradio-full-desktop-controller-zone', (event, payload = {}) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  desktopControllerZone = normalizeDesktopControllerZone(payload);
+  syncDesktopControllerPointerPoll();
+});
+
 ipcMain.handle('mineradio-full-desktop-set-software-lock', async (event, locked) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'DESKTOP_MODE_UNTRUSTED_SENDER' };
-  return fullDesktopModeRuntime.setSoftwareInteractionLocked(locked === true, 'renderer-software-lock');
+  const result = await fullDesktopModeRuntime.setSoftwareInteractionLocked(locked === true, 'renderer-software-lock');
+  syncDesktopControllerPointerPoll();
+  return result;
 });
 
 const ordinaryWindowImeFocusRepairs = new WeakMap();
@@ -6127,6 +6378,10 @@ ipcMain.handle('mineradio-wallpaper-get-status', async (event) => {
       ...fullDesktopModeRuntime.getStatus('renderer-query'),
       recoveryTrayAvailable: !!tray,
       escapeShortcutRegistered: fullDesktopEscapeRegistered === true,
+      backdrop: {
+        kind: mainDesktopBackdropKind === 'mineradio' ? 'mineradio' : 'system-desktop',
+        weOwnsBackground: wallpaperEngineOwnsDesktopBackground(),
+      },
     },
   };
 });

@@ -106,6 +106,11 @@ var fxDefaults = {
   desktopLyricsHighlight: false,
   desktopLyricsFps: 0,
   wallpaperMode: false,
+  // 完整桌面模式的背景来源：true 透出系统桌面壁纸（WE 壁纸要它自己在 Wallpaper Engine 里
+  // 设为桌面壁纸才会出现），false 用 Mineradio 自己的视觉。默认跟随桌面壁纸。
+  // Desktop backdrop: true shows the real desktop wallpaper through the transparent window;
+  // false keeps Mineradio's own visuals. Defaults to the desktop wallpaper.
+  desktopWallpaperBackdrop: true,
   wallpaperOpacity: 1,
   wallpaperFps: 60,
   // WE 窗口静默：把 Wallpaper Engine 的运行窗口从任务栏和 Alt+Tab 里摘掉，

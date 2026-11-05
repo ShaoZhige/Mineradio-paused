@@ -95,6 +95,27 @@ body.desktop-software-locked #desktop-mode-control-handle {
   background: rgba(var(--fc-accent-rgb), .17);
 }
 
+/* 锁定软件操作后，除桌面控制器外，软件界面完全退出鼠标命中：
+   不再有 hover 高亮、不再接收点击与拖拽，鼠标事件直接落到桌面。
+   While the software is locked, everything except the desktop controller drops out of hit
+   testing: no hover highlights, no clicks, no drags — the pointer belongs to the desktop. */
+body.desktop-software-locked * {
+  pointer-events: none !important
+}
+
+body.desktop-software-locked #desktop-mode-control-dock {
+  pointer-events: auto !important
+}
+
+/* 只把可见的把手和「展开后的」面板交还给鼠标；收起的面板仍然是不可见的，不能被点到。 */
+/* Only the visible handle and the *open* panel take the pointer; the collapsed panel stays
+   invisible and must not be clickable. */
+body.desktop-software-locked #desktop-mode-control-handle,
+body.desktop-software-locked #desktop-mode-control-dock.is-open #desktop-mode-control-panel,
+body.desktop-software-locked #desktop-mode-control-dock.is-open #desktop-mode-control-panel * {
+  pointer-events: auto !important
+}
+
 #desktop-mode-control-panel {
   position: absolute;
   top: 38px;
@@ -18747,6 +18768,24 @@ body.desktop-shell.desktop-wallpaper-mode #desktop-titlebar {
   display: none !important;
 }
 
+/* 桌面模式工具行：标题栏整条隐藏后，? / 更新 / 热键 / DIY 停到右上角控制器左侧，
+   最小化/最大化/关闭仍随标题栏一起隐藏。 */
+/* Desktop tool row: with the title bar hidden, the guide / update / hotkey / DIY buttons dock
+   left of the top-right controller; minimize / maximize / close stay hidden with the bar. */
+#desktop-tools-zone {
+  position: fixed;
+  top: calc(var(--desktop-safe-top) + 16px);
+  right: calc(var(--desktop-safe-right) + 70px);
+  z-index: 690;
+  display: none;
+  align-items: center;
+  gap: 8px
+}
+
+body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-tools-zone {
+  display: flex
+}
+
 body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
   top: calc(var(--desktop-safe-top) + 16px);
   right: calc(var(--desktop-safe-right) + 24px);
@@ -19527,5 +19566,22 @@ html[data-perf-quality="eco"] {
 /* 状态行默认占位会把下面的按钮推开一截，空着时干脆不占位。 */
 /* An empty status line would push the buttons down; collapse it while it holds nothing. */
 .halo-sync-status:empty {
+  display: none;
+}
+
+/* ── 完整桌面模式：背景交给真实桌面壁纸 ──────────────────────────────────────
+   窗口本身是透明的；把唯一的不透明底色（body 的黑色、自定义背景、专辑底色）关掉，
+   系统桌面壁纸就自然透出来。用户在 Wallpaper Engine 里把壁纸设为桌面壁纸时，
+   动态壁纸也会出现在这里 —— 不再需要 playInWindow 场景窗口与 DWM 缩略图宿主。
+   Full desktop mode hands the backdrop to the real desktop wallpaper: the window is
+   already transparent, so dropping the opaque layers lets the system wallpaper (and a
+   WE wallpaper set as the Windows desktop wallpaper) show through. */
+body.desktop-wallpaper-mode.desktop-backdrop-desktop {
+  background: transparent;
+}
+
+body.desktop-wallpaper-mode.desktop-backdrop-desktop #custom-bg,
+body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg,
+body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   display: none;
 }
