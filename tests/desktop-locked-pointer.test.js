@@ -41,9 +41,17 @@ assert.match(main, /sendDesktopControllerHover\(over\)/);
 assert.match(main, /setInterval\(\(\) => \{[\s\S]{0,800}getCursorScreenPoint/);
 // 每个 tick 都重放路由（锁定瞬间第一次上报可能还没生效，只按变化上报会永远停在 ignore=true）
 assert.match(main, /fullDesktopModeRuntime\.updatePointerRoute\(\{ overSoftwareUi: false, overDesktopControls: over \}, 'desktop-controller-poll'\)/);
-// 悬停进入控制器时把主窗口提到图标层上面，离开/停止时交还顺序
-assert.match(main, /if \(over && mainWindow && !mainWindow\.isDestroyed\(\)\) mainWindow\.moveTop\(\);/);
-assert.match(main, /fullDesktopModeRuntime\.ensureIconLayerOrder\(\)/);
+// 绝不能把主窗口抬到桌面图标层之上：图标 ListView 被盖住后 Explorer 的透明合成会失效，
+// 整片桌面图标会包上黑底（实测回归）。轮询里只允许改指针路由。
+// Never raise the main window above the icon layer: covering the ListView breaks Explorer's
+// transparency compositing and gives every desktop icon a black box.
+const pollBody = main.slice(
+  main.indexOf('function syncDesktopControllerPointerPoll'),
+  main.indexOf('let wallpaperEngineCaptureSourceId')
+);
+assert.ok(pollBody.length > 0, 'controller poll body not found');
+assert.doesNotMatch(pollBody, /moveTop\(\)/);
+assert.doesNotMatch(pollBody, /ensureIconLayerOrder/);
 // 状态广播会同步轮询
 assert.match(main, /syncDesktopControllerPointerPoll\(\);\s*\n\}/, 'status broadcasts must keep the poll in sync');
 

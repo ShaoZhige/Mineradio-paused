@@ -458,15 +458,6 @@ function stopDesktopControllerPointerPoll(reason = 'controller-poll-stop') {
   try {
     fullDesktopModeRuntime.updatePointerRoute({ overSoftwareUi: false, overDesktopControls: false }, reason);
   } catch (_) { }
-  // 轮询期间可能把主窗口提到了图标层上面；停下时交还顺序，别让桌面图标被盖住。
-  // The poll may have raised the main window above the icon layer; hand the order back on stop so
-  // desktop icons are never left behind the wallpaper.
-  try {
-    const status = fullDesktopModeRuntime.getStatus(reason + '-order');
-    if (status && status.enabled === true && status.interactive === true) {
-      fullDesktopModeRuntime.ensureIconLayerOrder().catch(() => {});
-    }
-  } catch (_) { }
 }
 
 function syncDesktopControllerPointerPoll() {
@@ -493,20 +484,12 @@ function syncDesktopControllerPointerPoll() {
       && point.y >= zone.y && point.y <= zone.y + zone.height;
     if (over !== desktopControllerHoverActive) {
       setDesktopControllerHoverActive(over);
-      // 桌面图标层是 Mineradio 的兄弟窗口，锁定时它在最上面会把点击吃掉；指针进入控制器时把
-      // 主窗口提到最上层（控制器那一片本来就被面板盖住），离开时再交还图标层顺序。
-      // The desktop icon layer is a sibling window and eats clicks while locked; raise the main
-      // window while the pointer is on the controller, and restore the icon order on leave.
-      try {
-        if (over && mainWindow && !mainWindow.isDestroyed()) mainWindow.moveTop();
-        else if (!over) fullDesktopModeRuntime.ensureIconLayerOrder().catch(() => {});
-      } catch (_) { }
     }
-    // 路由每个 tick 都重放一次：锁定瞬间图标层可能还在恢复，第一次 over 的路由没有被应用，
-    // 只按变化上报会永远停在 ignore=true（面板看得见、点不到）。
-    // Replay the route every tick: right after locking the icon layer may still be recovering and
-    // the first "over" report is not applied; change-only reporting would stay ignore=true
-    // forever (panel visible but unclickable).
+    // 不要再把主窗口 moveTop 到桌面图标层之上：图标 ListView 一旦被盖住，Explorer 的透明合成
+    // 会失效，桌面图标会整片包上黑底。路由每个 tick 重放一次即可保证控制器区域可点击。
+    // Never raise the main window above the desktop icon layer: covering the ListView breaks
+    // Explorer's transparency compositing and gives every desktop icon a black box. Replaying the
+    // route each tick is enough to keep the controller region clickable.
     try {
       fullDesktopModeRuntime.updatePointerRoute({ overSoftwareUi: false, overDesktopControls: over }, 'desktop-controller-poll');
     } catch (_) { }
