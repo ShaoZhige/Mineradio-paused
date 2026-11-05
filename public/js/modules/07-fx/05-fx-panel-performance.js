@@ -428,6 +428,8 @@ function updateFxInputs() {
   updateWallpaperFpsControls();
   var wallpaperModeToggle = document.getElementById('t-wallpaperMode');
   if (wallpaperModeToggle) wallpaperModeToggle.classList.toggle('on', fx.wallpaperMode);
+  var desktopWallpaperBackdropToggle = document.getElementById('t-desktopWallpaperBackdrop');
+  if (desktopWallpaperBackdropToggle) desktopWallpaperBackdropToggle.classList.toggle('on', fx.desktopWallpaperBackdrop !== false);
   var shelfPodcastsToggle = document.getElementById('t-shelfShowPodcasts');
   if (shelfPodcastsToggle) shelfPodcastsToggle.classList.toggle('on', fx.shelfShowPodcasts !== false);
   var shelfMergeToggle = document.getElementById('t-shelfMergeCollections');
@@ -590,10 +592,13 @@ var fxPanelTabScroll = {};
 function setFxPanelTab(tab) {
   var allowed = { home: 1, interface: 1, lyrics: 1, motion: 1, shelf: 1, system: 1 };
   var panel = document.getElementById('fx-panel');
+  // 面板本身不再滚动：滚动位置归内容区，顶栏卡片保持不动。
+  // The panel no longer scrolls: scroll state belongs to the content area, the header stays put.
+  var panelScroll = document.getElementById('fx-console-scroll') || panel;
   var nextTab = allowed[tab] ? tab : 'home';
   var previousTab = fxPanelTab;
   if (panel && previousTab !== nextTab && panel.getAttribute('data-console-layout') === 'task-first-v2') {
-    fxPanelTabScroll[previousTab] = panel.scrollTop;
+    fxPanelTabScroll[previousTab] = panelScroll.scrollTop;
   }
   fxPanelTab = nextTab;
   if (panel) panel.setAttribute('data-active-tab', fxPanelTab);
@@ -611,7 +616,7 @@ function setFxPanelTab(tab) {
   });
   if (panel && previousTab !== fxPanelTab && panel.getAttribute('data-console-layout') === 'task-first-v2') {
     requestAnimationFrame(function () {
-      panel.scrollTop = Object.prototype.hasOwnProperty.call(fxPanelTabScroll, fxPanelTab) ? fxPanelTabScroll[fxPanelTab] : 0;
+      panelScroll.scrollTop = Object.prototype.hasOwnProperty.call(fxPanelTabScroll, fxPanelTab) ? fxPanelTabScroll[fxPanelTab] : 0;
     });
   }
   repositionFxFloatingPanels();

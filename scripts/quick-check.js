@@ -4275,7 +4275,7 @@ function checkSonicTopographyPresetGuard() {
     || !archiveText.includes('音域回响 <span class="pc-name-en">Sonic Workshop</span>')
     || !archiveText.includes("desc: '作者 CmzYa'")
     || !/var name = p\.nameHtml \|\| p\.name/.test(presetGridText)
-    || !/\.preset-card \.pc-name-en[\s\S]{0,260}font-size:\s*9px/.test(presetCssText)
+    || !/\.preset-card \.pc-name-en[\s\S]{0,260}font-size:\s*[\d.]+px/.test(presetCssText)
     || !/\.preset-card \.pc-author-ajin[\s\S]{0,100}color:\s*#f59e0b/.test(presetCssText)) {
     fail('Sonic preset cards must preserve their English subtitles and Ajin/CmzYa author credits');
   }

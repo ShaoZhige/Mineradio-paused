@@ -11424,7 +11424,7 @@ html:fullscreen body.desktop-shell #beat-chip {
   z-index: 18;
   right: -460px;
   bottom: 92px;
-  width: min(444px, calc(100vw - 48px));
+  width: min(520px, calc(100vw - 48px));
   max-height: min(650px, calc(100vh - 132px));
   max-height: min(650px, calc(100dvh - 132px));
   min-height: 0;
@@ -11448,6 +11448,63 @@ html:fullscreen body.desktop-shell #beat-chip {
   scrollbar-color: rgba(0, 245, 212, .42) transparent
 }
 
+/* 顶栏卡片固定在面板顶部后，面板本身不再滚动，滚动交给内容区。
+   Only once the console workspace created its content scroller does the panel stop scrolling
+   and hand that job to #fx-console-scroll, so the header card never travels. */
+#fx-panel.fx-console-has-scroll {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  scrollbar-gutter: auto
+}
+
+/* 内容滚动区铺满整个面板，从顶栏卡片**下面**穿过去；顶栏是半透明+模糊的浮层，
+   内容滚到它背后时能隐隐约约透出来，形成上下两层的高度感。
+   The content scroller fills the whole panel and passes *under* the header card. The card is a
+   translucent blurred overlay, so content sliding behind it shows through faintly. */
+#fx-console-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: rgba(0, 245, 212, .42) transparent;
+  /* 与左侧歌单面板同级的滚动优化：限制绘制范围，并提示浏览器这是高频滚动容器。 */
+  /* Same scroll hints the playlist panel uses: scope painting and advertise the scroll container. */
+  contain: layout paint;
+  will-change: scroll-position;
+  /* 顶部让出「卡片高度 + 上下间距」，初始位置与之前完全一致；--fx-console-head-h 由脚本量出来。 */
+  padding: calc(var(--fx-console-head-h, 80px) + 30px) 18px 32px;
+  /* 内容越过卡片上沿后逐渐淡出，避免在面板顶部被硬生生切掉一行字。 */
+  /* Content fades out as it passes the card's top edge instead of being hard-clipped by the
+     panel's rounded border. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, .45) 16px, #000 42px);
+  mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, .45) 16px, #000 42px)
+}
+
+/* 常驻卡片浮在内容之上，位置固定不随滚动。 */
+/* The docked card floats above the content and never travels. */
+#fx-panel.fx-console-has-scroll .fx-console-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 3;
+  margin: 0
+}
+
+/* 滚动期间暂停面板内部卡片的背景模糊：这些卡片本来就叠在面板自身的玻璃层上，
+   滚动时再逐帧重算上百层模糊是主要的掉帧来源；停下 140ms 后自动恢复。
+   Suspending the per-card backdrop blur while the console scrolls: the cards already sit on the
+   panel's own glass layer, so re-blurring hundreds of them every frame is the main cost.
+   Restored 140ms after scrolling stops. */
+body.fx-console-scrolling #fx-console-scroll * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important
+}
+
 #fx-panel.show,
 #fx-panel.peek {
   right: 24px;
@@ -11464,11 +11521,13 @@ html:fullscreen body.desktop-shell #beat-chip {
   animation: fx-panel-out .26s cubic-bezier(.5, 0, .7, 1)
 }
 
-#fx-panel::-webkit-scrollbar {
+#fx-panel::-webkit-scrollbar,
+#fx-console-scroll::-webkit-scrollbar {
   width: 8px
 }
 
-#fx-panel::-webkit-scrollbar-thumb {
+#fx-panel::-webkit-scrollbar-thumb,
+#fx-console-scroll::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 8px;
   background: rgba(0, 245, 212, .42);
@@ -11620,7 +11679,7 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   body.desktop-shell.diy-mode #fx-panel {
     top: 50px;
     bottom: 92px;
-    width: min(410px, calc(100vw - 48px));
+    width: min(470px, calc(100vw - 48px));
     height: auto;
     max-height: calc(100dvh - 142px);
     padding: 14px 14px 28px
@@ -11761,11 +11820,11 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: 11px;
   color: rgba(0, 245, 212, .56);
   letter-spacing: 1.2px;
   text-transform: uppercase;
-  margin: 18px 0 9px;
+  margin: 20px 0 10px;
   font-weight: 700
 }
 
@@ -11784,33 +11843,41 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
 .preset-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 10px
+  gap: 12px;
+  margin-bottom: 12px
 }
 
 .preset-card {
   position: relative;
-  min-height: 94px;
-  border-radius: 11px;
+  min-height: 128px;
+  border-radius: 14px;
   border: 1.5px solid rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .025);
+  /* 右上角一层很轻的光晕，让放大的卡片上半部不至于显得空。 */
+  /* A soft top-right glow keeps the taller card from reading as empty at the top. */
+  background:
+    radial-gradient(120% 92% at 86% 8%, rgba(255, 255, 255, .05), transparent 56%),
+    rgba(255, 255, 255, .025);
   cursor: pointer;
   overflow: hidden;
   transition: all .25s;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 10px
+  padding: 14px
 }
 
 .preset-card:hover {
   border-color: rgba(255, 255, 255, .2);
-  background: rgba(255, 255, 255, .05)
+  background:
+    radial-gradient(120% 92% at 86% 8%, rgba(255, 255, 255, .07), transparent 56%),
+    rgba(255, 255, 255, .05)
 }
 
 .preset-card.active {
   border-color: rgba(0, 245, 212, .54);
-  background: rgba(0, 245, 212, .075);
+  background:
+    radial-gradient(120% 92% at 86% 8%, rgba(0, 245, 212, .10), transparent 56%),
+    rgba(0, 245, 212, .075);
   box-shadow: 0 0 0 1px rgba(0, 245, 212, .22), 0 16px 46px rgba(0, 245, 212, .055)
 }
 
@@ -11825,14 +11892,21 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
 
 .preset-card .pc-icon {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 24px;
-  height: 24px;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: rgba(255, 255, 255, .45)
+}
+
+/* 图标按新的卡片尺寸放大；SVG 自带的 width/height 属性优先级低于 CSS。 */
+/* Icons scale with the larger cards; CSS outranks the SVG's width/height attributes. */
+.preset-card .pc-icon svg {
+  width: 22px;
+  height: 22px
 }
 
 .preset-card.active .pc-icon {
@@ -11840,18 +11914,18 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
 }
 
 .preset-card .pc-name {
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 700;
   color: rgba(255, 255, 255, .92);
   letter-spacing: .3px
 }
 
 .preset-card .pc-desc {
-  font-size: 10px;
-  color: rgba(255, 255, 255, .44);
-  margin-top: 4px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, .50);
+  margin-top: 6px;
   letter-spacing: .3px;
-  line-height: 1.35
+  line-height: 1.42
 }
 
 .preset-card[data-preset="7"] .pc-name,
@@ -11865,7 +11939,7 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
 
 .preset-card .pc-name-en {
   color: rgba(255, 255, 255, .48);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 520;
   line-height: 1.2;
   letter-spacing: .15px;
@@ -11894,11 +11968,11 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
 }
 
 .preset-card[data-preset="6"] .pc-name {
-  font-size: 14px
+  font-size: 16.5px
 }
 
 .preset-card[data-preset="6"] .pc-desc {
-  font-size: 10.5px;
+  font-size: 12px;
   color: rgba(255, 255, 255, .52);
   font-weight: 700
 }
@@ -11921,7 +11995,7 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
 }
 /* 2026 aesthetic series: restrained gallery cards for the four authored geometries. */
 .preset-card.preset-card-premium {
-  min-height: 108px;
+  min-height: 146px;
   border-color: color-mix(in srgb, var(--preset-accent) 26%, rgba(255, 255, 255, .08));
   background:
     radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--preset-accent) 18%, transparent), transparent 36%),
@@ -11974,13 +12048,13 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 2px 6px;
-  font-size: 13.5px;
+  font-size: 16px;
   letter-spacing: .45px
 }
 
 .preset-card.preset-card-premium .pc-name-en {
   color: color-mix(in srgb, var(--preset-accent) 70%, rgba(255, 255, 255, .45));
-  font-size: 8.5px;
+  font-size: 10px;
   letter-spacing: .55px
 }
 
@@ -15220,11 +15294,13 @@ html:fullscreen body.desktop-shell #playlist-panel {
 }
 
 #search-results::-webkit-scrollbar-thumb,
-#fx-panel::-webkit-scrollbar-thumb {
+#fx-panel::-webkit-scrollbar-thumb,
+#fx-console-scroll::-webkit-scrollbar-thumb {
   background: rgba(var(--fc-accent-rgb), .30) !important
 }
 
-#fx-panel {
+#fx-panel,
+#fx-console-scroll {
   scrollbar-color: rgba(var(--fc-accent-rgb), .30) transparent !important
 }
 
@@ -17055,9 +17131,9 @@ body.panel-reordering .mini-queue-item.is-reordering {
 
 /* Visual console task-first layout. Keep the established panel/button glass; only reorganize information. */
 .fx-console-toolbar {
-  position: sticky;
-  top: -18px;
+  position: relative;
   z-index: 14;
+  flex: 0 0 auto;
   margin: -2px -2px 14px;
   padding: 5px;
   border: 1px solid rgba(255, 255, 255, .075);

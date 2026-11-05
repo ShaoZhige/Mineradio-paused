@@ -416,6 +416,10 @@ function fxConsoleLayout() {
         // .fx-seg{display:flex} rules outrank the UA [hidden]{display:none}, so they are visible.
         fxConsoleItem('fx-wallpaperopacity', consoleWorkspaceText('wallpaper_opacity', '壁纸透明度'), '壁纸 透明 淡', true, true),
         fxConsoleItem('wallpaper-fps-seg', consoleWorkspaceText('fx_wallpaper_fps'), '24 30 60 FPS 帧率', true, true),
+        // 背景来源与该开关同级：它决定桌面模式背后画什么，和透明度/帧率不是同一类参数。
+        // The backdrop source sits at the same level: it decides what is painted behind desktop
+        // mode, unlike the opacity/FPS parameters above.
+        fxConsoleItem('t-desktopWallpaperBackdrop', consoleWorkspaceText('fx_desktop_backdrop', '桌面壁纸作背景'), '透出系统桌面壁纸 WE 壁纸需在引擎里设为桌面壁纸 关闭则用 Mineradio 视觉', false),
         fxConsoleItem('t-windowsGameMode', consoleWorkspaceText('fx_game_mode'), '登记为游戏 电源计划 调度优先级 整活 非 Windows 置灰', false),
         fxConsoleItem('t-cuefieldAutoMix', 'Cuefield AutoMix', '自动混音 过渡 节拍分析 下一首 预载 交叉淡化')
       ] }
@@ -694,6 +698,24 @@ function fxConsoleFindUnclassifiedControls(roots) {
   return blocks;
 }
 
+function fxConsoleSyncHeaderHeight(panel, toolbar) {
+  if (!panel || !toolbar) return;
+  var apply = function () {
+    var height = Math.round(toolbar.getBoundingClientRect().height);
+    if (height > 0) panel.style.setProperty('--fx-console-head-h', height + 'px');
+  };
+  apply();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(apply);
+  if (typeof ResizeObserver === 'function') {
+    if (panel._fxConsoleHeaderResizeObserver) {
+      try { panel._fxConsoleHeaderResizeObserver.disconnect(); } catch (_) { }
+    }
+    var observer = new ResizeObserver(apply);
+    observer.observe(toolbar);
+    panel._fxConsoleHeaderResizeObserver = observer;
+  }
+}
+
 function organizeFxConsoleWorkspace() {
   var panel = document.getElementById('fx-panel');
   if (!panel) return;
@@ -711,6 +733,19 @@ function organizeFxConsoleWorkspace() {
   var oldTabs = document.getElementById('fx-panel-tabs');
   if (oldTabs && oldTabs.parentNode) oldTabs.parentNode.removeChild(oldTabs);
   var toolbar = fxConsoleMakeToolbar(panel);
+  // 顶栏卡片固定在面板顶部，只有它下面的内容滚动：页面挂在独立滚动容器里，
+  // 面板本身不再滚动，卡片因此不会随内容上移。
+  // The header card stays docked at the panel top and only the content below scrolls: pages live
+  // in their own scroll container, so the card never travels with the content.
+  // 每轮重建都新建滚动容器：旧容器连同上一轮的页面在下面的清理里按旧节点删掉，
+  // 但必须等新页面建完 —— 登记过的控件要从旧页面里搬出来，先删就什么都没了。
+  // Every build creates a fresh scroller; the old one is removed with the other stale nodes at
+  // the end. It has to survive until the new pages are built, because registered controls are
+  // moved out of the old pages and would be destroyed if it went first.
+  var scrollRoot = document.createElement('div');
+  scrollRoot.id = 'fx-console-scroll';
+  panel.appendChild(scrollRoot);
+  panel.classList.add('fx-console-has-scroll');
   var pages = {};
   fxConsoleTabs().forEach(function (meta) {
     var page = document.createElement('div');
@@ -720,7 +755,7 @@ function organizeFxConsoleWorkspace() {
     page.setAttribute('role', 'tabpanel');
     page.setAttribute('aria-labelledby', 'fx-console-tab-' + meta.key);
     page.setAttribute('aria-hidden', 'true');
-    panel.appendChild(page);
+    scrollRoot.appendChild(page);
     pages[meta.key] = page;
   });
   fxConsoleLayout().forEach(function (tabLayout) {
@@ -765,6 +800,10 @@ function organizeFxConsoleWorkspace() {
   // place, doubling the panel on each repaint (measured: each fx-console-page-* appeared
   // twice, with duplicated content and leftover key names).
   oldRoots.forEach(function (node) {
+    // 滚动容器是本轮要复用的新结构，不属于旧节点：重建时把它删掉会让面板只剩顶栏。
+    // The scroller is reused across builds and is not a stale node: deleting it here would
+    // leave the panel with only its header and an empty body.
+    if (!node || node === scrollRoot) return;
     if (node && node.isConnected && node.parentNode === panel && node !== toolbar) node.remove();
   });
   toolbar.querySelector('#fx-panel-tabs').addEventListener('click', function (e) {
@@ -797,6 +836,9 @@ function organizeFxConsoleWorkspace() {
   panel._fxConsoleWorkspaceOrganized = true;
   panel.setAttribute('data-console-layout', 'task-first-v2');
   setFxPanelTab(fxPanelTab);
+  // 顶栏是浮在内容之上的常驻卡片，内容区的上边距要按它的真实高度让位。
+  // The header floats above the content, so the scroller's top padding tracks its real height.
+  fxConsoleSyncHeaderHeight(panel, toolbar);
 }
 
 // 词典是异步加载的，而 bindFxPanel() 在解析期就跑了 —— 那时词典还没到，
@@ -1164,6 +1206,19 @@ function initFxConsoleSearchAndHistory() {
   var panel = document.getElementById('fx-panel');
   if (!panel || panel._fxConsoleSearchHistoryBound) return;
   panel._fxConsoleSearchHistoryBound = true;
+  // 滚动期间给 body 挂标记，CSS 借此暂停卡片自身的背景模糊；停手 140ms 后恢复。
+  // scroll 不冒泡，用捕获阶段监听内容区的滚动。
+  // Mark the body while the console scrolls so CSS can suspend per-card backdrop blur; the
+  // marker clears 140ms after scrolling stops. Scroll does not bubble, hence capture.
+  var consoleScrollIdleTimer = 0;
+  panel.addEventListener('scroll', function () {
+    document.body.classList.add('fx-console-scrolling');
+    if (consoleScrollIdleTimer) clearTimeout(consoleScrollIdleTimer);
+    consoleScrollIdleTimer = setTimeout(function () {
+      consoleScrollIdleTimer = 0;
+      document.body.classList.remove('fx-console-scrolling');
+    }, 140);
+  }, { capture: true, passive: true });
   panel.addEventListener('pointerdown', function (e) {
     if (e.target && e.target.matches && e.target.matches('input[type="range"],input[type="color"]')) fxConsoleBeginRangeTxn(e.target);
   }, true);
