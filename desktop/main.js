@@ -485,11 +485,11 @@ function syncDesktopControllerPointerPoll() {
     if (over !== desktopControllerHoverActive) {
       setDesktopControllerHoverActive(over);
     }
-    // 不要再把主窗口 moveTop 到桌面图标层之上：图标 ListView 一旦被盖住，Explorer 的透明合成
-    // 会失效，桌面图标会整片包上黑底。路由每个 tick 重放一次即可保证控制器区域可点击。
-    // Never raise the main window above the desktop icon layer: covering the ListView breaks
-    // Explorer's transparency compositing and gives every desktop icon a black box. Replaying the
-    // route each tick is enough to keep the controller region clickable.
+    // 不要 moveTop 主窗口，也不要改图标 ListView 的命中测试：两者都有副作用（前者会让桌面图标
+    // 包上黑底，后者会把 Explorer 的输入状态搅乱）。每个 tick 重放指针路由即可让控制器可点。
+    // Never moveTop the main window nor touch the icon ListView hit testing: the former gives
+    // desktop icons black boxes and the latter disturbs Explorer's input state. Replaying the
+    // pointer route every tick is enough to keep the controller clickable.
     try {
       fullDesktopModeRuntime.updatePointerRoute({ overSoftwareUi: false, overDesktopControls: over }, 'desktop-controller-poll');
     } catch (_) { }
@@ -7408,6 +7408,68 @@ if (!gotSingleInstanceLock) {
       .catch((e) => reportWindowCreationFailure('Second instance', e));
   });
 
+// 完整桌面模式会把桌面图标 ListView 临时改成 layered + 黑色 color-key 来做透明合成。
+// 如果上一次会话被强杀（窗口销毁、崩溃、断电），这个状态会留在 Explorer 上，桌面图标就会
+// 整片包上黑底。启动时检查一次并把残留状态还原，用户不需要手动重启 Explorer。
+// Full desktop mode temporarily makes the desktop icon ListView layered with a black color key.
+// If a previous session was killed (window destroyed, crash, power loss) that state survives on
+// Explorer and every desktop icon gets a black box. One check at startup restores it so the user
+// does not have to restart Explorer by hand.
+function repairLeakedDesktopIconLayer() {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  const script = [
+    "$ErrorActionPreference='SilentlyContinue'",
+    'Add-Type -TypeDefinition @"',
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public static class MineradioIconLeakRepair {',
+    '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);',
+    '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
+    '  [DllImport("user32.dll", EntryPoint="GetWindowLongPtr")] public static extern IntPtr GetWindowLongPtr(IntPtr h, int i);',
+    '  [DllImport("user32.dll", EntryPoint="SetWindowLongPtr")] public static extern IntPtr SetWindowLongPtr(IntPtr h, int i, IntPtr v);',
+    '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint f, uint t, out IntPtr r);',
+    '  [DllImport("user32.dll")] public static extern bool InvalidateRect(IntPtr h, IntPtr r, bool e);',
+    '  [DllImport("user32.dll")] public static extern bool UpdateWindow(IntPtr h);',
+    '}',
+    '"@',
+    "$progman=[MineradioIconLeakRepair]::FindWindow('Progman',$null)",
+    '$defview=[IntPtr]::Zero',
+    'if($progman -ne [IntPtr]::Zero){$defview=[MineradioIconLeakRepair]::FindWindowEx($progman,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}',
+    'if($defview -eq [IntPtr]::Zero){$w=[IntPtr]::Zero; do{$w=[MineradioIconLeakRepair]::FindWindowEx([IntPtr]::Zero,$w,"WorkerW",$null); if($w -ne [IntPtr]::Zero){$defview=[MineradioIconLeakRepair]::FindWindowEx($w,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}}while($w -ne [IntPtr]::Zero -and $defview -eq [IntPtr]::Zero)}',
+    'if($defview -eq [IntPtr]::Zero){return}',
+    '$list=[MineradioIconLeakRepair]::FindWindowEx($defview,[IntPtr]::Zero,"SysListView32",$null)',
+    'if($list -eq [IntPtr]::Zero){return}',
+    '$ex=[MineradioIconLeakRepair]::GetWindowLongPtr($list,-20).ToInt64()',
+    '$layered=($ex -band 0x00080000) -ne 0',
+    '$bg=[IntPtr]::Zero',
+    '[void][MineradioIconLeakRepair]::SendMessageTimeout($list,0x1000,[IntPtr]::Zero,[IntPtr]::Zero,2,2000,[ref]$bg)',
+    'if(-not $layered -and $bg.ToInt64() -ne 0){return}',
+    'if($layered){[void][MineradioIconLeakRepair]::SetWindowLongPtr($list,-20,[IntPtr]($ex -band (-bnot 0x00080000)))}',
+    '$r=[IntPtr]::Zero',
+    '[void][MineradioIconLeakRepair]::SendMessageTimeout($list,0x1001,[IntPtr]::Zero,[IntPtr](-1),2,2000,[ref]$r)',
+    '[void][MineradioIconLeakRepair]::InvalidateRect($list,[IntPtr]::Zero,$true)',
+    '[void][MineradioIconLeakRepair]::UpdateWindow($list)',
+    '"ICON_LAYER_REPAIRED layered=$layered"',
+  ].join('\n');
+  return new Promise((resolve) => {
+    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      windowsHide: true,
+      timeout: 8000,
+      env: { ...process.env, TEMP: NATIVE_HELPER_TEMP_PATH, TMP: NATIVE_HELPER_TEMP_PATH },
+    }, (error, stdout, stderr) => {
+      if (error) {
+        console.warn('[FullDesktopMode] icon layer leak repair failed:', error && error.message || error);
+        resolve(false);
+        return;
+      }
+      const line = String(stdout || '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
+      if (line) console.log('[FullDesktopMode] icon layer leak repair:', line);
+      if (!line) console.warn('[FullDesktopMode] icon layer leak repair produced no output:', String(stderr || '').slice(-200));
+      resolve(true);
+    });
+  });
+}
+
   app.whenReady().then(async () => {
     try {
       await localMusicLibrary.installProtocol(protocol);
@@ -7420,6 +7482,10 @@ if (!gotSingleInstanceLock) {
       console.warn('[Wallpaper Engine] local media protocol unavailable:', error && error.message || error);
     }
     restoreHaloSyncOnStartup();
+    // 启动后延迟一点再修图标层残留：不阻塞启动，也避开 Explorer 刚登录时的重排。
+    // Repair a leaked icon layer shortly after startup: does not block boot and dodges the
+    // Explorer re-layout that happens right after login.
+    setTimeout(() => { repairLeakedDesktopIconLayer().catch(() => {}); }, 2500);
     const handleDisplayLayoutChanged = (_event, _display, changedMetrics) => {
       positionDesktopLyricsWindow();
       positionWallpaperWindow(Array.isArray(changedMetrics) ? 'display-metrics-changed' : 'display-layout-changed');

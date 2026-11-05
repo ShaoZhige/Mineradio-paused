@@ -15,6 +15,8 @@ const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8')
 const css = read('public/css/index.css');
 const main = read('desktop/main.js');
 const preload = read('desktop/preload.js');
+const nativeLayer = read('desktop/desktop-native-icon-layer-runtime.js');
+const runtime = read('desktop/full-desktop-mode-runtime.js');
 const shell = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
 const parts = read('public/js/modules/02-visual/00-pointer-cover-particles.js');
 const peek = read('public/js/modules/10-shell/02-peek-panels-upload.js');
@@ -29,8 +31,8 @@ assert.match(css, /body\.desktop-software-locked #desktop-mode-control-dock\.is-
 assert.match(parts, /if \(typeof desktopSoftwarePointerIgnored === 'function' && desktopSoftwarePointerIgnored\(\)\) return;/);
 assert.match(peek, /if \(typeof desktopSoftwarePointerIgnored === 'function' && desktopSoftwarePointerIgnored\(\)\) return;/);
 
-// 3) 主进程：接收控制器矩形、轮询真实光标、逐个 tick 重放可点击路由并通知渲染进程悬停。
-//    /(图标层是兄弟窗口，指针进控制器时要把主窗口提上来，否则点击会被图标层吃掉)
+// 3) 主进程：接收控制器矩形、轮询真实光标、每个 tick 重放可点击路由。
+//    （真实鼠标验证：悬停展开后点击面板里的开关可以解锁；不靠 z 序调整，也不改图标层。）
 assert.match(preload, /setDesktopControllerZone: \(zone\) => ipcRenderer\.send\('mineradio-full-desktop-controller-zone'/);
 assert.match(preload, /onDesktopControllerHover: \(callback\) => \{/);
 assert.match(preload, /ipcRenderer\.on\('mineradio-full-desktop-controller-hover', listener\)/);
@@ -38,7 +40,7 @@ assert.match(main, /ipcMain\.on\('mineradio-full-desktop-controller-zone'/);
 assert.match(main, /function syncDesktopControllerPointerPoll\(\)/);
 assert.match(main, /screen\.getCursorScreenPoint\(\)/);
 assert.match(main, /sendDesktopControllerHover\(over\)/);
-assert.match(main, /setInterval\(\(\) => \{[\s\S]{0,800}getCursorScreenPoint/);
+assert.match(main, /setInterval\(\(\) => \{[\s\S]{0,900}getCursorScreenPoint/);
 // 每个 tick 都重放路由（锁定瞬间第一次上报可能还没生效，只按变化上报会永远停在 ignore=true）
 assert.match(main, /fullDesktopModeRuntime\.updatePointerRoute\(\{ overSoftwareUi: false, overDesktopControls: over \}, 'desktop-controller-poll'\)/);
 // 绝不能把主窗口抬到桌面图标层之上：图标 ListView 被盖住后 Explorer 的透明合成会失效，
@@ -52,6 +54,12 @@ const pollBody = main.slice(
 assert.ok(pollBody.length > 0, 'controller poll body not found');
 assert.doesNotMatch(pollBody, /moveTop\(\)/);
 assert.doesNotMatch(pollBody, /ensureIconLayerOrder/);
+// 上次会话被强杀时会把图标 ListView 留在 layered 状态；启动时要检查并还原，否则图标整片黑底。
+// A killed session can leave the icon ListView layered; startup must repair it or every icon is
+// drawn on black.
+assert.match(main, /function repairLeakedDesktopIconLayer\(\)/);
+assert.match(main, /WS_EX_LAYERED|0x00080000/);
+assert.match(main, /setTimeout\(\(\) => \{ repairLeakedDesktopIconLayer\(\)\.catch/);
 // 状态广播会同步轮询
 assert.match(main, /syncDesktopControllerPointerPoll\(\);\s*\n\}/, 'status broadcasts must keep the poll in sync');
 
