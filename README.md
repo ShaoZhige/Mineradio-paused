@@ -50,10 +50,6 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器：搜索播放、歌�
 - 3D 歌单架（侧栏 / 舞台 / 关闭三种形态）
 - Wallpaper Engine 项目识别与原生运行、本地 MP4 背景
 
-![Mineradio 视觉舞台](./docs/assets/readme/cinema-beat-smoke.png)
-
-![视觉控制台](./docs/assets/readme/console.png)
-
 ### 桌面与壁纸
 
 - 完整桌面模式：把整个播放器放到 Windows 桌面，右上角控制器可显示 / 隐藏桌面图标
