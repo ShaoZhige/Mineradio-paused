@@ -737,10 +737,10 @@ function desktopControllerScreenRect() {
   var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
   var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
   rects.push({
-    left: Math.max(0, window.innerWidth - safeRight - 92),
+    left: Math.max(0, window.innerWidth - safeRight - 110),
     top: safeTop,
     right: Math.max(0, window.innerWidth - safeRight),
-    bottom: safeTop + 104
+    bottom: safeTop + 190
   });
   var left = Infinity;
   var top = Infinity;
@@ -798,9 +798,9 @@ function desktopControlPointState(x, y) {
   try { rootStyle = window.getComputedStyle(document.documentElement); } catch (_) { }
   var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
   var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
-  var overRevealEdge = x >= Math.max(0, window.innerWidth - safeRight - 92)
+  var overRevealEdge = x >= Math.max(0, window.innerWidth - safeRight - 110)
     && x < Math.max(0, window.innerWidth - safeRight)
-    && y >= safeTop && y < safeTop + 104;
+    && y >= safeTop && y < safeTop + 190;
   var overHotspot = !!(handle && desktopIconShieldElementVisible(handle, { ignoreAriaHidden: true })
     && desktopPointInClientRect(x, y, handle.getBoundingClientRect()));
   var overPanel = !!(desktopModeControlDockState.open && panel

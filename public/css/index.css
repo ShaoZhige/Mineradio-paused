@@ -118,9 +118,9 @@ body.desktop-software-locked #desktop-mode-control-dock.is-open #desktop-mode-co
 
 #desktop-mode-control-panel {
   position: absolute;
-  top: 38px;
+  top: 40px;
   right: 0;
-  width: 244px;
+  width: 248px;
   padding: 11px;
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 18px;
@@ -240,11 +240,7 @@ body.desktop-software-locked #desktop-mode-control-dock.is-open #desktop-mode-co
 }
 
 body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-  top: 62px;
-}
-
-body.desktop-mode-controls-open.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-  top: 137px;
+  top: 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -264,20 +260,18 @@ body.desktop-mode-controls-open.desktop-shell.desktop-wallpaper-mode.desktop-wal
 
 @media (max-width:720px) {
   #desktop-mode-control-dock {
+    top: 70px;
     right: 12px;
   }
 
   #desktop-mode-control-panel {
-    width: min(244px, calc(100vw - 24px));
+    width: min(248px, calc(100vw - 24px));
   }
 
   body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-    top: 58px;
+    top: 14px;
   }
 
-  body.desktop-mode-controls-open.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-    top: 133px;
-  }
 }
 
 /* Mineradio 内置跨平台歌单：仅扩展歌单面板与收藏弹窗，不触碰播放器玻璃层。 */
@@ -18850,7 +18844,7 @@ body.desktop-shell.desktop-wallpaper-mode #desktop-titlebar {
    left of the top-right controller; minimize / maximize / close stay hidden with the bar. */
 #desktop-tools-zone {
   position: fixed;
-  top: calc(var(--desktop-safe-top) + 16px);
+  top: calc(var(--desktop-safe-top) + 74px);
   right: calc(var(--desktop-safe-right) + 70px);
   z-index: 690;
   display: none;
@@ -18863,7 +18857,7 @@ body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-tools-zone {
 }
 
 body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
-  top: calc(var(--desktop-safe-top) + 16px);
+  top: calc(var(--desktop-safe-top) + 74px);
   right: calc(var(--desktop-safe-right) + 24px);
 }
 
@@ -18896,12 +18890,8 @@ body.desktop-wallpaper-mode.desktop-wallpaper-interactive:not(.empty-home-active
 }
 
 body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-  top: calc(var(--desktop-safe-top) + 62px);
+  top: calc(var(--desktop-safe-top) + 16px);
   right: calc(var(--desktop-safe-right) + 24px);
-}
-
-body.desktop-mode-controls-open.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-  top: calc(var(--desktop-safe-top) + 137px);
 }
 
 body.desktop-wallpaper-mode #bottom-handle {
@@ -18923,16 +18913,13 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
 
 @media (max-width:720px) {
   body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
+    top: calc(var(--desktop-safe-top) + 70px);
     right: calc(var(--desktop-safe-right) + 12px);
   }
 
   body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-    top: calc(var(--desktop-safe-top) + 58px);
+    top: calc(var(--desktop-safe-top) + 14px);
     right: calc(var(--desktop-safe-right) + 12px);
-  }
-
-  body.desktop-mode-controls-open.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
-    top: calc(var(--desktop-safe-top) + 133px);
   }
 
   body.desktop-wallpaper-mode #bottom-bar,
