@@ -1183,7 +1183,7 @@
   "login_import_netease_desc": "Import from a music.163.com login session.",
   "login_import_kugou_desc": "Import from a kugou.com login session.",
   "login_cookie_import": "Cookie import",
-  "login_qishui_scan_hint": "Scan the official QR code with the <b>Qishui Music app</b> on a logged-in account and confirm (Douyin will ask you to switch to Qishui Music); after login you can sync your likes and playlists and play by account entitlement.",
+  "login_qishui_scan_hint": "Scan the official QR code with the <b>Qishui Music app</b> on a logged-in account and confirm; after login you can sync your likes and playlists and play by account entitlement.",
   "login_kugou_web_hint": "Open the official <b>Kugou Music web login window</b> and sign in; the account session syncs automatically on success.",
   "login_scan_qishui_music": "Scan to log in to Qishui Music",
   "login_save_client_id_first": "Save the Client ID first",

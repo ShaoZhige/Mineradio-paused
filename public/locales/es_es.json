@@ -1183,7 +1183,7 @@
   "login_import_netease_desc": "Se importa desde la sesión de music.163.com.",
   "login_import_kugou_desc": "Se importa desde la sesión de kugou.com.",
   "login_cookie_import": "Importación de cookie",
-  "login_qishui_scan_hint": "Escanea el código QR oficial con la <b>app Soda Music</b> con la sesión iniciada y confirma (Douyin te pedirá cambiar a Soda Music); tras iniciar sesión podrás sincronizar tus me gusta y listas y reproducir según los derechos de la cuenta.",
+  "login_qishui_scan_hint": "Escanea el código QR oficial con la <b>app Soda Music</b> con la sesión iniciada y confirma; tras iniciar sesión podrás sincronizar tus me gusta y listas y reproducir según los derechos de la cuenta.",
   "login_kugou_web_hint": "Abre la <b>ventana oficial de inicio de sesión web de Kugou Music</b> e inicia sesión; la sesión se sincroniza automáticamente.",
   "login_scan_qishui_music": "Escanea para entrar en Soda Music",
   "login_save_client_id_first": "Guarda primero el Client ID",

@@ -1183,7 +1183,7 @@
   "login_import_netease_desc": "music.163.com のログインセッションからインポート。",
   "login_import_kugou_desc": "kugou.com のログインセッションからインポート。",
   "login_cookie_import": "Cookie インポート",
-  "login_qishui_scan_hint": "ログイン済みアカウントの <b>汽水音楽アプリ</b> で公式 QR コードをスキャンして確認します（抖音でスキャンすると汽水音楽アプリを使うよう案内されます）。ログイン後は「好きな曲」やプレイリストを同期し、アカウント権益に応じて再生できます。",
+  "login_qishui_scan_hint": "ログイン済みアカウントの <b>汽水音楽アプリ</b> で公式 QR コードをスキャンして確認します。ログイン後は「好きな曲」やプレイリストを同期し、アカウント権益に応じて再生できます。",
   "login_kugou_web_hint": "公式 <b>Kugou Music ウェブログインウィンドウ</b> を開いてログインすると、成功時にアカウントセッションが自動同期されます。",
   "login_scan_qishui_music": "スキャンして汽水音楽にログイン",
   "login_save_client_id_first": "先に Client ID を保存してください",

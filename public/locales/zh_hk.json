@@ -1183,7 +1183,7 @@
   "login_import_netease_desc": "從 music.163.com 的登入會話匯入。",
   "login_import_kugou_desc": "從 kugou.com 的登入會話匯入。",
   "login_cookie_import": "Cookie 匯入",
-  "login_qishui_scan_hint": "用已登入的 <b>汽水音樂 App</b> 掃描官方 QR Code 並確認（抖音掃描會提示改用汽水音樂 App），登入後可同步我的喜歡、歌單並按帳號權益播放。",
+  "login_qishui_scan_hint": "用已登入的 <b>汽水音樂 App</b> 掃描官方 QR Code 並確認，登入後可同步我的喜歡、歌單並按帳號權益播放。",
   "login_kugou_web_hint": "打開 <b>酷狗音樂官方網頁登入視窗</b> 登入，成功後會自動同步帳號會話。",
   "login_scan_qishui_music": "掃描登入汽水音樂",
   "login_save_client_id_first": "先儲存 Client ID",
