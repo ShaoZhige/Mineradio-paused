@@ -583,11 +583,28 @@ async function clear() {
   runtime = null;
 }
 
+function disposeForQuit() {
+  const current = runtime;
+  if (!current) return false;
+  runtime = null;
+  try {
+    current.destroying = true;
+    if (current.window && !current.window.isDestroyed()) current.window.destroy();
+  } catch (_) { }
+  current.window = null;
+  try {
+    if (current.assetServer) current.assetServer.close();
+  } catch (_) { }
+  current.assetServer = null;
+  return true;
+}
+
 module.exports = {
   configure,
   initSignEngine,
   getQrCode,
   checkQrConnect,
   clear,
+  disposeForQuit,
   constants: { API_BASE, AID, APP_VERSION, AUTH_PARTITION },
 };

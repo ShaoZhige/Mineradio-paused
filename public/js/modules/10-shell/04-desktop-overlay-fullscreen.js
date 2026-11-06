@@ -2004,7 +2004,7 @@ function toggleFullscreen() {
       if (action === 'maximize') toggleFullscreen();
       if (action === 'close') {
         saveLastPlaybackSnapshot(true, 'window-close');
-        api.close(closeBehaviorPreference);
+        api.close();
       }
     });
   });

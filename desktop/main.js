@@ -2642,7 +2642,17 @@ function isZoomShortcutInput(input) {
 }
 
 function focusMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (appQuitting) return false;
+    // 主窗口可能在上一次退出尝试里被销毁了；托盘「显示」必须能把它重新建出来，而不是静默失败。
+    // The main window may have been destroyed by a previous quit attempt; recreate it from the tray.
+    createWindow().then(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) focusMainWindow();
+    }).catch((error) => {
+      console.warn('[Window] recreate from tray failed:', error && error.message || error);
+    });
+    return true;
+  }
   mainWindow.__mineradioIntentionalHide = false;
   markMainWindowExpectedVisible(mainWindow, true, 'focus-main-window');
   const desktopMode = fullDesktopModeRuntime.getStatus('focus-main-window');
@@ -2658,6 +2668,15 @@ function focusMainWindow() {
   mainWindow.focus();
   sendWindowState(mainWindow);
   return true;
+}
+
+function disposeQishuiAuthForQuit() {
+  try {
+    const qishuiAuth = require('../server/qishui-auth-v6');
+    if (qishuiAuth && typeof qishuiAuth.disposeForQuit === 'function') qishuiAuth.disposeForQuit();
+  } catch (error) {
+    console.warn('[Shutdown] qishui auth dispose skipped:', error && error.message || error);
+  }
 }
 
 function createOrUpdateTray() {
@@ -7316,6 +7335,16 @@ async function createWindowOnce() {
     if (mainWindow === win) {
       closeOverlayWindows('main-window-closed');
       mainWindow = null;
+      if (!appQuitting && closeBehavior === 'tray') {
+        // 关闭到托盘时窗口只应该 hide；如果它被销毁了（异常路径/二次关闭竞态），
+        // 托盘还活着但没有窗口可显示。这里把窗口补回来，避免变成点不出来的僵尸。
+        // Closing to tray must only hide; if the window got destroyed, recreate it so the tray
+        // still has something to show instead of becoming a dead icon.
+        console.warn('[Window] main window closed unexpectedly in tray mode; recreating it.');
+        createWindow().catch((error) => {
+          console.warn('[Window] recreate after unexpected close failed:', error && error.message || error);
+        });
+      }
     }
   });
   win.on('enter-full-screen', () => {
@@ -7533,13 +7562,24 @@ function repairLeakedDesktopIconLayer() {
     if (appQuitCleanupComplete) return;
     event.preventDefault();
     if (appQuitCleanupPromise) return;
-    hideVisibleSurfacesForQuit();
-    clearWallpaperEngineCaptureGrant();
-    wallpaperEngineLibrary.dispose();
-    stopMemoryAutoTimer();
-    unregisterFullDesktopEscapeShortcut();
-    unregisterMineradioGlobalHotkeys();
-    closeDesktopLyricsWindow();
+    const quitSteps = [
+      ['hide-visible-surfaces', () => hideVisibleSurfacesForQuit()],
+      ['clear-wallpaper-capture-grant', () => clearWallpaperEngineCaptureGrant()],
+      ['wallpaper-engine-library-dispose', () => wallpaperEngineLibrary.dispose()],
+      ['stop-memory-timer', () => stopMemoryAutoTimer()],
+      ['unregister-desktop-escape', () => unregisterFullDesktopEscapeShortcut()],
+      ['unregister-global-hotkeys', () => unregisterMineradioGlobalHotkeys()],
+      ['close-desktop-lyrics', () => closeDesktopLyricsWindow()],
+      ['dispose-qishui-auth', () => disposeQishuiAuthForQuit()],
+    ];
+    for (let i = 0; i < quitSteps.length; i += 1) {
+      const stepName = quitSteps[i][0];
+      try {
+        quitSteps[i][1]();
+      } catch (error) {
+        console.error('[Shutdown] cleanup step failed:', stepName, error && error.stack || error);
+      }
+    }
     // 先收脚本宿主再关本地服务：宿主窗口是本地服务解析 URL 的消费者，反过来会留下悬挂请求。
     // Tear down the script host before the local server: the host windows consume URL
     // resolution from that server, and the reverse order leaves dangling requests.
@@ -7632,6 +7672,13 @@ function repairLeakedDesktopIconLayer() {
       if (cleanupTimeout) clearTimeout(cleanupTimeout);
       appQuitCleanupComplete = true;
       app.quit();
+      // 如果还有窗口拒绝关闭（例如汽水音乐安全验证窗口会 preventDefault），app.quit() 会永远停在
+      // before-quit 之后，进程就变成没有界面的僵尸。兜底硬退出，别让用户只能去任务管理器杀进程。
+      // If any window refuses to close, app.quit() never completes; force the exit as a fallback.
+      setTimeout(() => {
+        console.error('[Shutdown] quit still pending after cleanup; forcing application exit.');
+        app.exit(0);
+      }, 3000);
     });
   });
 }
