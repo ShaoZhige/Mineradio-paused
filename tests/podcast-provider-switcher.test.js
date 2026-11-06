@@ -27,10 +27,11 @@ test('播客面板里有和歌单同款的切换器宿主', () => {
     pane.indexOf('podcast-provider-tabs') < pane.indexOf('podcast-list'),
     '切换器要排在列表上方'
   );
-  assert.ok(
-    pane.indexOf('podcast-provider-tabs') < pane.indexOf('queue-toolbar'),
-    '切换器是内容区第一块，不跟工具栏抢位置'
-  );
+  assert.doesNotMatch(pane, /queue-toolbar/, '工具条已移到滚动区上方，不该再留在 pane 里');
+  const toolsAt = INDEX.indexOf('<div id="playlist-panel-tools">');
+  const bodyAt = INDEX.indexOf('<div id="playlist-panel-body">');
+  assert.ok(toolsAt > 0, '找不到 #playlist-panel-tools');
+  assert.ok(toolsAt < bodyAt, '工具条要排在列表滚动区之前，列表才能从它下面裁断');
 });
 
 test('切换器复用歌单的类名与交互', () => {

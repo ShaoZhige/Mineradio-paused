@@ -265,6 +265,15 @@ function switchPlaylistTab(tab, opts) {
   if (playlistPane) playlistPane.style.display = tab === 'playlists' ? '' : 'none';
   var podcastPane = document.getElementById('podcast-pane');
   if (podcastPane) podcastPane.style.display = tab === 'podcasts' ? '' : 'none';
+  // 工具条也在滚动区外面，不跟着 pane 一起切；它只显示当前页签那一块。
+  var toolbars = {
+    queue: document.getElementById('queue-toolbar'),
+    playlists: document.getElementById('pl-toolbar'),
+    podcasts: document.getElementById('podcast-toolbar')
+  };
+  Object.keys(toolbars).forEach(function (key) {
+    if (toolbars[key]) toolbars[key].style.display = key === tab ? '' : 'none';
+  });
   // 平台切换器只属于「我的歌单」页签：它挂在 sticky 区里，不会被上面那几行 display 一起切掉，
   // 所以离开这个页签时要自己收起来。
   // The provider switcher belongs to the playlists tab; it sits in the sticky block, which the

@@ -373,11 +373,9 @@ function scrollPlaylistPanelDetailIntoView(key) {
     });
     if (!detail) return;
     var anchor = detail.previousElementSibling || detail;
-    // 头部卡片不再参与滚动；但列表自己的工具条是吸顶的，展开的卡片要停在它下面，不能钻进去。
-    var toolbar = scroller.querySelector('.queue-toolbar');
-    var stickyCover = toolbar ? toolbar.offsetHeight + 12 : 12;
+    // 工具条已经移到滚动区外面，展开的卡片停在滚动区顶部往下 12px，不会被盖住。
     var anchorTop = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    var top = Math.max(0, anchorTop - stickyCover);
+    var top = Math.max(0, anchorTop - 12);
     try { scroller.scrollTo({ top: top, behavior: 'smooth' }); }
     catch (e) { scroller.scrollTop = top; }
   });

@@ -14922,15 +14922,19 @@ html:fullscreen body.desktop-shell #playlist-panel {
   box-shadow: 0 13px 30px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .085)
 }
 
-/* 顶部卡片现在固定在面板里，工具条吸顶要相对列表滚动区算，否则会空出 82px。 */
-#playlist-panel-body .queue-toolbar {
-  top: 0;
-  margin-left: 0;
-  margin-right: 0;
-  /* 吸顶后行会从它底下穿过，玻璃再透就看得见字在按钮上爬，稍微加厚一点。 */
-  --playlist-toolbar-a1: .96;
-  --playlist-toolbar-a2: .94;
-  --playlist-toolbar-a3: .90
+/* 工具条现在固定在滚动区上方，列表从它下面才开始滚：行滚到顶会被滚动框直边裁断，
+   不会再从工具条的圆角或半透明玻璃底下钻出来。 */
+#playlist-panel-tools {
+  flex: 0 0 auto;
+  margin-right: 10px
+}
+
+#playlist-panel-tools .queue-toolbar {
+  position: static;
+  top: auto;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px
 }
 
 .queue-toolbar .fx-mini-btn {
@@ -14948,14 +14952,14 @@ html:fullscreen body.desktop-shell #playlist-panel {
    141px, and with import and refresh the row measured 455px inside a 310px panel, so the right
    edge was simply clipped. Wrapping instead of overflowing — the panel scrolls, and Chinese or
    English still stay on one line. */
-#pl-pane .queue-toolbar {
+#pl-toolbar {
   flex-wrap: wrap;
   row-gap: 6px
 }
 
 /* 按钮组是整块，不许被压缩到字里行间；要挤就挤 chip。 */
 /* The button group stays intact; if something has to give, it is the chip. */
-#pl-pane .queue-toolbar > div {
+#pl-toolbar > div {
   flex: 0 0 auto;
   max-width: 100%
 }
