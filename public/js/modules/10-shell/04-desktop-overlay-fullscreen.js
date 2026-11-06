@@ -43,7 +43,6 @@ var desktopWallpaperUiActivationState = false;
 var desktopWallpaperHudPrimeTimer = 0;
 var desktopIconVisibilityOperation = 0;
 var desktopIconVisibilityPending = false;
-var desktopIconsAbovePending = false;
 var desktopSoftwareLockOperation = 0;
 var desktopSoftwareLockPending = false;
 var desktopModeControlDockState = {
@@ -447,8 +446,6 @@ function updateDesktopModeControl(status) {
   var softwareLockState = document.getElementById('desktop-software-lock-state');
   var iconsVisible = desktopIconsAreVisible(status);
   var iconsButton = document.getElementById('desktop-icons-visible-toggle');
-  var iconsAboveButton = document.getElementById('desktop-icons-above-toggle');
-  var iconsAboveState = document.getElementById('desktop-icons-above-state');
   var iconsState = document.getElementById('desktop-icons-visible-state');
   if (softwareLockButton) {
     var softwareLockSupported = !!(api && typeof api.setDesktopSoftwareLocked === 'function');
@@ -470,14 +467,6 @@ function updateDesktopModeControl(status) {
     cancelDesktopModeControlHide();
     cancelDesktopModeControlPeekHide();
   }
-  // 「图标在上」模式下窗口收不到转发鼠标移动：与锁定态一样强制把手常驻，悬停由主进程轮询驱动。
-  // In "icons above" mode the window gets no forwarded moves: keep the handle peeked, hover is
-  // driven by the main-process cursor poll.
-  if (active && status && status.overlayIconsAbove === true) {
-    setDesktopModeControlPeek(true);
-    cancelDesktopModeControlHide();
-    cancelDesktopModeControlPeekHide();
-  }
   if (iconsButton) {
     var iconsSupported = !!(api && typeof api.setDesktopIconsVisible === 'function');
     iconsButton.setAttribute('aria-checked', iconsVisible ? 'true' : 'false');
@@ -486,22 +475,6 @@ function updateDesktopModeControl(status) {
     iconsButton.title = iconsVisible ? desktopOverlayFullscreenText('overlay_hide_icons') : desktopOverlayFullscreenText('overlay_show_icons');
   }
   if (iconsState) iconsState.textContent = iconsVisible ? desktopOverlayFullscreenText('overlay_icons_shown_short') : desktopOverlayFullscreenText('overlay_icons_hidden_short');
-  if (iconsAboveButton) {
-    var iconsAbove = !!(status && status.overlayIconsAbove);
-    var iconsAboveSupported = !!(api && typeof api.setDesktopIconsAbove === 'function');
-    iconsAboveButton.style.display = (status && status.overlayMode === false) ? 'none' : '';
-    iconsAboveButton.setAttribute('aria-checked', iconsAbove ? 'true' : 'false');
-    iconsAboveButton.setAttribute('aria-busy', desktopIconsAbovePending ? 'true' : 'false');
-    iconsAboveButton.disabled = desktopIconsAbovePending || !active || !iconsAboveSupported;
-    iconsAboveButton.title = iconsAbove
-      ? desktopOverlayFullscreenText('dc_icons_above_on', '图标显示在界面之上')
-      : desktopOverlayFullscreenText('dc_icons_above_off', '界面覆盖图标');
-    if (iconsAboveState) {
-      iconsAboveState.textContent = iconsAbove
-        ? desktopOverlayFullscreenText('dc_icons_above_on', '图标显示在界面之上')
-        : desktopOverlayFullscreenText('dc_icons_above_off', '界面覆盖图标');
-    }
-  }
   // 控制器区域的屏幕矩形随锁定/展开/图标层状态变化，随时同步给主进程的光标轮询。
   // The controller's screen rect changes with the lock, the panel and the icon layer; keep the
   // main-process cursor poll fed.
@@ -681,9 +654,7 @@ function setDesktopModeControlPeek(peek) {
 function scheduleDesktopModeControlPeekHide(delay) {
   // 锁定软件操作时把手是唯一解锁入口，永远不自动隐藏。
   // While the software is locked this handle is the only way back, so it never hides itself.
-  if (desktopWallpaperRuntimeState
-    && (desktopWallpaperRuntimeState.softwareInteractionLocked === true
-      || desktopWallpaperRuntimeState.overlayIconsAbove === true)) {
+  if (desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true) {
     setDesktopModeControlPeek(true);
     return;
   }
@@ -722,9 +693,7 @@ function setDesktopModeControlsOpen(open) {
   scheduleDesktopIconShieldReport(false);
   // 锁定期间不能拿上一帧的坐标去重算路由（否则面板刚由悬停展开就被判成「鼠标已离开」）。
   // While locked, stale coordinates must not re-run the route right after hover opened the panel.
-  if (!(desktopWallpaperRuntimeState
-    && (desktopWallpaperRuntimeState.softwareInteractionLocked === true
-      || desktopWallpaperRuntimeState.overlayIconsAbove === true))) {
+  if (!(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true)) {
     scheduleDesktopPointerRouteReport(null, true);
   }
   reportDesktopControllerZone();
@@ -989,31 +958,6 @@ function initDesktopModeControls(api) {
   });
   if (softwareLockButton) softwareLockButton.addEventListener('click', toggleDesktopSoftwareInteractionLocked);
   if (iconsButton) iconsButton.addEventListener('click', toggleDesktopIconsVisibility);
-  var iconsAboveButton = document.getElementById('desktop-icons-above-toggle');
-  if (iconsAboveButton) {
-    iconsAboveButton.addEventListener('click', function (event) {
-      consumeDesktopModeControlEvent(event);
-      var aboveApi = getDesktopWindowApi();
-      var mode = desktopIconShieldModeState();
-      if (!aboveApi || typeof aboveApi.setDesktopIconsAbove !== 'function' || !mode.active) return;
-      if (desktopIconsAbovePending) return;
-      desktopIconsAbovePending = true;
-      updateDesktopModeControl(desktopWallpaperRuntimeState);
-      var desired = !(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.overlayIconsAbove === true);
-      Promise.resolve(aboveApi.setDesktopIconsAbove(desired)).then(function (result) {
-        if (result && result.status) applyDesktopWallpaperRuntimeStatus(result.status);
-        else if (result && result.ok === true) {
-          desktopWallpaperRuntimeState.overlayIconsAbove = desired;
-          updateDesktopModeControl(desktopWallpaperRuntimeState);
-        }
-      }).catch(function () {
-        if (typeof showToast === 'function') showToast(desktopOverlayFullscreenText('dc_icons_above_failed', '切换图标层级失败'));
-      }).then(function () {
-        desktopIconsAbovePending = false;
-        updateDesktopModeControl(desktopWallpaperRuntimeState);
-      });
-    });
-  }
   document.addEventListener('pointerdown', function (event) {
     if (event && event.isTrusted) requestDesktopKeyboardFocus('pointerdown');
     if (!desktopModeControlDockState.open || dock.contains(event.target)) return;

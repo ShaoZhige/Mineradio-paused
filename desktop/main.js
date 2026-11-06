@@ -425,7 +425,6 @@ const fullDesktopModeRuntime = new FullDesktopModeRuntime({
 let desktopControllerZone = null;
 let desktopControllerHoverActive = false;
 let desktopControllerPollTimer = null;
-let desktopControllerRaisedForInput = null;
 
 function normalizeDesktopControllerZone(zone) {
   if (!zone || typeof zone !== 'object') return null;
@@ -468,12 +467,7 @@ function syncDesktopControllerPointerPoll() {
   const status = fullDesktopModeRuntime.getStatus('controller-pointer-poll');
   const active = !!(status && status.enabled === true && status.interactive === true);
   const locked = !!(status && status.softwareInteractionLocked === true);
-  // 「图标在上」模式下窗口在图标层下面，收不到转发鼠标移动；控制器悬停/展开改由这里的光标
-  // 轮询驱动，避免右上角控制器自动隐藏后再也唤不出来。
-  // In "icons above" mode the window sits under the icon layer and gets no forwarded moves;
-  // the controller hover/expand is driven by this cursor poll instead.
-  const needsPoll = locked || !!(status && status.overlayIconsAbove === true);
-  if (!active || !needsPoll || !desktopControllerZone) {
+  if (!active || !locked || !desktopControllerZone) {
     stopDesktopControllerPointerPoll();
     return;
   }
@@ -481,8 +475,8 @@ function syncDesktopControllerPointerPoll() {
   desktopControllerPollTimer = setInterval(() => {
     const zone = desktopControllerZone;
     const current = fullDesktopModeRuntime.getStatus('controller-pointer-tick');
-    const stillNeeded = current.softwareInteractionLocked === true || current.overlayIconsAbove === true;
-    if (!zone || !current || current.enabled !== true || current.interactive !== true || !stillNeeded) {
+    if (!zone || !current || current.enabled !== true || current.interactive !== true
+      || current.softwareInteractionLocked !== true) {
       stopDesktopControllerPointerPoll();
       return;
     }
@@ -491,21 +485,6 @@ function syncDesktopControllerPointerPoll() {
     if (!point) return;
     const over = point.x >= zone.x && point.x <= zone.x + zone.width
       && point.y >= zone.y && point.y <= zone.y + zone.height;
-    if (current.overlayIconsAbove === true) {
-      // 「图标在上」：指针进控制器时把窗口临时提到图标层上面（透明区域仍透出图标），
-      // 让点击能落到 Mineradio；离开后再压回图标层下面。
-      if (desktopControllerRaisedForInput !== over) {
-        desktopControllerRaisedForInput = over;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          const action = over
-            ? fullDesktopModeRuntime.raiseWindowAboveIconLayer(mainWindow)
-            : fullDesktopModeRuntime.raiseWindowUnderIconLayer(mainWindow);
-          Promise.resolve(action).catch(() => {});
-        }
-      }
-    } else {
-      desktopControllerRaisedForInput = null;
-    }
     if (over !== desktopControllerHoverActive) {
       setDesktopControllerHoverActive(over);
     }
@@ -4855,11 +4834,6 @@ ipcMain.on('mineradio-full-desktop-controller-zone', (event, payload = {}) => {
   if (!isTrustedMainWindowIpc(event)) return;
   desktopControllerZone = normalizeDesktopControllerZone(payload);
   syncDesktopControllerPointerPoll();
-});
-
-ipcMain.handle('mineradio-full-desktop-set-icons-above', async (event, above) => {
-  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'DESKTOP_MODE_UNTRUSTED_SENDER' };
-  return fullDesktopModeRuntime.setOverlayIconsAbove(above === true, 'renderer-icons-above');
 });
 
 ipcMain.handle('mineradio-full-desktop-set-software-lock', async (event, locked) => {

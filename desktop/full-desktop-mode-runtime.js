@@ -550,7 +550,6 @@ class FullDesktopModeRuntime {
     // showing through from behind.
     this.overlayMode = options.overlayMode === true;
     this.overlayIconsOriginalVisible = null;
-    this.overlayIconsAbove = false;
     this.iconShieldWindowId = '0';
     this.iconShapeShields = [];
     this.iconShapeShieldViewport = null;
@@ -626,7 +625,6 @@ class FullDesktopModeRuntime {
       desktopListWindowId: this.attachment && this.attachment.desktopListWindowId || '',
       iconLayerMode: this.iconLayerMode || '',
       overlayMode: this.overlayMode === true,
-      overlayIconsAbove: this.overlayIconsAbove === true,
       iconShieldWindowId: this.iconShieldWindowId || '0',
       iconShapeActive: this.iconShapeActive === true,
       iconCount: Math.max(0, Number(this.iconShapeCount) || 0),
@@ -1795,221 +1793,6 @@ class FullDesktopModeRuntime {
     });
   }
 
-  runIconLayerHitTestScript(action) {
-    const script = [
-      "param([string]$Action = 'probe')",
-      "$ErrorActionPreference='SilentlyContinue'",
-      "Add-Type -TypeDefinition @\"",
-      "using System;",
-      "using System.Runtime.InteropServices;",
-      "public static class MineradioIconHitTest {",
-      "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);",
-      "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);",
-      "  [DllImport(\"user32.dll\", EntryPoint=\"GetWindowLongPtr\")] public static extern IntPtr GetWindowLongPtr(IntPtr h, int i);",
-      "  [DllImport(\"user32.dll\", EntryPoint=\"SetWindowLongPtr\")] public static extern IntPtr SetWindowLongPtr(IntPtr h, int i, IntPtr v);",
-      "}",
-      "\"@",
-      "$progman=[MineradioIconHitTest]::FindWindow('Progman',$null)",
-      "$defview=[IntPtr]::Zero",
-      "if($progman -ne [IntPtr]::Zero){$defview=[MineradioIconHitTest]::FindWindowEx($progman,[IntPtr]::Zero,\"SHELLDLL_DefView\",$null)}",
-      "if($defview -eq [IntPtr]::Zero){$w=[IntPtr]::Zero; do{$w=[MineradioIconHitTest]::FindWindowEx([IntPtr]::Zero,$w,\"WorkerW\",$null); if($w -ne [IntPtr]::Zero){$defview=[MineradioIconHitTest]::FindWindowEx($w,[IntPtr]::Zero,\"SHELLDLL_DefView\",$null)}}while($w -ne [IntPtr]::Zero -and $defview -eq [IntPtr]::Zero)}",
-      "if($defview -eq [IntPtr]::Zero){return}",
-      "$list=[MineradioIconHitTest]::FindWindowEx($defview,[IntPtr]::Zero,\"SysListView32\",$null)",
-      "if($list -eq [IntPtr]::Zero){$list=[MineradioIconHitTest]::FindWindowEx($defview,[IntPtr]::Zero,\"SysListView32\",\"FolderView\")}",
-      "if($list -eq [IntPtr]::Zero){return}",
-      "$ex=[MineradioIconHitTest]::GetWindowLongPtr($list,-20).ToInt64()",
-      "if($Action -eq 'off'){ [void][MineradioIconHitTest]::SetWindowLongPtr($list,-20,[IntPtr]($ex -bor 0x20)) }",
-      "if($Action -eq 'on'){ [void][MineradioIconHitTest]::SetWindowLongPtr($list,-20,[IntPtr]($ex -band (-bnot 0x20))) }",
-      "$after=[MineradioIconHitTest]::GetWindowLongPtr($list,-20).ToInt64()",
-      "Write-Output (\"ICON_HITTEST=\" + [string][int](($after -band 0x20) -ne 0))",
-    ].join('\n').replace(/\n/g, '\r\n');
-    return new Promise((resolve) => {
-      const tempDir = this.nativeTempPath || os.tmpdir();
-      const scriptPath = path.join(tempDir, 'mineradio-desktop-icons-hittest.ps1');
-      try {
-        fs.mkdirSync(tempDir, { recursive: true });
-        fs.writeFileSync(scriptPath, script, 'utf8');
-      } catch (error) {
-        resolve({ ok: false, error: 'DESKTOP_ICON_HITTEST_SCRIPT_WRITE_FAILED' });
-        return;
-      }
-      this.execFileImpl('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-Action', action], {
-        windowsHide: true,
-        timeout: 8000,
-        env: { ...process.env, TEMP: tempDir, TMP: tempDir },
-      }, (error, stdout) => {
-        try { fs.unlinkSync(scriptPath); } catch (_) { }
-        if (error) { resolve({ ok: false, error: String(error && error.message || error) }); return; }
-        const match = String(stdout || '').match(/ICON_HITTEST=([01])/);
-        if (!match) { resolve({ ok: false, error: 'DESKTOP_ICON_HITTEST_NO_ACK' }); return; }
-        resolve({ ok: true, transparent: match[1] === '1' });
-      });
-    });
-  }
-
-  // 「软件界面在图标上方还是下方」：默认覆盖层在上（图标在下）。切到「图标在上」时把窗口
-  // 重新挂回 DefView 的图标层下面，并只给图标层加 WS_EX_TRANSPARENT（命中测试），
-  // 图标外观、背景色、合成方式一律不动。
-  // Layering option: by default the overlay sits above the icons. "Icons on top" re-parents the
-  // window below the icon layer and only adds WS_EX_TRANSPARENT to the ListView (hit testing),
-  // never touching icon appearance, background or compositing.
-  // 把窗口插到图标 ListView 的正下方（其他 DefView 子窗口之上），图标仍在上层，
-  // 但点击在 ListView 命中测试被关掉后会落到我们这个紧邻的窗口，而不是落到桌面。
-  // Insert the window directly below the icon ListView (above other DefView children): icons
-  // stay on top, and with ListView hit testing off, clicks land on this adjacent window.
-  // 指针在控制器上时把窗口临时提到图标层上面：图标在透明区域仍然透出来，但点击能落到
-  // Mineradio；移开后再压回图标层下面，恢复「图标在上」的视觉。
-  // While the pointer is on the controller, raise the window above the icon layer: icons still
-  // show through transparent areas, clicks land on Mineradio, and on leave it goes back under.
-  raiseWindowAboveIconLayer(win) {
-    const hwnd = nativeWindowHandleDecimal(win);
-    const script = [
-      "param([string]$MainHwnd = '0')",
-      "$ErrorActionPreference='SilentlyContinue'",
-      'Add-Type -TypeDefinition @"',
-      'using System;',
-      'using System.Runtime.InteropServices;',
-      'public static class MineradioRaiseAboveIcons {',
-      '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);',
-      '}',
-      '"@',
-      '$main=[IntPtr][Int64]$MainHwnd',
-      'if($main -eq [IntPtr]::Zero){return}',
-      '$ok=[MineradioRaiseAboveIcons]::SetWindowPos($main,[IntPtr]::Zero,0,0,0,0,0x0002 -bor 0x0001 -bor 0x0010)',
-      'Write-Output ("RAISED_ABOVE=" + [string][int]$ok)',
-    ].join('\n').replace(/\n/g, '\r\n');
-    return new Promise((resolve) => {
-      const tempDir = this.nativeTempPath || os.tmpdir();
-      const scriptPath = path.join(tempDir, 'mineradio-raise-above-icons.ps1');
-      try {
-        fs.mkdirSync(tempDir, { recursive: true });
-        fs.writeFileSync(scriptPath, script, 'utf8');
-      } catch (error) {
-        resolve({ ok: false, error: 'RAISE_ABOVE_SCRIPT_WRITE_FAILED' });
-        return;
-      }
-      this.execFileImpl('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainHwnd', hwnd], {
-        windowsHide: true,
-        timeout: 8000,
-        env: { ...process.env, TEMP: tempDir, TMP: tempDir },
-      }, (error, stdout) => {
-        try { fs.unlinkSync(scriptPath); } catch (_) { }
-        if (error) { resolve({ ok: false, error: String(error && error.message || error) }); return; }
-        resolve({ ok: /RAISED_ABOVE=1/.test(String(stdout || '')) });
-      });
-    });
-  }
-
-  raiseWindowUnderIconLayer(win) {
-    const hwnd = nativeWindowHandleDecimal(win);
-    const script = [
-      "param([string]$MainHwnd = '0')",
-      "$ErrorActionPreference='SilentlyContinue'",
-      'Add-Type -TypeDefinition @"',
-      'using System;',
-      'using System.Runtime.InteropServices;',
-      'public static class MineradioRaiseUnderIcons {',
-      '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);',
-      '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
-      '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);',
-      '}',
-      '"@',
-      "$progman=[MineradioRaiseUnderIcons]::FindWindow('Progman',$null)",
-      '$defview=[IntPtr]::Zero',
-      'if($progman -ne [IntPtr]::Zero){$defview=[MineradioRaiseUnderIcons]::FindWindowEx($progman,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}',
-      'if($defview -eq [IntPtr]::Zero){$w=[IntPtr]::Zero; do{$w=[MineradioRaiseUnderIcons]::FindWindowEx([IntPtr]::Zero,$w,"WorkerW",$null); if($w -ne [IntPtr]::Zero){$defview=[MineradioRaiseUnderIcons]::FindWindowEx($w,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}}while($w -ne [IntPtr]::Zero -and $defview -eq [IntPtr]::Zero)}',
-      'if($defview -eq [IntPtr]::Zero){return}',
-      '$list=[MineradioRaiseUnderIcons]::FindWindowEx($defview,[IntPtr]::Zero,"SysListView32",$null)',
-      'if($list -eq [IntPtr]::Zero){$list=[MineradioRaiseUnderIcons]::FindWindowEx($defview,[IntPtr]::Zero,"SysListView32","FolderView")}',
-      'if($list -eq [IntPtr]::Zero){return}',
-      '$main=[IntPtr][Int64]$MainHwnd',
-      'if($main -eq [IntPtr]::Zero){return}',
-      '$ok=[MineradioRaiseUnderIcons]::SetWindowPos($main,$list,0,0,0,0,0x0002 -bor 0x0001 -bor 0x0010)',
-      'Write-Output ("RAISED=" + [string][int]$ok)',
-    ].join('\n').replace(/\n/g, '\r\n');
-    return new Promise((resolve) => {
-      const tempDir = this.nativeTempPath || os.tmpdir();
-      const scriptPath = path.join(tempDir, 'mineradio-raise-under-icons.ps1');
-      try {
-        fs.mkdirSync(tempDir, { recursive: true });
-        fs.writeFileSync(scriptPath, script, 'utf8');
-      } catch (error) {
-        resolve({ ok: false, error: 'RAISE_SCRIPT_WRITE_FAILED' });
-        return;
-      }
-      this.execFileImpl('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainHwnd', hwnd], {
-        windowsHide: true,
-        timeout: 8000,
-        env: { ...process.env, TEMP: tempDir, TMP: tempDir },
-      }, (error, stdout) => {
-        try { fs.unlinkSync(scriptPath); } catch (_) { }
-        if (error) { resolve({ ok: false, error: String(error && error.message || error) }); return; }
-        const match = String(stdout || '').match(/RAISED=([01])/);
-        resolve({ ok: !!match && match[1] === '1' });
-      });
-    });
-  }
-
-  // 「图标在上」模式下窗口在图标层下面收不到点击：指针进入控制器时临时隐藏图标层，
-  // 让点击落到 Mineradio；离开时恢复（只 ShowWindow，不改图标外观）。
-  // In "icons above" mode the window sits under the icon layer and gets no clicks: hide the icon
-  // layer while the pointer is on the controller and restore it on leave (ShowWindow only).
-  async setIconsHiddenForControllerInput(hide) {
-    if (!this.overlayMode || this.overlayIconsAbove !== true) return { ok: false, error: 'DESKTOP_ICON_INPUT_INACTIVE' };
-    const desired = hide === true;
-    if (desired) {
-      if (this.desktopIconsVisible === false) return { ok: true, skipped: true };
-      const result = await this.runOverlayDesktopIconsScript('hide');
-      this.overlayIconsHiddenForInput = !!(result && result.ok === true);
-      return result;
-    }
-    if (this.overlayIconsHiddenForInput) {
-      this.overlayIconsHiddenForInput = false;
-      return this.runOverlayDesktopIconsScript('show');
-    }
-    return { ok: true, skipped: true };
-  }
-
-  async setOverlayIconsAbove(value, reason = 'desktop-icons-above-changed') {
-    if (!this.overlayMode) {
-      return { ok: false, error: 'DESKTOP_ICON_ORDER_UNSUPPORTED', status: this.getStatus(reason + '-unsupported') };
-    }
-    const desired = value === true;
-    const win = this.window;
-    if (!this.enabled || !this.interactive || !this.isWindowAlive(win)) {
-      return { ok: false, error: 'DESKTOP_ICON_ORDER_INACTIVE', status: this.getStatus(reason + '-inactive') };
-    }
-    if (this.overlayIconsAbove === desired) {
-      return { ok: true, enabled: true, interactive: true, iconsAbove: desired, status: this.getStatus(reason + '-unchanged') };
-    }
-    const display = this.displaySnapshot(win);
-    try {
-      if (desired) {
-        // 不再改图标层的命中测试：指针进入控制器时由主进程临时把窗口提到图标层上面，
-        // 点击落到 Mineradio；离开再压回下面，桌面图标自身始终可正常点击。
-        // No icon-layer hit-test changes: on controller hover the main process raises the window
-        // above the icon layer, then drops it back; desktop icons stay clickable themselves.
-        await this.attachCoexist(win, display);
-        this.overlayIconsAbove = true;
-      } else {
-        await this.setIconsHiddenForControllerInput(false).catch(() => {});
-        await this.detach(win, display.physicalBounds);
-        this.overlayIconsAbove = false;
-        this.attachment = this.overlayAttachment(display);
-      }
-      this.applyInteractive(win, display.bounds);
-      if (desired) await this.raiseWindowUnderIconLayer(win).catch(() => {});
-      this.generation += 1;
-      return { ok: true, enabled: true, interactive: true, iconsAbove: this.overlayIconsAbove, status: this.emitStatus(reason) };
-    } catch (error) {
-      const message = String(error && error.message || error || 'DESKTOP_ICON_ORDER_FAILED');
-      if (!this.overlayIconsAbove) {
-        await this.runIconLayerHitTestScript('on').catch(() => {});
-      }
-      return { ok: false, error: message, status: this.emitStatus(reason + '-failed') };
-    }
-  }
-
   probeOverlayDesktopIconsVisible() {
     return this.runOverlayDesktopIconsScript('probe').then((result) => (
       result && result.ok === true ? result.visible : null
@@ -2034,13 +1817,6 @@ class FullDesktopModeRuntime {
     safeCall(win, 'setMovable', null, false);
     this.applyInteractivePointerRoute(win, { force: true });
     safeCall(win, 'showInactive', null);
-    // showInactive 会把子窗口重新提到 ListView 之上；「图标在上」模式下要再插回图标层正下方。
-    // showInactive raises the child above the ListView; in "icons above" mode insert it back
-    // directly below the icon layer.
-    if (this.overlayMode && this.overlayIconsAbove === true
-      && this.attachment && this.attachment.kind === 'icon-host') {
-      this.raiseWindowUnderIconLayer(win).catch(() => {});
-    }
   }
 
   restoreWindow(win, snapshot) {
@@ -2137,7 +1913,6 @@ class FullDesktopModeRuntime {
             this.attachment = this.overlayAttachment(display);
             this.iconLayerMode = 'transparent-overlay';
             this.iconShapeActive = false;
-            this.overlayIconsAbove = false;
             this.overlayIconsOriginalVisible = await this.probeOverlayDesktopIconsVisible();
             this.desktopIconsVisible = this.overlayIconsOriginalVisible !== false;
             this.applyInteractive(win, display.bounds);
@@ -2175,8 +1950,7 @@ class FullDesktopModeRuntime {
         && this.phase === 'interactive'
         && visible
         && !!this.attachment
-        && (this.attachment.kind === 'overlay'
-          || (this.overlayIconsAbove === true && this.attachment.kind === 'icon-host'))
+        && this.attachment.kind === 'overlay'
         && this.pointerIgnoreMouseEvents === (this.softwareInteractionLocked === true
           && this.pointerRoute.overDesktopControls !== true);
     }
@@ -2199,7 +1973,7 @@ class FullDesktopModeRuntime {
       if (!this.isWindowAlive(this.window)) {
         return this.disableInternal(reason + '-window-gone', new Error('FULL_DESKTOP_WINDOW_UNAVAILABLE'));
       }
-      if (this.overlayIconsAbove !== true) this.attachment = this.overlayAttachment(display);
+      this.attachment = this.overlayAttachment(display);
       this.applyInteractive(this.window, display.bounds);
       this.phase = 'interactive';
       this.lastError = '';
@@ -2411,21 +2185,6 @@ class FullDesktopModeRuntime {
     this.overlayIconsOriginalVisible = null;
     const win = this.window;
     const snapshot = this.snapshot;
-    // 「图标在上」模式先恢复图标层的命中测试并把窗口摘回顶层，避免把桌面图标留在点不动的状态。
-    // "Icons on top" mode: restore the icon layer hit testing and detach the window back to a
-    // top-level window so desktop icons never stay unclickable.
-    if (this.overlayIconsAbove === true && this.isWindowAlive(win)) {
-      try { await this.runIconLayerHitTestScript('on'); } catch (_) { }
-      try {
-        const display = this.displaySnapshot(win);
-        await this.detach(win, display.physicalBounds || (display.bounds && display.bounds));
-      } catch (_) { }
-    }
-    this.overlayIconsAbove = false;
-    if (this.overlayIconsHiddenForInput) {
-      this.overlayIconsHiddenForInput = false;
-      try { await this.runOverlayDesktopIconsScript('show'); } catch (_) { }
-    }
     if (this.isWindowAlive(win) && snapshot) {
       try { this.restoreWindow(win, snapshot); } catch (_) { }
     }

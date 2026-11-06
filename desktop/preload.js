@@ -213,7 +213,6 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   updateDesktopIconShields: (payload) => ipcRenderer.send('mineradio-full-desktop-icon-shields', payload || {}),
   setDesktopSoftwareLocked: (locked) => ipcRenderer.invoke('mineradio-full-desktop-set-software-lock', locked === true),
   setDesktopIconsVisible: (visible) => ipcRenderer.invoke('mineradio-full-desktop-set-icons-visible', visible !== false),
-  setDesktopIconsAbove: (above) => ipcRenderer.invoke('mineradio-full-desktop-set-icons-above', above === true),
   requestDesktopKeyboardFocus: (reason) => ipcRenderer.invoke(
     'mineradio-full-desktop-request-keyboard-focus',
     String(reason || 'renderer-pointerdown').slice(0, 80)

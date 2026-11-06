@@ -66,7 +66,7 @@ assert.match(main, /syncDesktopControllerPointerPoll\(\);\s*\n\}/, 'status broad
 // 4) 渲染进程：锁定期间可点击区域由主进程轮询决定（转发坐标不可靠），悬停事件负责展开/收起，
 //    控制器矩形的上报有 250ms 心跳兜底。
 assert.match(shell, /mode\.active && desktopPointerRouteReporter\.hasPointer && !softwareLocked/);
-assert.ok(shell.includes('desktopWallpaperRuntimeState.overlayIconsAbove === true'), 'route report must also be skipped in icons-above mode');
+assert.ok(shell.includes('if (!(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true)) {'), 'route report must be skipped while locked');
 assert.match(shell, /api\.onDesktopControllerHover\(function \(over\) \{/);
 assert.match(shell, /scheduleDesktopModeControlOpen\(40, true\)/);
 assert.match(shell, /if \(desktopPointerRouteReporter\.overControls\) return;/);
@@ -76,6 +76,6 @@ assert.match(shell, /setInterval\(reportDesktopControllerZone, 250\)/);
 assert.match(shell, /syncDesktopControllerZoneTicker\(active && softwareLocked\)/);
 
 // 5) 锁定期间把手是唯一解锁入口，不能被自动隐藏。
-assert.ok(shell.includes('desktopWallpaperRuntimeState.overlayIconsAbove === true'), 'route report must also be skipped in icons-above mode');
+assert.ok(shell.includes('if (!(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true)) {'), 'route report must be skipped while locked');
 
 console.log('OK desktop-locked-pointer');
