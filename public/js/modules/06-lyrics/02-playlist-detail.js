@@ -360,10 +360,11 @@ function renderPlaylistPanelDetailState() {
 }
 function scrollPlaylistPanelDetailIntoView(key) {
   var panel = document.getElementById('playlist-panel');
-  if (!panel || !key) return;
+  var scroller = playlistPanelScrollEl();
+  if (!panel || !scroller || !key) return;
   requestAnimationFrame(function () {
     var detail = null;
-    Array.prototype.some.call(panel.querySelectorAll('[data-pl-detail]'), function (node) {
+    Array.prototype.some.call(scroller.querySelectorAll('[data-pl-detail]'), function (node) {
       if (node.getAttribute('data-pl-detail') === key) {
         detail = node;
         return true;
@@ -372,23 +373,13 @@ function scrollPlaylistPanelDetailIntoView(key) {
     });
     if (!detail) return;
     var anchor = detail.previousElementSibling || detail;
-    // 展开后卡片顶部停在吸顶区下沿再往下约一行，而不是紧贴吸顶区：贴顶时卡片、按钮行和曲目
-    // 全挤在面板最上方，用户手动把滚轮往上拨一格才是看着舒服的位置（2026-10-26 反馈），
-    // 所以这里把那段空白预先留出来。吸顶区自带 top:-18，它实际盖住「高度 - 18」这么多。
-    // The card now stops about one row below the sticky header instead of hugging it: that is where
-    // the user ends up after nudging the wheel up once, so the gap is reserved upfront. The sticky
-    // header sits at top:-18, so it really covers (height - 18).
-    var sticky = panel.querySelector('.playlist-panel-sticky');
-    var stickyCover = 96;
-    if (sticky) {
-      var stickyTop = 0;
-      try { stickyTop = parseFloat(getComputedStyle(sticky).top) || 0; } catch (e) { }
-      stickyCover = Math.max(0, sticky.offsetHeight + stickyTop);
-    }
-    var safeOffset = Math.max(160, stickyCover + 100);
-    var top = Math.max(0, anchor.offsetTop - safeOffset);
-    try { panel.scrollTo({ top: top, behavior: 'smooth' }); }
-    catch (e) { panel.scrollTop = top; }
+    // 头部卡片不再参与滚动；但列表自己的工具条是吸顶的，展开的卡片要停在它下面，不能钻进去。
+    var toolbar = scroller.querySelector('.queue-toolbar');
+    var stickyCover = toolbar ? toolbar.offsetHeight + 12 : 12;
+    var anchorTop = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    var top = Math.max(0, anchorTop - stickyCover);
+    try { scroller.scrollTo({ top: top, behavior: 'smooth' }); }
+    catch (e) { scroller.scrollTop = top; }
   });
 }
 function cancelPlaylistPanelDetailRequest() {
@@ -901,14 +892,14 @@ function schedulePlaylistPanelVirtualRender() {
   });
 }
 function bindPlaylistPanelLazyRender() {
-  var panel = document.getElementById('playlist-panel');
+  var scroller = playlistPanelScrollEl();
   bindMiniQueueLazyRender();
-  if (!panel || playlistPanelLazyBound) return;
+  if (!scroller || playlistPanelLazyBound) return;
   playlistPanelLazyBound = true;
-  panel.addEventListener('scroll', function () {
+  scroller.addEventListener('scroll', function () {
     if (queueViewTab === 'queue') {
       scheduleQueuePanelVirtualRender();
-      maybeRequestPlaylistQueuePageFromScroller(panel);
+      maybeRequestPlaylistQueuePageFromScroller(scroller);
     }
     if (queueViewTab === 'playlists') {
       schedulePlaylistPanelVirtualRender();
@@ -979,8 +970,8 @@ function renderUserPlaylistsList(opts) {
       : (emptyFooter || playlistDetailText('pl_not_found_html'));
     return;
   }
-  var panel = document.getElementById('playlist-panel');
-  var keepTop = panel ? panel.scrollTop : 0;
+  var scroller = playlistPanelScrollEl();
+  var keepTop = scroller ? scroller.scrollTop : 0;
   function playlistCardHtml(pl, sourceIndex) {
     var provider = normalizePlaylistProvider(pl.provider);
     var providerLabel = playlistProviderLabel(provider);
@@ -997,9 +988,9 @@ function renderUserPlaylistsList(opts) {
   var cache = playlistPanelBuildVirtualEntries();
   renderPlaylistProviderTabs(cache);
   var listRect = $pl.getBoundingClientRect();
-  var panelRect = panel && panel.getBoundingClientRect ? panel.getBoundingClientRect() : { top: 0 };
-  var visibleTop = panel ? Math.max(0, panelRect.top - listRect.top) : 0;
-  var viewport = Math.max(420, Number(panel && panel.clientHeight) || 620);
+  var scrollerRect = scroller && scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : { top: 0 };
+  var visibleTop = scroller ? Math.max(0, scrollerRect.top - listRect.top) : 0;
+  var viewport = Math.max(420, Number(scroller && scroller.clientHeight) || 620);
   var start = playlistPanelOffsetIndex(cache.offsets, Math.max(0, visibleTop - PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX));
   var end = Math.min(cache.entries.length, playlistPanelOffsetIndex(cache.offsets, visibleTop + viewport + PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX) + 1);
   // 详情块和它上面那张卡片是一体的：虚拟窗口只要把它切在任意一侧边界上，台账里那
@@ -1038,19 +1029,19 @@ function renderUserPlaylistsList(opts) {
   // Post-render check: entries are still windowed out while the panel can no longer scroll, so
   // that slice can never be reached and reads as a blank block. The list is short enough to render
   // whole in that case instead of saving a few dozen nodes.
-  if (end < cache.entries.length && panel && panel.scrollHeight <= panel.clientHeight + 4) {
+  if (end < cache.entries.length && scroller && scroller.scrollHeight <= scroller.clientHeight + 4) {
     start = 0;
     end = cache.entries.length;
     $pl.innerHTML = playlistPanelWindowHtml(start, end);
   }
-  if (panel && opts.preserveScroll) panel.scrollTop = keepTop;
+  if (scroller && opts.preserveScroll) scroller.scrollTop = keepTop;
   // 详情高度最终以实际渲染结果为准：首次估算若与实测差超过 4px，记录后重排一次。
   if (playlistPanelDetailState.key && syncPlaylistPanelMeasuredDetailHeight(cache.detailSig)) {
     schedulePlaylistPanelVirtualRender();
   }
   bindPlaylistPanelDetailScroller();
   if (typeof requestNextPlaylistCatalogPage === 'function' && end >= cache.entries.length - 8) requestNextPlaylistCatalogPage('panel-near-end');
-  if (opts.animate && seq === playlistRenderSeq) animateVisiblePanelList($pl, '.pl-card', document.getElementById('playlist-panel'));
+  if (opts.animate && seq === playlistRenderSeq) animateVisiblePanelList($pl, '.pl-card', playlistPanelScrollEl());
 }
 // 播客的平台切换器和歌单是同一套胶囊行：列出所有已登录的平台，一次只渲染一个。
 // 但播客接口目前只有网易云提供，其余平台登录了也没有内容可拉——那就明说「暂无可用播客接口」，
@@ -1168,7 +1159,7 @@ function renderMyPodcastCollections(opts) {
       '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(pc.title || '') + '</div><div class="pl-sub">' + (pc.count || 0) + playlistDetailText('pl_items_prefix') + escHtml(pc.sub || '') + '</div></div>' +
       '</div>';
   }).join('');
-  if (opts.animate) animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
+  if (opts.animate) animateVisiblePanelList($pod, '.pl-card', playlistPanelScrollEl());
 }
 document.getElementById('pl-list').addEventListener('click', function (e) {
   var catalogRetry = e.target && e.target.closest ? e.target.closest('[data-pl-catalog-retry]') : null;

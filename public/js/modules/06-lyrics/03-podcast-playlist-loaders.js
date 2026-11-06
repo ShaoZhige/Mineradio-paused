@@ -54,7 +54,7 @@ function renderMyPodcastRadioItems(key, title, items) {
         '<div style="flex:1;min-width:0"><div class="pl-name">' + escHtml(r.name || '') + '</div><div class="pl-sub">' + escHtml((r.djName || r.artist || 'Podcast') + (r.programCount ? (' · ' + r.programCount + podcastPlaylistLoadersText('pod_episodes_suffix')) : '')) + '</div></div>' +
         '</div>';
     }).join('');
-  animateVisiblePanelList($pod, '.pl-card', document.getElementById('playlist-panel'));
+  animateVisiblePanelList($pod, '.pl-card', playlistPanelScrollEl());
 }
 async function openMyPodcastCollection(key, title) {
   if (!key) return;

@@ -97,11 +97,11 @@ test('撑不出滚动条时就整份渲染，不留会滚不走的占位符', ()
   // 快速路径：台账总高本来就撑不满一屏。
   assert.match(render, /cache\.totalHeight\s*<=\s*viewport \+ PLAYLIST_CARD_VIRTUAL_OVERSCAN_PX/);
   // 兜底：渲染之后发现还有条目被虚拟掉、面板却已经滚不动 —— 那截永远够不到，必须整份重画。
-  assert.match(render, /if \(end < cache\.entries\.length && panel && panel\.scrollHeight <= panel\.clientHeight \+ 4\) \{/);
+  assert.match(render, /if \(end < cache\.entries\.length && scroller && scroller\.scrollHeight <= scroller\.clientHeight \+ 4\) \{/);
   const fallback = slice(
     render,
-    'if (end < cache.entries.length && panel && panel.scrollHeight <= panel.clientHeight + 4) {',
-    'if (panel && opts.preserveScroll)'
+    'if (end < cache.entries.length && scroller && scroller.scrollHeight <= scroller.clientHeight + 4) {',
+    'if (scroller && opts.preserveScroll)'
   );
   assert.match(fallback, /start = 0/);
   assert.match(fallback, /end = cache\.entries\.length/);

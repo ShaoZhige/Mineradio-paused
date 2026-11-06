@@ -43,10 +43,18 @@ function animateListItems(container, selector, opts) {
     overwrite: true
   });
 }
+// 头部卡片固定，列表在 #playlist-panel-body 里单独滚动：以前直接拿面板当滚动容器的调用，
+// 统一从这里取节点，面板自身不再滚动。
+function playlistPanelScrollEl() {
+  return document.getElementById('playlist-panel-body') || document.getElementById('playlist-panel');
+}
 function smoothScrollToItem(scroller, item, opts) {
   if (!scroller || !item) return;
   opts = opts || {};
-  var target = item.offsetTop - Math.max(0, (scroller.clientHeight - item.offsetHeight) * (opts.align == null ? 0.42 : opts.align));
+  // offsetTop 是相对 offsetParent 的，滚动容器换成内层 body 后会被算进头部卡片的高度；
+  // 改用两者矩形之差，滚动容器换到哪里都成立。
+  var itemTop = item.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  var target = itemTop - Math.max(0, (scroller.clientHeight - item.offsetHeight) * (opts.align == null ? 0.42 : opts.align));
   target = Math.max(0, Math.min(target, Math.max(0, scroller.scrollHeight - scroller.clientHeight)));
   if (window.gsap) {
     if (typeof scroller.__syncSmoothWheelTarget === 'function') scroller.__syncSmoothWheelTarget(target);
@@ -108,7 +116,7 @@ function bindSmoothQueueScrolling() {
     'mini-queue-list',
     'search-results',
     'fx-panel',
-    'playlist-panel',
+    'playlist-panel-body',
     'track-detail-body'
   ].forEach(function (id) {
     bindSmoothWheelScroll(document.getElementById(id));
@@ -204,25 +212,27 @@ function togglePlaylistPanelPinned() {
 }
 function scrollPlaylistPanelToCurrent() {
   var panel = document.getElementById('playlist-panel');
+  var scroller = playlistPanelScrollEl();
   var list = document.getElementById('queue-list');
-  if (!panel || !list || queueViewTab !== 'queue') return;
+  if (!panel || !scroller || !list || queueViewTab !== 'queue') return;
   var now = performance.now();
   if (panel.__lastCurrentScrollAt && now - panel.__lastCurrentScrollAt < 650) return;
   panel.__lastCurrentScrollAt = now;
   requestAnimationFrame(function () {
     renderQueuePanel({ animate: false, scrollCurrent: true });
-    smoothScrollToItem(panel, list.querySelector('.queue-item.now'), { duration: 0.28, align: 0.34 });
+    smoothScrollToItem(scroller, list.querySelector('.queue-item.now'), { duration: 0.28, align: 0.34 });
   });
 }
 function animatePlaylistPanelCurrentTab(panel, opts) {
   opts = opts || {};
   panel = panel || document.getElementById('playlist-panel');
+  var scroller = playlistPanelScrollEl();
   if (queueViewTab === 'queue') {
-    animateVisiblePanelList(document.getElementById('queue-list'), '.queue-item', panel, '.queue-item.now', { scrollActive: opts.scrollActive !== false });
+    animateVisiblePanelList(document.getElementById('queue-list'), '.queue-item', scroller, '.queue-item.now', { scrollActive: opts.scrollActive !== false });
   } else if (queueViewTab === 'playlists') {
-    animateVisiblePanelList(document.getElementById('pl-list'), '.pl-card', panel);
+    animateVisiblePanelList(document.getElementById('pl-list'), '.pl-card', scroller);
   } else {
-    animateVisiblePanelList(document.getElementById('podcast-list'), '.pl-card', panel);
+    animateVisiblePanelList(document.getElementById('podcast-list'), '.pl-card', scroller);
   }
 }
 function preparePlaylistPanelTabOnOpen(panel) {
@@ -502,7 +512,7 @@ function renderQueuePanel(opts) {
     return;
   }
   var total = playQueue.length;
-  var panelScroller = document.getElementById('playlist-panel');
+  var panelScroller = playlistPanelScrollEl();
   var windowInfo = queuePanelVirtualWindow($ql, panelScroller, total, false, opts.scrollCurrent ? currentIdx : -1);
   var visibleQueue = playQueue.slice(windowInfo.start, windowInfo.end);
   // 多选态下每行前面插一个勾选框；勾选态由下标决定，虚拟滚动的行重建后仍能对上。
@@ -526,7 +536,7 @@ function renderQueuePanel(opts) {
       '</div>' +
       '</div>';
   }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + queueHydrationFooterHtml(false);
-  if (opts.animate && seq === queueRenderSeq) animateVisiblePanelList($ql, '.queue-item', document.getElementById('playlist-panel'), '.queue-item.now');
+  if (opts.animate && seq === queueRenderSeq) animateVisiblePanelList($ql, '.queue-item', playlistPanelScrollEl(), '.queue-item.now');
   renderMiniQueuePanel({ scrollCurrent: opts.scrollCurrent !== false && miniQueueOpen });
 }
 function playlistCatalogProviderArray(provider) {

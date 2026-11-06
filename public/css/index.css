@@ -14410,18 +14410,15 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   left: 32px;
   width: 340px;
   max-height: calc(100vh - 120px);
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background: rgba(12, 12, 18, 0.42);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   padding: 18px;
-  padding-top: 0;
+  padding-top: 14px;
   padding-right: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, .22) transparent;
-  scrollbar-gutter: stable;
-  scroll-padding-top: 96px;
-  overflow-x: hidden;
   backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
   -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
@@ -14434,27 +14431,39 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   contain: layout paint
 }
 
-#playlist-panel::-webkit-scrollbar {
+#playlist-panel-body::-webkit-scrollbar {
   width: 10px;
 }
 
-#playlist-panel::-webkit-scrollbar-track {
+#playlist-panel-body::-webkit-scrollbar-track {
   background: transparent;
   margin: 10px 0;
 }
 
-#playlist-panel::-webkit-scrollbar-thumb {
+#playlist-panel-body::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, .18);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 
-#playlist-panel::-webkit-scrollbar-thumb:hover {
+#playlist-panel-body::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, .28);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: padding-box;
+}
+
+#playlist-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+  scrollbar-gutter: stable;
+  scroll-padding-top: 12px;
 }
 
 #playlist-panel.playlist-panel-closing {
@@ -14498,25 +14507,11 @@ html:fullscreen body.desktop-shell #playlist-panel {
   }
 }
 
-#playlist-panel::before {
-  content: '';
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: block;
-  height: 12px;
-  margin-bottom: -12px;
-  border-radius: 20px 20px 0 0;
-  background: rgba(11, 12, 17, .72);
-  backdrop-filter: blur(16px) saturate(1.08);
-  -webkit-backdrop-filter: blur(16px) saturate(1.08);
-}
-
 .playlist-panel-sticky {
-  position: sticky;
-  top: 12px;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 9;
-  margin: 12px 0;
+  margin: 0 10px 12px 0;
   padding: 14px;
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(12, 14, 18, var(--playlist-sticky-a1, .94)), rgba(9, 11, 15, var(--playlist-sticky-a2, .90)) 70%, rgba(9, 11, 15, var(--playlist-sticky-a3, .78))), linear-gradient(135deg, rgba(255, 255, 255, .085), rgba(255, 255, 255, .028) 42%, rgba(var(--fc-accent-rgb), .048));
@@ -14925,6 +14920,17 @@ html:fullscreen body.desktop-shell #playlist-panel {
   backdrop-filter: blur(var(--playlist-toolbar-blur, 28px)) saturate(1.25) brightness(1.05);
   -webkit-backdrop-filter: blur(var(--playlist-toolbar-blur, 28px)) saturate(1.25) brightness(1.05);
   box-shadow: 0 13px 30px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .085)
+}
+
+/* 顶部卡片现在固定在面板里，工具条吸顶要相对列表滚动区算，否则会空出 82px。 */
+#playlist-panel-body .queue-toolbar {
+  top: 0;
+  margin-left: 0;
+  margin-right: 0;
+  /* 吸顶后行会从它底下穿过，玻璃再透就看得见字在按钮上爬，稍微加厚一点。 */
+  --playlist-toolbar-a1: .96;
+  --playlist-toolbar-a2: .94;
+  --playlist-toolbar-a3: .90
 }
 
 .queue-toolbar .fx-mini-btn {
@@ -15657,7 +15663,7 @@ html.control-glass-svg-ok .mini-queue-remove {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 0 34px rgba(var(--fc-accent-rgb), .08) !important
 }
 
-#playlist-panel::-webkit-scrollbar-thumb {
+#playlist-panel-body::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, .20) !important;
   background-clip: padding-box !important;
   border: 3px solid transparent !important;

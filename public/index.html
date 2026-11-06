@@ -1273,6 +1273,8 @@
           <button id="tab-podcast" class="panel-tab" onclick="switchPlaylistTab('podcasts')" data-i18n="tab_podcasts">我的播客</button>
         </div>
       </div>
+      <!-- 列表区单独滚动：头部卡片固定不动，行只在下面的滚动框里走，不会钻到卡片里。 -->
+      <div id="playlist-panel-body">
       <div id="queue-pane">
         <div class="queue-toolbar">
           <div id="play-mode-chip" class="queue-chip" data-i18n="play_mode_loop">顺序循环</div>
@@ -1322,6 +1324,7 @@
         <span id="ms-count" class="ms-count"></span>
         <button id="ms-add" type="button" class="ms-btn primary" onclick="playlistMultiOpenPicker()"></button>
         <button id="ms-done" type="button" class="ms-btn ghost" onclick="playlistMultiExit()"></button>
+      </div>
       </div>
     </div>
 
