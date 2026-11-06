@@ -1959,6 +1959,7 @@ class FullDesktopModeRuntime {
         this.attachment = this.overlayAttachment(display);
       }
       this.applyInteractive(win, display.bounds);
+      if (desired) await this.raiseWindowUnderIconLayer(win).catch(() => {});
       this.generation += 1;
       return { ok: true, enabled: true, interactive: true, iconsAbove: this.overlayIconsAbove, status: this.emitStatus(reason) };
     } catch (error) {
@@ -1994,6 +1995,13 @@ class FullDesktopModeRuntime {
     safeCall(win, 'setMovable', null, false);
     this.applyInteractivePointerRoute(win, { force: true });
     safeCall(win, 'showInactive', null);
+    // showInactive 会把子窗口重新提到 ListView 之上；「图标在上」模式下要再插回图标层正下方。
+    // showInactive raises the child above the ListView; in "icons above" mode insert it back
+    // directly below the icon layer.
+    if (this.overlayMode && this.overlayIconsAbove === true
+      && this.attachment && this.attachment.kind === 'icon-host') {
+      this.raiseWindowUnderIconLayer(win).catch(() => {});
+    }
   }
 
   restoreWindow(win, snapshot) {
