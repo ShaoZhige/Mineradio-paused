@@ -14415,6 +14415,13 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   padding: 18px;
+  padding-top: 0;
+  padding-right: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+  scrollbar-gutter: stable;
+  scroll-padding-top: 96px;
+  overflow-x: hidden;
   backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
   -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
@@ -14425,6 +14432,29 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
   overscroll-behavior: contain;
   will-change: transform, opacity;
   contain: layout paint
+}
+
+#playlist-panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+#playlist-panel::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 10px 0;
+}
+
+#playlist-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+#playlist-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, .28);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }
 
 #playlist-panel.playlist-panel-closing {
@@ -14468,22 +14498,27 @@ html:fullscreen body.desktop-shell #playlist-panel {
   }
 }
 
-#playlist-panel::-webkit-scrollbar {
-  width: 3px
-}
-
-#playlist-panel::-webkit-scrollbar-thumb {
-  background: rgba(var(--fc-accent-rgb), .20);
-  border-radius: 3px
+#playlist-panel::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: block;
+  height: 12px;
+  margin-bottom: -12px;
+  border-radius: 20px 20px 0 0;
+  background: rgba(11, 12, 17, .72);
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
 }
 
 .playlist-panel-sticky {
   position: sticky;
-  top: -18px;
+  top: 12px;
   z-index: 9;
-  margin: -18px -18px 12px;
-  padding: 18px 18px 10px;
-  border-radius: 20px 20px 15px 15px;
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: 16px;
   background: linear-gradient(180deg, rgba(12, 14, 18, var(--playlist-sticky-a1, .94)), rgba(9, 11, 15, var(--playlist-sticky-a2, .90)) 70%, rgba(9, 11, 15, var(--playlist-sticky-a3, .78))), linear-gradient(135deg, rgba(255, 255, 255, .085), rgba(255, 255, 255, .028) 42%, rgba(var(--fc-accent-rgb), .048));
   border: 1px solid rgba(255, 255, 255, .090);
   border-top-color: rgba(255, 255, 255, .17);
@@ -15623,7 +15658,10 @@ html.control-glass-svg-ok .mini-queue-remove {
 }
 
 #playlist-panel::-webkit-scrollbar-thumb {
-  background: rgba(var(--fc-accent-rgb), .20) !important
+  background-color: rgba(255, 255, 255, .20) !important;
+  background-clip: padding-box !important;
+  border: 3px solid transparent !important;
+  border-radius: 999px !important
 }
 
 #playlist-panel .panel-tab {
