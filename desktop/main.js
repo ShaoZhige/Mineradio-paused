@@ -405,6 +405,9 @@ const wallpaperEngineRuntime = new WallpaperEngineRuntime({
 const fullDesktopModeRuntime = new FullDesktopModeRuntime({
   screen,
   platform: process.platform,
+  // 透明覆盖层：不 SetParent、不碰桌面图标层，桌面壁纸/图标从窗口后面透出来。
+  // Transparent overlay: no SetParent and no icon-layer edits; the real desktop shows through.
+  overlayMode: true,
   execFileImpl: execFile,
   nativeTempPath: NATIVE_HELPER_TEMP_PATH,
   beforePassive: ({ win, reason }) => prepareWallpaperEngineProjectPreviewBeforeDesktopEmbedding(win, reason),

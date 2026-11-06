@@ -1,0 +1,43 @@
+'use strict';
+
+// 完整桌面模式现在是「透明全屏覆盖层」：不 SetParent、不修改 Explorer 的图标 ListView，
+// 桌面壁纸与图标从窗口后面透出来，因此不会再出现图标黑底。
+// Full desktop mode is now a transparent full-screen overlay: no SetParent and no edits to
+// Explorer's icon ListView, so the desktop wallpaper/icons show through and icons can never be
+// left with a black backdrop.
+const fs = require('fs');
+const path = require('path');
+const assert = require('node:assert/strict');
+
+const appRoot = path.resolve(__dirname, '..');
+const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8');
+
+const main = read('desktop/main.js');
+const runtime = read('desktop/full-desktop-mode-runtime.js');
+const shell = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
+
+// 1) 主进程用覆盖层模式创建 runtime。
+assert.match(main, /overlayMode: true/);
+assert.match(runtime, /this\.overlayMode = options\.overlayMode === true;/);
+
+// 2) 覆盖层分支：不 attach、不启动图标层 watcher。
+assert.match(runtime, /if \(this\.overlayMode\) \{\s*this\.enabled = true;\s*this\.interactive = true;\s*this\.attachment = this\.overlayAttachment\(display\);/);
+assert.match(runtime, /this\.iconLayerMode = 'transparent-overlay';/);
+assert.match(runtime, /overlayAttachment\(display\) \{/);
+assert.match(runtime, /startIconShapeWatcher\(display = this\.shapeDisplayForWindow\(\)\) \{\s*if \(this\.overlayMode\) return null;/);
+assert.match(runtime, /async enableIconShape\(win, display, reason = 'desktop-coexist', options = \{\}\) \{\s*if \(this\.overlayMode\) return \{ ok: true, skipped: true \};/);
+assert.match(runtime, /async ensureIconLayerOrder\(\) \{\s*if \(this\.overlayMode\) \{/);
+
+// 3) 覆盖层下不接管「显示桌面图标」开关（那需要动图标 ListView）。
+assert.match(runtime, /error: 'DESKTOP_ICON_VISIBILITY_UNSUPPORTED',/);
+assert.match(shell, /iconsButton\.disabled = desktopIconVisibilityPending \|\| !active \|\| !iconsSupported\s*\n?\s*\|\| !!\(status && status\.overlayMode\);/);
+
+// 4) 进入/退出/鼠标锁定都走覆盖层分支。
+assert.match(runtime, /async disableInternal\(reason = 'disabled', preservedError = null\) \{\s*if \(this\.overlayMode\) return this\.disableOverlayInternal\(reason, preservedError\);/);
+assert.match(runtime, /async disableOverlayInternal\(reason = 'disabled', preservedError = null\) \{/);
+assert.match(runtime, /this\.attachment\.kind === 'icon-host' \|\| this\.attachment\.kind === 'overlay'/);
+
+// 5) 启动时的图标层残留修复仍然保留，负责清理旧版本可能留下的黑底状态。
+assert.match(main, /function repairLeakedDesktopIconLayer\(\)/);
+
+console.log('OK desktop-overlay-mode');

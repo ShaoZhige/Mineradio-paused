@@ -540,6 +540,12 @@ class FullDesktopModeRuntime {
     this.iconShapeLayout = null;
     this.iconRevealRects = [];
     this.iconLayerMode = '';
+    // 透明覆盖层模式：不 SetParent、不碰 Explorer 的桌面图标 ListView，窗口就是一层全屏透明
+    // 覆盖物，桌面壁纸和图标在它后面自然可见。
+    // Transparent overlay mode: no SetParent and no touching Explorer's desktop icon ListView —
+    // the window is just a full-screen transparent overlay with the desktop (wallpaper + icons)
+    // showing through from behind.
+    this.overlayMode = options.overlayMode === true;
     this.iconShieldWindowId = '0';
     this.iconShapeShields = [];
     this.iconShapeShieldViewport = null;
@@ -614,6 +620,7 @@ class FullDesktopModeRuntime {
       desktopViewWindowId: this.attachment && this.attachment.desktopViewWindowId || '',
       desktopListWindowId: this.attachment && this.attachment.desktopListWindowId || '',
       iconLayerMode: this.iconLayerMode || '',
+      overlayMode: this.overlayMode === true,
       iconShieldWindowId: this.iconShieldWindowId || '0',
       iconShapeActive: this.iconShapeActive === true,
       iconCount: Math.max(0, Number(this.iconShapeCount) || 0),
@@ -979,6 +986,7 @@ class FullDesktopModeRuntime {
   }
 
   startIconShapeWatcher(display = this.shapeDisplayForWindow()) {
+    if (this.overlayMode) return null;
     if (this.iconLayerRestoreUnconfirmed) {
       throw new Error('DESKTOP_ICON_LAYER_RESTORE_UNCONFIRMED');
     }
@@ -1068,6 +1076,7 @@ class FullDesktopModeRuntime {
   }
 
   async enableIconShape(win, display, reason = 'desktop-coexist', options = {}) {
+    if (this.overlayMode) return { ok: true, skipped: true };
     if (!win || typeof win.setShape !== 'function') throw new Error('DESKTOP_ICON_LAYER_UNAVAILABLE');
     await this.stopIconShapeWatcher();
     // prepareWindow() clears the legacy BrowserWindow shape before SetParent.
@@ -1107,6 +1116,9 @@ class FullDesktopModeRuntime {
   }
 
   async ensureIconLayerOrder() {
+    if (this.overlayMode) {
+      return { ok: true, skipped: true, status: this.getStatus('icon-layer-overlay') };
+    }
     if (this.iconLayerRestoreUnconfirmed) {
       throw new Error('DESKTOP_ICON_LAYER_RESTORE_UNCONFIRMED');
     }
@@ -1189,7 +1201,8 @@ class FullDesktopModeRuntime {
       overDesktopControls: route && route.overDesktopControls === true,
     };
     const active = this.enabled && this.interactive && !this.iconLayerRestoreUnconfirmed
-      && this.isWindowAlive() && this.attachment && this.attachment.kind === 'icon-host';
+      && this.isWindowAlive() && this.attachment
+      && (this.attachment.kind === 'icon-host' || this.attachment.kind === 'overlay');
     const ignoreMouseEvents = active ? this.applyInteractivePointerRoute(this.window) : null;
     return {
       ok: true,
@@ -1208,7 +1221,8 @@ class FullDesktopModeRuntime {
       && this.pointerIgnoreMouseEvents !== true
       && !this.iconLayerRestoreUnconfirmed
       && this.isWindowAlive(win)
-      && this.attachment && this.attachment.kind === 'icon-host';
+      && this.attachment
+      && (this.attachment.kind === 'icon-host' || this.attachment.kind === 'overlay');
     if (!active || !webContents || typeof webContents.focus !== 'function') {
       return {
         ok: false,
@@ -1237,7 +1251,8 @@ class FullDesktopModeRuntime {
     return this.enqueue('set-software-interaction-lock', async () => {
       const desired = value === true;
       if (!this.enabled || !this.interactive || !this.isWindowAlive()
-        || !this.attachment || this.attachment.kind !== 'icon-host'
+        || !this.attachment
+        || (this.attachment.kind !== 'icon-host' && this.attachment.kind !== 'overlay')
         || this.iconLayerRestoreUnconfirmed) {
         return {
           ok: false,
@@ -1284,6 +1299,18 @@ class FullDesktopModeRuntime {
   setDesktopIconsVisible(value, reason = 'desktop-icons-visibility-changed') {
     return this.enqueue('set-desktop-icons-visible', async () => {
       const desired = value !== false;
+      if (this.overlayMode) {
+        // 覆盖层模式不碰 Explorer 的图标列表，图标始终由桌面自己绘制。
+        // Overlay mode never touches Explorer's icon list; the desktop always draws the icons.
+        return {
+          ok: false,
+          enabled: this.enabled,
+          interactive: this.interactive,
+          desktopIconsVisible: true,
+          error: 'DESKTOP_ICON_VISIBILITY_UNSUPPORTED',
+          status: this.getStatus(reason + '-overlay-unsupported'),
+        };
+      }
       if (this.iconLayerRestoreUnconfirmed) {
         throw new Error('DESKTOP_ICON_LAYER_RESTORE_UNCONFIRMED');
       }
@@ -1651,6 +1678,17 @@ class FullDesktopModeRuntime {
     safeCall(win, 'showInactive', null);
   }
 
+  overlayAttachment(display) {
+    return {
+      kind: 'overlay',
+      displayId: display && display.displayId,
+      bounds: { ...(display && display.bounds) },
+      physicalBounds: { ...(display && display.physicalBounds) },
+      workArea: { ...(display && display.workArea) },
+      safeInsets: { ...(display && display.safeInsets) },
+    };
+  }
+
   applyInteractive(win, bounds) {
     if (!this.attachment || this.attachment.kind !== 'icon-host') {
       safeCall(win, 'setBounds', null, bounds, false);
@@ -1751,12 +1789,21 @@ class FullDesktopModeRuntime {
         // icon ListView. Keep it hidden until the native color-key ACK.
         this.prepareWindow(win, display.bounds, { hide: true });
         if (interactive) {
-          await this.attachCoexist(win, display);
-          this.enabled = true;
-          this.interactive = true;
-          await this.enableIconShape(win, display, reason);
-          this.applyInteractive(win, display.bounds);
-          await this.ensureIconLayerOrder();
+          if (this.overlayMode) {
+            this.enabled = true;
+            this.interactive = true;
+            this.attachment = this.overlayAttachment(display);
+            this.iconLayerMode = 'transparent-overlay';
+            this.iconShapeActive = false;
+            this.applyInteractive(win, display.bounds);
+          } else {
+            await this.attachCoexist(win, display);
+            this.enabled = true;
+            this.interactive = true;
+            await this.enableIconShape(win, display, reason);
+            this.applyInteractive(win, display.bounds);
+            await this.ensureIconLayerOrder();
+          }
         } else {
           await this.attach(win, display);
           this.enabled = true;
@@ -1777,6 +1824,16 @@ class FullDesktopModeRuntime {
     const visible = !this.isWindowAlive(this.window)
       ? false
       : (typeof this.window.isVisible !== 'function' || this.window.isVisible());
+    if (this.overlayMode) {
+      return this.enabled === true
+        && this.interactive === true
+        && this.phase === 'interactive'
+        && visible
+        && !!this.attachment
+        && this.attachment.kind === 'overlay'
+        && this.pointerIgnoreMouseEvents === (this.softwareInteractionLocked === true
+          && this.pointerRoute.overDesktopControls !== true);
+    }
     return this.enabled === true
       && this.interactive === true
       && this.phase === 'interactive'
@@ -1792,6 +1849,17 @@ class FullDesktopModeRuntime {
 
   async reconcileInteractiveInternal(reason = 'interactive-reconcile') {
     const display = this.displaySnapshot(this.window);
+    if (this.overlayMode) {
+      if (!this.isWindowAlive(this.window)) {
+        return this.disableInternal(reason + '-window-gone', new Error('FULL_DESKTOP_WINDOW_UNAVAILABLE'));
+      }
+      this.attachment = this.overlayAttachment(display);
+      this.applyInteractive(this.window, display.bounds);
+      this.phase = 'interactive';
+      this.lastError = '';
+      this.generation += 1;
+      return { ok: true, enabled: true, interactive: true, status: this.emitStatus(reason) };
+    }
     // Explorer 刷新触发的重绑不隐藏窗口：hide/show 会让渲染进程收到一次可见性切换，
     // 歌词和界面看起来像被重新加载了一遍。原地重绑即可，窗口始终保持可见。
     // A rebind caused by an Explorer refresh must not hide the window: the hide/show pair is a
@@ -1863,6 +1931,17 @@ class FullDesktopModeRuntime {
     }
     const win = this.window;
     const display = this.displaySnapshot(win);
+    if (this.overlayMode) {
+      // 覆盖层模式的「被动 / 交互」只是鼠标穿透开关，窗口始终留在原地。
+      // In overlay mode passive/interactive only toggles mouse pass-through; the window stays put.
+      this.interactive = desired;
+      this.phase = desired ? 'interactive' : 'passive';
+      if (desired) this.applyInteractive(win, display.bounds);
+      else this.applyPassive(win);
+      this.lastError = '';
+      this.generation += 1;
+      return { ok: true, enabled: true, interactive: desired, status: this.emitStatus(reason || (desired ? 'interactive' : 'passive')) };
+    }
     this.phase = desired ? 'detaching' : 'attaching';
     if (desired) {
       try {
@@ -1971,7 +2050,36 @@ class FullDesktopModeRuntime {
     });
   }
 
+  async disableOverlayInternal(reason = 'disabled', preservedError = null) {
+    this.cancelIconHostReconcile();
+    this.cancelIconHostRecoveryStableTimer();
+    const win = this.window;
+    const snapshot = this.snapshot;
+    if (this.isWindowAlive(win) && snapshot) {
+      try { this.restoreWindow(win, snapshot); } catch (_) { }
+    }
+    this.enabled = false;
+    this.interactive = false;
+    this.window = null;
+    this.nativeWindowId = '';
+    this.snapshot = null;
+    this.attachment = null;
+    this.softwareInteractionLocked = false;
+    this.iconInteractionLocked = false;
+    this.iconInteractionLockError = '';
+    this.desktopIconsVisible = true;
+    this.desktopIconsVisibilityExplicit = false;
+    this.pointerRoute = { overSoftwareUi: false, overDesktopControls: false };
+    this.pointerIgnoreMouseEvents = null;
+    this.iconLayerMode = '';
+    this.phase = 'disabled';
+    this.lastError = String(preservedError && preservedError.message || preservedError || '');
+    this.generation += 1;
+    return { ok: true, enabled: false, interactive: false, status: this.emitStatus(reason) };
+  }
+
   async disableInternal(reason = 'disabled', preservedError = null) {
+    if (this.overlayMode) return this.disableOverlayInternal(reason, preservedError);
     this.cancelIconHostReconcile();
     this.cancelIconHostRecoveryStableTimer();
     await this.stopIconShapeWatcher();
