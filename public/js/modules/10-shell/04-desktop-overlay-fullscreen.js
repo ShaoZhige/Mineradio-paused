@@ -437,6 +437,34 @@ function syncDesktopSoftwareLockPointerShield(locked) {
   }
 }
 
+// 桌面控制器挂在 Home 房子正下方：跟随 home-btn 的实时位置，账号胶囊再长也不会挤到它。
+// The desktop controller sits right under the home button and follows its live position, so a
+// multi-account capsule can grow without ever colliding with it.
+var desktopDockPositionTimer = null;
+
+function positionDesktopControlDock() {
+  var dock = document.getElementById('desktop-mode-control-dock');
+  var home = document.getElementById('home-btn');
+  if (!dock || !home) return;
+  if (!document.body.classList.contains('desktop-wallpaper-mode')) return;
+  var rect = home.getBoundingClientRect();
+  if (!rect || rect.width <= 0) return;
+  var width = dock.offsetWidth || 52;
+  dock.style.left = Math.round(rect.left + rect.width / 2 - width / 2) + 'px';
+  dock.style.top = Math.round(rect.bottom + 10) + 'px';
+  dock.style.right = 'auto';
+}
+
+function syncDesktopDockPosition(active) {
+  if (active) {
+    positionDesktopControlDock();
+    if (!desktopDockPositionTimer) desktopDockPositionTimer = setInterval(positionDesktopControlDock, 1200);
+  } else if (desktopDockPositionTimer) {
+    clearInterval(desktopDockPositionTimer);
+    desktopDockPositionTimer = null;
+  }
+}
+
 function updateDesktopModeControl(status) {
   status = status || desktopWallpaperRuntimeState || {};
   var api = getDesktopWindowApi();
@@ -456,6 +484,7 @@ function updateDesktopModeControl(status) {
   }
   if (softwareLockState) softwareLockState.textContent = softwareLocked ? desktopOverlayFullscreenText('overlay_locked_unlock_here') : desktopOverlayFullscreenText('overlay_controls_normal');
   if (document.body) document.body.classList.toggle('desktop-software-locked', active && softwareLocked);
+  syncDesktopDockPosition(active);
   syncDesktopSoftwareLockPointerShield(active && softwareLocked);
   syncDesktopControllerZoneTicker(active && softwareLocked);
   // 锁定软件操作后，这块把手就是唯一的解锁入口：它不能被自动隐藏带走，否则用户
@@ -737,7 +766,7 @@ function desktopControllerScreenRect() {
   var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
   var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
   rects.push({
-    left: Math.max(0, window.innerWidth - safeRight - 110),
+    left: Math.max(0, window.innerWidth - safeRight - 320),
     top: safeTop,
     right: Math.max(0, window.innerWidth - safeRight),
     bottom: safeTop + 190
@@ -798,7 +827,7 @@ function desktopControlPointState(x, y) {
   try { rootStyle = window.getComputedStyle(document.documentElement); } catch (_) { }
   var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
   var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
-  var overRevealEdge = x >= Math.max(0, window.innerWidth - safeRight - 110)
+  var overRevealEdge = x >= Math.max(0, window.innerWidth - safeRight - 320)
     && x < Math.max(0, window.innerWidth - safeRight)
     && y >= safeTop && y < safeTop + 190;
   var overHotspot = !!(handle && desktopIconShieldElementVisible(handle, { ignoreAriaHidden: true })
@@ -989,6 +1018,7 @@ function initDesktopModeControls(api) {
     });
   }
   window.addEventListener('resize', reportDesktopControllerZone);
+  window.addEventListener('resize', positionDesktopControlDock);
   window.addEventListener('blur', function () {
     setDesktopModeControlsOpen(false);
     scheduleDesktopModeControlPeekHide(360);

@@ -22,10 +22,10 @@
   display: none;
   position: fixed;
   z-index: 680;
-  top: 16px;
+  top: 72px;
   right: 24px;
-  width: 34px;
-  height: 30px;
+  width: 52px;
+  height: 52px;
   pointer-events: none;
   -webkit-app-region: no-drag;
 }
@@ -53,16 +53,16 @@ body.desktop-wallpaper-mode.desktop-wallpaper-interactive.desktop-mode-controls-
   position: absolute;
   top: 0;
   right: 0;
-  width: 34px;
-  height: 30px;
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, .15);
-  border-radius: 15px;
-  background: rgba(8, 12, 16, .56);
+  border-radius: 16px;
+  background: rgba(8, 12, 16, .58);
   color: rgba(240, 247, 251, .76);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .09);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .38), 0 0 0 1px rgba(var(--fc-accent-rgb), .16), inset 0 1px 0 rgba(255, 255, 255, .12);
   backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.18);
   -webkit-backdrop-filter: blur(calc(14px * var(--glass-blur-scale, 1))) saturate(1.18);
   cursor: pointer;
@@ -80,8 +80,8 @@ body.desktop-wallpaper-mode.desktop-wallpaper-interactive.desktop-mode-controls-
 }
 
 #desktop-mode-control-handle svg {
-  width: 17px;
-  height: 17px;
+  width: 26px;
+  height: 26px;
   fill: rgba(8, 12, 16, .88);
   stroke: currentColor;
   stroke-width: 1.55;
@@ -118,9 +118,9 @@ body.desktop-software-locked #desktop-mode-control-dock.is-open #desktop-mode-co
 
 #desktop-mode-control-panel {
   position: absolute;
-  top: 40px;
+  top: 62px;
   right: 0;
-  width: 248px;
+  width: 268px;
   padding: 11px;
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 18px;
@@ -265,7 +265,7 @@ body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-rig
   }
 
   #desktop-mode-control-panel {
-    width: min(248px, calc(100vw - 24px));
+    width: min(268px, calc(100vw - 24px));
   }
 
   body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
@@ -18842,6 +18842,34 @@ body.desktop-shell.desktop-wallpaper-mode #desktop-titlebar {
    最小化/最大化/关闭仍随标题栏一起隐藏。 */
 /* Desktop tool row: with the title bar hidden, the guide / update / hotkey / DIY buttons dock
    left of the top-right controller; minimize / maximize / close stay hidden with the bar. */
+#desktop-mode-control-panel #desktop-tools-zone {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 2px 2px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+#desktop-mode-control-panel #desktop-tools-zone > button {
+  width: auto;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  letter-spacing: .01em;
+}
+
+#desktop-mode-control-panel #desktop-tools-zone > button svg {
+  width: 15px;
+  height: 15px;
+}
+
 #desktop-tools-zone {
   position: fixed;
   top: calc(var(--desktop-safe-top) + 74px);
@@ -18857,8 +18885,7 @@ body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-tools-zone {
 }
 
 body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
-  top: calc(var(--desktop-safe-top) + 74px);
-  right: calc(var(--desktop-safe-right) + 24px);
+  top: calc(var(--desktop-safe-top) + 72px);
 }
 
 /* Explorer's layered colour-key host can be reported as fully occluded while

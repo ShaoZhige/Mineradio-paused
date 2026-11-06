@@ -2160,13 +2160,6 @@
 
   </div>
 
-  <!-- 桌面模式下的工具按钮行：标题栏整条隐藏后，? / 更新 / 热键 / DIY 由脚本搬到这里，
-       固定在右上角控制器左侧，退出桌面模式再搬回标题栏。窗口的最小化/最大化/关闭留在
-       标题栏里一起隐藏，因为桌面模式下它们本来就不该出现。
-       Tool row for desktop mode: the title bar is hidden in that mode, so the guide / update /
-       hotkey / DIY buttons are moved here (left of the top-right controller) and moved back on
-       exit. The minimize / maximize / close buttons stay hidden with the title bar by design. -->
-  <div id="desktop-tools-zone" role="toolbar"></div>
 
   <div id="desktop-mode-control-dock" aria-label="桌面模式控制器" data-i18n="dc_controller_aria" data-i18n-attr="aria-label">
     <button id="desktop-mode-control-handle" type="button" title="打开桌面模式控制"
@@ -2183,6 +2176,7 @@
         <span data-i18n="dc_control">桌面控制</span>
         <small data-i18n="dc_esc_exit">Esc 退出</small>
       </div>
+      <div id="desktop-tools-zone" role="toolbar"></div>
       <button id="desktop-software-lock-toggle" class="desktop-mode-switch" type="button" role="switch"
         aria-checked="false">
         <span class="desktop-mode-switch-copy">
