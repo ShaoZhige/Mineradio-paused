@@ -4836,6 +4836,11 @@ ipcMain.on('mineradio-full-desktop-controller-zone', (event, payload = {}) => {
   syncDesktopControllerPointerPoll();
 });
 
+ipcMain.handle('mineradio-full-desktop-set-icons-above', async (event, above) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'DESKTOP_MODE_UNTRUSTED_SENDER' };
+  return fullDesktopModeRuntime.setOverlayIconsAbove(above === true, 'renderer-icons-above');
+});
+
 ipcMain.handle('mineradio-full-desktop-set-software-lock', async (event, locked) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'DESKTOP_MODE_UNTRUSTED_SENDER' };
   const result = await fullDesktopModeRuntime.setSoftwareInteractionLocked(locked === true, 'renderer-software-lock');
@@ -7449,16 +7454,17 @@ function repairLeakedDesktopIconLayer() {
     'if($list -eq [IntPtr]::Zero){return}',
     '$ex=[MineradioIconLeakRepair]::GetWindowLongPtr($list,-20).ToInt64()',
     '$layered=($ex -band 0x00080000) -ne 0',
+    '$transparent=($ex -band 0x20) -ne 0',
     '$bg=[IntPtr]::Zero',
     '[void][MineradioIconLeakRepair]::SendMessageTimeout($list,0x1000,[IntPtr]::Zero,[IntPtr]::Zero,2,2000,[ref]$bg)',
-    'if(-not $layered -and $bg.ToInt64() -ne 0 -and $forceShow -ne \'1\'){return}',
-    'if($layered){[void][MineradioIconLeakRepair]::SetWindowLongPtr($list,-20,[IntPtr]($ex -band (-bnot 0x00080000)))}',
+    'if(-not $layered -and -not $transparent -and $bg.ToInt64() -ne 0 -and $forceShow -ne \'1\'){return}',
+    'if($layered -or $transparent){[void][MineradioIconLeakRepair]::SetWindowLongPtr($list,-20,[IntPtr](($ex -band (-bnot 0x00080000)) -band (-bnot 0x20)))}',
     '$r=[IntPtr]::Zero',
     '[void][MineradioIconLeakRepair]::SendMessageTimeout($list,0x1001,[IntPtr]::Zero,[IntPtr](-1),2,2000,[ref]$r)',
     'if($forceShow -eq \'1\'){[void][MineradioIconLeakRepair]::ShowWindow($list,5)}',
     '[void][MineradioIconLeakRepair]::InvalidateRect($list,[IntPtr]::Zero,$true)',
     '[void][MineradioIconLeakRepair]::UpdateWindow($list)',
-    '"ICON_LAYER_REPAIRED layered=$layered shown=$forceShow"',
+    '"ICON_LAYER_REPAIRED layered=$layered transparent=$transparent shown=$forceShow"',
   ].join('\n').replace(/\n/g, '\r\n');
   return new Promise((resolve) => {
     execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {

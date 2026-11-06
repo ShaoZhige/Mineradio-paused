@@ -13,6 +13,7 @@ const appRoot = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8');
 
 const main = read('desktop/main.js');
+const preload = read('desktop/preload.js');
 const runtime = read('desktop/full-desktop-mode-runtime.js');
 const shell = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
 
@@ -44,6 +45,28 @@ assert.match(runtime, /overlayIconsOriginalVisible/);
 assert.match(runtime, /async disableInternal\(reason = 'disabled', preservedError = null\) \{\s*if \(this\.overlayMode\) return this\.disableOverlayInternal\(reason, preservedError\);/);
 assert.match(runtime, /async disableOverlayInternal\(reason = 'disabled', preservedError = null\) \{/);
 assert.match(runtime, /this\.attachment\.kind === 'icon-host' \|\| this\.attachment\.kind === 'overlay'/);
+
+// 4b) 「图标显示在界面上方」：只给图标层加 WS_EX_TRANSPARENT（命中测试），不改外观。
+assert.match(runtime, /this\.overlayIconsAbove = false;/);
+assert.match(runtime, /async setOverlayIconsAbove\(value, reason = 'desktop-icons-above-changed'\) \{/);
+assert.match(runtime, /runIconLayerHitTestScript\(action\) \{/);
+assert.match(runtime, /if\(\$Action -eq 'off'\)\{ \[void\]\[MineradioIconHitTest\]::SetWindowLongPtr\(\$list,-20,\[IntPtr\]\(\$ex -bor 0x20\)\) \}/);
+assert.match(runtime, /if\(\$Action -eq 'on'\)\{ \[void\]\[MineradioIconHitTest\]::SetWindowLongPtr\(\$list,-20,\[IntPtr\]\(\$ex -band \(-bnot 0x20\)\)\) \}/);
+const hitTestBody = runtime.slice(
+  runtime.indexOf('runIconLayerHitTestScript(action) {'),
+  runtime.indexOf('async setOverlayIconsAbove(')
+);
+assert.doesNotMatch(hitTestBody, /LVM_SETBKCOLOR|0x00080000/, 'icons-above must not touch icon styles/background');
+assert.match(preload, /setDesktopIconsAbove: \(above\) => ipcRenderer\.invoke\('mineradio-full-desktop-set-icons-above'/);
+assert.match(main, /ipcMain\.handle\('mineradio-full-desktop-set-icons-above'/);
+assert.match(shell, /desktop-icons-above-toggle/);
+// 7 个语言都补齐了层级开关的文案（parity）。
+for (const file of ['en_us', 'es_es', 'ja_jp', 'ru_ru', 'zh_cn', 'zh_hk', 'zh_tw']) {
+  const locale = JSON.parse(read(`public/locales/${file}.json`));
+  for (const key of ['dc_icons_above', 'dc_icons_above_on', 'dc_icons_above_off', 'dc_icons_above_failed']) {
+    assert.ok(locale[key], `${file} missing ${key}`);
+  }
+}
 
 // 5) 启动时的图标层残留修复仍然保留，负责清理旧版本可能留下的黑底状态。
 assert.match(main, /function repairLeakedDesktopIconLayer\(\)/);

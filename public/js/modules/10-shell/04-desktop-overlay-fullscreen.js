@@ -43,6 +43,7 @@ var desktopWallpaperUiActivationState = false;
 var desktopWallpaperHudPrimeTimer = 0;
 var desktopIconVisibilityOperation = 0;
 var desktopIconVisibilityPending = false;
+var desktopIconsAbovePending = false;
 var desktopSoftwareLockOperation = 0;
 var desktopSoftwareLockPending = false;
 var desktopModeControlDockState = {
@@ -446,6 +447,8 @@ function updateDesktopModeControl(status) {
   var softwareLockState = document.getElementById('desktop-software-lock-state');
   var iconsVisible = desktopIconsAreVisible(status);
   var iconsButton = document.getElementById('desktop-icons-visible-toggle');
+  var iconsAboveButton = document.getElementById('desktop-icons-above-toggle');
+  var iconsAboveState = document.getElementById('desktop-icons-above-state');
   var iconsState = document.getElementById('desktop-icons-visible-state');
   if (softwareLockButton) {
     var softwareLockSupported = !!(api && typeof api.setDesktopSoftwareLocked === 'function');
@@ -475,6 +478,22 @@ function updateDesktopModeControl(status) {
     iconsButton.title = iconsVisible ? desktopOverlayFullscreenText('overlay_hide_icons') : desktopOverlayFullscreenText('overlay_show_icons');
   }
   if (iconsState) iconsState.textContent = iconsVisible ? desktopOverlayFullscreenText('overlay_icons_shown_short') : desktopOverlayFullscreenText('overlay_icons_hidden_short');
+  if (iconsAboveButton) {
+    var iconsAbove = !!(status && status.overlayIconsAbove);
+    var iconsAboveSupported = !!(api && typeof api.setDesktopIconsAbove === 'function');
+    iconsAboveButton.style.display = (status && status.overlayMode === false) ? 'none' : '';
+    iconsAboveButton.setAttribute('aria-checked', iconsAbove ? 'true' : 'false');
+    iconsAboveButton.setAttribute('aria-busy', desktopIconsAbovePending ? 'true' : 'false');
+    iconsAboveButton.disabled = desktopIconsAbovePending || !active || !iconsAboveSupported;
+    iconsAboveButton.title = iconsAbove
+      ? desktopOverlayFullscreenText('dc_icons_above_on', '图标显示在界面之上')
+      : desktopOverlayFullscreenText('dc_icons_above_off', '界面覆盖图标');
+    if (iconsAboveState) {
+      iconsAboveState.textContent = iconsAbove
+        ? desktopOverlayFullscreenText('dc_icons_above_on', '图标显示在界面之上')
+        : desktopOverlayFullscreenText('dc_icons_above_off', '界面覆盖图标');
+    }
+  }
   // 控制器区域的屏幕矩形随锁定/展开/图标层状态变化，随时同步给主进程的光标轮询。
   // The controller's screen rect changes with the lock, the panel and the icon layer; keep the
   // main-process cursor poll fed.
@@ -958,6 +977,31 @@ function initDesktopModeControls(api) {
   });
   if (softwareLockButton) softwareLockButton.addEventListener('click', toggleDesktopSoftwareInteractionLocked);
   if (iconsButton) iconsButton.addEventListener('click', toggleDesktopIconsVisibility);
+  var iconsAboveButton = document.getElementById('desktop-icons-above-toggle');
+  if (iconsAboveButton) {
+    iconsAboveButton.addEventListener('click', function (event) {
+      consumeDesktopModeControlEvent(event);
+      var aboveApi = getDesktopWindowApi();
+      var mode = desktopIconShieldModeState();
+      if (!aboveApi || typeof aboveApi.setDesktopIconsAbove !== 'function' || !mode.active) return;
+      if (desktopIconsAbovePending) return;
+      desktopIconsAbovePending = true;
+      updateDesktopModeControl(desktopWallpaperRuntimeState);
+      var desired = !(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.overlayIconsAbove === true);
+      Promise.resolve(aboveApi.setDesktopIconsAbove(desired)).then(function (result) {
+        if (result && result.status) applyDesktopWallpaperRuntimeStatus(result.status);
+        else if (result && result.ok === true) {
+          desktopWallpaperRuntimeState.overlayIconsAbove = desired;
+          updateDesktopModeControl(desktopWallpaperRuntimeState);
+        }
+      }).catch(function () {
+        if (typeof showToast === 'function') showToast(desktopOverlayFullscreenText('dc_icons_above_failed', '切换图标层级失败'));
+      }).then(function () {
+        desktopIconsAbovePending = false;
+        updateDesktopModeControl(desktopWallpaperRuntimeState);
+      });
+    });
+  }
   document.addEventListener('pointerdown', function (event) {
     if (event && event.isTrusted) requestDesktopKeyboardFocus('pointerdown');
     if (!desktopModeControlDockState.open || dock.contains(event.target)) return;
