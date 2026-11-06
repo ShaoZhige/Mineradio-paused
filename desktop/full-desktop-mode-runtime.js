@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { execFile } = require('child_process');
 const {
   attachWallpaperWindowToDesktop,
@@ -546,6 +549,7 @@ class FullDesktopModeRuntime {
     // the window is just a full-screen transparent overlay with the desktop (wallpaper + icons)
     // showing through from behind.
     this.overlayMode = options.overlayMode === true;
+    this.overlayIconsOriginalVisible = null;
     this.iconShieldWindowId = '0';
     this.iconShapeShields = [];
     this.iconShapeShieldViewport = null;
@@ -1300,15 +1304,31 @@ class FullDesktopModeRuntime {
     return this.enqueue('set-desktop-icons-visible', async () => {
       const desired = value !== false;
       if (this.overlayMode) {
-        // 覆盖层模式不碰 Explorer 的图标列表，图标始终由桌面自己绘制。
-        // Overlay mode never touches Explorer's icon list; the desktop always draws the icons.
+        const result = await this.runOverlayDesktopIconsScript(desired ? 'show' : 'hide');
+        if (!result || result.ok !== true) {
+          return {
+            ok: false,
+            enabled: this.enabled,
+            interactive: this.interactive,
+            desktopIconsVisible: this.desktopIconsVisible !== false,
+            error: String(result && result.error || 'DESKTOP_ICON_VISIBILITY_FAILED'),
+            status: this.getStatus(reason + '-overlay-failed'),
+          };
+        }
+        this.desktopIconsVisible = result.visible !== false;
+        this.desktopIconsVisibilityExplicit = true;
+        // 只有「本来可见、被我们隐藏」才写标记；否则崩溃后启动自检不该替用户改图标可见性。
+        // Marker only when we hid icons the user had visible; a crash must not re-show icons the
+        // user hid themselves.
+        this.writeOverlayIconsMarker(this.desktopIconsVisible === false && this.overlayIconsOriginalVisible === true);
+        this.generation += 1;
         return {
-          ok: false,
+          ok: true,
           enabled: this.enabled,
           interactive: this.interactive,
-          desktopIconsVisible: true,
-          error: 'DESKTOP_ICON_VISIBILITY_UNSUPPORTED',
-          status: this.getStatus(reason + '-overlay-unsupported'),
+          desktopIconsVisible: this.desktopIconsVisible,
+          error: '',
+          status: this.emitStatus(reason),
         };
       }
       if (this.iconLayerRestoreUnconfirmed) {
@@ -1689,6 +1709,104 @@ class FullDesktopModeRuntime {
     };
   }
 
+  // 覆盖层模式下「隐藏桌面图标」只调用 ShowWindow，不改图标样式/背景/合成方式，
+  // 图标隐藏前长什么样、显示回来还是什么样。
+  // In overlay mode "hide desktop icons" only calls ShowWindow; icon styles, background and
+  // compositing are untouched, so icons look exactly the same when shown again.
+  overlayIconsMarkerPath() {
+    return path.join(this.nativeTempPath || os.tmpdir(), 'mineradio-desktop-icons-hidden.flag');
+  }
+
+  runOverlayDesktopIconsScript(action) {
+    const script = [
+      "param([string]$Action = 'probe')",
+      "# 修复被遗留的桌面图标层状态：去掉 ListView 上的 WS_EX_LAYERED，并把背景色恢复成 CLR_NONE。",
+      "# Repair a leftover desktop icon layer: drop WS_EX_LAYERED from the ListView and reset its",
+      "# background colour to CLR_NONE so Explorer's transparency compositing works again.",
+      "$ErrorActionPreference = 'Stop'",
+      "Add-Type -TypeDefinition @\"",
+      "using System;",
+      "using System.Text;",
+      "using System.Runtime.InteropServices;",
+      "public static class IconRepair {",
+      "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);",
+      "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);",
+      "  [DllImport(\"user32.dll\", EntryPoint=\"GetWindowLongPtr\")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);",
+      "  [DllImport(\"user32.dll\", EntryPoint=\"SetWindowLongPtr\")] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);",
+      "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);",
+      "  [DllImport(\"user32.dll\")] public static extern bool InvalidateRect(IntPtr hWnd, IntPtr rect, bool erase);",
+      "  [DllImport(\"user32.dll\")] public static extern bool UpdateWindow(IntPtr hWnd);",
+      "  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);",
+      "  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);",
+      "}",
+      "\"@",
+      "$GWL_EXSTYLE = -20",
+      "$WS_EX_LAYERED = 0x00080000",
+      "$LVM_GETBKCOLOR = 0x1000",
+      "$LVM_SETBKCOLOR = 0x1001",
+      "$SMTO_ABORTIFHUNG = 0x0002",
+      "",
+      "$progman = [IconRepair]::FindWindow('Progman', $null)",
+      "$defview = [IntPtr]::Zero",
+      "if ($progman -ne [IntPtr]::Zero) {",
+      "  $defview = [IconRepair]::FindWindowEx($progman, [IntPtr]::Zero, 'SHELLDLL_DefView', $null)",
+      "}",
+      "if ($defview -eq [IntPtr]::Zero) {",
+      "  $worker = [IntPtr]::Zero",
+      "  do {",
+      "    $worker = [IconRepair]::FindWindowEx([IntPtr]::Zero, $worker, 'WorkerW', $null)",
+      "    if ($worker -ne [IntPtr]::Zero) {",
+      "      $defview = [IconRepair]::FindWindowEx($worker, [IntPtr]::Zero, 'SHELLDLL_DefView', $null)",
+      "    }",
+      "  } while ($worker -ne [IntPtr]::Zero -and $defview -eq [IntPtr]::Zero)",
+      "}",
+      "if ($defview -eq [IntPtr]::Zero) { throw 'SHELLDLL_DefView not found' }",
+      "$list = [IconRepair]::FindWindowEx($defview, [IntPtr]::Zero, 'SysListView32', $null)",
+      "if ($list -eq [IntPtr]::Zero) { $list = [IconRepair]::FindWindowEx($defview, [IntPtr]::Zero, 'SysListView32', 'FolderView') }",
+      "if ($list -eq [IntPtr]::Zero) { throw 'SysListView32 not found' }",
+      "",
+      "if ($Action -eq 'hide') { [void][IconRepair]::ShowWindow($list, 0) }",
+      "if ($Action -eq 'show') { [void][IconRepair]::ShowWindow($list, 5) }",
+      "Write-Output (\"ICON_VISIBLE=\" + [string][int]([IconRepair]::IsWindowVisible($list)))",
+    ].join('\n').replace(/\n/g, '\r\n');
+    return new Promise((resolve) => {
+      const tempDir = this.nativeTempPath || os.tmpdir();
+      const scriptPath = path.join(tempDir, 'mineradio-desktop-icons-visibility.ps1');
+      let wrote = false;
+      try {
+        fs.mkdirSync(tempDir, { recursive: true });
+        fs.writeFileSync(scriptPath, script, 'utf8');
+        wrote = true;
+      } catch (_) { wrote = false; }
+      if (!wrote) { resolve({ ok: false, error: 'DESKTOP_ICON_VISIBILITY_SCRIPT_WRITE_FAILED' }); return; }
+      this.execFileImpl('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-Action', action], {
+        windowsHide: true,
+        timeout: 8000,
+        env: { ...process.env, TEMP: tempDir, TMP: tempDir },
+      }, (error, stdout) => {
+        try { fs.unlinkSync(scriptPath); } catch (_) { }
+        if (error) { resolve({ ok: false, error: String(error && error.message || error) }); return; }
+        const match = String(stdout || '').match(/ICON_VISIBLE=([01])/);
+        if (!match) { resolve({ ok: false, error: 'DESKTOP_ICON_VISIBILITY_NO_ACK' }); return; }
+        resolve({ ok: true, visible: match[1] === '1' });
+      });
+    });
+  }
+
+  probeOverlayDesktopIconsVisible() {
+    return this.runOverlayDesktopIconsScript('probe').then((result) => (
+      result && result.ok === true ? result.visible : null
+    ));
+  }
+
+  writeOverlayIconsMarker(hidden) {
+    const marker = this.overlayIconsMarkerPath();
+    try {
+      if (hidden) fs.writeFileSync(marker, 'hidden\n', 'utf8');
+      else if (fs.existsSync(marker)) fs.unlinkSync(marker);
+    } catch (_) { }
+  }
+
   applyInteractive(win, bounds) {
     if (!this.attachment || this.attachment.kind !== 'icon-host') {
       safeCall(win, 'setBounds', null, bounds, false);
@@ -1795,6 +1913,8 @@ class FullDesktopModeRuntime {
             this.attachment = this.overlayAttachment(display);
             this.iconLayerMode = 'transparent-overlay';
             this.iconShapeActive = false;
+            this.overlayIconsOriginalVisible = await this.probeOverlayDesktopIconsVisible();
+            this.desktopIconsVisible = this.overlayIconsOriginalVisible !== false;
             this.applyInteractive(win, display.bounds);
           } else {
             await this.attachCoexist(win, display);
@@ -2053,6 +2173,16 @@ class FullDesktopModeRuntime {
   async disableOverlayInternal(reason = 'disabled', preservedError = null) {
     this.cancelIconHostReconcile();
     this.cancelIconHostRecoveryStableTimer();
+    // 退出桌面模式时把图标可见性还原成进入前的状态（只动 ShowWindow，不动样式）。
+    // Restore the pre-entry icon visibility on exit (ShowWindow only, no style changes).
+    if (this.overlayIconsOriginalVisible !== null
+      && this.desktopIconsVisible !== this.overlayIconsOriginalVisible) {
+      try {
+        await this.runOverlayDesktopIconsScript(this.overlayIconsOriginalVisible ? 'show' : 'hide');
+      } catch (_) { }
+    }
+    this.writeOverlayIconsMarker(false);
+    this.overlayIconsOriginalVisible = null;
     const win = this.window;
     const snapshot = this.snapshot;
     if (this.isWindowAlive(win) && snapshot) {

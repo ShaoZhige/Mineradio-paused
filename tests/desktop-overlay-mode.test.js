@@ -28,9 +28,17 @@ assert.match(runtime, /startIconShapeWatcher\(display = this\.shapeDisplayForWin
 assert.match(runtime, /async enableIconShape\(win, display, reason = 'desktop-coexist', options = \{\}\) \{\s*if \(this\.overlayMode\) return \{ ok: true, skipped: true \};/);
 assert.match(runtime, /async ensureIconLayerOrder\(\) \{\s*if \(this\.overlayMode\) \{/);
 
-// 3) 覆盖层下不接管「显示桌面图标」开关（那需要动图标 ListView）。
-assert.match(runtime, /error: 'DESKTOP_ICON_VISIBILITY_UNSUPPORTED',/);
-assert.match(shell, /iconsButton\.disabled = desktopIconVisibilityPending \|\| !active \|\| !iconsSupported\s*\n?\s*\|\| !!\(status && status\.overlayMode\);/);
+// 3) 覆盖层下「显示桌面图标」只用 ShowWindow 切换可见性，不改图标样式/背景/合成方式。
+assert.match(runtime, /runOverlayDesktopIconsScript\(action\) \{/);
+assert.match(runtime, /if \(\$Action -eq 'hide'\) \{ \[void\]\[IconRepair\]::ShowWindow\(\$list, 0\) \}/);
+assert.match(runtime, /if \(\$Action -eq 'show'\) \{ \[void\]\[IconRepair\]::ShowWindow\(\$list, 5\) \}/);
+assert.doesNotMatch(runtime.slice(
+  runtime.indexOf('runOverlayDesktopIconsScript(action) {'),
+  runtime.indexOf('probeOverlayDesktopIconsVisible()')
+), /\[IconRepair\]::SetWindowLongPtr\(|\[IconRepair\]::SendMessageTimeout\(/, 'overlay icon visibility must not touch icon styles/compositing');
+assert.match(runtime, /this\.desktopIconsVisible === false && this\.overlayIconsOriginalVisible === true/);
+assert.match(runtime, /this\.writeOverlayIconsMarker\(this\.desktopIconsVisible === false/);
+assert.match(runtime, /overlayIconsOriginalVisible/);
 
 // 4) 进入/退出/鼠标锁定都走覆盖层分支。
 assert.match(runtime, /async disableInternal\(reason = 'disabled', preservedError = null\) \{\s*if \(this\.overlayMode\) return this\.disableOverlayInternal\(reason, preservedError\);/);

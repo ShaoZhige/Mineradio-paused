@@ -471,8 +471,7 @@ function updateDesktopModeControl(status) {
     var iconsSupported = !!(api && typeof api.setDesktopIconsVisible === 'function');
     iconsButton.setAttribute('aria-checked', iconsVisible ? 'true' : 'false');
     iconsButton.setAttribute('aria-busy', desktopIconVisibilityPending ? 'true' : 'false');
-    iconsButton.disabled = desktopIconVisibilityPending || !active || !iconsSupported
-      || !!(status && status.overlayMode);
+    iconsButton.disabled = desktopIconVisibilityPending || !active || !iconsSupported;
     iconsButton.title = iconsVisible ? desktopOverlayFullscreenText('overlay_hide_icons') : desktopOverlayFullscreenText('overlay_show_icons');
   }
   if (iconsState) iconsState.textContent = iconsVisible ? desktopOverlayFullscreenText('overlay_icons_shown_short') : desktopOverlayFullscreenText('overlay_icons_hidden_short');
