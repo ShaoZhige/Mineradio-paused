@@ -1857,6 +1857,49 @@ class FullDesktopModeRuntime {
   // 但点击在 ListView 命中测试被关掉后会落到我们这个紧邻的窗口，而不是落到桌面。
   // Insert the window directly below the icon ListView (above other DefView children): icons
   // stay on top, and with ListView hit testing off, clicks land on this adjacent window.
+  // 指针在控制器上时把窗口临时提到图标层上面：图标在透明区域仍然透出来，但点击能落到
+  // Mineradio；移开后再压回图标层下面，恢复「图标在上」的视觉。
+  // While the pointer is on the controller, raise the window above the icon layer: icons still
+  // show through transparent areas, clicks land on Mineradio, and on leave it goes back under.
+  raiseWindowAboveIconLayer(win) {
+    const hwnd = nativeWindowHandleDecimal(win);
+    const script = [
+      "param([string]$MainHwnd = '0')",
+      "$ErrorActionPreference='SilentlyContinue'",
+      'Add-Type -TypeDefinition @"',
+      'using System;',
+      'using System.Runtime.InteropServices;',
+      'public static class MineradioRaiseAboveIcons {',
+      '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);',
+      '}',
+      '"@',
+      '$main=[IntPtr][Int64]$MainHwnd',
+      'if($main -eq [IntPtr]::Zero){return}',
+      '$ok=[MineradioRaiseAboveIcons]::SetWindowPos($main,[IntPtr]::Zero,0,0,0,0,0x0002 -bor 0x0001 -bor 0x0010)',
+      'Write-Output ("RAISED_ABOVE=" + [string][int]$ok)',
+    ].join('\n').replace(/\n/g, '\r\n');
+    return new Promise((resolve) => {
+      const tempDir = this.nativeTempPath || os.tmpdir();
+      const scriptPath = path.join(tempDir, 'mineradio-raise-above-icons.ps1');
+      try {
+        fs.mkdirSync(tempDir, { recursive: true });
+        fs.writeFileSync(scriptPath, script, 'utf8');
+      } catch (error) {
+        resolve({ ok: false, error: 'RAISE_ABOVE_SCRIPT_WRITE_FAILED' });
+        return;
+      }
+      this.execFileImpl('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainHwnd', hwnd], {
+        windowsHide: true,
+        timeout: 8000,
+        env: { ...process.env, TEMP: tempDir, TMP: tempDir },
+      }, (error, stdout) => {
+        try { fs.unlinkSync(scriptPath); } catch (_) { }
+        if (error) { resolve({ ok: false, error: String(error && error.message || error) }); return; }
+        resolve({ ok: /RAISED_ABOVE=1/.test(String(stdout || '')) });
+      });
+    });
+  }
+
   raiseWindowUnderIconLayer(win) {
     const hwnd = nativeWindowHandleDecimal(win);
     const script = [
@@ -1942,18 +1985,14 @@ class FullDesktopModeRuntime {
     const display = this.displaySnapshot(win);
     try {
       if (desired) {
+        // 不再改图标层的命中测试：指针进入控制器时由主进程临时把窗口提到图标层上面，
+        // 点击落到 Mineradio；离开再压回下面，桌面图标自身始终可正常点击。
+        // No icon-layer hit-test changes: on controller hover the main process raises the window
+        // above the icon layer, then drops it back; desktop icons stay clickable themselves.
         await this.attachCoexist(win, display);
-        await this.raiseWindowUnderIconLayer(win).catch(() => {});
-        const hit = await this.runIconLayerHitTestScript('off');
-        if (!hit || hit.ok !== true) {
-          await this.detach(win, display.physicalBounds).catch(() => {});
-          this.attachment = this.overlayAttachment(display);
-          throw new Error(String(hit && hit.error || 'DESKTOP_ICON_HITTEST_FAILED'));
-        }
         this.overlayIconsAbove = true;
       } else {
         await this.setIconsHiddenForControllerInput(false).catch(() => {});
-        await this.runIconLayerHitTestScript('on').catch(() => {});
         await this.detach(win, display.physicalBounds);
         this.overlayIconsAbove = false;
         this.attachment = this.overlayAttachment(display);

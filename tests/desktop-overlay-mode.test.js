@@ -65,7 +65,8 @@ assert.match(shell, /desktop-icons-above-toggle/);
 assert.ok(runtime.includes('raiseWindowUnderIconLayer(win) {'), 'missing raiseWindowUnderIconLayer');
 assert.ok(runtime.includes('async setIconsHiddenForControllerInput(hide) {'), 'missing setIconsHiddenForControllerInput');
 assert.ok(main.includes("status.overlayIconsAbove === true"), 'main poll must consider overlayIconsAbove');
-assert.ok(main.includes("setIconsHiddenForControllerInput(over)"), 'main poll must hide icons for controller input');
+assert.ok(main.includes('raiseWindowAboveIconLayer(mainWindow)'), 'main poll must raise the window above icons on controller hover');
+assert.ok(main.includes('raiseWindowUnderIconLayer(mainWindow)'), 'main poll must drop the window below icons on leave');
 assert.ok(shell.includes('overlayIconsAbove === true'), 'renderer must force peek in icons-above mode');
 // 7 个语言都补齐了层级开关的文案（parity）。
 for (const file of ['en_us', 'es_es', 'ja_jp', 'ru_ru', 'zh_cn', 'zh_hk', 'zh_tw']) {

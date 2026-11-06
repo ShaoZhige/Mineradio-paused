@@ -425,7 +425,7 @@ const fullDesktopModeRuntime = new FullDesktopModeRuntime({
 let desktopControllerZone = null;
 let desktopControllerHoverActive = false;
 let desktopControllerPollTimer = null;
-let desktopControllerIconsHiddenForInput = null;
+let desktopControllerRaisedForInput = null;
 
 function normalizeDesktopControllerZone(zone) {
   if (!zone || typeof zone !== 'object') return null;
@@ -492,13 +492,19 @@ function syncDesktopControllerPointerPoll() {
     const over = point.x >= zone.x && point.x <= zone.x + zone.width
       && point.y >= zone.y && point.y <= zone.y + zone.height;
     if (current.overlayIconsAbove === true) {
-      // 「图标在上」：指针进控制器时临时隐藏图标层，让点击能落到 Mineradio。
-      if (desktopControllerIconsHiddenForInput !== over) {
-        desktopControllerIconsHiddenForInput = over;
-        fullDesktopModeRuntime.setIconsHiddenForControllerInput(over).catch(() => {});
+      // 「图标在上」：指针进控制器时把窗口临时提到图标层上面（透明区域仍透出图标），
+      // 让点击能落到 Mineradio；离开后再压回图标层下面。
+      if (desktopControllerRaisedForInput !== over) {
+        desktopControllerRaisedForInput = over;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const action = over
+            ? fullDesktopModeRuntime.raiseWindowAboveIconLayer(mainWindow)
+            : fullDesktopModeRuntime.raiseWindowUnderIconLayer(mainWindow);
+          Promise.resolve(action).catch(() => {});
+        }
       }
     } else {
-      desktopControllerIconsHiddenForInput = null;
+      desktopControllerRaisedForInput = null;
     }
     if (over !== desktopControllerHoverActive) {
       setDesktopControllerHoverActive(over);
