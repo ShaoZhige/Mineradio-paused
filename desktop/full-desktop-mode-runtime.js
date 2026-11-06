@@ -1853,6 +1853,80 @@ class FullDesktopModeRuntime {
   // Layering option: by default the overlay sits above the icons. "Icons on top" re-parents the
   // window below the icon layer and only adds WS_EX_TRANSPARENT to the ListView (hit testing),
   // never touching icon appearance, background or compositing.
+  // 把窗口插到图标 ListView 的正下方（其他 DefView 子窗口之上），图标仍在上层，
+  // 但点击在 ListView 命中测试被关掉后会落到我们这个紧邻的窗口，而不是落到桌面。
+  // Insert the window directly below the icon ListView (above other DefView children): icons
+  // stay on top, and with ListView hit testing off, clicks land on this adjacent window.
+  raiseWindowUnderIconLayer(win) {
+    const hwnd = nativeWindowHandleDecimal(win);
+    const script = [
+      "param([string]$MainHwnd = '0')",
+      "$ErrorActionPreference='SilentlyContinue'",
+      'Add-Type -TypeDefinition @"',
+      'using System;',
+      'using System.Runtime.InteropServices;',
+      'public static class MineradioRaiseUnderIcons {',
+      '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);',
+      '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
+      '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);',
+      '}',
+      '"@',
+      "$progman=[MineradioRaiseUnderIcons]::FindWindow('Progman',$null)",
+      '$defview=[IntPtr]::Zero',
+      'if($progman -ne [IntPtr]::Zero){$defview=[MineradioRaiseUnderIcons]::FindWindowEx($progman,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}',
+      'if($defview -eq [IntPtr]::Zero){$w=[IntPtr]::Zero; do{$w=[MineradioRaiseUnderIcons]::FindWindowEx([IntPtr]::Zero,$w,"WorkerW",$null); if($w -ne [IntPtr]::Zero){$defview=[MineradioRaiseUnderIcons]::FindWindowEx($w,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}}while($w -ne [IntPtr]::Zero -and $defview -eq [IntPtr]::Zero)}',
+      'if($defview -eq [IntPtr]::Zero){return}',
+      '$list=[MineradioRaiseUnderIcons]::FindWindowEx($defview,[IntPtr]::Zero,"SysListView32",$null)',
+      'if($list -eq [IntPtr]::Zero){$list=[MineradioRaiseUnderIcons]::FindWindowEx($defview,[IntPtr]::Zero,"SysListView32","FolderView")}',
+      'if($list -eq [IntPtr]::Zero){return}',
+      '$main=[IntPtr][Int64]$MainHwnd',
+      'if($main -eq [IntPtr]::Zero){return}',
+      '$ok=[MineradioRaiseUnderIcons]::SetWindowPos($main,$list,0,0,0,0,0x0002 -bor 0x0001 -bor 0x0010)',
+      'Write-Output ("RAISED=" + [string][int]$ok)',
+    ].join('\n').replace(/\n/g, '\r\n');
+    return new Promise((resolve) => {
+      const tempDir = this.nativeTempPath || os.tmpdir();
+      const scriptPath = path.join(tempDir, 'mineradio-raise-under-icons.ps1');
+      try {
+        fs.mkdirSync(tempDir, { recursive: true });
+        fs.writeFileSync(scriptPath, script, 'utf8');
+      } catch (error) {
+        resolve({ ok: false, error: 'RAISE_SCRIPT_WRITE_FAILED' });
+        return;
+      }
+      this.execFileImpl('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainHwnd', hwnd], {
+        windowsHide: true,
+        timeout: 8000,
+        env: { ...process.env, TEMP: tempDir, TMP: tempDir },
+      }, (error, stdout) => {
+        try { fs.unlinkSync(scriptPath); } catch (_) { }
+        if (error) { resolve({ ok: false, error: String(error && error.message || error) }); return; }
+        const match = String(stdout || '').match(/RAISED=([01])/);
+        resolve({ ok: !!match && match[1] === '1' });
+      });
+    });
+  }
+
+  // 「图标在上」模式下窗口在图标层下面收不到点击：指针进入控制器时临时隐藏图标层，
+  // 让点击落到 Mineradio；离开时恢复（只 ShowWindow，不改图标外观）。
+  // In "icons above" mode the window sits under the icon layer and gets no clicks: hide the icon
+  // layer while the pointer is on the controller and restore it on leave (ShowWindow only).
+  async setIconsHiddenForControllerInput(hide) {
+    if (!this.overlayMode || this.overlayIconsAbove !== true) return { ok: false, error: 'DESKTOP_ICON_INPUT_INACTIVE' };
+    const desired = hide === true;
+    if (desired) {
+      if (this.desktopIconsVisible === false) return { ok: true, skipped: true };
+      const result = await this.runOverlayDesktopIconsScript('hide');
+      this.overlayIconsHiddenForInput = !!(result && result.ok === true);
+      return result;
+    }
+    if (this.overlayIconsHiddenForInput) {
+      this.overlayIconsHiddenForInput = false;
+      return this.runOverlayDesktopIconsScript('show');
+    }
+    return { ok: true, skipped: true };
+  }
+
   async setOverlayIconsAbove(value, reason = 'desktop-icons-above-changed') {
     if (!this.overlayMode) {
       return { ok: false, error: 'DESKTOP_ICON_ORDER_UNSUPPORTED', status: this.getStatus(reason + '-unsupported') };
@@ -1869,6 +1943,7 @@ class FullDesktopModeRuntime {
     try {
       if (desired) {
         await this.attachCoexist(win, display);
+        await this.raiseWindowUnderIconLayer(win).catch(() => {});
         const hit = await this.runIconLayerHitTestScript('off');
         if (!hit || hit.ok !== true) {
           await this.detach(win, display.physicalBounds).catch(() => {});
@@ -1877,6 +1952,7 @@ class FullDesktopModeRuntime {
         }
         this.overlayIconsAbove = true;
       } else {
+        await this.setIconsHiddenForControllerInput(false).catch(() => {});
         await this.runIconLayerHitTestScript('on').catch(() => {});
         await this.detach(win, display.physicalBounds);
         this.overlayIconsAbove = false;
@@ -2299,6 +2375,10 @@ class FullDesktopModeRuntime {
       } catch (_) { }
     }
     this.overlayIconsAbove = false;
+    if (this.overlayIconsHiddenForInput) {
+      this.overlayIconsHiddenForInput = false;
+      try { await this.runOverlayDesktopIconsScript('show'); } catch (_) { }
+    }
     if (this.isWindowAlive(win) && snapshot) {
       try { this.restoreWindow(win, snapshot); } catch (_) { }
     }

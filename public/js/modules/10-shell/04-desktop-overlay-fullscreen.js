@@ -470,6 +470,14 @@ function updateDesktopModeControl(status) {
     cancelDesktopModeControlHide();
     cancelDesktopModeControlPeekHide();
   }
+  // 「图标在上」模式下窗口收不到转发鼠标移动：与锁定态一样强制把手常驻，悬停由主进程轮询驱动。
+  // In "icons above" mode the window gets no forwarded moves: keep the handle peeked, hover is
+  // driven by the main-process cursor poll.
+  if (active && status && status.overlayIconsAbove === true) {
+    setDesktopModeControlPeek(true);
+    cancelDesktopModeControlHide();
+    cancelDesktopModeControlPeekHide();
+  }
   if (iconsButton) {
     var iconsSupported = !!(api && typeof api.setDesktopIconsVisible === 'function');
     iconsButton.setAttribute('aria-checked', iconsVisible ? 'true' : 'false');
@@ -673,7 +681,9 @@ function setDesktopModeControlPeek(peek) {
 function scheduleDesktopModeControlPeekHide(delay) {
   // 锁定软件操作时把手是唯一解锁入口，永远不自动隐藏。
   // While the software is locked this handle is the only way back, so it never hides itself.
-  if (desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true) {
+  if (desktopWallpaperRuntimeState
+    && (desktopWallpaperRuntimeState.softwareInteractionLocked === true
+      || desktopWallpaperRuntimeState.overlayIconsAbove === true)) {
     setDesktopModeControlPeek(true);
     return;
   }
@@ -712,7 +722,9 @@ function setDesktopModeControlsOpen(open) {
   scheduleDesktopIconShieldReport(false);
   // 锁定期间不能拿上一帧的坐标去重算路由（否则面板刚由悬停展开就被判成「鼠标已离开」）。
   // While locked, stale coordinates must not re-run the route right after hover opened the panel.
-  if (!(desktopWallpaperRuntimeState && desktopWallpaperRuntimeState.softwareInteractionLocked === true)) {
+  if (!(desktopWallpaperRuntimeState
+    && (desktopWallpaperRuntimeState.softwareInteractionLocked === true
+      || desktopWallpaperRuntimeState.overlayIconsAbove === true))) {
     scheduleDesktopPointerRouteReport(null, true);
   }
   reportDesktopControllerZone();

@@ -60,6 +60,13 @@ assert.doesNotMatch(hitTestBody, /LVM_SETBKCOLOR|0x00080000/, 'icons-above must 
 assert.match(preload, /setDesktopIconsAbove: \(above\) => ipcRenderer\.invoke\('mineradio-full-desktop-set-icons-above'/);
 assert.match(main, /ipcMain\.handle\('mineradio-full-desktop-set-icons-above'/);
 assert.match(shell, /desktop-icons-above-toggle/);
+// 图标在上模式：控制器常驻可见、悬停由主进程轮询驱动；指针在控制器上时临时隐藏图标层，
+// 让点击落到 Mineradio，离开后恢复（只 ShowWindow，不改外观）。
+assert.ok(runtime.includes('raiseWindowUnderIconLayer(win) {'), 'missing raiseWindowUnderIconLayer');
+assert.ok(runtime.includes('async setIconsHiddenForControllerInput(hide) {'), 'missing setIconsHiddenForControllerInput');
+assert.ok(main.includes("status.overlayIconsAbove === true"), 'main poll must consider overlayIconsAbove');
+assert.ok(main.includes("setIconsHiddenForControllerInput(over)"), 'main poll must hide icons for controller input');
+assert.ok(shell.includes('overlayIconsAbove === true'), 'renderer must force peek in icons-above mode');
 // 7 个语言都补齐了层级开关的文案（parity）。
 for (const file of ['en_us', 'es_es', 'ja_jp', 'ru_ru', 'zh_cn', 'zh_hk', 'zh_tw']) {
   const locale = JSON.parse(read(`public/locales/${file}.json`));
