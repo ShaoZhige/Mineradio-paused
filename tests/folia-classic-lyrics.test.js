@@ -94,3 +94,20 @@ test('7 种语言的歌词样式文案齐全', () => {
     }
   }
 });
+
+test('流光跟随歌词动画、位置、角度、大小与字距设置', () => {
+  assert.match(MODULE, /root\.dataset\.motion\s*=\s*motion/);
+  assert.match(MODULE, /lyricMotionStyle/);
+  assert.match(MODULE, /lyricOffsetX/);
+  assert.match(MODULE, /lyricOffsetY/);
+  assert.match(MODULE, /lyricTiltX/);
+  assert.match(MODULE, /lyricTiltY/);
+  assert.match(MODULE, /lyricScale/);
+  assert.match(MODULE, /lyricLetterSpacing/);
+  assert.match(MODULE, /perspective\(1200px\)/);
+  assert.match(CSS, /\[data-motion="smooth"\]/);
+  assert.match(CSS, /\[data-motion="glass"\]/);
+  assert.match(CSS, /\[data-motion="shine"\]/);
+  assert.match(CSS, /\[data-motion="glitch"\]/);
+  assert.match(CSS, /--folia-soft/);
+});

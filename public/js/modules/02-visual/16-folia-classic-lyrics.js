@@ -152,6 +152,7 @@
     var body = document.createElement('span');
     body.className = 'folia-classic-body';
     body.textContent = unit.text;
+    node.dataset.text = unit.text;
     node.appendChild(glow);
     node.appendChild(body);
     return node;
@@ -193,6 +194,35 @@
     lineNode.classList.remove('is-in');
     void lineNode.offsetWidth;
     lineNode.classList.add('is-in');
+  }
+
+  function clampNumber(value, fallback, min, max) {
+    var n = Number(value);
+    if (!isFinite(n)) n = fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  // Pull the live DIY layout/animation settings into the overlay so the classic
+  // style obeys the same position, size, angle and motion controls as the WebGL lyrics.
+  function applyVisualSettings() {
+    if (!root) return;
+    var motion = (typeof fx !== 'undefined' && fx && fx.lyricMotionStyle) ? String(fx.lyricMotionStyle) : 'float';
+    if (motion !== 'float' && motion !== 'smooth' && motion !== 'glass' && motion !== 'shine' && motion !== 'glitch') motion = 'float';
+    root.dataset.motion = motion;
+
+    var stageScale = clampNumber(fx && fx.lyricScale, 1, 0.35, 1.65);
+    var offsetX = clampNumber(fx && fx.lyricOffsetX, 0, -4, 4) * 6;
+    var offsetY = clampNumber(fx && fx.lyricOffsetY, 0, -2.4, 2.7) * 6;
+    var tiltX = clampNumber(fx && fx.lyricTiltX, 0, -84, 84);
+    var tiltY = clampNumber(fx && fx.lyricTiltY, 0, -84, 84);
+    var softness = clampNumber(fx && fx.lyricMotionSoftness, 0.72, 0, 1);
+    root.style.transform = 'translate3d(' + offsetX.toFixed(2) + 'vw, ' + offsetY.toFixed(2) + 'vh, 0)'
+      + ' perspective(1200px) rotateX(' + tiltX.toFixed(2) + 'deg) rotateY(' + tiltY.toFixed(2) + 'deg)'
+      + ' scale(' + stageScale.toFixed(3) + ')';
+    root.style.setProperty('--folia-soft', (0.55 + softness * 1.1).toFixed(3));
+    if (lineNode) {
+      lineNode.style.letterSpacing = clampNumber(fx && fx.lyricLetterSpacing, 0, -4, 12).toFixed(2) + 'px';
+    }
   }
 
   function paintStates(now) {
@@ -266,6 +296,7 @@
       if (performance.now() < trackSwitchQuietUntil) return;
       ensureRoot();
       syncPalette();
+      applyVisualSettings();
       var now = lyricNowSeconds();
       var lines = lyricsLines;
       var lineIndex = typeof stageLyricIndexForSeconds === 'function' ? stageLyricIndexForSeconds(now) : -1;
