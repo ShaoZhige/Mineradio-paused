@@ -682,7 +682,7 @@ function scheduleDesktopModeControlPeekHide(delay) {
     if (desktopModeControlDockState.open
       || (dock && (dock.matches(':hover') || dock.contains(document.activeElement)))) return;
     setDesktopModeControlPeek(false);
-  }, Math.max(180, Number(delay) || 980));
+  }, Math.max(140, Number(delay) || 320));
 }
 
 function setDesktopModeControlsOpen(open) {
@@ -706,7 +706,7 @@ function setDesktopModeControlsOpen(open) {
     });
   }
   document.body.classList.toggle('desktop-mode-controls-open', open);
-  if (!open) scheduleDesktopModeControlPeekHide(900);
+  if (!open) scheduleDesktopModeControlPeekHide(260);
   scheduleDesktopIconShieldReport(false);
   // 锁定期间不能拿上一帧的坐标去重算路由（否则面板刚由悬停展开就被判成「鼠标已离开」）。
   // While locked, stale coordinates must not re-run the route right after hover opened the panel.
@@ -723,7 +723,7 @@ function scheduleDesktopModeControlHide(delay) {
     var dock = document.getElementById('desktop-mode-control-dock');
     if (dock && (dock.matches(':hover') || dock.contains(document.activeElement))) return;
     setDesktopModeControlsOpen(false);
-  }, Math.max(120, Number(delay) || 680));
+  }, Math.max(100, Number(delay) || 220));
 }
 
 function desktopPointInClientRect(x, y, rect) {
@@ -753,12 +753,16 @@ function desktopControllerScreenRect() {
   try { rootStyle = window.getComputedStyle(document.documentElement); } catch (_) { }
   var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
   var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
-  rects.push({
-    left: Math.max(0, window.innerWidth - safeRight - 320),
-    top: safeTop,
-    right: Math.max(0, window.innerWidth - safeRight),
-    bottom: safeTop + 190
-  });
+  // 只有控制器还藏在边缘时才把整条感应带算进轮询区；一旦面板/把手已经露出，
+  // 指针必须真的落在控制器上才算「悬停」，否则鼠标移到别处面板会一直不收。
+  if (!desktopModeControlDockState.peek && !desktopModeControlDockState.open) {
+    rects.push({
+      left: Math.max(0, window.innerWidth - safeRight - 320),
+      top: safeTop,
+      right: Math.max(0, window.innerWidth - safeRight),
+      bottom: safeTop + 190
+    });
+  }
   var left = Infinity;
   var top = Infinity;
   var right = -Infinity;
@@ -815,7 +819,9 @@ function desktopControlPointState(x, y) {
   try { rootStyle = window.getComputedStyle(document.documentElement); } catch (_) { }
   var safeTop = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-top')) || 0 : 0;
   var safeRight = rootStyle ? parseFloat(rootStyle.getPropertyValue('--desktop-safe-right')) || 0 : 0;
-  var overRevealEdge = x >= Math.max(0, window.innerWidth - safeRight - 320)
+  var revealArmed = !desktopModeControlDockState.peek && !desktopModeControlDockState.open;
+  var overRevealEdge = revealArmed
+    && x >= Math.max(0, window.innerWidth - safeRight - 320)
     && x < Math.max(0, window.innerWidth - safeRight)
     && y >= safeTop && y < safeTop + 190;
   var overHotspot = !!(handle && desktopIconShieldElementVisible(handle, { ignoreAriaHidden: true })
@@ -955,8 +961,23 @@ function initDesktopModeControls(api) {
     cancelDesktopModeControlPeekHide();
   });
   dock.addEventListener('mouseleave', function () {
-    scheduleDesktopModeControlHide(680);
-    scheduleDesktopModeControlPeekHide(980);
+    scheduleDesktopModeControlHide(260);
+    scheduleDesktopModeControlPeekHide(420);
+  });
+  // 鼠标离开窗口（去点别的应用或桌面）时 mousemove 不再到达渲染进程，
+  // document 的 mouseleave 是最后可靠的离开信号；短延迟后收起，别让面板一直挡着。
+  // When the pointer leaves the window entirely no further mousemove arrives, so the
+  // document-level leave event is the reliable "gone" signal.
+  document.addEventListener('mouseleave', function () {
+    if (!desktopModeControlDockState.open && !desktopModeControlDockState.peek) return;
+    if (dock.contains(document.activeElement)) return;
+    scheduleDesktopModeControlHide(160);
+    scheduleDesktopModeControlPeekHide(260);
+  });
+  document.addEventListener('mouseenter', function () {
+    if (!desktopModeControlDockState.open && !desktopModeControlDockState.peek) return;
+    cancelDesktopModeControlHide();
+    cancelDesktopModeControlPeekHide();
   });
   dock.addEventListener('focusin', function () {
     setDesktopModeControlPeek(true);
@@ -964,8 +985,8 @@ function initDesktopModeControls(api) {
     cancelDesktopModeControlPeekHide();
   });
   dock.addEventListener('focusout', function () {
-    scheduleDesktopModeControlHide(680);
-    scheduleDesktopModeControlPeekHide(980);
+    scheduleDesktopModeControlHide(260);
+    scheduleDesktopModeControlPeekHide(380);
   });
   dock.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') return;

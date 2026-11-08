@@ -371,7 +371,31 @@ window.addEventListener('blur', function () {
   if (playlistPanelPinned) return;
   setTimeout(function () { closePlaylistPanelSoft('window-blur'); }, 60);
 });
+// DIY 控制台靠 mousemove 判断指针是否还在面板里；鼠标直接移出窗口时没有 mousemove，
+// 面板会一直挂在屏幕上挡内容。document 的 mouseleave 是最后可靠的离开信号。
+// The DIY console is kept open by mousemove hit-testing; when the pointer leaves the window
+// there are no more moves, so close it shortly after the document-level leave event.
+var fxPointerLeaveTimer = 0;
+function cancelFxPointerLeaveClose() {
+  if (!fxPointerLeaveTimer) return;
+  clearTimeout(fxPointerLeaveTimer);
+  fxPointerLeaveTimer = 0;
+}
+document.addEventListener('mouseleave', function () {
+  var fp = document.getElementById('fx-panel');
+  if (!fp || (!fp.classList.contains('peek') && !fp.classList.contains('show'))) return;
+  if (typeof fxPanelPinned !== 'undefined' && fxPanelPinned) return;
+  if (fp.contains(document.activeElement)) return;
+  cancelFxPointerLeaveClose();
+  fxPointerLeaveTimer = setTimeout(function () {
+    fxPointerLeaveTimer = 0;
+    if (typeof fxPanelPinned !== 'undefined' && fxPanelPinned) return;
+    setPeek(fp, false, 'fx');
+  }, 140);
+});
+document.addEventListener('mouseenter', cancelFxPointerLeaveClose);
 window.addEventListener('mousemove', function (e) {
+  cancelFxPointerLeaveClose();
   // 锁定软件操作时，胶囊/控制台/工具行的鼠标联动和悬停提示一律不触发。
   // While the software is locked, none of the pointer-driven peeks or hover cues may fire.
   if (typeof desktopSoftwarePointerIgnored === 'function' && desktopSoftwarePointerIgnored()) return;
