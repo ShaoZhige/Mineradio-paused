@@ -19803,7 +19803,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   opacity: 1;
   transform: translate(var(--w-x, 0px), var(--w-y, 0px))
     rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.08));
-  transition: transform .62s cubic-bezier(.18, 1.5, .35, 1), opacity .16s linear;
+  transition: transform .34s cubic-bezier(.2, 1.45, .35, 1), opacity .1s linear;
   z-index: 2
 }
 
@@ -19823,7 +19823,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
       calc(var(--w-y, 0px) + var(--w-drift-y, 0px)))
     rotate(calc(var(--w-rot, 0deg) + var(--w-passed-rot, 0deg)))
     scale(calc(var(--w-scale, 1) * .96));
-  transition: transform 4.8s linear, opacity .8s ease
+  transition: transform 2.8s linear, opacity .55s ease
 }
 
 .folia-classic-body {
@@ -19847,15 +19847,10 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 .folia-classic-word.is-active .folia-classic-body {
-  background-image: linear-gradient(90deg,
-    var(--folia-hi, #fff) calc(var(--word-fill, 1) * 100%),
-    color-mix(in srgb, var(--folia-hi, #fff) 46%, transparent) 0);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--folia-hi, #fff);
   filter: none;
-  text-shadow: 0 0 12px color-mix(in srgb, var(--folia-hi, #fff) 55%, transparent),
-    0 0 30px color-mix(in srgb, var(--folia-glow, #a9d4ff) 45%, transparent)
+  text-shadow: 0 0 14px color-mix(in srgb, var(--folia-hi, #fff) 62%, transparent),
+    0 0 36px color-mix(in srgb, var(--folia-glow, #a9d4ff) 50%, transparent)
 }
 
 .folia-classic-word.is-passed .folia-classic-body {

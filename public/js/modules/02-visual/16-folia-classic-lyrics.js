@@ -411,12 +411,7 @@
         var frac = wordFractions[i];
         if (lineProgress + 0.0001 < frac.start) state = 'waiting';
         else if (lineProgress >= frac.end - 0.0001) state = 'passed';
-        else {
-          state = 'active';
-          var fracSpan = Math.max(0.0001, frac.end - frac.start);
-          node.style.setProperty('--word-fill', Math.max(0, Math.min(1, (lineProgress - frac.start) / fracSpan)).toFixed(4));
-        }
-        if (state !== 'active') node.style.removeProperty('--word-fill');
+        else state = 'active';
       } else if (now < t.start - LOOKAHEAD) state = 'waiting';
       else if (now > t.end) state = 'passed';
       else state = 'active';
