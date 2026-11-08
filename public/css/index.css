@@ -19847,7 +19847,12 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 .folia-classic-word.is-active .folia-classic-body {
-  color: color-mix(in srgb, var(--folia-hi, #fff) 88%, white);
+  background-image: linear-gradient(90deg,
+    var(--folia-hi, #fff) calc(var(--word-fill, 1) * 100%),
+    color-mix(in srgb, var(--folia-hi, #fff) 46%, transparent) 0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   filter: none;
   text-shadow: 0 0 12px color-mix(in srgb, var(--folia-hi, #fff) 55%, transparent),
     0 0 30px color-mix(in srgb, var(--folia-glow, #a9d4ff) 45%, transparent)

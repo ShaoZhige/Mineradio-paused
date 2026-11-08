@@ -138,5 +138,7 @@ test('LRC 行复用普通样式的逐行进度，YRC 行仍用词级时间', () 
   assert.ok(MODULE.includes('usesLineProgress = !(line && Array.isArray(line.words)'));
   assert.ok(MODULE.includes('getLyricLineProgress(renderedLine, renderedNextLine, now)'));
   assert.ok(MODULE.includes('wordFractions'));
-  assert.ok(MODULE.includes('wordFractions.push({ start: startFrac, end: weightAcc / weightTotal })'));
+  assert.ok(MODULE.includes('rawText.indexOf(tokenText, searchFrom)'));
+  assert.ok(MODULE.includes('charsBefore / totalChars'));
+  assert.ok(MODULE.includes('now < renderedLine.t - LOOKAHEAD'));
 });

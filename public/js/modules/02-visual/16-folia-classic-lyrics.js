@@ -313,19 +313,23 @@
     usesLineProgress = !(line && Array.isArray(line.words) && line.words.length);
     wordFractions = [];
     if (usesLineProgress) {
-      var weightTotal = 0;
-      var weightAcc = 0;
-      var weights = [];
+      // Anchor every word to its character range in the original line instead of
+      // normalising token weights: punctuation and skipped spaces otherwise shift
+      // word boundaries away from the ordinary style's character sweep.
+      var rawText = String((line && line.text) || '');
+      var totalChars = Array.from(rawText).length || 1;
+      var searchFrom = 0;
       for (var wi = 0; wi < wordTimes.length; wi++) {
-        var ww = unitWeight(wordTimes[wi].text);
-        weights.push(ww);
-        weightTotal += ww;
-      }
-      if (weightTotal <= 0) weightTotal = 1;
-      for (var wj = 0; wj < wordTimes.length; wj++) {
-        var startFrac = weightAcc / weightTotal;
-        weightAcc += weights[wj];
-        wordFractions.push({ start: startFrac, end: weightAcc / weightTotal });
+        var tokenText = String(wordTimes[wi].text || '');
+        var foundAt = rawText.indexOf(tokenText, searchFrom);
+        if (foundAt < 0) foundAt = searchFrom;
+        var charsBefore = Array.from(rawText.slice(0, foundAt)).length;
+        var tokenChars = Array.from(tokenText).length;
+        wordFractions.push({
+          start: charsBefore / totalChars,
+          end: Math.min(1, (charsBefore + tokenChars) / totalChars)
+        });
+        searchFrom = foundAt + tokenText.length;
       }
     }
     lineNode.innerHTML = '';
@@ -393,6 +397,7 @@
     // smoothstep progress curve.  Reuse that same progress for the word states so
     // 流光 cannot drift into its own faster/slower line rhythm.
     var lineProgress = null;
+    var beforeLine = !!(renderedLine && now < renderedLine.t - LOOKAHEAD);
     if (usesLineProgress && typeof getLyricLineProgress === 'function' && renderedLine) {
       lineProgress = getLyricLineProgress(renderedLine, renderedNextLine, now);
     }
@@ -401,11 +406,17 @@
       var t = wordTimes[i];
       if (!node || !t) continue;
       var state;
-      if (lineProgress != null && wordFractions[i]) {
+      if (beforeLine) state = 'waiting';
+      else if (lineProgress != null && wordFractions[i]) {
         var frac = wordFractions[i];
         if (lineProgress + 0.0001 < frac.start) state = 'waiting';
         else if (lineProgress >= frac.end - 0.0001) state = 'passed';
-        else state = 'active';
+        else {
+          state = 'active';
+          var fracSpan = Math.max(0.0001, frac.end - frac.start);
+          node.style.setProperty('--word-fill', Math.max(0, Math.min(1, (lineProgress - frac.start) / fracSpan)).toFixed(4));
+        }
+        if (state !== 'active') node.style.removeProperty('--word-fill');
       } else if (now < t.start - LOOKAHEAD) state = 'waiting';
       else if (now > t.end) state = 'passed';
       else state = 'active';
