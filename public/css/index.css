@@ -19806,7 +19806,6 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   z-index: 0;
   border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--folia-glow, #a9d4ff) 26%, transparent), color-mix(in srgb, var(--folia-glow, #a9d4ff) 9%, transparent) 45%, transparent 70%);
-  filter: blur(14px);
   pointer-events: none
 }
 
@@ -19824,12 +19823,11 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   z-index: 1;
   display: block;
   color: color-mix(in srgb, var(--folia-ink, #eef6ff) 92%, white);
-  filter: blur(10px);
   transition: color .18s linear, filter .18s ease, text-shadow .25s ease
 }
 
 .folia-classic-word.is-waiting .folia-classic-body {
-  filter: blur(9px)
+  filter: blur(3px)
 }
 
 .folia-classic-word.is-passed .folia-classic-body {
@@ -19855,8 +19853,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   display: block;
   color: transparent;
   text-shadow: 0 0 18px color-mix(in srgb, var(--folia-glow, #a9d4ff) 75%, white),
-    0 0 44px color-mix(in srgb, var(--folia-glow, #a9d4ff) 85%, transparent),
-    0 0 92px color-mix(in srgb, var(--folia-glow, #a9d4ff) 55%, transparent);
+    0 0 44px color-mix(in srgb, var(--folia-glow, #a9d4ff) 45%, transparent);
   opacity: 0;
   pointer-events: none
 }
