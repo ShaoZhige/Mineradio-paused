@@ -86,25 +86,68 @@
     return Math.max(start + 0.5, Math.min(nextT || (start + duration), start + 12));
   }
 
-  // 没有逐词时间轴时，不能把整行当成一个词（中文没有空格，会整块出现）。
-  // 这里按「汉字/日文假名逐字、英文按词、标点单独」切分，再把行时长均分给每个单元。
-  // Without word timestamps a Chinese line has no spaces: splitting on spaces yields one
-  // block. Split CJK characters individually, keep Latin words whole, then spread the line
-  // duration across the units.
-  function splitFallbackUnits(text) {
+  // 没有逐词时间轴时，单字切分只能当兜底：中文歌是一个词一个词唱出来的。
+  // 先走 Intl.Segmenter 的词级分词（和 Folia 的默认分词同一层），再把其中连续的
+  // 单字按「两字一词」合并、把「的/了/在」这类虚词并回前一个词；只有运行时连
+  // Segmenter 都没有时才退回逐字。
+  // Word-level fallback: Intl.Segmenter first, then pair adjacent single Han
+  // characters and glue function words to the previous unit.
+  var CJK_SINGLE = /^[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]$/;
+  var WORD_STOP = '的了着过们吗呢吧啊呀哦嗯在是不没就都也又还很太最更我你他她它这那哪谁什么怎和与或而但却把被给让对从向为以于之其个些点上下中里外来到会能要想说看听有无一二三四五六七八九十啦嘛喔诶唉嘿哈';
+  function isWordStop(token) {
+    return token.length === 1 && WORD_STOP.indexOf(token) >= 0;
+  }
+  function segmentFallbackWords(text) {
+    var parts = [];
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      try {
+        var seg = new Intl.Segmenter(undefined, { granularity: 'word' });
+        Array.from(seg.segment(text)).forEach(function (part) {
+          if (part.segment) parts.push(part.segment);
+        });
+      } catch (e) { parts = []; }
+    }
+    if (!parts.length) {
+      var re = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|[A-Za-z0-9][A-Za-z0-9''’\-]*|[^\s]/g;
+      var match;
+      while ((match = re.exec(text))) parts.push(match[0]);
+    }
     var units = [];
-    if (!text) return units;
-    var re = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|[A-Za-z0-9][A-Za-z0-9''’\-]*|[^\s]/g;
-    var match;
-    while ((match = re.exec(text))) units.push(match[0]);
-    return units;
+    for (var i = 0; i < parts.length; i++) {
+      var t = parts[i];
+      if (!t) continue;
+      if (/^\s+$/.test(t)) { if (units.length) units[units.length - 1] += ' '; continue; }
+      if (/^[\p{P}\p{S}]+$/u.test(t)) { if (units.length) units[units.length - 1] += t; else units.push(t); continue; }
+      var prev = units.length ? units[units.length - 1] : '';
+      if (prev && CJK_SINGLE.test(t) && isWordStop(t) && CJK_SINGLE.test(prev.charAt(prev.length - 1))) {
+        units[units.length - 1] += t;
+        continue;
+      }
+      if (CJK_SINGLE.test(t) && i + 1 < parts.length && CJK_SINGLE.test(parts[i + 1]) && !isWordStop(t) && !isWordStop(parts[i + 1])) {
+        units.push(t + parts[++i]);
+        continue;
+      }
+      units.push(t);
+    }
+    return units.map(function (u) { return u.trim(); }).filter(Boolean);
   }
 
   function spreadUnits(units, start, end) {
-    var span = Math.max(0.4, end - start) / Math.max(1, units.length);
+    var total = 0;
+    var weights = [];
     for (var i = 0; i < units.length; i++) {
-      units[i].start = start + span * i;
-      units[i].end = units[i].start + span;
+      var weight = Math.max(1, Array.from(String(units[i].text || '')).length);
+      weights.push(weight);
+      total += weight;
+    }
+    var span = Math.max(0.4, end - start);
+    var cursor = start;
+    var acc = 0;
+    for (var j = 0; j < units.length; j++) {
+      units[j].start = cursor;
+      acc += weights[j];
+      cursor = start + span * acc / Math.max(1, total);
+      units[j].end = cursor;
     }
   }
 
@@ -137,7 +180,7 @@
     }
     var raw = String(line && line.text || '').replace(/\s+/g, ' ').trim();
     if (!raw) return units;
-    var tokens = splitFallbackUnits(raw);
+    var tokens = segmentFallbackWords(raw);
     for (i = 0; i < tokens.length; i++) units.push({ text: tokens[i], start: lineStart, end: lineEnd });
     spreadUnits(units, lineStart, lineEnd);
     return units;

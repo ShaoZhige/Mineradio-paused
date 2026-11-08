@@ -54,10 +54,13 @@ test('流光模块按逐字时间轴推进，并隐藏 WebGL 歌词组', () => {
   assert.match(MODULE, /--w-rot/);
 });
 
-test('没有逐词时间轴时按汉字拆分并均分行时长', () => {
-  assert.match(MODULE, /function splitFallbackUnits/);
-  assert.match(MODULE, /\\u3400-\\u9fff/);
+test('没有逐词时间轴时按词级分词并按时长权重铺开', () => {
+  assert.match(MODULE, /function segmentFallbackWords/);
+  assert.match(MODULE, /Intl\.Segmenter/);
+  assert.match(MODULE, /granularity: 'word'/);
+  assert.match(MODULE, /CJK_SINGLE/);
   assert.match(MODULE, /function spreadUnits/);
+  assert.match(MODULE, /Array\.from\(String\(units\[i\]\.text/);
   assert.match(MODULE, /function buildWords\(line, nextLine\)/);
   assert.match(MODULE, /buildWords\(line, nextLine\)/);
   assert.match(MODULE, /maxStart - minStart < 0\.05/);

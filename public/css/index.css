@@ -19772,7 +19772,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   min-height: 300px;
   font-weight: 700;
   line-height: 1.22;
-  gap: 1em;
+  gap: 1.1em;
   row-gap: 1em;
   color: var(--folia-ink, #f2f8ff);
   perspective: 1000px
@@ -19802,7 +19802,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 .folia-classic-word.is-active {
   opacity: 1;
   transform: translate(var(--w-x, 0px), var(--w-y, 0px))
-    rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.28));
+    rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.08));
   transition: transform .62s cubic-bezier(.18, 1.5, .35, 1), opacity .16s linear;
   z-index: 2
 }
