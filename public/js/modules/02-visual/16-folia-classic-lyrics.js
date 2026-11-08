@@ -362,7 +362,7 @@
     floatNode.appendChild(ghost);
     window.setTimeout(function () {
       if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
-    }, 380);
+    }, 200);
   }
 
   function renderLine(line, nextLine, lineIndex) {
@@ -416,7 +416,7 @@
     }
     lineNode.classList.remove('is-in');
     void lineNode.offsetWidth;
-    var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.16 : 0.42;
+    var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.12 : 0.26;
     lineNode.style.animationDuration = enterDuration.toFixed(2) + 's';
     lineNode.classList.toggle('is-instant', revealMode === 'instant');
     lineNode.classList.add('is-in');
