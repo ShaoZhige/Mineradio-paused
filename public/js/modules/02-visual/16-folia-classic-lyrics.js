@@ -1,23 +1,24 @@
 // Folia-classic lyric style, implemented independently for Mineradio.
-// Clean-room: no Folia code, shaders, fonts or assets were copied; only the
-// visual behaviour (one centred line, sung character blooms, past characters
-// keep an afterglow, upcoming characters wait blurred) was reproduced.
+// Clean-room: no Folia code, shaders, fonts or assets were copied; the visual
+// behaviour (a loose per-word line, randomised poses, a sung word blooming and
+// drifting after it passes) was reproduced from watching the effect.
 //
 // The regular stage lyrics are WebGL meshes. While this style is selected we
-// simply hide `stageLyrics.group` and draw the line as DOM text above the
-// canvas, which keeps the text crisp and cheap on low-end machines.
+// hide `stageLyrics.group` and draw the line as DOM text above the canvas,
+// which keeps the text crisp and cheap on low-end machines.
 (function () {
   'use strict';
 
   var STYLE_ID = 'classic';
   var ROOT_ID = 'folia-classic-lyrics';
+  var LOOKAHEAD = 0.12;
   var root = null;
-  var wrap = null;
+  var floatNode = null;
   var lineNode = null;
-  var charNodes = [];
-  var charTimes = [];
+  var translationNode = null;
+  var wordNodes = [];
+  var wordTimes = [];
   var lastLineKey = '';
-  var lastFitWidth = 0;
   var groupWasHiddenByUs = false;
 
   function foliaStyleOn() {
@@ -45,14 +46,17 @@
       host.appendChild(root);
     }
     root.innerHTML = '';
-    wrap = document.createElement('div');
-    wrap.className = 'folia-classic-wrap';
+    floatNode = document.createElement('div');
+    floatNode.className = 'folia-classic-float';
     lineNode = document.createElement('div');
     lineNode.className = 'folia-classic-line';
-    wrap.appendChild(lineNode);
-    root.appendChild(wrap);
-    charNodes = [];
-    charTimes = [];
+    floatNode.appendChild(lineNode);
+    translationNode = document.createElement('div');
+    translationNode.className = 'folia-classic-translation';
+    root.appendChild(floatNode);
+    root.appendChild(translationNode);
+    wordNodes = [];
+    wordTimes = [];
     lastLineKey = '';
   }
 
@@ -65,61 +69,71 @@
     return Math.max(0, seconds);
   }
 
-  function splitChars(text) {
-    var raw = String(text || '').replace(/\s+/g, ' ').trim();
-    var chars = [];
-    for (var i = 0; i < raw.length; i++) chars.push(raw.charAt(i));
-    return chars;
+  // Deterministic hash so a line always keeps the same poses; time only changes
+  // the state of each word, never the layout.
+  function hashUnit(seed) {
+    var x = Math.sin(seed * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
   }
 
-  // Returns [{ ch, start, end }] in playback seconds. Native karaoke lines
-  // already carry word-level timestamps; line-only lyrics get an even spread
-  // across the line's own duration, which is what Folia's fallback does too.
-  function buildCharTimes(line, nextLine) {
-    var chars = splitChars(line && line.text);
-    var times = [];
+  function buildWords(line) {
+    var lineStart = Math.max(0, Number(line && line.t) || 0);
+    var lineEnd = lineStart + Math.max(0.6, Number(line && line.duration) || 3.2);
+    var words = Array.isArray(line && line.words) ? line.words : null;
+    var units = [];
     var i;
-    for (i = 0; i < chars.length; i++) times.push({ ch: chars[i], start: 0, end: 0, space: chars[i] === ' ' });
-    if (!chars.length) return times;
-
-    var lineStart = Math.max(0, Number(line.t) || 0);
-    var lineEnd = lineStart + Math.max(0.45, Number(line.duration) || 3.2);
-    if (nextLine && Number(nextLine.t) > lineStart + 0.05) {
-      lineEnd = Math.min(lineEnd + 0.8, Number(nextLine.t));
-    }
-
-    var words = Array.isArray(line.words) ? line.words : null;
-    var covered = {};
     if (words && words.length) {
-      for (var w = 0; w < words.length; w++) {
-        var word = words[w];
-        var span = Math.max(0.08, Number(word.d) || 0.24);
-        var start = Math.max(0, Number(word.t) || lineStart);
-        var c0 = Math.max(0, Math.min(chars.length, Number(word.c0) || 0));
-        var c1 = Math.max(c0, Math.min(chars.length, Number(word.c1) || c0));
-        var count = Math.max(1, c1 - c0);
-        for (var c = c0; c < c1; c++) {
-          var local = (c - c0) / count;
-          times[c].start = start + span * local;
-          times[c].end = start + span * Math.min(1, local + 1 / count);
-          covered[c] = true;
-        }
+      for (i = 0; i < words.length; i++) {
+        var w = words[i];
+        var text = String(w && w.text || '').trim();
+        if (!text) continue;
+        var start = Math.max(lineStart, Number(w.t) || lineStart);
+        var duration = Math.max(0.12, Number(w.d) || Math.max(0.2, (lineEnd - lineStart) / words.length));
+        units.push({ text: text, start: start, end: start + duration });
       }
+      if (units.length) return units;
     }
+    var raw = String(line && line.text || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return units;
+    var tokens = raw.split(' ');
+    var span = Math.max(0.6, lineEnd - lineStart) / Math.max(1, tokens.length);
+    for (i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      if (!token) continue;
+      var tokStart = lineStart + span * i;
+      units.push({ text: token, start: tokStart, end: tokStart + span });
+    }
+    return units;
+  }
 
-    var open = [];
-    for (i = 0; i < chars.length; i++) if (!covered[i]) open.push(i);
-    if (open.length) {
-      var spanAll = Math.max(0.6, lineEnd - lineStart);
-      for (var o = 0; o < open.length; o++) {
-        var idx = open[o];
-        // Avoid overlapping the surrounding karaoke words: place the gap
-        // characters in the free window between line start and line end.
-        times[idx].start = lineStart + spanAll * (o / Math.max(1, open.length));
-        times[idx].end = lineStart + spanAll * ((o + 1) / Math.max(1, open.length));
-      }
-    }
-    return times;
+  function makeWordNode(unit, index, lineSeed, lineFontSize) {
+    var rnd = function (n) { return hashUnit(lineSeed + index * 7.13 + n * 1.71); };
+    var scale = 1.1 + rnd(1) * 0.2;
+    var rotate = (rnd(2) - 0.5) * 10;
+    var passedRotate = (rnd(3) - 0.5) * 45;
+    var offsetX = (rnd(4) - 0.5) * 26;
+    var offsetY = (rnd(5) - 0.5) * 26;
+    var node = document.createElement('span');
+    node.className = 'folia-classic-word is-waiting';
+    node.style.setProperty('--w-x', offsetX.toFixed(1) + 'px');
+    node.style.setProperty('--w-y', offsetY.toFixed(1) + 'px');
+    node.style.setProperty('--w-wait-x', (offsetX + Math.sin(offsetY) * 100).toFixed(1) + 'px');
+    node.style.setProperty('--w-wait-y', (offsetY + Math.cos(offsetX) * 50).toFixed(1) + 'px');
+    node.style.setProperty('--w-rot', rotate.toFixed(2) + 'deg');
+    node.style.setProperty('--w-passed-rot', passedRotate.toFixed(2) + 'deg');
+    node.style.setProperty('--w-scale', scale.toFixed(3));
+    node.style.setProperty('--w-dur', Math.max(0.18, unit.end - unit.start).toFixed(2) + 's');
+
+    var glow = document.createElement('span');
+    glow.className = 'folia-classic-glow';
+    glow.setAttribute('aria-hidden', 'true');
+    glow.textContent = unit.text;
+    var body = document.createElement('span');
+    body.className = 'folia-classic-body';
+    body.textContent = unit.text;
+    node.appendChild(glow);
+    node.appendChild(body);
+    return node;
   }
 
   function renderLine(line, nextLine, lineIndex) {
@@ -127,63 +141,61 @@
     var key = lineIndex + '|' + String(line && line.text || '');
     if (key === lastLineKey) return;
     lastLineKey = key;
+
+    wordTimes = buildWords(line);
+    lineNode.innerHTML = '';
+    wordNodes = [];
+    translationNode.textContent = line && line.translation ? String(line.translation) : '';
+
+    var width = window.innerWidth || 1280;
+    var fontScale = 1;
+    if (typeof fx !== 'undefined' && fx && isFinite(fx.lyricFontScale)) {
+      fontScale = Math.max(0.6, Math.min(1.8, Number(fx.lyricFontScale)));
+    }
+    var fontSize = Math.max(36, Math.min(72, width * 0.06)) * fontScale;
+    lineNode.style.fontSize = fontSize.toFixed(2) + 'px';
     if (typeof lyricFontStackForKey === 'function') {
       lineNode.style.fontFamily = lyricFontStackForKey(fx && fx.lyricFont);
     }
 
-    charTimes = buildCharTimes(line, nextLine);
-    lineNode.innerHTML = '';
-    charNodes = [];
-    for (var i = 0; i < charTimes.length; i++) {
-      var t = charTimes[i];
-      var span = document.createElement('span');
-      if (t.space) {
-        span.className = 'folia-classic-ch is-space';
-        span.textContent = '\u00a0';
-      } else {
-        span.className = 'folia-classic-ch';
-        span.textContent = t.ch;
-        span.style.setProperty('--folia-rot', (((i * 37) % 13) - 6) + 'deg');
-      }
-      lineNode.appendChild(span);
-      charNodes.push(span);
+    var seed = Math.max(0.01, Number(line && line.t) || 0.01);
+    var justifyOptions = ['center'];
+    var alignOptions = ['center', 'flex-start', 'flex-end'];
+    lineNode.style.justifyContent = justifyOptions[Math.floor(seed * 10) % justifyOptions.length];
+    lineNode.style.alignItems = alignOptions[Math.floor(seed * 20) % alignOptions.length];
+
+    for (var i = 0; i < wordTimes.length; i++) {
+      var node = makeWordNode(wordTimes[i], i, seed * 1000 + i, fontSize);
+      lineNode.appendChild(node);
+      wordNodes.push(node);
     }
     lineNode.classList.remove('is-in');
-    // Force a reflow so the entrance animation restarts for every new line.
     void lineNode.offsetWidth;
     lineNode.classList.add('is-in');
-    fitLine();
-  }
-
-  function fitLine() {
-    if (!lineNode || !wrap) return;
-    var width = wrap.clientWidth || 0;
-    if (!width) return;
-    lineNode.style.fontSize = '';
-    var natural = lineNode.scrollWidth;
-    if (natural > width) {
-      var current = parseFloat(getComputedStyle(lineNode).fontSize) || 96;
-      var next = Math.max(42, Math.floor(current * width / natural));
-      lineNode.style.fontSize = next + 'px';
-    }
-    lastFitWidth = width;
-  }
-
-  function computeState(now, t) {
-    if (now < t.start) return 'waiting';
-    if (now >= t.end) return 'passed';
-    return 'active';
   }
 
   function paintStates(now) {
-    for (var i = 0; i < charNodes.length; i++) {
-      var node = charNodes[i];
-      if (!node || node.classList.contains('is-space')) continue;
-      var state = computeState(now, charTimes[i]);
+    for (var i = 0; i < wordNodes.length; i++) {
+      var node = wordNodes[i];
+      var t = wordTimes[i];
+      if (!node || !t) continue;
+      var state;
+      if (now < t.start - LOOKAHEAD) state = 'waiting';
+      else if (now > t.end) state = 'passed';
+      else state = 'active';
       if (node.__foliaState !== state) {
         node.__foliaState = state;
         node.classList.remove('is-waiting', 'is-active', 'is-passed');
         node.classList.add('is-' + state);
+        // Restart the per-word halo ramp whenever a word turns active.
+        if (state === 'active') {
+          var glow = node.querySelector('.folia-classic-glow');
+          if (glow) {
+            glow.style.animation = 'none';
+            void glow.offsetWidth;
+            glow.style.animation = '';
+          }
+        }
       }
     }
   }
@@ -205,14 +217,14 @@
   function clearOverlay() {
     if (!root) return;
     if (lineNode) lineNode.innerHTML = '';
-    charNodes = [];
-    charTimes = [];
+    if (translationNode) translationNode.textContent = '';
+    wordNodes = [];
+    wordTimes = [];
     lastLineKey = '';
     root.classList.remove('show');
   }
 
-  function frame() {
-    requestAnimationFrame(frame);
+  function tick() {
     try {
       var active = foliaLyricsUsable();
       if (!active) {
@@ -237,11 +249,20 @@
       renderLine(line, lines[lineIndex + 1], lineIndex);
       paintStates(now);
       root.classList.add('show');
-      if (wrap && wrap.clientWidth !== lastFitWidth) fitLine();
     } catch (err) {
       // A broken lyric payload must never take down the render loop.
+      window.__foliaLastError = String(err && err.stack || err);
     }
   }
+
+  function frame() {
+    requestAnimationFrame(frame);
+    tick();
+  }
+
+  // QA hook: hidden Electron windows throttle requestAnimationFrame, so tests
+  // can advance one frame synchronously after changing style or playback time.
+  window.__mineradioFoliaTick = tick;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { requestAnimationFrame(frame); }, { once: true });

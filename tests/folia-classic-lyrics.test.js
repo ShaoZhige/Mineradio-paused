@@ -42,13 +42,15 @@ test('流光模块在歌词渲染模块之后加载', () => {
 
 test('流光模块按逐字时间轴推进，并隐藏 WebGL 歌词组', () => {
   assert.match(MODULE, /line\.words/);
-  assert.match(MODULE, /word\.t/);
+  assert.match(MODULE, /w\.t/);
   assert.match(MODULE, /getAdjustedLyricPlaybackTime/);
   assert.match(MODULE, /stageLyricIndexForSeconds/);
   assert.match(MODULE, /stageLyrics\.group/);
   assert.match(MODULE, /group\.visible\s*=\s*false/);
   assert.match(MODULE, /group\.visible\s*=\s*true/);
   assert.match(MODULE, /empty-home-active/);
+  assert.match(MODULE, /.folia-classic-word/);
+  assert.match(MODULE, /--w-rot/);
 });
 
 test('流光设置能保存、读回并带进设置持久化 payload', () => {
@@ -62,9 +64,9 @@ test('流光设置能保存、读回并带进设置持久化 payload', () => {
 
 test('流光 CSS 的层次与状态齐全', () => {
   assert.match(CSS, /#folia-classic-lyrics/);
-  assert.match(CSS, /\.folia-classic-ch\.is-active/);
-  assert.match(CSS, /\.folia-classic-ch\.is-passed/);
-  assert.match(CSS, /\.folia-classic-ch\.is-waiting/);
+  assert.match(CSS, /\.folia-classic-word\.is-active/);
+  assert.match(CSS, /\.folia-classic-word\.is-passed/);
+  assert.match(CSS, /\.folia-classic-word\.is-waiting/);
 });
 
 test('7 种语言的歌词样式文案齐全', () => {
