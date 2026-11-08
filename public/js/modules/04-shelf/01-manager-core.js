@@ -520,7 +520,7 @@ function makeShelfManager() {
       dofDirtyCards = [];
       list.forEach(function (c) {
         c._dofPending = false;
-        if (c.mesh && c.mesh.parent) drawCard(c, c.item);
+        if (c.mesh && c.mesh.parent) scheduleCardDraw(c);
       });
     }, 110);
   }
@@ -767,7 +767,9 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       var next = c.index === selectedIdx;
       if (c.selected !== next) {
         c.selected = next;
-        drawCard(c, c.item);
+        // 滚轮每走一格都会换选中卡；原先这里同步重画两张 720x360 canvas，
+        // 轮询时正好卡在动画帧里。改走空闲绘制队列，滚动期间不再同步画。
+        scheduleCardDraw(c);
       }
     });
   }
@@ -971,7 +973,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
             cards.forEach(function (c) {
               c.item = allItems[c.index] || c.item;
               c.isCenter = Math.abs(c.index - centerSmooth) < 0.5;
-              if (c.isCenter || c.dofBucket <= 1 || c.index === currentIdx) drawCard(c, c.item);
+              if (c.isCenter || c.dofBucket <= 1 || c.index === currentIdx) scheduleCardDraw(c);
             });
           }
         }
