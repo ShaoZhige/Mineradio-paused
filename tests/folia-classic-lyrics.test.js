@@ -54,14 +54,14 @@ test('流光模块按逐字时间轴推进，并隐藏 WebGL 歌词组', () => {
   assert.match(MODULE, /--w-rot/);
 });
 
-test('没有逐词时间轴时按词级分词并按时长权重铺开', () => {
+test('没有逐词时间轴时按 Folia 的逐字权重铺开，再聚合到词', () => {
   assert.match(MODULE, /function segmentFallbackWords/);
   assert.match(MODULE, /Intl\.Segmenter/);
   assert.match(MODULE, /granularity: 'word'/);
   assert.match(MODULE, /CJK_SINGLE/);
-  assert.match(MODULE, /function unitWeight/);
   assert.match(MODULE, /function spreadUnits/);
-  assert.match(MODULE, /duration \* 0\.9/);
+  assert.match(MODULE, /sub\.weight \* perWeight/);
+  assert.match(MODULE, /Math\.max\(rawDuration, 0\.05\)/);
   assert.match(MODULE, /reading \+ 2/);
   assert.match(MODULE, /function buildWords\(line, nextLine\)/);
   assert.match(MODULE, /buildWords\(line, nextLine\)/);
@@ -134,11 +134,12 @@ test('流光跟随歌词动画、位置、角度、大小与字距设置', () =>
   assert.match(CSS, /--folia-soft/);
 });
 
-test('LRC 行复用普通样式的逐行进度，YRC 行仍用词级时间', () => {
-  assert.ok(MODULE.includes('usesLineProgress = !(line && Array.isArray(line.words)'));
-  assert.ok(MODULE.includes('getLyricLineProgress(renderedLine, renderedNextLine, now)'));
-  assert.ok(MODULE.includes('wordFractions'));
-  assert.ok(MODULE.includes('rawText.indexOf(tokenText, searchFrom)'));
-  assert.ok(MODULE.includes('charsBefore / totalChars'));
-  assert.ok(MODULE.includes('now < renderedLine.t - LOOKAHEAD'));
+test('流光按 Folia 的逐词时序：行内线性铺开、预读与短行模式', () => {
+  assert.ok(MODULE.includes("revealMode = rawDuration < 0.10 ? 'instant' : rawDuration < 0.18 ? 'fast' : 'normal'"));
+  assert.ok(MODULE.includes('lineTiming.lookahead'));
+  assert.ok(MODULE.includes('lineTiming.renderEnd'));
+  assert.ok(MODULE.includes('now < t.start - lineTiming.lookahead'));
+  assert.ok(MODULE.includes('t.start + 0.12'));
+  assert.ok(MODULE.includes('lineNode.style.animationDuration'));
+  assert.match(CSS, /\.folia-classic-line\.is-instant/);
 });

@@ -11,7 +11,6 @@
 
   var STYLE_ID = 'classic';
   var ROOT_ID = 'folia-classic-lyrics';
-  var LOOKAHEAD = 0.15;
   var root = null;
   var floatNode = null;
   var lineNode = null;
@@ -21,8 +20,7 @@
   var lastLineKey = '';
   var renderedLine = null;
   var renderedNextLine = null;
-  var wordFractions = [];
-  var usesLineProgress = false;
+  var lineTiming = { renderEnd: 0, revealMode: 'normal', lookahead: 0.15 };
   var lastPaletteKey = '';
   var lastTrackToken = null;
   var trackSwitchQuietUntil = 0;
@@ -91,11 +89,22 @@
     var duration = nextT
       ? nextT - start
       : Math.max(0.6, Number(line && line.duration) || 5);
+    var hasWords = Array.isArray(line && line.words) && line.words.length > 0;
     var reading = String(line && line.text || '').length * 0.5;
-    if (nextT && duration > reading + 2 && duration > 5) {
+    // The reading-time clamp only applies to line-synced lyrics.  Word-timed
+    // (YRC) lines already carry real word windows and must not be shortened.
+    if (!hasWords && nextT && duration > reading + 2 && duration > 5) {
       duration = Math.min(duration, reading + 2);
     }
-    return start + Math.max(0.5, Math.min(duration, 12));
+    var end = start + Math.max(0.5, Math.min(duration, 12));
+    if (hasWords) {
+      for (var wi = 0; wi < line.words.length; wi++) {
+        var w = line.words[wi];
+        var wordEnd = Number(w && w.t) + Math.max(0, Number(w && w.d) || 0.24);
+        if (isFinite(wordEnd)) end = Math.max(end, wordEnd);
+      }
+    }
+    return end;
   }
 
   // 没有逐词时间轴时，单字切分只能当兜底：中文歌是一个词一个词唱出来的。
@@ -173,30 +182,69 @@
     return weight;
   }
 
+  // Folia builds LRC timing one grapheme at a time: CJK grapheme weight 1,
+  // punctuation weight 0 (it still advances 0.05s), Latin run weight 1+len*0.15.
+  // Only 90% of the line duration drives the sweep; the last 10% is tail.
+  // Words then inherit first-grapheme start and last-grapheme end (sticky
+  // punctuation included), which keeps the word rhythm identical to Folia's.
   function spreadUnits(units, start, end) {
-    var duration = Math.max(0.1, end - start);
-    var weights = [];
+    var subs = [];
+    for (var wi = 0; wi < units.length; wi++) {
+      var text = String(units[wi].text || '');
+      var re = /[A-Za-z0-9]+|[^s]/gu;
+      var m;
+      while ((m = re.exec(text))) {
+        var tok = m[0];
+        var weight;
+        if (/^[A-Za-z0-9]+$/.test(tok)) weight = 1 + tok.length * 0.15;
+        else if (/[，。！？、：；"'）】》」』]/.test(tok)) weight = 0;
+        else weight = 1;
+        subs.push({ w: wi, weight: weight });
+      }
+    }
+    if (!subs.length) {
+      for (var u = 0; u < units.length; u++) {
+        units[u].start = start;
+        units[u].end = start + 0.05;
+      }
+      return;
+    }
     var total = 0;
-    for (var i = 0; i < units.length; i++) {
-      var weight = unitWeight(units[i].text);
-      weights.push(weight);
-      total += weight;
-    }
-    var active = duration * 0.9;
-    var perWeight = active / Math.max(1, total);
+    for (var si = 0; si < subs.length; si++) total += subs[si].weight;
+    if (total <= 0) total = 1;
+    var active = Math.max(0.1, end - start) * 0.9;
+    var perWeight = active / total;
     var cursor = start;
-    for (var j = 0; j < units.length; j++) {
-      var wordDuration = Math.max(0.05, weights[j] * perWeight);
-      units[j].start = cursor;
-      units[j].end = cursor + wordDuration;
-      cursor += weights[j] > 0 ? wordDuration : 0.05;
+    for (var sj = 0; sj < subs.length; sj++) {
+      var sub = subs[sj];
+      var rawDuration = sub.weight > 0 ? sub.weight * perWeight : 0;
+      var finalDuration = Math.max(rawDuration, 0.05);
+      sub.start = cursor;
+      sub.end = cursor + finalDuration;
+      cursor += sub.weight > 0 ? rawDuration : 0.05;
     }
-    var last = units[units.length - 1];
-    if (last && last.end > end) {
+    var last = subs[subs.length - 1];
+    if (last.end > end) {
       var scale = (end - start) / Math.max(0.1, last.end - start);
-      for (var k = 0; k < units.length; k++) {
-        units[k].start = start + (units[k].start - start) * scale;
-        units[k].end = start + (units[k].end - start) * scale;
+      for (var sk = 0; sk < subs.length; sk++) {
+        subs[sk].start = start + (subs[sk].start - start) * scale;
+        subs[sk].end = start + (subs[sk].end - start) * scale;
+      }
+    }
+    var firstAt = [];
+    var lastAt = [];
+    for (var sm = 0; sm < subs.length; sm++) {
+      var sub2 = subs[sm];
+      if (!firstAt[sub2.w]) firstAt[sub2.w] = sub2.start;
+      lastAt[sub2.w] = sub2.end;
+    }
+    for (var un = 0; un < units.length; un++) {
+      if (firstAt[un] == null) {
+        units[un].start = start;
+        units[un].end = start + 0.05;
+      } else {
+        units[un].start = firstAt[un];
+        units[un].end = lastAt[un];
       }
     }
   }
@@ -310,28 +358,19 @@
     wordTimes = buildWords(line, nextLine);
     renderedLine = line || null;
     renderedNextLine = nextLine || null;
-    usesLineProgress = !(line && Array.isArray(line.words) && line.words.length);
-    wordFractions = [];
-    if (usesLineProgress) {
-      // Anchor every word to its character range in the original line instead of
-      // normalising token weights: punctuation and skipped spaces otherwise shift
-      // word boundaries away from the ordinary style's character sweep.
-      var rawText = String((line && line.text) || '');
-      var totalChars = Array.from(rawText).length || 1;
-      var searchFrom = 0;
-      for (var wi = 0; wi < wordTimes.length; wi++) {
-        var tokenText = String(wordTimes[wi].text || '');
-        var foundAt = rawText.indexOf(tokenText, searchFrom);
-        if (foundAt < 0) foundAt = searchFrom;
-        var charsBefore = Array.from(rawText.slice(0, foundAt)).length;
-        var tokenChars = Array.from(tokenText).length;
-        wordFractions.push({
-          start: charsBefore / totalChars,
-          end: Math.min(1, (charsBefore + tokenChars) / totalChars)
-        });
-        searchFrom = foundAt + tokenText.length;
-      }
-    }
+    var lineStart = Math.max(0, Number(line && line.t) || 0);
+    var lineEnd = lineSpanEnd(line, nextLine);
+    var rawDuration = Math.max(0.001, lineEnd - lineStart);
+    // Folia picks a reveal mode from the line duration: <0.10s micro (instant),
+    // <0.18s short (fast), otherwise normal.  The mode changes both lookahead
+    // and when an active word is allowed to pass, so copy that instead of
+    // running a separate smoothstep timeline.
+    var revealMode = rawDuration < 0.10 ? 'instant' : rawDuration < 0.18 ? 'fast' : 'normal';
+    lineTiming = {
+      renderEnd: lineEnd + (revealMode === 'instant' ? 0.067 : revealMode === 'fast' ? 0.04 : 0.24),
+      revealMode: revealMode,
+      lookahead: revealMode === 'instant' ? 0.03 : revealMode === 'fast' ? 0.08 : 0.15
+    };
     lineNode.innerHTML = '';
     wordNodes = [];
     translationNode.textContent = line && line.translation ? String(line.translation) : '';
@@ -360,6 +399,9 @@
     }
     lineNode.classList.remove('is-in');
     void lineNode.offsetWidth;
+    var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.16 : 0.42;
+    lineNode.style.animationDuration = enterDuration.toFixed(2) + 's';
+    lineNode.classList.toggle('is-instant', revealMode === 'instant');
     lineNode.classList.add('is-in');
   }
 
@@ -393,33 +435,24 @@
   }
 
   function paintStates(now) {
-    // For line-synced lyrics the ordinary WebGL style already sweeps the line with a
-    // smoothstep progress curve.  Reuse that same progress for the word states so
-    // 流光 cannot drift into its own faster/slower line rhythm.
-    var lineProgress = null;
-    var beforeLine = !!(renderedLine && now < renderedLine.t - LOOKAHEAD);
-    if (usesLineProgress && typeof getLyricLineProgress === 'function' && renderedLine) {
-      lineProgress = getLyricLineProgress(renderedLine, renderedNextLine, now);
-    }
+    // Folia's word state is decided by the word's own start/end and the line's
+    // reveal profile: active starts lookahead seconds early; passed happens at
+    // its active end (line-render end for micro/fast lines).
     for (var i = 0; i < wordNodes.length; i++) {
       var node = wordNodes[i];
       var t = wordTimes[i];
       if (!node || !t) continue;
+      var activeEnd = t.end;
+      if (lineTiming.revealMode === 'instant') activeEnd = lineTiming.renderEnd;
+      else if (lineTiming.revealMode === 'fast') activeEnd = Math.min(lineTiming.renderEnd, Math.max(t.end, t.start + 0.12));
       var state;
-      if (beforeLine) state = 'waiting';
-      else if (lineProgress != null && wordFractions[i]) {
-        var frac = wordFractions[i];
-        if (lineProgress + 0.0001 < frac.start) state = 'waiting';
-        else if (lineProgress >= frac.end - 0.0001) state = 'passed';
-        else state = 'active';
-      } else if (now < t.start - LOOKAHEAD) state = 'waiting';
-      else if (now > t.end) state = 'passed';
+      if (now < t.start - lineTiming.lookahead) state = 'waiting';
+      else if (now > activeEnd) state = 'passed';
       else state = 'active';
       if (node.__foliaState !== state) {
         node.__foliaState = state;
         node.classList.remove('is-waiting', 'is-active', 'is-passed');
         node.classList.add('is-' + state);
-        // Restart the per-word halo ramp whenever a word turns active.
         if (state === 'active') {
           var glow = node.querySelector('.folia-classic-glow');
           if (glow) {
@@ -431,7 +464,6 @@
       }
     }
   }
-
   function hideStageWebglLyrics(hidden) {
     var group = typeof stageLyrics !== 'undefined' && stageLyrics && stageLyrics.group;
     if (!group) return;

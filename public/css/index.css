@@ -19779,7 +19779,11 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 .folia-classic-line.is-in {
-  animation: folia-classic-line-in .9s cubic-bezier(.16, 1, .3, 1) both
+  animation: folia-classic-line-in .42s cubic-bezier(.16, 1, .3, 1) both
+}
+
+.folia-classic-line.is-instant {
+  animation: none
 }
 
 .folia-classic-word {
