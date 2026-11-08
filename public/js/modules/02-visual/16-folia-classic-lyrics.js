@@ -98,6 +98,17 @@
     return token.length === 1 && WORD_STOP.indexOf(token) >= 0;
   }
   function segmentFallbackWords(text) {
+    // Prefer the dictionary segmenter once it is ready; it knows names and
+    // compounds that Intl.Segmenter tends to break apart.  Keep Intl as the
+    // immediate fallback while the dictionary loads in the background.
+    if (window.cjkWordSegmenter) {
+      if (window.cjkWordSegmenter.isReady()) {
+        var dictWords = window.cjkWordSegmenter.segment(text);
+        if (dictWords && dictWords.length) return dictWords;
+      } else {
+        window.cjkWordSegmenter.ensureLoaded();
+      }
+    }
     var parts = [];
     if (typeof Intl !== 'undefined' && Intl.Segmenter) {
       try {
@@ -408,6 +419,14 @@
   function frame() {
     requestAnimationFrame(frame);
     tick();
+  }
+
+  // When the dictionary finishes loading, force the current line to rebuild
+  // with the better word split instead of waiting for the next lyric line.
+  if (window.cjkWordSegmenter && window.cjkWordSegmenter.onReady) {
+    window.cjkWordSegmenter.onReady(function () {
+      if (fx && fx.lyricStyle === 'classic') lastLineKey = '';
+    });
   }
 
   // QA hook: hidden Electron windows throttle requestAnimationFrame, so tests

@@ -10,6 +10,7 @@ Mineradio 使用了以下第三方项目或服务。各项目版权归其原作�
 - music-tempo
 - NeteaseCloudMusicApi
 - mpg123-decoder
+- jieba dictionary (jieba, MIT): the Chinese word-segmentation dictionary under `public/vendor/jieba-dict.txt` is derived from the jieba project and trimmed to word/frequency pairs (POS tags removed).
 
 ## Community Contributions
 
