@@ -298,12 +298,32 @@
       pal = stageLyrics.palette || stageLyrics.coverPalette || null;
     }
     if (!pal || !root) return;
-    var key = [pal.primary, pal.highlight, pal.secondary, pal.glowColor, pal.glow].join('|');
+    var glowOn = !(typeof fx !== 'undefined' && fx && fx.lyricGlow === false);
+    var linked = !(typeof fx !== 'undefined' && fx && fx.lyricGlowLinked === false);
+    var customGlow = (typeof fx !== 'undefined' && fx && fx.lyricGlowColor) ? fx.lyricGlowColor : '';
+    var glowHex = (!linked && customGlow) ? customGlow : (pal.glowColor || pal.secondary || '#a9d4ff');
+    var strength = (typeof fx !== 'undefined' && fx && isFinite(fx.lyricGlowStrength)) ? Number(fx.lyricGlowStrength) : 0.28;
+    var beat = 0;
+    if (glowOn && typeof fx !== 'undefined' && fx && fx.lyricGlowBeat && typeof stageLyrics !== 'undefined' && stageLyrics) {
+      beat = Math.max(0, Math.min(1, Number(stageLyrics.beatGlow) || 0));
+    }
+    var level = glowOn ? Math.max(0, Math.min(1.3, strength / 0.28)) * (1 + beat * 0.35) : 0;
+    var rgb = hexRgb(glowHex);
+    var key = [pal.primary, pal.highlight, pal.secondary, glowHex, glowOn, linked, strength.toFixed(2), (Math.round(beat * 20) / 20).toFixed(2)].join('|');
     if (key === lastPaletteKey) return;
     lastPaletteKey = key;
     root.style.setProperty('--folia-ink', pal.primary || '#eaf3ff');
     root.style.setProperty('--folia-hi', pal.highlight || '#ffffff');
-    root.style.setProperty('--folia-glow', pal.glowColor || pal.secondary || '#a9d4ff');
+    root.style.setProperty('--folia-glow', glowHex);
+    root.style.setProperty('--folia-glow-rgb', rgb);
+    root.style.setProperty('--folia-glow-level', level.toFixed(3));
+  }
+
+  function hexRgb(value) {
+    var hex = String(value || '').trim().replace(/^#/, '');
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return '169, 212, 255';
+    return parseInt(hex.slice(0, 2), 16) + ', ' + parseInt(hex.slice(2, 4), 16) + ', ' + parseInt(hex.slice(4, 6), 16);
   }
 
   function makeWordNode(unit, index, lineSeed, lineFontSize) {

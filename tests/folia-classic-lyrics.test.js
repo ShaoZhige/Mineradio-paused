@@ -100,6 +100,20 @@ test('流光跟随歌词调色盘的墨色、高亮与辉光', () => {
   assert.match(CSS, /var\(--folia-glow/);
 });
 
+test('流光溢光跟随 DIY 开关、强度、颜色与鼓点', () => {
+  assert.match(MODULE, /fx.lyricGlow === false/);
+  assert.match(MODULE, /fx.lyricGlowStrength/);
+  assert.match(MODULE, /fx.lyricGlowLinked/);
+  assert.match(MODULE, /fx.lyricGlowColor/);
+  assert.match(MODULE, /fx.lyricGlowBeat/);
+  assert.match(MODULE, /stageLyrics.beatGlow/);
+  assert.match(MODULE, /function hexRgb/);
+  assert.match(MODULE, /--folia-glow-rgb/);
+  assert.match(MODULE, /--folia-glow-level/);
+  assert.match(CSS, /rgba\(var\(--folia-glow-rgb/);
+  assert.match(CSS, /var\(--folia-glow-level/);
+});
+
 test('流光 CSS 的层次与状态齐全', () => {
   assert.match(CSS, /#folia-classic-lyrics/);
   assert.match(CSS, /\.folia-classic-word\.is-active/);
