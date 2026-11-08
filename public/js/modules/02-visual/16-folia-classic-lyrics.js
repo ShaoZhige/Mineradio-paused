@@ -362,7 +362,7 @@
     floatNode.appendChild(ghost);
     window.setTimeout(function () {
       if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
-    }, 200);
+    }, 280);
   }
 
   function renderLine(line, nextLine, lineIndex) {
