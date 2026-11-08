@@ -7447,11 +7447,7 @@ if (!gotSingleInstanceLock) {
 // If a previous session was killed (window destroyed, crash, power loss) that state survives on
 // Explorer and every desktop icon gets a black box. One check at startup restores it so the user
 // does not have to restart Explorer by hand.
-function repairLeakedDesktopIconLayer() {
-  if (process.platform !== 'win32') return Promise.resolve(false);
-  const iconsHiddenMarker = path.join(NATIVE_HELPER_TEMP_PATH, 'mineradio-desktop-icons-hidden.flag');
-  let iconsHiddenByUs = false;
-  try { iconsHiddenByUs = fs.existsSync(iconsHiddenMarker); } catch (_) { }
+function buildDesktopIconRepairScript(iconsHiddenByUs) {
   const script = [
     "$ErrorActionPreference='SilentlyContinue'",
     'Add-Type -TypeDefinition @"',
@@ -7490,24 +7486,64 @@ function repairLeakedDesktopIconLayer() {
     '[void][MineradioIconLeakRepair]::UpdateWindow($list)',
     '"ICON_LAYER_REPAIRED layered=$layered transparent=$transparent shown=$forceShow"',
   ].join('\n').replace(/\n/g, '\r\n');
+  return script;
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runDesktopIconRecoveryScript(script) {
   return new Promise((resolve) => {
     execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
       windowsHide: true,
       timeout: 8000,
       env: { ...process.env, TEMP: NATIVE_HELPER_TEMP_PATH, TMP: NATIVE_HELPER_TEMP_PATH },
     }, (error, stdout, stderr) => {
-      if (error) {
-        console.warn('[FullDesktopMode] icon layer leak repair failed:', error && error.message || error);
-        resolve(false);
-        return;
-      }
       const line = String(stdout || '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
-      if (line) console.log('[FullDesktopMode] icon layer leak repair:', line);
-      if (!line) console.warn('[FullDesktopMode] icon layer leak repair produced no output:', String(stderr || '').slice(-200));
-      if (iconsHiddenByUs) { try { fs.unlinkSync(iconsHiddenMarker); } catch (_) { } }
-      resolve(true);
+      resolve({ error, line, stderr: String(stderr || '') });
     });
   });
+}
+
+async function restartExplorerForDesktopIcons() {
+  await new Promise((resolve) => {
+    execFile('taskkill', ['/f', '/im', 'explorer.exe'], { windowsHide: true, timeout: 5000 }, () => resolve());
+  });
+  await sleepMs(800);
+  try {
+    const child = spawn('explorer.exe', [], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+  } catch (_) { }
+  // Explorer needs a moment to recreate SHELLDLL_DefView / SysListView32.
+  await sleepMs(3200);
+}
+
+async function repairLeakedDesktopIconLayer() {
+  if (process.platform !== 'win32') return false;
+  const iconsHiddenMarker = path.join(NATIVE_HELPER_TEMP_PATH, 'mineradio-desktop-icons-hidden.flag');
+  let iconsHiddenByUs = false;
+  try { iconsHiddenByUs = fs.existsSync(iconsHiddenMarker); } catch (_) { }
+
+  let result = await runDesktopIconRecoveryScript(buildDesktopIconRepairScript(iconsHiddenByUs));
+  if (!result.line && iconsHiddenByUs) {
+    // The desktop view itself is gone (Explorer crashed or was killed while the icons were
+    // hidden), so ShowWindow cannot reach it. Rebuild the shell, then retry once.
+    console.warn('[FullDesktopMode] desktop icon host missing; restarting Explorer to restore icons');
+    await restartExplorerForDesktopIcons();
+    result = await runDesktopIconRecoveryScript(buildDesktopIconRepairScript(true));
+  }
+  if (result.error) console.warn('[FullDesktopMode] icon layer leak repair failed:', result.error.message || result.error);
+  if (result.line) console.log('[FullDesktopMode] icon layer leak repair:', result.line);
+  else if (iconsHiddenByUs) console.warn('[FullDesktopMode] icon layer leak repair produced no output:', result.stderr.slice(-200));
+
+  const restored = /ICON_LAYER_REPAIRED/.test(result.line);
+  if (!iconsHiddenByUs || restored) {
+    try { fs.unlinkSync(iconsHiddenMarker); } catch (_) { }
+  } else {
+    console.warn('[FullDesktopMode] desktop icons may still be hidden; keeping marker for the next start');
+  }
+  return restored;
 }
 
   app.whenReady().then(async () => {

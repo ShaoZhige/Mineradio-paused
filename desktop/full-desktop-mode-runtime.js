@@ -1913,6 +1913,13 @@ class FullDesktopModeRuntime {
             this.attachment = this.overlayAttachment(display);
             this.iconLayerMode = 'transparent-overlay';
             this.iconShapeActive = false;
+            // A leftover marker means the previous session died while we had hidden the icons.
+            // Restore them before probing, or this session records "hidden" as the user's
+            // original state and hides them again on exit.
+            if (this.overlayIconsOriginalVisible === null && fs.existsSync(this.overlayIconsMarkerPath())) {
+              await this.runOverlayDesktopIconsScript('show').catch(() => {});
+              this.writeOverlayIconsMarker(false);
+            }
             this.overlayIconsOriginalVisible = await this.probeOverlayDesktopIconsVisible();
             this.desktopIconsVisible = this.overlayIconsOriginalVisible !== false;
             this.applyInteractive(win, display.bounds);
@@ -2175,7 +2182,13 @@ class FullDesktopModeRuntime {
     this.cancelIconHostRecoveryStableTimer();
     // 退出桌面模式时把图标可见性还原成进入前的状态（只动 ShowWindow，不动样式）。
     // Restore the pre-entry icon visibility on exit (ShowWindow only, no style changes).
-    if (this.overlayIconsOriginalVisible !== null
+    // A marker means a previous session died while we had hidden the icons; in that case
+    // always show them, regardless of what the (possibly stale) probe recorded.
+    let hadHiddenMarker = false;
+    try { hadHiddenMarker = fs.existsSync(this.overlayIconsMarkerPath()); } catch (_) { }
+    if (hadHiddenMarker) {
+      try { await this.runOverlayDesktopIconsScript('show'); } catch (_) { }
+    } else if (this.overlayIconsOriginalVisible !== null
       && this.desktopIconsVisible !== this.overlayIconsOriginalVisible) {
       try {
         await this.runOverlayDesktopIconsScript(this.overlayIconsOriginalVisible ? 'show' : 'hide');
