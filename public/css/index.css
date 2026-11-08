@@ -19823,6 +19823,8 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   z-index: 1;
   display: block;
   color: color-mix(in srgb, var(--folia-ink, #eef6ff) 92%, white);
+  animation: folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
+  animation-delay: var(--bob-delay, 0s);
   transition: color .18s linear, filter .18s ease, text-shadow .25s ease
 }
 
@@ -19831,7 +19833,9 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 .folia-classic-word.is-passed .folia-classic-body {
-  animation: folia-classic-passed-glow 4.2s ease-in-out infinite alternate
+  animation: folia-classic-passed-glow 4.2s ease-in-out infinite alternate,
+    folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
+  animation-delay: 0s, var(--bob-delay, 0s)
 }
 
 .folia-classic-word.is-active .folia-classic-body {
@@ -19948,6 +19952,12 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   100% { opacity: .12 }
 }
 
+@keyframes folia-classic-bob {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg) }
+  33% { transform: translate3d(var(--bob-x, 2px), var(--bob-y, -5px), 0) rotate(var(--bob-r, .8deg)) }
+  66% { transform: translate3d(calc(var(--bob-x, 2px) * -.6), calc(var(--bob-y, -5px) * -.7), 0) rotate(calc(var(--bob-r, .8deg) * -.8)) }
+}
+
 @keyframes folia-classic-line-in {
   from { opacity: 0; transform: translateY(26px) scale(.985) }
   to { opacity: 1; transform: translateY(0) scale(1) }
@@ -19962,6 +19972,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 
 @media (prefers-reduced-motion: reduce) {
   .folia-classic-float,
+  .folia-classic-body,
   .folia-classic-line.is-in { animation: none }
   .folia-classic-word { transition: none }
 }

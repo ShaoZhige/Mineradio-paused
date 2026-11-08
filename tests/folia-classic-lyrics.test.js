@@ -63,6 +63,14 @@ test('没有逐词时间轴时按汉字拆分并均分行时长', () => {
   assert.match(MODULE, /maxStart - minStart < 0\.05/);
 });
 
+test('流光每个词有持续的随机浮动动画', () => {
+  assert.match(MODULE, /--bob-x/);
+  assert.match(MODULE, /--bob-dur/);
+  assert.match(CSS, /@keyframes folia-classic-bob/);
+  assert.match(CSS, /animation: folia-classic-bob/);
+  assert.match(CSS, /\.folia-classic-body,[\s\S]*?\.folia-classic-line\.is-in \{ animation: none \}/);
+});
+
 test('歌词样式分段控件登记进 DIY 视野控制台', () => {
   assert.match(CONSOLE, /fxConsoleItem\('lyric-style-seg'/);
   assert.match(CONSOLE, /lyric_style_section/);

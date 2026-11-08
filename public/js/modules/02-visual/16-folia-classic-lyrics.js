@@ -166,8 +166,18 @@
     var passedRotate = (rnd(3) - 0.5) * 45;
     var offsetX = (rnd(4) - 0.5) * 26;
     var offsetY = (rnd(5) - 0.5) * 26;
+    var bobX = (rnd(6) - 0.5) * 5;
+    var bobY = (rnd(7) - 0.5) * 9;
+    var bobR = (rnd(8) - 0.5) * 2.2;
+    var bobDur = 3.4 + rnd(9) * 2.6;
+    var bobDelay = -rnd(10) * bobDur;
     var node = document.createElement('span');
     node.className = 'folia-classic-word is-waiting';
+    node.style.setProperty('--bob-x', bobX.toFixed(1) + 'px');
+    node.style.setProperty('--bob-y', bobY.toFixed(1) + 'px');
+    node.style.setProperty('--bob-r', bobR.toFixed(2) + 'deg');
+    node.style.setProperty('--bob-dur', bobDur.toFixed(2) + 's');
+    node.style.setProperty('--bob-delay', bobDelay.toFixed(2) + 's');
     node.style.setProperty('--w-x', offsetX.toFixed(1) + 'px');
     node.style.setProperty('--w-y', offsetY.toFixed(1) + 'px');
     node.style.setProperty('--w-wait-x', (offsetX + Math.sin(offsetY) * 100).toFixed(1) + 'px');
