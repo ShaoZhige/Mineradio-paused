@@ -26,10 +26,10 @@ test('中文词典文件存在且包含常用歌词词条', () => {
   assert.ok(stat.size > 5 * 1024 * 1024, 'dictionary looks truncated: ' + stat.size);
   const text = fs.readFileSync(DICT_PATH, 'utf8');
   for (const word of ['晚风', '穿过', '城市', '灯火', '慢慢', '亮起']) {
-    assert.match(text, new RegExp('^' + word + ' [0-9]+$', 'm'), word + ' missing from dictionary');
+    assert.match(text, new RegExp('^' + word + ' [0-9]+\\r?$', 'm'), word + ' missing from dictionary');
   }
-  const firstLine = text.split('\n')[0];
-  assert.match(firstLine, /^\S+ [0-9]+$/, 'dictionary should stay word/frequency pairs');
+  const firstLine = text.split(/\r?\n/)[0];
+  assert.match(firstLine, /^\S+ [0-9]+\r?$/, 'dictionary should stay word/frequency pairs');
 });
 
 test('分词器使用 DAG + 最大概率路径，并在后台懒加载词典', () => {

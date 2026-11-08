@@ -112,7 +112,7 @@
     }
     request
       .then(function (text) {
-        parseLines(text.split('\n'));
+        parseLines(text.split(/\r?\n/));
       })
       .catch(function (error) {
         state.loading = false;

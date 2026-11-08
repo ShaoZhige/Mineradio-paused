@@ -10,3 +10,6 @@
 # Windows batch files must stay CRLF; LF-only .bat files are mis-parsed by cmd.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# The jieba dictionary must stay LF-only; CRLF would leak  into tokens.
+public/vendor/jieba-dict.txt -text
