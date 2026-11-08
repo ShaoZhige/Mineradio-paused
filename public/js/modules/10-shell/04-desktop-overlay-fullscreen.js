@@ -437,31 +437,19 @@ function syncDesktopSoftwareLockPointerShield(locked) {
   }
 }
 
-// 桌面控制器挂在 Home 房子正下方：跟随 home-btn 的实时位置，账号胶囊再长也不会挤到它。
-// The desktop controller sits right under the home button and follows its live position, so a
-// multi-account capsule can grow without ever colliding with it.
-var desktopDockPositionTimer = null;
-
-function positionDesktopControlDock() {
-  var dock = document.getElementById('desktop-mode-control-dock');
-  var home = document.getElementById('home-btn');
-  if (!dock || !home) return;
-  if (!document.body.classList.contains('desktop-wallpaper-mode')) return;
-  var rect = home.getBoundingClientRect();
-  if (!rect || rect.width <= 0) return;
-  var width = dock.offsetWidth || 52;
-  dock.style.left = Math.round(rect.left + rect.width / 2 - width / 2) + 'px';
-  dock.style.top = Math.round(rect.bottom + 10) + 'px';
-  dock.style.right = 'auto';
-}
-
+// 桌面控制器固定在窗口右上角（见 CSS #desktop-mode-control-dock）；
+// 不再跟随 home 按钮，避免账号胶囊、Home 与控制器三者互相挤位。
+// The desktop controller is pinned to the window's top-right corner in CSS; it no longer
+// follows the home button, so a wide account capsule cannot push it around.
 function syncDesktopDockPosition(active) {
+  var dock = document.getElementById('desktop-mode-control-dock');
+  if (!dock) return;
   if (active) {
-    positionDesktopControlDock();
-    if (!desktopDockPositionTimer) desktopDockPositionTimer = setInterval(positionDesktopControlDock, 1200);
-  } else if (desktopDockPositionTimer) {
-    clearInterval(desktopDockPositionTimer);
-    desktopDockPositionTimer = null;
+    dock.style.left = 'auto';
+    dock.style.top = '';
+  } else {
+    dock.style.left = '';
+    dock.style.top = '';
   }
 }
 
@@ -1018,7 +1006,9 @@ function initDesktopModeControls(api) {
     });
   }
   window.addEventListener('resize', reportDesktopControllerZone);
-  window.addEventListener('resize', positionDesktopControlDock);
+  window.addEventListener('resize', function () {
+    if (document.body.classList.contains('desktop-wallpaper-mode')) syncDesktopDockPosition(true);
+  });
   window.addEventListener('blur', function () {
     setDesktopModeControlsOpen(false);
     scheduleDesktopModeControlPeekHide(360);

@@ -1959,6 +1959,11 @@ async function enableFullDesktopMode(win, options = {}) {
       // throttle timers, which turns the 70ms auto-hide timer into tens of seconds. Desktop mode
       // is a continuously running desktop surface, so keep full timer cadence.
       setMainWindowBackgroundThrottling(win, false);
+      // 桌面模式和普通模式共用同一份 FX 存档；进入时先把当前窗口的设置落盘，
+      // 避免桌面模式里读到上一次会话残留的旧值。
+      // Both modes share one FX autosave; flush the windowed settings before switching so the
+      // desktop session never starts from a stale mirror.
+      flushMainWindowFxAutosave('desktop-enter').catch(() => {});
     }
     return result;
   } finally {
@@ -2012,6 +2017,9 @@ async function disableFullDesktopMode(reason = 'disabled') {
   try {
     return await fullDesktopModeRuntime.disable(reason);
   } finally {
+    // 退出桌面模式前把桌面模式里改过的设置落盘，普通模式恢复后立刻读到同一份值。
+    // Flush desktop-mode edits before leaving so windowed mode reads the same values.
+    await flushMainWindowFxAutosave(`${reason}-exit`).catch(() => {});
     // Keep icon layering active until the host is detached back to a verified
     // top-level HWND; only then restore the ordinary host/surface/source chain.
     await syncWallpaperEngineDesktopIconLayering(`${reason}-settled`).catch(() => false);

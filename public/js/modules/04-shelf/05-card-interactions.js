@@ -150,8 +150,9 @@ renderer.domElement.addEventListener('contextmenu', function (e) {
   if (!shelfManager) return;
   var mode = shelfManager.getMode && shelfManager.getMode();
   if (mode === 'off') {
-    setShelfMode('side');
-    mode = 'side';
+    // 关闭 3D 歌单架时，右键只做一次性预览，不写配置；收起后仍是关闭。
+    if (typeof beginShelfTransientPreview === 'function' && beginShelfTransientPreview()) return;
+    return;
   }
   if (mode !== 'side') return;
   if (shelfManager.hasOpenContent && shelfManager.hasOpenContent()) {

@@ -308,8 +308,86 @@ function clearShelfPreviewOnPointerExit(e) {
   shelfVisibility = 0;
   if (typeof setFocusZone === 'function') setFocusZone(keepQueueFocus ? 'queue' : null, keepQueueFocus);
 }
-function suppressShelfPreviewForPlaybackSwitch() {
-  if (!shelfManager || !shelfManager.getMode || shelfManager.getMode() !== 'side') return;
+// 右键「召唤一次」：不改 fx.shelf 配置，只在本次预览期间把歌单架临时切到 side。
+// 指针移出歌单区域、点击别处或按 Esc 时自动收回，并把 manager 模式还原为原来的 off。
+// Right-click "summon once": preview the side shelf without touching fx.shelf. Leaving the
+// shelf area, clicking elsewhere or pressing Esc closes the preview and restores the mode.
+var shelfTransientPreview = false;
+var shelfTransientPrevMode = 'off';
+var shelfTransientArmed = false;
+
+function shelfTransientZoneContains(x, y) {
+  var w = window.innerWidth || 1920;
+  var h = window.innerHeight || 1080;
+  return x >= w * 0.50 && y >= h * 0.12;
+}
+
+function detachShelfTransientListeners() {
+  window.removeEventListener('pointermove', onShelfTransientPointerMove, true);
+  window.removeEventListener('pointerdown', onShelfTransientPointerDown, true);
+  window.removeEventListener('keydown', onShelfTransientKeyDown, true);
+}
+
+function endShelfTransientPreview(reason) {
+  if (!shelfTransientPreview) return false;
+  shelfTransientPreview = false;
+  shelfTransientArmed = false;
+  detachShelfTransientListeners();
+  if (shelfPinnedOpen) setShelfPinnedOpen(false, true, false);
+  if (shelfManager && shelfManager.setMode) shelfManager.setMode(shelfTransientPrevMode === 'side' ? 'side' : 'off');
+  updateShelfHoverCueFromPointer(null);
+  shelfHoverCue.target = 0;
+  shelfHoverCue.value = 0;
+  shelfHoverCue.zoneActive = false;
+  shelfHoverCue.enteredAt = 0;
+  shelfHoverCue.guide = false;
+  shelfVisibility = 0;
+  if (shelfManager && shelfManager.clearSelected) shelfManager.clearSelected();
+  if (typeof setShelfHoverTabVisible === 'function') setShelfHoverTabVisible(false);
+  return true;
+}
+
+function onShelfTransientPointerMove(e) {
+  if (!shelfTransientPreview) return;
+  if (shelfTransientZoneContains(e.clientX, e.clientY)) {
+    shelfTransientArmed = true;
+    return;
+  }
+  if (shelfTransientArmed) endShelfTransientPreview('pointer-left');
+}
+
+function onShelfTransientPointerDown(e) {
+  if (!shelfTransientPreview) return;
+  if (!shelfTransientZoneContains(e.clientX, e.clientY)) endShelfTransientPreview('pointer-down-outside');
+}
+
+function onShelfTransientKeyDown(e) {
+  if (shelfTransientPreview && e.key === 'Escape') endShelfTransientPreview('escape');
+}
+
+function beginShelfTransientPreview() {
+  if (!shelfManager || !shelfManager.setMode) return false;
+  var mode = shelfManager.getMode ? shelfManager.getMode() : 'off';
+  if (mode !== 'off') return false;
+  shelfTransientPreview = true;
+  shelfTransientArmed = false;
+  shelfTransientPrevMode = mode;
+  shelfManager.setMode('side');
+  setShelfPinnedOpen(true, true, false);
+  shelfVisibility = Math.max(shelfVisibility, 0.001);
+  updateShelfHoverCueFromPointer(null);
+  shelfHoverCue.target = 0;
+  shelfHoverCue.value = 0;
+  shelfHoverCue.zoneActive = false;
+  shelfHoverCue.enteredAt = 0;
+  shelfHoverCue.guide = false;
+  window.addEventListener('pointermove', onShelfTransientPointerMove, true);
+  window.addEventListener('pointerdown', onShelfTransientPointerDown, true);
+  window.addEventListener('keydown', onShelfTransientKeyDown, true);
+  return true;
+}
+
+function suppressShelfPreviewForPlaybackSwitch() {  if (!shelfManager || !shelfManager.getMode || shelfManager.getMode() !== 'side') return;
   if (shelfPinnedOpen || (shelfManager.hasOpenContent && shelfManager.hasOpenContent())) return;
   markShelfPlaybackSwitchGuard(1120);
   updateShelfHoverCueFromPointer(null);
