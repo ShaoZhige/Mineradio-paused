@@ -42,7 +42,37 @@ function makeShelfManager() {
   var coverBindResumeUntil = -10;
   // 全屏接管类视觉预设（无尽公路 / 牛来）会自己铺地面与相机，架体必须整体让位。
   var visualSuppressed = false;
-
+  // 关闭状态下的空闲预热：先把可见卡片建好但保持隐藏，右键「召唤一次」时直接复用，
+  // 避免第一次召唤在主线程同步建卡/画封面造成卡顿。
+  var offPrewarmTimer = null;
+  function prewarmOffShelf() {
+    if (mode !== 'off') return;
+    var items = currentItems();
+    if (!items.length) return;
+    var nextSig = sig(items);
+    if (group && nextSig === lastSig) return;
+    var restoreMode = mode;
+    mode = 'side';
+    if (!group) {
+      group = new THREE.Group();
+      group.renderOrder = 50;
+      scene.add(group);
+    }
+    rebuild(false);
+    mode = restoreMode;
+    if (group) group.visible = false;
+  }
+  function scheduleOffPrewarm() {
+    if (offPrewarmTimer) return;
+    offPrewarmTimer = setTimeout(function () {
+      offPrewarmTimer = null;
+      if (mode !== 'off') return;
+      var run = function () { if (mode === 'off') prewarmOffShelf(); };
+      if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 900 });
+      else run();
+      scheduleOffPrewarm();
+    }, 2200);
+  }
   function shelfPointerSelectionForegroundActive() {
     return selectedIdx >= 0 && !document.body.classList.contains('cursor-hidden');
   }
@@ -784,14 +814,19 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       rebuild(asyncCards);
     },
     getMode: function () { return mode; },
+    prewarmOff: function () { if (mode === 'off') scheduleOffPrewarm(); },
     setVisualSuppressed: function (suppressed) {
       visualSuppressed = !!suppressed;
       if (group && visualSuppressed) group.visible = false;
       if (connectorParticles && visualSuppressed) connectorParticles.visible = false;
     },
     update: function (dt) {
+      if (mode === 'off') {
+        if (group) group.visible = false;
+        scheduleOffPrewarm();
+        return;
+      }
       if (!group) return;
-      if (mode === 'off') { group.visible = false; return; }
       // PSP 滚动平滑
       centerSmooth += (centerTarget - centerSmooth) * 0.16;
       if (Math.abs(centerSmooth - centerTarget) < 0.001) centerSmooth = centerTarget;
@@ -992,3 +1027,6 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
   };
 }
 shelfManager = makeShelfManager();
+setTimeout(function () {
+  if (shelfManager && shelfManager.prewarmOff) shelfManager.prewarmOff();
+}, 2200);
