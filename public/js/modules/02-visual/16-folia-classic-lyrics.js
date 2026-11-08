@@ -79,9 +79,38 @@
     return x - Math.floor(x);
   }
 
-  function buildWords(line) {
+  function lineSpanEnd(line, nextLine) {
+    var start = Math.max(0, Number(line && line.t) || 0);
+    var duration = Math.max(0.6, Number(line && line.duration) || 3.2);
+    var nextT = nextLine && Number(nextLine.t) > start ? Number(nextLine.t) : 0;
+    return Math.max(start + 0.5, Math.min(nextT || (start + duration), start + 12));
+  }
+
+  // 没有逐词时间轴时，不能把整行当成一个词（中文没有空格，会整块出现）。
+  // 这里按「汉字/日文假名逐字、英文按词、标点单独」切分，再把行时长均分给每个单元。
+  // Without word timestamps a Chinese line has no spaces: splitting on spaces yields one
+  // block. Split CJK characters individually, keep Latin words whole, then spread the line
+  // duration across the units.
+  function splitFallbackUnits(text) {
+    var units = [];
+    if (!text) return units;
+    var re = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|[A-Za-z0-9][A-Za-z0-9''’\-]*|[^\s]/g;
+    var match;
+    while ((match = re.exec(text))) units.push(match[0]);
+    return units;
+  }
+
+  function spreadUnits(units, start, end) {
+    var span = Math.max(0.4, end - start) / Math.max(1, units.length);
+    for (var i = 0; i < units.length; i++) {
+      units[i].start = start + span * i;
+      units[i].end = units[i].start + span;
+    }
+  }
+
+  function buildWords(line, nextLine) {
     var lineStart = Math.max(0, Number(line && line.t) || 0);
-    var lineEnd = lineStart + Math.max(0.6, Number(line && line.duration) || 3.2);
+    var lineEnd = lineSpanEnd(line, nextLine);
     var words = Array.isArray(line && line.words) ? line.words : null;
     var units = [];
     var i;
@@ -92,20 +121,25 @@
         if (!text) continue;
         var start = Math.max(lineStart, Number(w.t) || lineStart);
         var duration = Math.max(0.12, Number(w.d) || Math.max(0.2, (lineEnd - lineStart) / words.length));
-        units.push({ text: text, start: start, end: start + duration });
+        units.push({ text: text, start: start, end: Math.min(lineEnd, start + duration) });
       }
-      if (units.length) return units;
+      if (units.length) {
+        // 有些歌词源给了 words 但所有 t 都一样，结果仍是整行同亮；按行时长重新铺开。
+        var minStart = Infinity;
+        var maxStart = -Infinity;
+        for (i = 0; i < units.length; i++) {
+          minStart = Math.min(minStart, units[i].start);
+          maxStart = Math.max(maxStart, units[i].start);
+        }
+        if (units.length > 1 && maxStart - minStart < 0.05) spreadUnits(units, lineStart, lineEnd);
+        return units;
+      }
     }
     var raw = String(line && line.text || '').replace(/\s+/g, ' ').trim();
     if (!raw) return units;
-    var tokens = raw.split(' ');
-    var span = Math.max(0.6, lineEnd - lineStart) / Math.max(1, tokens.length);
-    for (i = 0; i < tokens.length; i++) {
-      var token = tokens[i];
-      if (!token) continue;
-      var tokStart = lineStart + span * i;
-      units.push({ text: token, start: tokStart, end: tokStart + span });
-    }
+    var tokens = splitFallbackUnits(raw);
+    for (i = 0; i < tokens.length; i++) units.push({ text: tokens[i], start: lineStart, end: lineEnd });
+    spreadUnits(units, lineStart, lineEnd);
     return units;
   }
 
@@ -164,7 +198,7 @@
     if (key === lastLineKey) return;
     lastLineKey = key;
 
-    wordTimes = buildWords(line);
+    wordTimes = buildWords(line, nextLine);
     lineNode.innerHTML = '';
     wordNodes = [];
     translationNode.textContent = line && line.translation ? String(line.translation) : '';

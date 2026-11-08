@@ -54,6 +54,15 @@ test('流光模块按逐字时间轴推进，并隐藏 WebGL 歌词组', () => {
   assert.match(MODULE, /--w-rot/);
 });
 
+test('没有逐词时间轴时按汉字拆分并均分行时长', () => {
+  assert.match(MODULE, /function splitFallbackUnits/);
+  assert.match(MODULE, /\\u3400-\\u9fff/);
+  assert.match(MODULE, /function spreadUnits/);
+  assert.match(MODULE, /function buildWords\(line, nextLine\)/);
+  assert.match(MODULE, /buildWords\(line, nextLine\)/);
+  assert.match(MODULE, /maxStart - minStart < 0\.05/);
+});
+
 test('歌词样式分段控件登记进 DIY 视野控制台', () => {
   assert.match(CONSOLE, /fxConsoleItem\('lyric-style-seg'/);
   assert.match(CONSOLE, /lyric_style_section/);
