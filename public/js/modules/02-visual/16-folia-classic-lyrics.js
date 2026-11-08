@@ -349,6 +349,22 @@
     return node;
   }
 
+  // Keep the previous line around long enough to fade out; the new line starts
+  // immediately so playback never waits on an exit animation.
+  function retireLineNode() {
+    if (!lineNode || !lineNode.childElementCount || !floatNode) return;
+    var ghosts = floatNode.querySelectorAll('.folia-classic-line.is-out');
+    for (var g = 0; g < ghosts.length; g++) ghosts[g].parentNode.removeChild(ghosts[g]);
+    var ghost = lineNode.cloneNode(true);
+    ghost.classList.remove('is-in', 'is-instant');
+    ghost.classList.add('is-out');
+    ghost.setAttribute('aria-hidden', 'true');
+    floatNode.appendChild(ghost);
+    window.setTimeout(function () {
+      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    }, 380);
+  }
+
   function renderLine(line, nextLine, lineIndex) {
     ensureRoot();
     var key = lineIndex + '|' + String(line && line.text || '');
@@ -371,6 +387,7 @@
       revealMode: revealMode,
       lookahead: revealMode === 'instant' ? 0.03 : revealMode === 'fast' ? 0.08 : 0.15
     };
+    retireLineNode();
     lineNode.innerHTML = '';
     wordNodes = [];
     translationNode.textContent = line && line.translation ? String(line.translation) : '';
@@ -480,6 +497,10 @@
 
   function clearOverlay() {
     if (!root) return;
+    if (floatNode) {
+      var ghosts = floatNode.querySelectorAll('.folia-classic-line.is-out');
+      for (var g = 0; g < ghosts.length; g++) ghosts[g].parentNode.removeChild(ghosts[g]);
+    }
     if (lineNode) lineNode.innerHTML = '';
     if (translationNode) translationNode.textContent = '';
     wordNodes = [];

@@ -19755,6 +19755,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 .folia-classic-float {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -19784,6 +19785,14 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 
 .folia-classic-line.is-instant {
   animation: none
+}
+
+.folia-classic-line.is-out {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none;
+  animation: folia-classic-line-out .34s ease both
 }
 
 .folia-classic-word {
@@ -19971,8 +19980,13 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 @keyframes folia-classic-line-in {
-  from { opacity: 0; transform: translateY(26px) scale(.985) }
-  to { opacity: 1; transform: translateY(0) scale(1) }
+  from { opacity: 0; filter: blur(9px) }
+  to { opacity: 1; filter: blur(0) }
+}
+
+@keyframes folia-classic-line-out {
+  from { opacity: 1; filter: blur(0); transform: translateY(0) }
+  to { opacity: 0; filter: blur(9px); transform: translateY(-10px) }
 }
 
 @keyframes folia-classic-float {
@@ -19986,5 +20000,6 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   .folia-classic-float,
   .folia-classic-body,
   .folia-classic-line.is-in { animation: none }
+  .folia-classic-line.is-out { animation: none }
   .folia-classic-word { transition: none }
 }
