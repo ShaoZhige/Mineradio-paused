@@ -154,6 +154,9 @@ function normalizeSavedLyricMotionStyle(style) {
   style = String(style || 'float');
   return /^(glass|smooth|float|quick|shine|glitch)$/.test(style) ? style : 'float';
 }
+function normalizeSavedLyricStyle(style) {
+  return String(style || 'default') === 'classic' ? 'classic' : 'default';
+}
 function readSavedLyricLayoutCriticalFallback(raw, err) {
   raw = plainCurrentFxAutosavePayload(raw);
   if (err) {
@@ -172,6 +175,7 @@ function readSavedLyricLayoutCriticalFallback(raw, err) {
     lyricDisplayMode: normalizeSavedLyricDisplayMode(raw.lyricDisplayMode || fxDefaults.lyricDisplayMode),
     lyricTranslationMode: normalizeSavedLyricTranslationMode(raw.lyricTranslationMode || fxDefaults.lyricTranslationMode),
     lyricMotionStyle: normalizeSavedLyricMotionStyle(raw.lyricMotionStyle || fxDefaults.lyricMotionStyle),
+    lyricStyle: normalizeSavedLyricStyle(raw.lyricStyle || fxDefaults.lyricStyle),
     lyricVerticalFloat: raw.lyricVerticalFloat !== false,
     lyricCustomLineCount: layoutInteger(raw.lyricCustomLineCount, fxDefaults.lyricCustomLineCount, 1, 10),
     controlGlassChromaticOffset: layoutNumber(raw.controlGlassChromaticOffset, fxDefaults.controlGlassChromaticOffset, 30, 140)
@@ -242,6 +246,7 @@ function readSavedLyricLayout() {
       lyricDisplayMode: normalizeSavedLyricDisplayMode(raw.lyricDisplayMode || fxDefaults.lyricDisplayMode),
       lyricTranslationMode: normalizeSavedLyricTranslationMode(raw.lyricTranslationMode || fxDefaults.lyricTranslationMode),
       lyricMotionStyle: normalizeSavedLyricMotionStyle(raw.lyricMotionStyle || fxDefaults.lyricMotionStyle),
+      lyricStyle: normalizeSavedLyricStyle(raw.lyricStyle || fxDefaults.lyricStyle),
       lyricVerticalFloat: raw.lyricVerticalFloat !== false,
       lyricCustomLineCount: layoutInteger(raw.lyricCustomLineCount, fxDefaults.lyricCustomLineCount, 1, 10),
       lyricGlitchCameraBind: !!raw.lyricGlitchCameraBind,

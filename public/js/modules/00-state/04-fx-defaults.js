@@ -51,6 +51,7 @@ var fxDefaults = {
   lyricDisplayMode: 'cinema',
   lyricTranslationMode: 'multi',
   lyricMotionStyle: 'float',
+  lyricStyle: 'default',
   lyricCustomLineCount: 10,
   lyricGlitchCameraBind: true,
   lyricGlitchIntensity: 1.0,

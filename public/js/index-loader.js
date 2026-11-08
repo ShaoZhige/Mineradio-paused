@@ -88,6 +88,7 @@
     'js/modules/02-visual/13-lyrics-mesh-build.js',
     'js/modules/02-visual/14-stage-lyrics-rendering.js',
     'js/modules/02-visual/15-ripples-cover-depth.js',
+    'js/modules/02-visual/16-folia-classic-lyrics.js',
     'sonic-topography-preset.js',
     'sonic-workshop-preset.js',
     'highway-drive-preset.js',

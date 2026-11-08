@@ -769,6 +769,14 @@
             <button type="button" data-motion="shine" onclick="setLyricMotionStyle('shine')" data-i18n="fx_line_glow">线光</button>
             <button type="button" data-motion="glitch" onclick="setLyricMotionStyle('glitch')" data-i18n="fx_glitch">故障</button>
           </div>
+          <div class="fx-section-label" data-i18n="lyric_style_section">歌词样式</div>
+          <div class="fx-seg lyric-style-seg" id="lyric-style-seg" role="group"
+            data-i18n="lyric_style_section" data-i18n-attr="aria-label">
+            <button type="button" data-style="default" onclick="setLyricStyle('default')" class="active"
+              data-i18n="lyric_style_default">默认</button>
+            <button type="button" data-style="classic" onclick="setLyricStyle('classic')"
+              data-i18n="lyric_style_classic">流光</button>
+          </div>
           <div class="lyric-glitch-controls" id="lyric-glitch-controls">
             <button id="lyric-glitch-camera-bind" class="fx-mini-btn ghost lyric-glitch-bind" type="button"
               onclick="toggleLyricGlitchCameraBind()" data-i18n="fx_glitch_follow">跟随鼓点故障</button>

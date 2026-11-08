@@ -464,6 +464,7 @@ function updateFxInputs() {
   updateLyricDisplayModeControls();
   updateLyricTranslationModeControls();
   updateLyricMotionStyleControls();
+  updateLyricStyleControls();
   updateLyricFontControls();
   updateLyricTextureClarityControls();
   updateUiAccentControls();

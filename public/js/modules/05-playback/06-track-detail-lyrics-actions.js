@@ -1069,6 +1069,17 @@ function setLyricMotionStyle(style) {
   saveLyricLayout({ user: true, reason: 'lyricMotionStyle' });
   showToast(trackActionText('track_lyrics_anim_toggled'));
 }
+function updateLyricStyleControls() {
+  var style = normalizeLyricStyle(fx && fx.lyricStyle);
+  document.querySelectorAll('#lyric-style-seg button').forEach(function (btn) {
+    btn.classList.toggle('active', btn.dataset.style === style);
+  });
+}
+function setLyricStyle(style) {
+  fx.lyricStyle = normalizeLyricStyle(style);
+  updateLyricStyleControls();
+  saveLyricLayout({ user: true, reason: 'lyricStyle' });
+}
 function setCustomLyricStatus(text, tone) {
   var el = document.getElementById('custom-lyric-status');
   if (!el) return;

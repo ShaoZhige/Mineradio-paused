@@ -38,6 +38,9 @@ function normalizeLyricMotionStyle(style) {
   style = String(style || 'float');
   return STAGE_LYRIC_MOTION_STYLES[style] ? style : 'float';
 }
+function normalizeLyricStyle(style) {
+  return String(style || 'default') === 'classic' ? 'classic' : 'default';
+}
 function lyricContextOpacityValue() {
   return clampRange(fx && fx.lyricContextOpacity == null ? fxDefaults.lyricContextOpacity : Number(fx && fx.lyricContextOpacity), 0.25, 1);
 }
