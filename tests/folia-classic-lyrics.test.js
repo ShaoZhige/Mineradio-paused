@@ -23,6 +23,7 @@ const SAVE_READ = read('public/js/modules/00-state/05a-fx-save-read.js');
 const PERSISTENCE = read('public/js/modules/02-visual/04-visual-settings-persistence.js');
 const ACTIONS = read('public/js/modules/05-playback/06-track-detail-lyrics-actions.js');
 const PANEL = read('public/js/modules/07-fx/05-fx-panel-performance.js');
+const CONSOLE = read('public/js/modules/07-fx/09-console-workspace.js');
 
 test('歌词样式分段控件存在，且排在歌词动画之后', () => {
   assert.match(HTML, /id="lyric-style-seg"/);
@@ -51,6 +52,11 @@ test('流光模块按逐字时间轴推进，并隐藏 WebGL 歌词组', () => {
   assert.match(MODULE, /empty-home-active/);
   assert.match(MODULE, /.folia-classic-word/);
   assert.match(MODULE, /--w-rot/);
+});
+
+test('歌词样式分段控件登记进 DIY 视野控制台', () => {
+  assert.match(CONSOLE, /fxConsoleItem\('lyric-style-seg'/);
+  assert.match(CONSOLE, /lyric_style_section/);
 });
 
 test('流光设置能保存、读回并带进设置持久化 payload', () => {

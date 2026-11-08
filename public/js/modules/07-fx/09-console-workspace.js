@@ -162,6 +162,9 @@ function fxConsoleLayout() {
         fxConsoleItem('fx-lyrictiltx', consoleWorkspaceText('fx_lyric_pitch'), '歌词俯仰'),
         fxConsoleItem('fx-lyrictilty', consoleWorkspaceText('fx_lyric_side_rotation'), '歌词侧旋')
       ] },
+      { key: 'style', title: consoleWorkspaceText('lyric_style_section', '歌词样式'), hint: '全屏歌词样式 流光 逐词点亮', items: [
+        fxConsoleItem('lyric-style-seg', consoleWorkspaceText('lyric_style_section', '歌词样式'), '流光 逐词 点亮 默认')
+      ] },
       { key: 'motion', title: consoleWorkspaceText('fx_cat_lyric_animation'), hint: consoleWorkspaceText('fx_lyric_scroll_hint'), items: [
         fxConsoleItem('lyric-motion-style-seg', consoleWorkspaceText('fx_cat_lyric_animation'), '漂浮 柔滑 玻璃 线光 故障'),
         fxConsoleItem('lyric-glitch-controls', consoleWorkspaceText('fx_glitch_detail'), '故障强度 切片 色散 触发速度 抖动 鼓点'),
