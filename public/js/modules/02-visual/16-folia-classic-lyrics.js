@@ -11,7 +11,7 @@
 
   var STYLE_ID = 'classic';
   var ROOT_ID = 'folia-classic-lyrics';
-  var LOOKAHEAD = 0.12;
+  var LOOKAHEAD = 0.15;
   var root = null;
   var floatNode = null;
   var lineNode = null;
@@ -79,11 +79,19 @@
     return x - Math.floor(x);
   }
 
+  // Folia 对 LRC 行的收尾不是直接用下一行时间：如果中间隔了很久，会把这一行
+  // 按阅读时长截断，剩下的空档交给间奏。否则长间奏会把整行歌词拖成慢动作。
   function lineSpanEnd(line, nextLine) {
     var start = Math.max(0, Number(line && line.t) || 0);
-    var duration = Math.max(0.6, Number(line && line.duration) || 3.2);
     var nextT = nextLine && Number(nextLine.t) > start ? Number(nextLine.t) : 0;
-    return Math.max(start + 0.5, Math.min(nextT || (start + duration), start + 12));
+    var duration = nextT
+      ? nextT - start
+      : Math.max(0.6, Number(line && line.duration) || 5);
+    var reading = String(line && line.text || '').length * 0.5;
+    if (nextT && duration > reading + 2 && duration > 5) {
+      duration = Math.min(duration, reading + 2);
+    }
+    return start + Math.max(0.5, Math.min(duration, 12));
   }
 
   // 没有逐词时间轴时，单字切分只能当兜底：中文歌是一个词一个词唱出来的。
@@ -143,22 +151,49 @@
     return units.map(function (u) { return u.trim(); }).filter(Boolean);
   }
 
+  // 与 Folia 的行级时间估算对齐：汉字按字权重 1、标点权重 0、拉丁词权重
+  // 1 + 长度*0.15；只把行时长的 90% 用来推进，最后 10% 留给尾音。
+  function unitWeight(text) {
+    var chars = Array.from(String(text || ''));
+    var weight = 0;
+    var latin = 0;
+    for (var i = 0; i < chars.length; i++) {
+      var ch = chars[i];
+      if (/[㐀-鿿぀-ヿ가-힯]/.test(ch)) {
+        weight += /[，。！？、：；"')】》」』]/.test(ch) ? 0 : 1;
+      } else if (/[A-Za-z0-9]/.test(ch)) {
+        latin += 1;
+      }
+    }
+    if (latin) weight += 1 + latin * 0.15;
+    return weight;
+  }
+
   function spreadUnits(units, start, end) {
-    var total = 0;
+    var duration = Math.max(0.1, end - start);
     var weights = [];
+    var total = 0;
     for (var i = 0; i < units.length; i++) {
-      var weight = Math.max(1, Array.from(String(units[i].text || '')).length);
+      var weight = unitWeight(units[i].text);
       weights.push(weight);
       total += weight;
     }
-    var span = Math.max(0.4, end - start);
+    var active = duration * 0.9;
+    var perWeight = active / Math.max(1, total);
     var cursor = start;
-    var acc = 0;
     for (var j = 0; j < units.length; j++) {
+      var wordDuration = Math.max(0.05, weights[j] * perWeight);
       units[j].start = cursor;
-      acc += weights[j];
-      cursor = start + span * acc / Math.max(1, total);
-      units[j].end = cursor;
+      units[j].end = cursor + wordDuration;
+      cursor += weights[j] > 0 ? wordDuration : 0.05;
+    }
+    var last = units[units.length - 1];
+    if (last && last.end > end) {
+      var scale = (end - start) / Math.max(0.1, last.end - start);
+      for (var k = 0; k < units.length; k++) {
+        units[k].start = start + (units[k].start - start) * scale;
+        units[k].end = start + (units[k].end - start) * scale;
+      }
     }
   }
 
@@ -174,8 +209,14 @@
         var text = String(w && w.text || '').trim();
         if (!text) continue;
         var start = Math.max(lineStart, Number(w.t) || lineStart);
-        var duration = Math.max(0.12, Number(w.d) || Math.max(0.2, (lineEnd - lineStart) / words.length));
-        units.push({ text: text, start: start, end: Math.min(lineEnd, start + duration) });
+        // 有的源给了逐词起点却没有时长。拿整行平均值会把每个词拖得很长，
+        // 和普通歌词的逐字进度完全对不上；优先用下一个词的起点，其次 0.24s。
+        var nextWord = words[i + 1];
+        var nextStart = nextWord && Number(nextWord.t) > start ? Number(nextWord.t) : 0;
+        var duration = Number(w.d) > 0 ? Number(w.d) : (nextStart ? nextStart - start : 0);
+        if (!(duration > 0)) duration = 0.24;
+        duration = Math.max(0.08, duration);
+        units.push({ text: text, start: start, end: start + duration });
       }
       if (units.length) {
         // 有些歌词源给了 words 但所有 t 都一样，结果仍是整行同亮；按行时长重新铺开。
@@ -372,6 +413,11 @@
     lastLineKey = '';
     root.classList.remove('show');
   }
+
+  // QA/debug hook: the resolved per-word windows for the line on screen.
+  window.__mineradioFoliaWords = function () {
+    return wordTimes.map(function (t) { return { start: t.start, end: t.end }; });
+  };
 
   function tick() {
     try {

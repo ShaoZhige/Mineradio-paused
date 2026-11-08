@@ -59,8 +59,10 @@ test('没有逐词时间轴时按词级分词并按时长权重铺开', () => {
   assert.match(MODULE, /Intl\.Segmenter/);
   assert.match(MODULE, /granularity: 'word'/);
   assert.match(MODULE, /CJK_SINGLE/);
+  assert.match(MODULE, /function unitWeight/);
   assert.match(MODULE, /function spreadUnits/);
-  assert.match(MODULE, /Array\.from\(String\(units\[i\]\.text/);
+  assert.match(MODULE, /duration \* 0\.9/);
+  assert.match(MODULE, /reading \+ 2/);
   assert.match(MODULE, /function buildWords\(line, nextLine\)/);
   assert.match(MODULE, /buildWords\(line, nextLine\)/);
   assert.match(MODULE, /maxStart - minStart < 0\.05/);
