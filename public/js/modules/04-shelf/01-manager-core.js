@@ -758,11 +758,15 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
   return {
     setMode: function (m) {
       if (m === mode && group) return;
+      var wasOff = mode === 'off';
       mode = m;
       if (m === 'off') {
-        if (group) { scene.remove(group); cards.forEach(function (c) { c.texture.dispose(); c.mesh.material.dispose(); c.mesh.geometry.dispose(); }); }
-        if (connectorParticles) { scene.remove(connectorParticles); connectorParticles.geometry.dispose(); connectorParticles.material.dispose(); connectorParticles = null; }
-        group = null; cards = [];
+        // 关闭时只隐藏，不销毁卡片/纹理；否则每次右键「召唤一次」都要重新建卡、画封面、
+        // 上传纹理，点下去会卡一拍。资源留到下次切回 side 直接复用。
+        // Keep the built cards alive when the shelf is off: tearing them down made every
+        // right-click preview rebuild every visible card synchronously (the lag).
+        if (group) group.visible = false;
+        if (connectorParticles) connectorParticles.visible = false;
         if (contentList) contentList.close();
         return;
       }
@@ -770,6 +774,11 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
         group = new THREE.Group();
         group.renderOrder = 50;
         scene.add(group);
+      }
+      var items = currentItems();
+      if (wasOff && group && lastSig === sig(items)) {
+        group.visible = true;
+        return;
       }
       var asyncCards = mode === 'side' && document.body.classList.contains('splash-active');
       rebuild(asyncCards);
@@ -782,6 +791,7 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
     },
     update: function (dt) {
       if (!group) return;
+      if (mode === 'off') { group.visible = false; return; }
       // PSP 滚动平滑
       centerSmooth += (centerTarget - centerSmooth) * 0.16;
       if (Math.abs(centerSmooth - centerTarget) < 0.001) centerSmooth = centerTarget;
