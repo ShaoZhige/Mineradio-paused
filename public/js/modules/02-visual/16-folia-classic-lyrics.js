@@ -20,6 +20,8 @@
   var wordTimes = [];
   var lastLineKey = '';
   var lastPaletteKey = '';
+  var lastTrackToken = null;
+  var trackSwitchQuietUntil = 0;
   var groupWasHiddenByUs = false;
 
   function foliaStyleOn() {
@@ -252,6 +254,16 @@
         return;
       }
       hideStageWebglLyrics(true);
+      // 切歌瞬间封面纹理、边缘深度图和新的歌词会同时进来；叠层这时继续画
+      // 只会把 GPU 峰值推高。等这一小段过去再恢复，视觉上只是一次淡出。
+      var trackToken = (typeof trackSwitchToken !== 'undefined') ? trackSwitchToken : 0;
+      if (trackToken !== lastTrackToken) {
+        lastTrackToken = trackToken;
+        trackSwitchQuietUntil = performance.now() + 600;
+        clearOverlay();
+        return;
+      }
+      if (performance.now() < trackSwitchQuietUntil) return;
       ensureRoot();
       syncPalette();
       var now = lyricNowSeconds();
