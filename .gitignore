@@ -137,3 +137,9 @@ userdata/
 # Handover notes are local-session material (absolute paths, machine fixes, per-round decisions);
 # they stay out of the repo. Anything worth sharing belongs in the proper docs/ files.
 docs/HANDOFF*.md
+# Folia 仅作视觉行为研究，源码是 AGPL、且绝不能混进本仓库（clean-room 实现）。
+# Folia is studied for visual behaviour only; its AGPL source must never be committed here.
+folia源代码/
+
+# 本机架构笔记（绝对路径、会话记录），只服务当前工作区。
+docs/ARCHITECTURE.md
