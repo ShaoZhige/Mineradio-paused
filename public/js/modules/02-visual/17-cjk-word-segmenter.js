@@ -14,7 +14,8 @@
 (function (global) {
   'use strict';
 
-  var DICT_URL = 'vendor/jieba-dict.txt';
+  var DICT_URL = 'vendor/jieba-dict.txt.gz';
+  var DICT_PLAIN_URL = 'vendor/jieba-dict.txt';
   var HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
   var HAN_RUN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]+/g;
 
@@ -96,11 +97,20 @@
   function ensureLoaded() {
     if (state.ready || state.loading || state.failed) return;
     state.loading = true;
-    fetch(DICT_URL, { cache: 'force-cache' })
-      .then(function (response) {
+    var request;
+    if (typeof DecompressionStream === 'function') {
+      request = fetch(DICT_URL, { cache: 'force-cache' }).then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var stream = response.body.pipeThrough(new DecompressionStream('gzip'));
+        return new Response(stream).text();
+      });
+    } else {
+      request = fetch(DICT_PLAIN_URL, { cache: 'force-cache' }).then(function (response) {
         if (!response.ok) throw new Error('HTTP ' + response.status);
         return response.text();
-      })
+      });
+    }
+    request
       .then(function (text) {
         parseLines(text.split('\n'));
       })

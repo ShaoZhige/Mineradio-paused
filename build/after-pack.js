@@ -70,4 +70,30 @@ module.exports = async function afterPack(context) {
     '--set-file-version', version,
     '--set-product-version', version
   ], { stdio: 'inherit' });
+
+  // The player uses WebGL, not WebGPU: dxcompiler.dll (DXIL) is never loaded, so
+  // dropping it saves ~25 MB of installer payload.  Also ship only the two UI
+  // locales Mineradio actually exposes (zh-CN / en-US); the native Electron
+  // menu uses the app's own text, not these Chromium pak files.
+  const removable = ['dxcompiler.dll'];
+  removable.forEach(function(name) {
+    const target = path.join(context.appOutDir, name);
+    if (fs.existsSync(target)) {
+      const bytes = fs.statSync(target).size;
+      fs.rmSync(target, { force: true });
+      console.log('  • trimmed ' + name + ' (' + (bytes / 1048576).toFixed(1) + ' MB)');
+    }
+  });
+
+  const localesDir = path.join(context.appOutDir, 'locales');
+  if (fs.existsSync(localesDir)) {
+    const keep = new Set(['en-US.pak', 'zh-CN.pak']);
+    fs.readdirSync(localesDir).forEach(function(name) {
+      if (!name.endsWith('.pak') || keep.has(name)) return;
+      const target = path.join(localesDir, name);
+      const bytes = fs.statSync(target).size;
+      fs.rmSync(target, { force: true });
+      console.log('  • trimmed locale ' + name + ' (' + (bytes / 1048576).toFixed(2) + ' MB)');
+    });
+  }
 };
