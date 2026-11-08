@@ -19726,8 +19726,9 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 
 /* Folia-classic lyric style (clean-room DOM implementation).
    The WebGL lyric group is hidden while this is active. Words sit in a loose
-   flex line with deterministic poses; the sung word grows and blooms, then
-   keeps a small drift/rotation after it passes. */
+   flex line with deterministic poses. Singing a word pops it out of a blurred
+   ghost state with an overshoot, leaves a halo behind, then lets it drift and
+   rotate slowly while the line floats. */
 #folia-classic-lyrics {
   position: absolute;
   inset: 0;
@@ -19763,10 +19764,14 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   min-height: 300px;
   font-weight: 700;
   line-height: 1.22;
-  gap: .9em;
+  gap: 1em;
   row-gap: 1em;
-  color: #f2f8ff;
+  color: var(--folia-ink, #f2f8ff);
   perspective: 1000px
+}
+
+.folia-classic-line.is-in {
+  animation: folia-classic-line-in .9s cubic-bezier(.16, 1, .3, 1) both
 }
 
 .folia-classic-word {
@@ -19775,49 +19780,73 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   transform-origin: center;
   white-space: nowrap;
   line-height: 1.22;
-  opacity: 0;
+  opacity: .12;
   transform: translate(var(--w-wait-x, 0px), var(--w-wait-y, 0px))
-    rotate(calc(var(--w-rot, 0deg) + 20deg)) scale(.5);
-  transition: transform .4s ease, opacity .4s ease;
+    rotate(calc(var(--w-rot, 0deg) + 24deg)) scale(.55);
+  transition: transform .5s ease, opacity .35s ease;
   will-change: transform, opacity
 }
 
 .folia-classic-word.is-waiting {
-  opacity: 0
+  opacity: .12
 }
 
 .folia-classic-word.is-active {
   opacity: 1;
   transform: translate(var(--w-x, 0px), var(--w-y, 0px))
-    rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.15));
-  transition: transform .55s cubic-bezier(.17, 1.35, .4, 1), opacity .1s linear
+    rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.28));
+  transition: transform .62s cubic-bezier(.18, 1.5, .35, 1), opacity .16s linear;
+  z-index: 2
+}
+
+.folia-classic-word.is-active::before {
+  content: '';
+  position: absolute;
+  inset: -55% -40%;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--folia-glow, #a9d4ff) 26%, transparent), color-mix(in srgb, var(--folia-glow, #a9d4ff) 9%, transparent) 45%, transparent 70%);
+  filter: blur(14px);
+  pointer-events: none
 }
 
 .folia-classic-word.is-passed {
-  opacity: .82;
-  transform: translate(var(--w-x, 0px), var(--w-y, 0px))
+  opacity: .72;
+  transform: translate(calc(var(--w-x, 0px) + var(--w-drift-x, 0px)),
+      calc(var(--w-y, 0px) + var(--w-drift-y, 0px)))
     rotate(calc(var(--w-rot, 0deg) + var(--w-passed-rot, 0deg)))
-    scale(var(--w-scale, 1));
-  transition: transform .5s ease, opacity .5s ease
+    scale(calc(var(--w-scale, 1) * .96));
+  transition: transform 4.8s linear, opacity .8s ease
 }
 
 .folia-classic-body {
   position: relative;
   z-index: 1;
   display: block;
-  color: rgba(238, 246, 255, .94);
+  color: color-mix(in srgb, var(--folia-ink, #eef6ff) 92%, white);
   filter: blur(10px);
-  transition: color .2s linear, filter .2s ease
+  transition: color .18s linear, filter .18s ease, text-shadow .25s ease
 }
 
-.folia-classic-word.is-active .folia-classic-body {
-  color: #fff;
-  filter: none
+.folia-classic-word.is-waiting .folia-classic-body {
+  filter: blur(9px)
 }
 
 .folia-classic-word.is-passed .folia-classic-body {
-  color: rgba(238, 246, 255, .92);
-  filter: none
+  animation: folia-classic-passed-glow 4.2s ease-in-out infinite alternate
+}
+
+.folia-classic-word.is-active .folia-classic-body {
+  color: color-mix(in srgb, var(--folia-hi, #fff) 88%, white);
+  filter: none;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--folia-hi, #fff) 55%, transparent),
+    0 0 30px color-mix(in srgb, var(--folia-glow, #a9d4ff) 45%, transparent)
+}
+
+.folia-classic-word.is-passed .folia-classic-body {
+  color: var(--folia-ink, #eef6ff);
+  filter: none;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--folia-glow, #a9d4ff) 22%, transparent)
 }
 
 .folia-classic-glow {
@@ -19825,20 +19854,21 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   inset: 0;
   display: block;
   color: transparent;
-  text-shadow: 0 0 18px rgba(205, 228, 255, 1),
-    0 0 42px rgba(135, 182, 255, .85), 0 0 86px rgba(90, 140, 255, .5);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--folia-glow, #a9d4ff) 75%, white),
+    0 0 44px color-mix(in srgb, var(--folia-glow, #a9d4ff) 85%, transparent),
+    0 0 92px color-mix(in srgb, var(--folia-glow, #a9d4ff) 55%, transparent);
   opacity: 0;
   pointer-events: none
 }
 
 .folia-classic-word.is-active .folia-classic-glow {
   opacity: 1;
-  animation: folia-classic-glow var(--w-dur, .4s) ease-in-out both
+  animation: folia-classic-glow calc(var(--w-dur, .4s) + .35s) ease-out both
 }
 
 .folia-classic-word.is-passed .folia-classic-glow {
   opacity: 0;
-  transition: opacity .9s ease
+  transition: opacity 1.1s ease
 }
 
 .folia-classic-translation {
@@ -19854,10 +19884,20 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   text-overflow: ellipsis
 }
 
+@keyframes folia-classic-passed-glow {
+  from { text-shadow: 0 0 12px color-mix(in srgb, var(--folia-glow, #a9d4ff) 16%, transparent) }
+  to { text-shadow: 0 0 22px color-mix(in srgb, var(--folia-glow, #a9d4ff) 34%, transparent) }
+}
+
 @keyframes folia-classic-glow {
   0% { opacity: 0 }
-  30% { opacity: 1 }
-  100% { opacity: 0 }
+  35% { opacity: 1 }
+  100% { opacity: .12 }
+}
+
+@keyframes folia-classic-line-in {
+  from { opacity: 0; transform: translateY(26px) scale(.985) }
+  to { opacity: 1; transform: translateY(0) scale(1) }
 }
 
 @keyframes folia-classic-float {
@@ -19868,6 +19908,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .folia-classic-float { animation: none }
+  .folia-classic-float,
+  .folia-classic-line.is-in { animation: none }
   .folia-classic-word { transition: none }
 }

@@ -19,6 +19,7 @@
   var wordNodes = [];
   var wordTimes = [];
   var lastLineKey = '';
+  var lastPaletteKey = '';
   var groupWasHiddenByUs = false;
 
   function foliaStyleOn() {
@@ -106,6 +107,22 @@
     return units;
   }
 
+  // Follow the same palette the WebGL lyrics use, so the DIY colour controls
+  // (cover colour / custom swatches / highlight / glow) apply to this style too.
+  function syncPalette() {
+    var pal = null;
+    if (typeof stageLyrics !== 'undefined' && stageLyrics) {
+      pal = stageLyrics.palette || stageLyrics.coverPalette || null;
+    }
+    if (!pal || !root) return;
+    var key = [pal.primary, pal.highlight, pal.secondary, pal.glowColor, pal.glow].join('|');
+    if (key === lastPaletteKey) return;
+    lastPaletteKey = key;
+    root.style.setProperty('--folia-ink', pal.primary || '#eaf3ff');
+    root.style.setProperty('--folia-hi', pal.highlight || '#ffffff');
+    root.style.setProperty('--folia-glow', pal.glowColor || pal.secondary || '#a9d4ff');
+  }
+
   function makeWordNode(unit, index, lineSeed, lineFontSize) {
     var rnd = function (n) { return hashUnit(lineSeed + index * 7.13 + n * 1.71); };
     var scale = 1.1 + rnd(1) * 0.2;
@@ -123,6 +140,8 @@
     node.style.setProperty('--w-passed-rot', passedRotate.toFixed(2) + 'deg');
     node.style.setProperty('--w-scale', scale.toFixed(3));
     node.style.setProperty('--w-dur', Math.max(0.18, unit.end - unit.start).toFixed(2) + 's');
+    node.style.setProperty('--w-drift-x', ((rnd(6) - 0.5) * 30).toFixed(1) + 'px');
+    node.style.setProperty('--w-drift-y', ((rnd(7) - 0.5) * 18).toFixed(1) + 'px');
 
     var glow = document.createElement('span');
     glow.className = 'folia-classic-glow';
@@ -234,6 +253,7 @@
       }
       hideStageWebglLyrics(true);
       ensureRoot();
+      syncPalette();
       var now = lyricNowSeconds();
       var lines = lyricsLines;
       var lineIndex = typeof stageLyricIndexForSeconds === 'function' ? stageLyricIndexForSeconds(now) : -1;

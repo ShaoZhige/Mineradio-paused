@@ -68,6 +68,16 @@ test('流光设置能保存、读回并带进设置持久化 payload', () => {
   assert.match(PANEL, /updateLyricStyleControls\(\)/);
 });
 
+test('流光跟随歌词调色盘的墨色、高亮与辉光', () => {
+  assert.match(MODULE, /stageLyrics.palette/);
+  assert.match(MODULE, /--folia-ink/);
+  assert.match(MODULE, /--folia-hi/);
+  assert.match(MODULE, /--folia-glow/);
+  assert.match(CSS, /var\(--folia-ink/);
+  assert.match(CSS, /var\(--folia-hi/);
+  assert.match(CSS, /var\(--folia-glow/);
+});
+
 test('流光 CSS 的层次与状态齐全', () => {
   assert.match(CSS, /#folia-classic-lyrics/);
   assert.match(CSS, /\.folia-classic-word\.is-active/);
