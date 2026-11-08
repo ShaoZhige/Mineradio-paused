@@ -19784,7 +19784,7 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 .folia-classic-line.is-in .folia-classic-word {
-  animation: folia-classic-word-in .22s cubic-bezier(.16, 1, .3, 1) both
+  animation: folia-classic-word-in .22s cubic-bezier(.16, 1, .3, 1) backwards
 }
 
 .folia-classic-line.is-instant {
@@ -19810,10 +19810,11 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
   white-space: nowrap;
   line-height: 1.22;
   opacity: .12;
-  transform: translate(var(--w-wait-x, 0px), var(--w-wait-y, 0px))
-    rotate(calc(var(--w-rot, 0deg) + 24deg)) scale(.55);
-  transition: transform .5s ease, opacity .35s ease;
-  will-change: transform, opacity
+  translate: var(--w-wait-x, 0px) var(--w-wait-y, 0px);
+  rotate: calc(var(--w-rot, 0deg) + 24deg);
+  scale: .55;
+  transition: translate .5s ease, rotate .5s ease, scale .5s ease, opacity .35s ease;
+  will-change: translate, rotate, scale, opacity
 }
 
 .folia-classic-word.is-waiting {
@@ -19822,9 +19823,12 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 
 .folia-classic-word.is-active {
   opacity: 1;
-  transform: translate(var(--w-x, 0px), var(--w-y, 0px))
-    rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.08));
-  transition: transform .34s cubic-bezier(.2, 1.45, .35, 1), opacity .1s linear;
+  translate: var(--w-x, 0px) var(--w-y, 0px);
+  rotate: var(--w-rot, 0deg);
+  scale: calc(var(--w-scale, 1) * 1.08);
+  transition: translate .34s cubic-bezier(.2, 1.45, .35, 1),
+    rotate .34s cubic-bezier(.2, 1.45, .35, 1),
+    scale .34s cubic-bezier(.2, 1.45, .35, 1), opacity .1s linear;
   z-index: 2
 }
 
@@ -19840,11 +19844,12 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 
 .folia-classic-word.is-passed {
   opacity: .72;
-  transform: translate(calc(var(--w-x, 0px) + var(--w-drift-x, 0px)),
-      calc(var(--w-y, 0px) + var(--w-drift-y, 0px)))
-    rotate(calc(var(--w-rot, 0deg) + var(--w-passed-rot, 0deg)))
-    scale(calc(var(--w-scale, 1) * .96));
-  transition: transform 2.8s linear, opacity .55s ease
+  translate: calc(var(--w-x, 0px) + var(--w-drift-x, 0px))
+    calc(var(--w-y, 0px) + var(--w-drift-y, 0px));
+  rotate: calc(var(--w-rot, 0deg) + var(--w-passed-rot, 0deg));
+  scale: calc(var(--w-scale, 1) * .96);
+  transition: translate .45s ease, scale .45s ease, rotate 2.8s linear,
+    opacity .55s ease
 }
 
 .folia-classic-body {
@@ -19904,17 +19909,20 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 
 /* 流光跟随「歌词动画」选择：同一条样式，不同运动语法。 */
 #folia-classic-lyrics[data-motion="smooth"] .folia-classic-word {
-  transition-duration: calc(.85s * var(--folia-soft, 1)), calc(.5s * var(--folia-soft, 1))
+  transition-duration: calc(.85s * var(--folia-soft, 1)), calc(.85s * var(--folia-soft, 1)), calc(.85s * var(--folia-soft, 1)), calc(.5s * var(--folia-soft, 1))
 }
 
 #folia-classic-lyrics[data-motion="smooth"] .folia-classic-word.is-active {
-  transform: translate(var(--w-x, 0px), var(--w-y, 0px))
-    rotate(var(--w-rot, 0deg)) scale(calc(var(--w-scale, 1) * 1.16));
-  transition: transform calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1), opacity .2s linear
+  translate: var(--w-x, 0px) var(--w-y, 0px);
+  rotate: var(--w-rot, 0deg);
+  scale: calc(var(--w-scale, 1) * 1.16);
+  transition: translate calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1),
+    rotate calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1),
+    scale calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1), opacity .2s linear
 }
 
 #folia-classic-lyrics[data-motion="smooth"] .folia-classic-word.is-passed {
-  transition: transform calc(6.2s * var(--folia-soft, 1)) linear, opacity .9s ease
+  transition: translate calc(.6s * var(--folia-soft, 1)) ease, scale calc(.6s * var(--folia-soft, 1)) ease, rotate calc(6.2s * var(--folia-soft, 1)) linear, opacity .9s ease
 }
 
 #folia-classic-lyrics[data-motion="glass"] .folia-classic-body {
@@ -19988,18 +19996,17 @@ body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
 }
 
 @keyframes folia-classic-word-in {
-  from { opacity: 0; transform: translateY(14px) scale(.94) }
+  from { opacity: 0; translate: 0 14px; scale: .94 }
 }
 
 @keyframes folia-classic-word-out {
   to {
     opacity: 0;
     filter: blur(7px);
-    transform: translate(
-        calc(var(--w-x, 0px) + var(--exit-x, 0px)),
-        calc(var(--w-y, 0px) + var(--exit-y, -26px)))
-      rotate(calc(var(--w-rot, 0deg) + var(--exit-r, 0deg)))
-      scale(.82)
+    translate: calc(var(--w-x, 0px) + var(--exit-x, 0px))
+      calc(var(--w-y, 0px) + var(--exit-y, -26px));
+    rotate: calc(var(--w-rot, 0deg) + var(--exit-r, 0deg));
+    scale: .82
   }
 }
 
