@@ -332,7 +332,6 @@ function makeShelfManager() {
     card.drawKey = '';
     card.mesh.userData.action = shelfCardAction(item);
     card.mesh.renderOrder = 50 + index;
-    drawCard(card, item);
     return card;
   }
 
@@ -392,6 +391,35 @@ function makeShelfManager() {
     else job.raf = requestAnimationFrame(step);
   }
 
+  // 滚动时新卡/换卡的整张重绘也挪到空闲队列，避免每翻一格都同步画 720×360。
+  var shelfDrawQueue = [];
+  var shelfDrawTimer = null;
+  function runShelfDrawQueue() {
+    shelfDrawTimer = null;
+    var started = performance.now();
+    while (shelfDrawQueue.length && performance.now() - started < 7) {
+      var c = shelfDrawQueue.shift();
+      c._drawPending = false;
+      if (c.mesh && c.mesh.parent) {
+        drawCard(c, c.item);
+        warmTextureUpload(c.texture);
+      }
+    }
+    if (shelfDrawQueue.length) scheduleShelfDraw();
+  }
+  function scheduleShelfDraw() {
+    if (shelfDrawTimer) return;
+    shelfDrawTimer = window.requestIdleCallback
+      ? requestIdleCallback(runShelfDrawQueue, { timeout: 140 })
+      : setTimeout(runShelfDrawQueue, 16);
+  }
+  function scheduleCardDraw(card) {
+    if (!card || card._drawPending) return;
+    card._drawPending = true;
+    shelfDrawQueue.push(card);
+    scheduleShelfDraw();
+  }
+
   function syncRenderedWindow(force, asyncBuild) {
     if (!group) return;
     var total = allItems.length;
@@ -426,7 +454,10 @@ function makeShelfManager() {
       var card = existingByIndex[itemIdx] || reusable.shift();
       if (!card) card = buildOneCard(allItems[itemIdx], itemIdx);
       else rebindShelfCard(card, allItems[itemIdx], itemIdx);
-      if (!card.drawKey) drawCard(card, card.item);
+      if (!card.drawKey) {
+        if (force) drawCard(card, card.item);
+        else scheduleCardDraw(card);
+      }
       nextCards.push(card);
     }
     reusable.forEach(disposeShelfCard);
@@ -474,6 +505,26 @@ function makeShelfManager() {
   //  PSP 弧形布局: 以 centerSmooth 为基准, 卡片绕弧排列
   //  i 距离 center 越远 → 越靠后, 越小, 越淡
   // ====================================================
+  // 滚动时逐帧改 dofBucket 会触发整张 720×360 卡片重绘 + 纹理上传，翻起来就卡。
+  // 改为滚动期间只记脏，停下 110ms 后统一重绘一次。
+  var dofRedrawTimer = null;
+  var dofDirtyCards = [];
+  function scheduleCardDofRedraw(card) {
+    if (!card || card._dofPending) return;
+    card._dofPending = true;
+    if (dofDirtyCards.indexOf(card) < 0) dofDirtyCards.push(card);
+    if (dofRedrawTimer) return;
+    dofRedrawTimer = setTimeout(function () {
+      dofRedrawTimer = null;
+      var list = dofDirtyCards;
+      dofDirtyCards = [];
+      list.forEach(function (c) {
+        c._dofPending = false;
+        if (c.mesh && c.mesh.parent) drawCard(c, c.item);
+      });
+    }, 110);
+  }
+
   function placeCard(card, i, totalCards, modeIs) {
     var delta = card.index - centerSmooth;     // 正=下方, 负=上方
     var absD = Math.abs(delta);
@@ -493,7 +544,7 @@ function makeShelfManager() {
     if (card.dofBucket !== nextDofBucket) {
       card.dofBucket = nextDofBucket;
       card.dofBlur = nextDof;
-      drawCard(card, card.item);
+      scheduleCardDofRedraw(card);
     }
 
     if (modeIs === 'side') {
