@@ -133,3 +133,10 @@ test('流光跟随歌词动画、位置、角度、大小与字距设置', () =>
   assert.match(CSS, /\[data-motion="glitch"\]/);
   assert.match(CSS, /--folia-soft/);
 });
+
+test('LRC 行复用普通样式的逐行进度，YRC 行仍用词级时间', () => {
+  assert.ok(MODULE.includes('usesLineProgress = !(line && Array.isArray(line.words)'));
+  assert.ok(MODULE.includes('getLyricLineProgress(renderedLine, renderedNextLine, now)'));
+  assert.ok(MODULE.includes('wordFractions'));
+  assert.ok(MODULE.includes('wordFractions.push({ start: startFrac, end: weightAcc / weightTotal })'));
+});
