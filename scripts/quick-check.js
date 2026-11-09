@@ -1041,6 +1041,7 @@ function checkDesktopWallpaperModeGuard() {
   const nativeIconLayerRuntimePath = path.join(appRoot, 'desktop', 'desktop-native-icon-layer-runtime.js');
   const wallpaperEngineRuntimePath = path.join(appRoot, 'desktop', 'wallpaper-engine-runtime.js');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const desktopModeIpcText = fs.readFileSync(path.join(appRoot, 'desktop', 'ipc-desktop-mode.js'), 'utf8');
   const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const fullDesktopRuntimeText = fs.readFileSync(fullDesktopRuntimePath, 'utf8');
   const iconShapeRuntimeText = fs.readFileSync(iconShapeRuntimePath, 'utf8');
@@ -1177,10 +1178,10 @@ function checkDesktopWallpaperModeGuard() {
     || !/setDesktopIconsVisible/.test(preloadText + shellText)
     || !/requestDesktopKeyboardFocus/.test(preloadText + shellText)
     || !/updateDesktopPointerRoute/.test(preloadText + shellText)
-    || !/mineradio-full-desktop-set-software-lock/.test(mainText)
-    || !/mineradio-full-desktop-set-icons-visible/.test(mainText)
-    || !/mineradio-full-desktop-request-keyboard-focus/.test(mainText)
-    || !/mineradio-full-desktop-pointer-route/.test(mainText)
+    || !/mineradio-full-desktop-set-software-lock/.test(mainText + desktopModeIpcText)
+    || !/mineradio-full-desktop-set-icons-visible/.test(mainText + desktopModeIpcText)
+    || !/mineradio-full-desktop-request-keyboard-focus/.test(mainText + desktopModeIpcText)
+    || !/mineradio-full-desktop-pointer-route/.test(mainText + desktopModeIpcText)
     || !/applyInteractivePointerRoute[\s\S]{0,900}softwareInteractionLocked === true[\s\S]{0,180}overDesktopControls !== true/.test(fullDesktopRuntimeText)
     || !/setIgnoreMouseEvents', null, true, \{ forward: true \}/.test(fullDesktopRuntimeText)
     || !/setSoftwareInteractionLocked\(/.test(fullDesktopRuntimeText)
@@ -1854,7 +1855,8 @@ function checkPersistentCacheStorageGuard() {
     fail('provider credentials must migrate out of the old Chromium cache path and remain under stable userData');
   }
   const cacheSettingsText = fs.readFileSync(path.join(appRoot, 'desktop', 'cache-settings.js'), 'utf8');
-  if (!/mineradio-cache-get-settings/.test(mainText) || !/mineradio-cache-set-settings/.test(mainText) || !/mineradio-cache-read-lyric/.test(mainText) || !/mineradio-cache-write-lyric/.test(mainText) || !/crypto\.createHash\('sha256'\)/.test(cacheSettingsText) || !/pruneLyricCache/.test(cacheSettingsText)) {
+  const cacheIpcText = fs.readFileSync(path.join(appRoot, 'desktop', 'ipc-memory-cache.js'), 'utf8');
+  if (!/mineradio-cache-get-settings/.test(mainText + cacheIpcText) || !/mineradio-cache-set-settings/.test(mainText + cacheIpcText) || !/mineradio-cache-read-lyric/.test(mainText) || !/mineradio-cache-write-lyric/.test(mainText) || !/crypto\.createHash\('sha256'\)/.test(cacheSettingsText) || !/pruneLyricCache/.test(cacheSettingsText)) {
     fail('desktop cache storage must expose configurable paths and bounded hashed lyric persistence');
   }
   if (!/getCacheSettings:/.test(preloadText) || !/setCacheSettings:/.test(preloadText) || !/readLyricCache:/.test(preloadText) || !/writeLyricCache:/.test(preloadText)) {
