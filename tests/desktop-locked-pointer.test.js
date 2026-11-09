@@ -15,6 +15,7 @@ const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8')
 
 const css = readAllCss();
 const main = read('desktop/main.js');
+const desktopIpc = read('desktop/ipc-desktop-mode.js');
 const icons = read('desktop/desktop-icons.js');
 const preload = read('desktop/preload.js');
 const nativeLayer = read('desktop/desktop-native-icon-layer-runtime.js');
@@ -38,7 +39,7 @@ assert.match(peek, /if \(typeof desktopSoftwarePointerIgnored === 'function' && 
 assert.match(preload, /setDesktopControllerZone: \(zone\) => ipcRenderer\.send\('mineradio-full-desktop-controller-zone'/);
 assert.match(preload, /onDesktopControllerHover: \(callback\) => \{/);
 assert.match(preload, /ipcRenderer\.on\('mineradio-full-desktop-controller-hover', listener\)/);
-assert.match(main, /ipcMain\.on\('mineradio-full-desktop-controller-zone'/);
+assert.match(desktopIpc, /ipcMain\.on\('mineradio-full-desktop-controller-zone'/);
 assert.match(main, /function syncDesktopControllerPointerPoll\(\)/);
 assert.match(main, /screen\.getCursorScreenPoint\(\)/);
 assert.match(main, /sendDesktopControllerHover\(over\)/);

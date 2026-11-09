@@ -456,7 +456,7 @@ async function run() {
     assert(splashRenderer.includes('Am7 -> Fmaj7 -> Cmaj7 -> G6'));
     assert(splashRenderer.includes('[220.00, 261.63, 329.63, 392.00]'));
 
-    const desktopMain = fs.readFileSync(path.join(__dirname, '..', 'desktop', 'main.js'), 'utf8');
+    const desktopMain = fs.readFileSync(path.join(__dirname, '..', 'desktop', 'main.js'), 'utf8') + fs.readFileSync(path.join(__dirname, '..', 'desktop', 'ipc-desktop-mode.js'), 'utf8');
     assert(desktopMain.includes("ipcMain.handle('mineradio-full-desktop-request-keyboard-focus'"));
     assert(desktopMain.includes("fullDesktopModeRuntime.getStatus('renderer-keyboard-focus-fallback')"));
     assert(desktopMain.includes('if (desktopStatus && desktopStatus.enabled) {'));
