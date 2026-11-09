@@ -593,6 +593,7 @@
   // QA hook: hidden Electron windows throttle requestAnimationFrame, so tests
   // can advance one frame synchronously after changing style or playback time.
   window.__mineradioFoliaTick = tick;
+  if (window.__MINERADIO_TEST__) window.__mineradioFoliaBuildWords = buildWords;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { requestAnimationFrame(frame); }, { once: true });
