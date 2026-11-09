@@ -36,7 +36,8 @@ test('app-owned data stays inside the application folder', () => {
   );
   assert.match(mainText, /\[PortableData\] app folder is not writable/);
 
-  const cacheRootBody = (mainText.match(/function defaultCacheRootPath\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  const cacheText = fs.readFileSync(path.join(appRoot, 'desktop', 'cache-settings.js'), 'utf8');
+  const cacheRootBody = (cacheText.match(/function defaultRootPath\(\)\s*\{[\s\S]*?\n  \}/) || [''])[0];
   assert.match(cacheRootBody, /return path\.join\(app\.getPath\('userData'\), 'cache'\)/);
   assert.doesNotMatch(cacheRootBody, /[A-Za-z]:\\/, 'the default cache root must not point at a drive root');
 

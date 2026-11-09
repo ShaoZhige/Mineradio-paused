@@ -9,6 +9,7 @@ const systemMemory = require('./system-memory');
 const fxAutosave = require('./fx-autosave');
 const windowBehavior = require('./window-behavior');
 const { createTrayController } = require('./tray');
+const { createCacheSettingsManager } = require('./cache-settings');
 const { createAppMemoryManager } = require('./app-memory');
 const { createQuitController } = require('./quit');
 const desktopIcons = require('./desktop-icons');
@@ -339,11 +340,22 @@ function migratePortableUserData() {
 }
 
 migratePortableUserData();
-const INITIAL_CACHE_SETTINGS = ensureCacheDirectories(readCacheSettings());
+const cacheSettingsManager = createCacheSettingsManager({
+  app,
+  fs,
+  path,
+  crypto,
+  appName: APP_NAME,
+  settingsFile: CACHE_SETTINGS_FILE,
+  stableUserDataPath: STABLE_USER_DATA_PATH,
+  nativeHelperTempPath: () => NATIVE_HELPER_TEMP_PATH,
+  lyricCacheMaxBytes: LYRIC_CACHE_MAX_BYTES,
+});
+const INITIAL_CACHE_SETTINGS = cacheSettingsManager.init();
 const loginEasterEggGate = new LoginEasterEggGate({
   userDataPath: STABLE_USER_DATA_PATH,
   credentialRoots: () => [
-    chromiumSessionDataPath(cacheSettings || INITIAL_CACHE_SETTINGS),
+    cacheSettingsManager.chromiumSessionDataPath(),
     (() => { try { return app.getPath('sessionData'); } catch (_) { return ''; } })(),
     path.join(__dirname, '..'),
   ],
@@ -611,198 +623,11 @@ function wallpaperEnginePhysicalContentBounds(win, fallback = {}) {
   };
 }
 
-function cacheSettingsConfigPath() {
-  return path.join(app.getPath('userData'), CACHE_SETTINGS_FILE);
-}
-
-function defaultCacheRootPath() {
-  // 缓存根固定在软件目录内的用户数据下，不再往任何盘符根目录建 MineradioCache。
-  // The cache root always lives inside the app's own user data; never at a drive root.
-  return path.join(app.getPath('userData'), 'cache');
-}
-
-function normalizeCacheRootPath(value) {
-  const fallback = defaultCacheRootPath();
-  const candidate = String(value || '').trim();
-  if (!candidate) return fallback;
-  try {
-    return path.resolve(candidate);
-  } catch (_) {
-    return fallback;
-  }
-}
-
-function normalizeCacheSettings(value) {
-  const rootPath = normalizeCacheRootPath(value && value.rootPath);
-  return {
-    version: 1,
-    rootPath,
-    lyricsPath: path.join(rootPath, 'lyrics'),
-    chromiumPath: path.join(rootPath, 'chromium'),
-    beatmapsPath: path.join(rootPath, 'beatmaps'),
-    nativePath: path.join(rootPath, 'native-helper-temp'),
-  };
-}
-
-function chromiumSessionDataPath(settings) {
-  const chromiumRoot = settings && settings.chromiumPath
-    ? settings.chromiumPath
-    : normalizeCacheSettings(null).chromiumPath;
-  return path.join(chromiumRoot, APP_NAME);
-}
-
-function readCacheSettings() {
-  try {
-    const file = cacheSettingsConfigPath();
-    const parsed = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
-    return normalizeCacheSettings(parsed);
-  } catch (error) {
-    console.warn('[CacheSettings] read failed:', error.message);
-    return normalizeCacheSettings(null);
-  }
-}
-
-function writeCacheSettings(settings) {
-  const normalized = normalizeCacheSettings(settings);
-  const file = cacheSettingsConfigPath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tempFile = `${file}.tmp`;
-  fs.writeFileSync(tempFile, JSON.stringify(normalized, null, 2), 'utf8');
-  fs.renameSync(tempFile, file);
-  return normalized;
-}
-
-function ensureCacheDirectories(settings) {
-  const normalized = normalizeCacheSettings(settings);
-  try {
-    fs.mkdirSync(normalized.lyricsPath, { recursive: true });
-    fs.mkdirSync(normalized.chromiumPath, { recursive: true });
-    fs.mkdirSync(chromiumSessionDataPath(normalized), { recursive: true });
-    fs.mkdirSync(normalized.beatmapsPath, { recursive: true });
-    fs.mkdirSync(normalized.nativePath, { recursive: true });
-    return normalized;
-  } catch (error) {
-    // A removed, sleeping, or temporarily inaccessible custom drive must not
-    // prevent Electron from reaching app.ready and showing a window. Keep the
-    // saved preference intact and use a stable per-run fallback under userData.
-    const fallback = normalizeCacheSettings({ rootPath: path.join(STABLE_USER_DATA_PATH, 'cache-fallback') });
-    console.warn('[CacheSettings] cache root unavailable, using startup fallback:', error.message);
-    fs.mkdirSync(fallback.lyricsPath, { recursive: true });
-    fs.mkdirSync(fallback.chromiumPath, { recursive: true });
-    fs.mkdirSync(chromiumSessionDataPath(fallback), { recursive: true });
-    fs.mkdirSync(fallback.beatmapsPath, { recursive: true });
-    fs.mkdirSync(fallback.nativePath, { recursive: true });
-    return fallback;
-  }
-}
-
-async function directoryUsageBytes(directory) {
-  let total = 0;
-  async function walk(current) {
-    let entries = [];
-    try {
-      entries = await fs.promises.readdir(current, { withFileTypes: true });
-    } catch (_) {
-      return;
-    }
-    await Promise.all(entries.map(async (entry) => {
-      const entryPath = path.join(current, entry.name);
-      try {
-        if (entry.isDirectory()) return walk(entryPath);
-        if (entry.isFile()) {
-          const stat = await fs.promises.stat(entryPath);
-          total += Math.max(0, Number(stat.size) || 0);
-        }
-      } catch (_) { }
-    }));
-  }
-  await walk(directory);
-  return total;
-}
-
-async function cacheSettingsSnapshot() {
-  const settings = normalizeCacheSettings(cacheSettings);
-  const currentChromiumPath = app.getPath('sessionData');
-  const desiredChromiumPath = chromiumSessionDataPath(settings);
-  const activeBeatmapsPath = process.env.MINERADIO_BEAT_CACHE_DIR || settings.beatmapsPath;
-  const activeNativePath = NATIVE_HELPER_TEMP_PATH;
-  const wallpaperEnginePath = path.join(settings.nativePath, 'wallpaper-engine-muted-package-cache');
-  const activeWallpaperEnginePath = path.join(activeNativePath, 'wallpaper-engine-muted-package-cache');
-  const [lyricsBytes, chromiumBytes, beatmapsBytes, wallpaperEngineBytes, userDataBytes] = await Promise.all([
-    directoryUsageBytes(settings.lyricsPath),
-    directoryUsageBytes(currentChromiumPath),
-    directoryUsageBytes(activeBeatmapsPath),
-    directoryUsageBytes(activeWallpaperEnginePath),
-    directoryUsageBytes(app.getPath('userData')),
-  ]);
-  const chromiumRestartRequired = path.resolve(desiredChromiumPath) !== path.resolve(currentChromiumPath);
-  const beatmapsRestartRequired = path.resolve(settings.beatmapsPath) !== path.resolve(activeBeatmapsPath);
-  const nativeRestartRequired = path.resolve(settings.nativePath) !== path.resolve(activeNativePath);
-  return {
-    ok: true,
-    settings: {
-      rootPath: settings.rootPath,
-      lyricsPath: settings.lyricsPath,
-      chromiumPath: settings.chromiumPath,
-      activeChromiumPath: currentChromiumPath,
-      beatmapsPath: settings.beatmapsPath,
-      activeBeatmapsPath,
-      nativePath: settings.nativePath,
-      activeNativePath,
-      wallpaperEnginePath,
-      activeWallpaperEnginePath,
-      userDataPath: app.getPath('userData'),
-      restartRequired: chromiumRestartRequired || beatmapsRestartRequired || nativeRestartRequired,
-    },
-    usage: {
-      lyricsBytes,
-      chromiumBytes,
-      beatmapsBytes,
-      wallpaperEngineBytes,
-      userDataBytes,
-      totalManagedBytes: lyricsBytes + chromiumBytes + beatmapsBytes + wallpaperEngineBytes,
-    },
-  };
-}
-
-function lyricCacheFilePath(key) {
-  const digest = crypto.createHash('sha256').update(String(key || '')).digest('hex');
-  return path.join(cacheSettings.lyricsPath, `${digest}.json`);
-}
-
-async function pruneLyricCache() {
-  let entries = [];
-  try {
-    entries = await fs.promises.readdir(cacheSettings.lyricsPath, { withFileTypes: true });
-  } catch (_) {
-    return;
-  }
-  const files = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/i.test(entry.name)) continue;
-    const file = path.join(cacheSettings.lyricsPath, entry.name);
-    try {
-      const stat = await fs.promises.stat(file);
-      files.push({ file, size: Math.max(0, Number(stat.size) || 0), time: Number(stat.mtimeMs) || 0 });
-    } catch (_) { }
-  }
-  let total = files.reduce((sum, item) => sum + item.size, 0);
-  files.sort((a, b) => a.time - b.time);
-  for (const item of files) {
-    if (total <= LYRIC_CACHE_MAX_BYTES) break;
-    try {
-      await fs.promises.unlink(item.file);
-      total -= item.size;
-    } catch (_) { }
-  }
-}
-
-let cacheSettings = INITIAL_CACHE_SETTINGS;
 try {
   // `sessionData` owns Chromium cookies/storage/cache. `userData` stays on the
   // stable roaming path so changing the cache directory never logs accounts out.
-  app.setPath('cache', cacheSettings.chromiumPath);
-  app.setPath('sessionData', chromiumSessionDataPath(cacheSettings));
+  app.setPath('cache', INITIAL_CACHE_SETTINGS.chromiumPath);
+  app.setPath('sessionData', cacheSettingsManager.chromiumSessionDataPath(INITIAL_CACHE_SETTINGS));
   app.setPath('userData', STABLE_USER_DATA_PATH);
 } catch (error) {
   console.warn('[CacheSettings] Chromium cache path fallback:', error.message);
@@ -3680,7 +3505,7 @@ ipcMain.handle('mineradio-memory-purge-system', async (_event, payload = {}) => 
 
 ipcMain.handle('mineradio-cache-get-settings', async () => {
   try {
-    return await cacheSettingsSnapshot();
+    return await cacheSettingsManager.snapshot();
   } catch (error) {
     return { ok: false, error: error.message || 'CACHE_SETTINGS_READ_FAILED' };
   }
@@ -3689,20 +3514,17 @@ ipcMain.handle('mineradio-cache-get-settings', async () => {
 ipcMain.handle('mineradio-cache-choose-directory', async () => {
   const result = await dialog.showOpenDialog({
     title: desktopText('dialog_choose_cache_dir', '选择 Mineradio 缓存目录'),
-    defaultPath: cacheSettings.rootPath,
+    defaultPath: cacheSettingsManager.get().rootPath,
     properties: ['openDirectory', 'createDirectory'],
   });
   if (result.canceled || !result.filePaths || !result.filePaths[0]) return { ok: true, canceled: true };
-  return { ok: true, canceled: false, rootPath: normalizeCacheRootPath(result.filePaths[0]) };
+  return { ok: true, canceled: false, rootPath: cacheSettingsManager.normalizeRootPath(result.filePaths[0]) };
 });
 
 ipcMain.handle('mineradio-cache-set-settings', async (_event, payload = {}) => {
   try {
-    const nextRoot = normalizeCacheRootPath(payload.rootPath);
-    fs.mkdirSync(nextRoot, { recursive: true });
-    fs.accessSync(nextRoot, fs.constants.W_OK);
-    cacheSettings = ensureCacheDirectories(writeCacheSettings({ rootPath: nextRoot }));
-    const snapshot = await cacheSettingsSnapshot();
+    cacheSettingsManager.setRootPath(payload.rootPath);
+    const snapshot = await cacheSettingsManager.snapshot();
     snapshot.restartRequired = snapshot.settings.restartRequired;
     return snapshot;
   } catch (error) {
@@ -4479,7 +4301,7 @@ ipcMain.handle('mineradio-cache-write-lyric', async (_event, key, payload) => {
     const record = { version: LYRIC_CACHE_VERSION, cachedAt: Date.now(), payload };
     const text = JSON.stringify(record);
     if (Buffer.byteLength(text, 'utf8') > LYRIC_CACHE_ENTRY_MAX_BYTES) return { ok: false, error: 'LYRIC_CACHE_ENTRY_TOO_LARGE' };
-    await fs.promises.mkdir(cacheSettings.lyricsPath, { recursive: true });
+    await fs.promises.mkdir(cacheSettingsManager.get().lyricsPath, { recursive: true });
     const file = lyricCacheFilePath(key);
     const temporary = `${file}.tmp`;
     await fs.promises.writeFile(temporary, text, 'utf8');
@@ -5051,7 +4873,7 @@ ipcMain.handle('mineradio-wallpaper-get-status', async (event) => {
 function configureLocalServerEnvironment(port) {
   process.env.HOST = '127.0.0.1';
   process.env.PORT = String(port);
-  process.env.MINERADIO_BEAT_CACHE_DIR = cacheSettings.beatmapsPath;
+  process.env.MINERADIO_BEAT_CACHE_DIR = cacheSettingsManager.get().beatmapsPath;
   process.env.CUEFIELD_FEEDBACK_FILE = path.join(STABLE_USER_DATA_PATH, 'cuefield-feedback.jsonl');
   process.env.COOKIE_FILE = path.join(STABLE_USER_DATA_PATH, '.cookie');
   process.env.QQ_COOKIE_FILE = path.join(STABLE_USER_DATA_PATH, '.qq-cookie');
@@ -5129,7 +4951,7 @@ function migrateMisplacedAppOwnedFiles() {
     sources.push(resolved);
   };
   try { addSource(app.getPath('sessionData')); } catch (_) {}
-  addSource(chromiumSessionDataPath(cacheSettings));
+  addSource(cacheSettingsManager.chromiumSessionDataPath());
 
   fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
   APP_OWNED_MIGRATION_FILES.forEach((name) => {

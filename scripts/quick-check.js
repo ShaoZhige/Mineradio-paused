@@ -1792,7 +1792,8 @@ function checkPersistentCacheStorageGuard() {
   const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
   const setNameAt = mainText.indexOf('app.setName(APP_NAME)');
   const firstUserDataLookupAt = mainText.indexOf("app.getPath('appData')");
-  if (!/const CACHE_SETTINGS_FILE/.test(mainText) || !/const LYRIC_CACHE_MAX_BYTES = 96 \* 1024 \* 1024/.test(mainText) || !/function defaultCacheRootPath\(\)/.test(mainText) || setNameAt < 0 || firstUserDataLookupAt < 0 || setNameAt > firstUserDataLookupAt || !/const STABLE_USER_DATA_PATH = resolveStableUserDataPath\(\)/.test(mainText) || !/app\.setPath\('userData', STABLE_USER_DATA_PATH\)/.test(mainText) || !/app\.setPath\('sessionData', chromiumSessionDataPath\(cacheSettings\)\)/.test(mainText) || !/const currentChromiumPath = app\.getPath\('sessionData'\)/.test(mainText) || !/MINERADIO_BEAT_CACHE_DIR = cacheSettings\.beatmapsPath/.test(mainText) || !/nativePath:\s*path\.join\(rootPath, 'native-helper-temp'\)/.test(mainText) || !/const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS\.nativePath/.test(mainText) || !/activeWallpaperEnginePath/.test(mainText) || !/wallpaperEngineBytes/.test(mainText)) {
+  const cacheText = fs.readFileSync(path.join(appRoot, 'desktop', 'cache-settings.js'), 'utf8');
+  if (!/const CACHE_SETTINGS_FILE/.test(mainText) || !/const LYRIC_CACHE_MAX_BYTES = 96 \* 1024 \* 1024/.test(mainText) || !/function defaultRootPath\(\)/.test(cacheText) || setNameAt < 0 || firstUserDataLookupAt < 0 || setNameAt > firstUserDataLookupAt || !/const STABLE_USER_DATA_PATH = resolveStableUserDataPath\(\)/.test(mainText) || !/app\.setPath\('userData', STABLE_USER_DATA_PATH\)/.test(mainText) || !/app\.setPath\('sessionData', cacheSettingsManager\.chromiumSessionDataPath\(INITIAL_CACHE_SETTINGS\)\)/.test(mainText) || !/const currentChromiumPath = app\.getPath\('sessionData'\)/.test(cacheText) || !/MINERADIO_BEAT_CACHE_DIR = cacheSettingsManager\.get\(\)\.beatmapsPath/.test(mainText) || !/nativePath:\s*path\.join\(rootPath, 'native-helper-temp'\)/.test(cacheText) || !/const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS\.nativePath/.test(mainText) || !/activeWallpaperEnginePath/.test(cacheText) || !/wallpaperEngineBytes/.test(cacheText)) {
     fail('desktop cache settings must keep app-owned userData stable and route Chromium sessionData plus beatmaps to the configurable cache root');
   }
   // 便携化守卫：数据根必须落在软件目录内，缓存根不得再指向盘符根目录。
@@ -1806,7 +1807,7 @@ function checkPersistentCacheStorageGuard() {
   // %APPDATA%, which users experience as "all my logins are gone". The root therefore has to move
   // next to the exe — the only allowed exception. Both branches must stay: without the exe branch
   // the packaged app loses data, without the APP_ROOT branch a source run writes outside the repo.
-  const cacheRootBody = (mainText.match(/function defaultCacheRootPath\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  const cacheRootBody = (cacheText.match(/function defaultRootPath\(\)\s*\{[\s\S]*?\n  \}/) || [''])[0];
   const portableRootDecl = (mainText.match(/const PORTABLE_USER_DATA_PATH =[\s\S]{0,260}?;\n/) || [''])[0];
   if (!/const APP_ROOT_IN_ASAR = APP_ROOT_PATH\.includes\('app\.asar'\)/.test(mainText)
     || !/const PORTABLE_USER_DATA_PATH = APP_ROOT_IN_ASAR/.test(portableRootDecl)
@@ -1846,7 +1847,8 @@ function checkPersistentCacheStorageGuard() {
   if (!/function migrateMisplacedAppOwnedFiles\(\)/.test(mainText) || !/APP_OWNED_MIGRATION_FILES/.test(mainText) || !/process\.env\.QISHUI_COOKIE_FILE = path\.join\(STABLE_USER_DATA_PATH, '\.qishui-cookie'\)/.test(mainText) || !/process\.env\.SPOTIFY_TOKEN_FILE = path\.join\(STABLE_USER_DATA_PATH, '\.spotify-token\.json'\)/.test(mainText)) {
     fail('provider credentials must migrate out of the old Chromium cache path and remain under stable userData');
   }
-  if (!/mineradio-cache-get-settings/.test(mainText) || !/mineradio-cache-set-settings/.test(mainText) || !/mineradio-cache-read-lyric/.test(mainText) || !/mineradio-cache-write-lyric/.test(mainText) || !/crypto\.createHash\('sha256'\)/.test(mainText) || !/pruneLyricCache/.test(mainText)) {
+  const cacheSettingsText = fs.readFileSync(path.join(appRoot, 'desktop', 'cache-settings.js'), 'utf8');
+  if (!/mineradio-cache-get-settings/.test(mainText) || !/mineradio-cache-set-settings/.test(mainText) || !/mineradio-cache-read-lyric/.test(mainText) || !/mineradio-cache-write-lyric/.test(mainText) || !/crypto\.createHash\('sha256'\)/.test(cacheSettingsText) || !/pruneLyricCache/.test(cacheSettingsText)) {
     fail('desktop cache storage must expose configurable paths and bounded hashed lyric persistence');
   }
   if (!/getCacheSettings:/.test(preloadText) || !/setCacheSettings:/.test(preloadText) || !/readLyricCache:/.test(preloadText) || !/writeLyricCache:/.test(preloadText)) {
