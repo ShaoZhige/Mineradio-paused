@@ -10,6 +10,7 @@
   'use strict';
 
   var STYLE_ID = 'classic';
+  var SCATTER_ID = 'scatter';
   var ROOT_ID = 'folia-classic-lyrics';
   var root = null;
   var floatNode = null;
@@ -27,7 +28,7 @@
   var groupWasHiddenByUs = false;
 
   function foliaStyleOn() {
-    return typeof fx !== 'undefined' && fx && fx.lyricStyle === STYLE_ID;
+    return typeof fx !== 'undefined' && fx && (fx.lyricStyle === STYLE_ID || fx.lyricStyle === SCATTER_ID);
   }
 
   function foliaLyricsUsable() {
@@ -38,6 +39,10 @@
       && (!fx || fx.particleLyrics !== false)
       && (!document.body || !document.body.classList.contains('empty-home-active'))
       && (!document.body || !document.body.classList.contains('splash-active'));
+  }
+
+  function scatterMode() {
+    return typeof fx !== 'undefined' && fx && fx.lyricStyle === SCATTER_ID;
   }
 
   function ensureRoot() {
@@ -51,10 +56,11 @@
       host.appendChild(root);
     }
     root.innerHTML = '';
+    root.classList.toggle('is-scatter', scatterMode());
     floatNode = document.createElement('div');
     floatNode.className = 'folia-classic-float';
     lineNode = document.createElement('div');
-    lineNode.className = 'folia-classic-line';
+    lineNode.className = 'folia-classic-line' + (scatterMode() ? ' is-scatter' : '');
     floatNode.appendChild(lineNode);
     translationNode = document.createElement('div');
     translationNode.className = 'folia-classic-translation';
@@ -326,6 +332,70 @@
     return parseInt(hex.slice(0, 2), 16) + ', ' + parseInt(hex.slice(2, 4), 16) + ', ' + parseInt(hex.slice(4, 6), 16);
   }
 
+  // “乱舞”布局：词不再排成一行，而是在安全框内按种子散开；大小、角度、
+  // 漂移方向都不同，当前词放大发光，过掉的词向外漂走再衰减。
+  function scatterLayout(count, seed) {
+    var points = [];
+    var minDist = count <= 4 ? 32 : count <= 6 ? 28 : count <= 9 ? 23 : 19;
+    for (var i = 0; i < count; i++) {
+      var best = null;
+      var bestGap = -1;
+      for (var attempt = 0; attempt < 48; attempt++) {
+        var x = 12 + hashUnit(seed + i * 13.7 + attempt * 3.17) * 76;
+        var y = 17 + hashUnit(seed + i * 7.93 + attempt * 5.31) * 66;
+        var gap = 999;
+        for (var j = 0; j < points.length; j++) {
+          var dx = (x - points[j].x) * 1.55;
+          var dy = y - points[j].y;
+          gap = Math.min(gap, Math.sqrt(dx * dx + dy * dy));
+        }
+        if (gap > bestGap) { bestGap = gap; best = { x: x, y: y }; }
+        if (gap > minDist) break;
+      }
+      best.size = count <= 6
+        ? 1.0 + hashUnit(seed + i * 2.71 + 4.2) * 0.55
+        : 0.78 + hashUnit(seed + i * 2.71 + 4.2) * 0.62;
+      best.rot = (hashUnit(seed + i * 9.13 + 1.7) - 0.5) * 48;
+      best.driftX = (hashUnit(seed + i * 5.53 + 8.1) - 0.5) * 190;
+      best.driftY = (hashUnit(seed + i * 4.37 + 6.7) - 0.5) * 150;
+      best.driftR = (hashUnit(seed + i * 6.19 + 2.3) - 0.5) * 26;
+      best.dur = 7 + hashUnit(seed + i * 3.77 + 11.3) * 5;
+      best.delay = -hashUnit(seed + i * 8.41 + 3.9) * best.dur;
+      points.push(best);
+    }
+    return points;
+  }
+
+  function applyScatterLayout(seed) {
+    if (!lineNode || !wordNodes.length) return;
+    var poses = scatterLayout(wordNodes.length, seed);
+    lineNode.classList.add('is-scatter');
+    for (var i = 0; i < wordNodes.length; i++) {
+      var node = wordNodes[i];
+      var pose = poses[i];
+      node.style.setProperty('--sx', pose.x.toFixed(3));
+      node.style.setProperty('--sy', pose.y.toFixed(3));
+      node.style.setProperty('--w-size', pose.size.toFixed(3));
+      node.style.setProperty('--w-rot', pose.rot.toFixed(2) + 'deg');
+      node.style.setProperty('--w-passed-rot', pose.driftR.toFixed(2) + 'deg');
+      node.style.setProperty('--w-drift-x', pose.driftX.toFixed(1) + 'px');
+      node.style.setProperty('--w-drift-y', pose.driftY.toFixed(1) + 'px');
+      node.style.setProperty('--w-x', '0px');
+      node.style.setProperty('--w-y', '0px');
+      node.style.setProperty('--w-wait-x', '0px');
+      node.style.setProperty('--w-wait-y', '0px');
+      node.style.setProperty('--s-drift-x', pose.driftX.toFixed(1) + 'px');
+      node.style.setProperty('--s-drift-y', pose.driftY.toFixed(1) + 'px');
+      node.style.setProperty('--s-drift-r', pose.driftR.toFixed(2) + 'deg');
+      node.style.setProperty('--s-drift-dur', pose.dur.toFixed(2) + 's');
+      node.style.setProperty('--s-drift-delay', pose.delay.toFixed(2) + 's');
+      node.style.setProperty('--in-x', ((hashUnit(seed + i * 11.7 + 2.1) - 0.5) * 480).toFixed(1) + 'px');
+      node.style.setProperty('--in-y', ((hashUnit(seed + i * 6.7 + 5.3) - 0.5) * 360).toFixed(1) + 'px');
+      node.style.setProperty('--in-r', ((hashUnit(seed + i * 8.3 + 7.9) - 0.5) * 120).toFixed(1) + 'deg');
+      node.style.setProperty('--in-delay', (i * 0.06).toFixed(3) + 's');
+    }
+  }
+
   function makeWordNode(unit, index, lineSeed, lineFontSize) {
     var rnd = function (n) { return hashUnit(lineSeed + index * 7.13 + n * 1.71); };
     var scale = 1.1 + rnd(1) * 0.2;
@@ -387,7 +457,9 @@
 
   function renderLine(line, nextLine, lineIndex) {
     ensureRoot();
-    var key = lineIndex + '|' + String(line && line.text || '');
+    if (root) root.classList.toggle('is-scatter', scatterMode());
+    if (lineNode) lineNode.classList.toggle('is-scatter', scatterMode());
+    var key = (scatterMode() ? 's|' : 'c|') + lineIndex + '|' + String(line && line.text || '');
     if (key === lastLineKey) return;
     lastLineKey = key;
 
@@ -434,6 +506,7 @@
       lineNode.appendChild(node);
       wordNodes.push(node);
     }
+    if (scatterMode()) applyScatterLayout(seed * 1000);
     lineNode.classList.remove('is-in');
     void lineNode.offsetWidth;
     var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.12 : 0.26;
@@ -586,14 +659,17 @@
   // with the better word split instead of waiting for the next lyric line.
   if (window.cjkWordSegmenter && window.cjkWordSegmenter.onReady) {
     window.cjkWordSegmenter.onReady(function () {
-      if (fx && fx.lyricStyle === 'classic') lastLineKey = '';
+      if (fx && (fx.lyricStyle === 'classic' || fx.lyricStyle === 'scatter')) lastLineKey = '';
     });
   }
 
   // QA hook: hidden Electron windows throttle requestAnimationFrame, so tests
   // can advance one frame synchronously after changing style or playback time.
   window.__mineradioFoliaTick = tick;
-  if (window.__MINERADIO_TEST__) window.__mineradioFoliaBuildWords = buildWords;
+  if (window.__MINERADIO_TEST__) {
+    window.__mineradioFoliaBuildWords = buildWords;
+    window.__mineradioFoliaScatterLayout = scatterLayout;
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { requestAnimationFrame(frame); }, { once: true });

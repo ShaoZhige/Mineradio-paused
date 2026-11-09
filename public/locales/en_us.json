@@ -606,6 +606,7 @@
   "lyric_style_section": "Lyric style",
   "lyric_style_default": "Default",
   "lyric_style_classic": "Flow",
+  "lyric_style_scatter": "Scatter",
   "fx_hotkey_settings": "Hotkey settings",
   "fx_apply": "Apply",
   "fx_undo_to_here": "Undo up to here",

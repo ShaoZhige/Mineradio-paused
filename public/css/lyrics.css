@@ -354,3 +354,87 @@
   .folia-classic-line.is-out { animation: none }
   .folia-classic-word { transition: none }
 }
+
+/* “乱舞”布局：词散落在整屏，每个词有自己的尺寸、角度和漂移轨迹。
+   当前词放大发光，过掉的词向外漂走；不再保持一行。 */
+#folia-classic-lyrics.is-scatter .folia-classic-float {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  animation: none
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-line {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: auto;
+  max-width: none;
+  min-height: 0;
+  perspective: none
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-word {
+  position: absolute;
+  left: calc(var(--sx, 50) * 1%);
+  top: calc(var(--sy, 50) * 1%);
+  margin: 0;
+  font-size: calc(1em * var(--w-size, 1));
+  transform: translate(-50%, -50%);
+  z-index: 1
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-word.is-active {
+  z-index: 3;
+  scale: calc(var(--w-scale, 1) * 1.18)
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-body {
+  animation: folia-scatter-drift var(--s-drift-dur, 9s) ease-in-out infinite alternate;
+  animation-delay: var(--s-drift-delay, 0s)
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-word.is-passed .folia-classic-body {
+  animation: folia-classic-passed-glow 4.2s ease-in-out infinite alternate,
+    folia-scatter-drift var(--s-drift-dur, 9s) ease-in-out infinite alternate;
+  animation-delay: 0s, var(--s-drift-delay, 0s)
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-word.is-waiting {
+  opacity: .24
+}
+
+#folia-classic-lyrics.is-scatter .folia-classic-line.is-in .folia-classic-word {
+  animation: folia-scatter-word-in .62s cubic-bezier(.18, .9, .24, 1) backwards;
+  animation-delay: var(--in-delay, 0s)
+}
+
+@keyframes folia-scatter-word-in {
+  from {
+    opacity: 0;
+    translate: var(--in-x, 160px) var(--in-y, -120px);
+    rotate: calc(var(--w-rot, 0deg) + var(--in-r, 30deg));
+    scale: .35;
+    filter: blur(7px)
+  }
+}
+
+@keyframes folia-scatter-drift {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) }
+  50% {
+    transform: translate3d(var(--s-drift-x, 40px), var(--s-drift-y, -30px), 0)
+      rotate(var(--s-drift-r, 8deg))
+  }
+  100% {
+    transform: translate3d(calc(var(--s-drift-x, 40px) * -.55), calc(var(--s-drift-y, -30px) * .6), 0)
+      rotate(calc(var(--s-drift-r, 8deg) * -.8))
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #folia-classic-lyrics.is-scatter .folia-classic-body,
+  #folia-classic-lyrics.is-scatter .folia-classic-word.is-passed .folia-classic-body {
+    animation: none
+  }
+}

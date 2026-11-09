@@ -606,6 +606,7 @@
   "lyric_style_section": "Стиль текста",
   "lyric_style_default": "По умолчанию",
   "lyric_style_classic": "Поток",
+  "lyric_style_scatter": "Разброс",
   "fx_hotkey_settings": "Настройки горячих клавиш",
   "fx_apply": "Применить",
   "fx_undo_to_here": "Отменить до этого пункта",
