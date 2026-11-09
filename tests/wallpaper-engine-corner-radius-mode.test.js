@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 原生 WE 窗口圆角与软件窗口外壳的一致性回归测试（#471）
 //
@@ -21,7 +22,7 @@ const vm = require('vm');
 
 const appRoot = path.resolve(__dirname, '..');
 const mainSource = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
-const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+const cssText = readAllCss();
 
 function extractFunction(source, name) {
   const marker = `function ${name}(`;

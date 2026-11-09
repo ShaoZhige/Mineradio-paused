@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 启动期渲染守卫：模块之间没有跨文件函数提升，任何一个模块在顶层抛错，它自己后面那段
 // 赋值/绑定就全部不执行（以前拼成一个 <script> 时更狠：一条抛错会吃掉后面所有模块）。
@@ -676,7 +677,7 @@ test('the guide highlight ring is gone and its card still positions', () => {
   // with the element removed the whole function bailed out, so the card was never positioned
   // and the scrim focus never updated — a silent functional regression.
   const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
-  const css = fs.readFileSync(path.join(ROOT, 'public/css/index.css'), 'utf8');
+  const css = readAllCss();
   const guide = fs.readFileSync(path.join(ROOT, 'public/js/modules/09-idle-toast-libraries.js'), 'utf8');
 
   assert.ok(!/id="visual-guide-ring"/.test(html), '#visual-guide-ring 不该回来');

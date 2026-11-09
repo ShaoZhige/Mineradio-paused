@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,7 +13,7 @@ const dashboardScript = fs.readFileSync(
   path.join(appRoot, 'public', 'js', 'modules', '05-playback', '03a-home-dashboard.js'),
   'utf8',
 );
-const indexCss = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+const indexCss = readAllCss();
 
 function namedFunctionSource(source, name) {
   const declaration = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);

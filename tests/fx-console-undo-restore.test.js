@@ -1,3 +1,4 @@
+const { readAllCss } = require('./helpers/css-source');
 // DIY 控制台「撤销 / 历史」入口的回归：撤销栈与历史语义一直都在，入口曾经被删掉，
 // 结果撤销默认 disabled、历史浮层永远空着 —— 等于把写好的能力锁死。
 // 这份用例钉住「入口在、首帧渲染过、四种语言都有按钮文案、语义常数没被动过」。
@@ -12,7 +13,7 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const WORKSPACE = fs.readFileSync(path.join(ROOT, 'public', 'js', 'modules', '07-fx', '09-console-workspace.js'), 'utf8');
-const CSS = fs.readFileSync(path.join(ROOT, 'public', 'css', 'index.css'), 'utf8');
+const CSS = readAllCss();
 const LOCALES = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
 
 function readLocale(name) {

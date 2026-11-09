@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -46,7 +47,7 @@ function objectPropertyCall(source, propertyName, functionName) {
 
 test('first-launch UI accent defaults and missing-field fallback stay white', () => {
   const defaults = read('public/js/modules/00-state/04-fx-defaults.js');
-  const css = read('public/css/index.css');
+  const css = readAllCss();
   const html = read('public/index.html');
   // 视觉存档的读/写已拆成两个文件（00-state/05a 读、02-visual/04 写），两半一起读。
   const persistence = [

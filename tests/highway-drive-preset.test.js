@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 无尽公路 Highway Drive：编号 13，自绘第一人称公路场景，八个频段驱动。
 // 移植自上游 PR #434，编号按本仓库现状重排：上游用 9，本仓库 9~12 已被 premium 预设占用。
@@ -205,7 +206,7 @@ assert(loader.includes("'highway-drive-preset.js'"), 'index-loader 必须登记�
 assert(/MAX_VISUAL_PRESET_INDEX = 13/.test(core) && /HIGHWAY_PRESET_INDEX = 13/.test(core), '预设 13 必须能通过启动与存档夹取');
 assert(presets.includes("name: '无尽公路'") && presets.includes('作者 <span class="pc-author-shaozhige">Shao Zhige</span>'), '预设卡片必须署名 Shao Zhige');
 assert(presets.includes('灵感 Cyberforker'), '卡片要保留灵感来源');
-assert(!/pc-author-cyberforker/.test(presets + read('public', 'css', 'index.css')), '旧的署名样式必须保持删除');
+assert(!/pc-author-cyberforker/.test(presets + readAllCss()), '旧的署名样式必须保持删除');
 assert(/presetDisplayOrder = \[0, 9, 10, 11, 12, 6, 7, 8, 13, 5, 4, 2, 1, 3\]/.test(presets), '无尽公路卡片要排在音域回响之后');
 assert(/MineradioHighwayDrive\.onPresetChange/.test(presetGrid), '切换预设必须通知无尽公路运行时');
 assert(/MineradioHighwayDrive\.update/.test(mainLoop) && /visual\.highway-drive/.test(mainLoop), '主循环必须驱动并计量无尽公路');

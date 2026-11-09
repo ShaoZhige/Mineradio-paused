@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 「歌词样式 → 流光」的静态回归守卫。
 //
@@ -17,7 +18,7 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const HTML = read('public/index.html');
 const LOADER = read('public/js/index-loader.js');
 const MODULE = read('public/js/modules/02-visual/16-folia-classic-lyrics.js');
-const CSS = read('public/css/index.css');
+const CSS = readAllCss();
 const DEFAULTS = read('public/js/modules/00-state/04-fx-defaults.js');
 const SAVE_READ = read('public/js/modules/00-state/05a-fx-save-read.js');
 const PERSISTENCE = read('public/js/modules/02-visual/04-visual-settings-persistence.js');

@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 自定义音源与 Mineradio 现有播放链路的接线不变量。
 // 最重要的一条：禁用自定义音源时，网易云/QQ/酷狗/汽水的解析路径必须与改动前完全一致——
@@ -68,7 +69,7 @@ test('the titlebar entry and the settings dialog exist and are i18n-marked', () 
   assert.ok(html.includes('id="custom-source-list"'), '缺少脚本列表容器');
   assert.ok(html.includes('onclick="openCustomSourceModal()"'), '入口没有绑定打开动作');
   assert.ok(html.includes('data-i18n="custom_source_warning"'), '风险提示没有接入 i18n');
-  const css = read(path.join(ROOT, 'public/css/index.css'));
+  const css = readAllCss();
   assert.ok(css.includes('.custom-source-dialog'), '缺少音源面板样式');
   assert.ok(css.includes('#custom-source-modal'), '缺少音源遮罩样式');
 });

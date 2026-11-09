@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 完整桌面模式下的控制栏自动隐藏：用户显式打开自动隐藏时，桌面模式不能再把控制条钉住，
 // 否则开关看起来完全失效。同时保证隐藏/唤回的链路仍然完整。
@@ -44,7 +45,7 @@ assert.match(main, /setMainWindowBackgroundThrottling\(win, false\);/);
 assert.match(main, /releaseFullDesktopModeRecoveryTray\(\);[\s\S]{0,400}setMainWindowBackgroundThrottling\(mainWindow, MAIN_WINDOW_BACKGROUND_THROTTLING\);/);
 
 // 3) 桌面模式下控制条的隐藏态不会被那条 .visible:not(.soft-hidden) 规则顶回来。
-const css = read('public/css/index.css');
+const css = readAllCss();
 assert.match(css, /#bottom-bar\.soft-hidden\s*\{[\s\S]{0,120}opacity:\s*0/);
 assert.match(css, /desktop-wallpaper-mode\.desktop-wallpaper-interactive:not\(\.empty-home-active\):not\(\.home-controls-locked\) #bottom-bar\.visible:not\(\.soft-hidden\)/);
 assert.match(css, /body\.desktop-wallpaper-mode #bottom-handle/);

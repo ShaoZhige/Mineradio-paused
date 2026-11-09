@@ -14,6 +14,9 @@ function spawnSync(command, args, options = {}) {
 }
 
 const appRoot = path.resolve(__dirname, '..');
+function readAllCssFiles() {
+  return ['core.css', 'index.css'].map((name) => fs.readFileSync(path.join(appRoot, 'public', 'css', name), 'utf8')).join('\n');
+}
 const QUIT_TEXT = fs.readFileSync(path.join(appRoot, 'desktop', 'quit.js'), 'utf8');
 const runElectron = process.argv.includes('--electron') || process.argv.includes('--full');
 const forbiddenPattern = /\b(fsr|dlss|native-fg|framegen)\b|frame generation/i;
@@ -710,7 +713,7 @@ function checkMainWindowChrome() {
 function checkBackgroundTransparencyControlsGuard() {
   logStep('Background transparency controls guard');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const rendererText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '01-scene', '00-renderer-quality.js'), 'utf8');
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const persistenceText = readVisualArchiveText();
@@ -751,7 +754,7 @@ function checkBackgroundTransparencyControlsGuard() {
 function checkWallpaperEngineImportGuard() {
   logStep('Wallpaper Engine additive import guard');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const rendererPath = path.join(appRoot, 'public', 'js', 'modules', '07-fx', '03-wallpaper-engine-library.js');
   const rendererText = fs.readFileSync(rendererPath, 'utf8');
   const controlGlassText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '15-control-glass-animations.js'), 'utf8');
@@ -1042,7 +1045,7 @@ function checkDesktopWallpaperModeGuard() {
   const wallpaperEngineRuntimeText = fs.readFileSync(wallpaperEngineRuntimePath, 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const wallpaperToggleTag = htmlText.match(/<[^>]*\bid=["']t-wallpaperMode["'][^>]*>/i);
   const defaultsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
   const layoutText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
@@ -1276,7 +1279,7 @@ function checkDesktopWindowAdaptationGuard() {
   logStep('Desktop window adaptation guard');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const shellText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '04-desktop-overlay-fullscreen.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   if (!/function getAdaptiveWindowMinimumSize/.test(mainText) || !/function isPortraitDisplayArea/.test(mainText)) {
     fail('main window must adapt minimum size and windowed bounds for portrait displays');
   }
@@ -1789,7 +1792,7 @@ function checkPersistentCacheStorageGuard() {
   const loaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
   const cacheUiText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '08-cache-storage-settings.js'), 'utf8');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const setNameAt = mainText.indexOf('app.setName(APP_NAME)');
   const firstUserDataLookupAt = mainText.indexOf("app.getPath('appData')");
   const cacheText = fs.readFileSync(path.join(appRoot, 'desktop', 'cache-settings.js'), 'utf8');
@@ -1997,7 +2000,7 @@ function checkCustomSourceGuard() {
   const fallbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '11-provider-fallback.js'), 'utf8');
   const indexLoaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const gitignoreText = fs.readFileSync(path.join(appRoot, '.gitignore'), 'utf8');
 
   // 脚本必须跑在锁定过的沙箱文档里：没有网络、没有图片、没有样式、只有 eval 一层。
@@ -2170,7 +2173,7 @@ function checkQishuiProviderGuard() {
   logStep('Qishui provider guard');
   const qishuiText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-api.js'), 'utf8');
   const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const coreStoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
   const playlistShellText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '01-playlist-panel-shell.js'), 'utf8');
   const playlistDetailText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '02-playlist-detail.js'), 'utf8');
@@ -2353,7 +2356,7 @@ async function checkSpotifyProviderGuard() {
   const spotifyText = fs.readFileSync(spotifyPath, 'utf8');
   const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const coreStoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
   const qualityText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '00-api-quality-output.js'), 'utf8');
   const searchText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '07-search.js'), 'utf8');
@@ -2618,7 +2621,7 @@ function checkSpotifyProviderSurface() {
 function checkPlaybackControlBadgesGuard() {
   logStep('Playback control source/VIP badge guard');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const searchText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '07-search.js'), 'utf8');
   const controlText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '02-visual', '15-ripples-cover-depth.js'), 'utf8');
   const playbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
@@ -3060,7 +3063,7 @@ async function checkProviderFallbackTerminalStateGuard() {
 
 function checkSearchGlassEntranceGuard() {
   logStep('Search glass entrance guard');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   const glassText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '15-control-glass-animations.js'), 'utf8');
   const searchText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '07-search.js'), 'utf8');
@@ -3275,7 +3278,7 @@ function checkQQVipStatusSyncGuard() {
   const userModalText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '04-user-modal-logout.js'), 'utf8');
   const playbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
   const startupText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '05-startup-bindings.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
 
   if (!/function fetchQQVipStatus/.test(serverText) || !/SRFVipQuery_V2/.test(serverText) || !/QQ_VIP_INFO_CACHE_TTL_MS/.test(serverText) || !/forceVip/.test(serverText) || !/vipCheckedAt/.test(serverText)) {
     fail('QQ login status must include an explicit forceable VIP probe instead of relying only on profile fields');
@@ -3366,7 +3369,7 @@ async function checkProviderAuthCookiePathGuard() {
   const qqLoginText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '03-login-modal-flows.js'), 'utf8');
   const accountUtilsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '01-login-modal-utils.js'), 'utf8');
   const playlistLoadText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '03-podcast-playlist-loaders.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
 
   if (!/function getCookieFile\(\)/.test(serverText) || !/function getQQCookieFile\(\)/.test(serverText) || !/function getKugouCookieFile\(\)/.test(serverText) || !/function getQishuiCookieFile\(\)/.test(serverText)) {
     fail('provider cookie files must be resolved lazily after Electron sets userData env paths');
@@ -3619,7 +3622,7 @@ function checkPlaybackResumeRecoveryGuard() {
 function checkAudioOutputWorkflowPanelGuard() {
   logStep('Audio output workflow panel guard');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const qualityText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '00-api-quality-output.js'), 'utf8');
   // 结构判据一律跑在剥掉注释的代码上：注释里出现 "enumerateDevices()" 这类字样
   // 会让判据误报（判据不能匹配注释里描述的行为，只能匹配真的行为）。
@@ -3727,7 +3730,7 @@ function checkCuefieldAutoMixGuard() {
   const desktopText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const loaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const coreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '16-cuefield-automix-core.js'), 'utf8');
   const timelineText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '17-cuefield-timeline-executor.js'), 'utf8');
   const integrationText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '18-cuefield-automix-integration.js'), 'utf8');
@@ -3861,7 +3864,7 @@ function checkCuefieldAutoMixGuard() {
 function checkAlbumDetailGaplessGuard() {
   logStep('Album detail and explicit gapless guard');
   const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const detailText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '06-track-detail-lyrics-actions.js'), 'utf8');
   const coreStoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '00-core-stores.js'), 'utf8');
   const playbackText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '13-playback-start-audio.js'), 'utf8');
@@ -4153,7 +4156,7 @@ function checkSonicTopographyPresetGuard() {
   const beatCameraText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '01-scene', '02-beat-camera-runtime.js'), 'utf8');
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const presetGridText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '04-preset-grid-uniforms.js'), 'utf8');
-  const presetCssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const presetCssText = readAllCssFiles();
   const fxBindText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
   const fxPanelText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
   const mainLoopText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '11-main-loop.js'), 'utf8');
@@ -4298,7 +4301,7 @@ function checkSonicTopographyPresetGuard() {
   if (!/sonic-workshop-preset\.js/.test(loaderText) || !/BRIDGE_SRC = 'vendor\/sonic-workshop\/mineradio-bridge\.html'/.test(sonicWorkshopText) || !/MineradioSonicWorkshop\.update/.test(mainLoopText) || !/visual\.sonic-workshop/.test(mainLoopText) || !/MineradioSonicWorkshop\.onPresetChange/.test(presetGridText) || !/workshopPresetActive/.test(mainLoopText)) {
     fail('Sonic Workshop derivative preset must load, fade as preset 8, hide base particles, and update from the main loop');
   }
-  if (!/canvasAnchor\.parentNode\.insertBefore\(layer,\s*canvasAnchor\)/.test(sonicWorkshopText) || !/layer\.setAttribute\('inert'/.test(sonicWorkshopText) || !/iframe\.setAttribute\('inert'/.test(sonicWorkshopText) || !/iframe\.style\.pointerEvents\s*=\s*'none'/.test(sonicWorkshopText) || !/#sonic-workshop-layer,\s*#sonic-workshop-layer \*[\s\S]{0,120}pointer-events:\s*none !important/.test(fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8'))) {
+  if (!/canvasAnchor\.parentNode\.insertBefore\(layer,\s*canvasAnchor\)/.test(sonicWorkshopText) || !/layer\.setAttribute\('inert'/.test(sonicWorkshopText) || !/iframe\.setAttribute\('inert'/.test(sonicWorkshopText) || !/iframe\.style\.pointerEvents\s*=\s*'none'/.test(sonicWorkshopText) || !/#sonic-workshop-layer,\s*#sonic-workshop-layer \*[\s\S]{0,120}pointer-events:\s*none !important/.test(readAllCssFiles())) {
     fail('Sonic Workshop iframe layer must remain fully pointer-transparent so player buttons and window controls stay clickable');
   }
   // 13/14 是自绘场景预设：模块自带 INDEX，核心状态里另存一份常量用于夹取。
@@ -4391,7 +4394,7 @@ function checkLongPressReorderGuard() {
   const playlistDetailText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '02-playlist-detail.js'), 'utf8');
   const shelfCoreText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '01-manager-core.js'), 'utf8');
   const shelfInteractionText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '05-card-interactions.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   if (!/function moveQueueIndex\(/.test(queueActionsText) || !/currentSong/.test(queueActionsText) || !/saveLastPlaybackSnapshot\(true,\s*'queue-reorder'\)/.test(queueActionsText)) {
     fail('queue reorder must preserve the current playing item and persist the queue snapshot');
   }
@@ -4424,7 +4427,7 @@ function checkPlaylistPanelTriggerGuard() {
   const archiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const focusCameraText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '01-scene', '03-focus-cinema-camera.js'), 'utf8');
   const desktopMainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
   if (!/PLAYLIST_PANEL_HIDE_DELAY\s*=\s*72/.test(peekText) || /key === 'pl' && isPlaylistPanelInMotion/.test(peekText)) {
     fail('left playlist panel close must start promptly instead of keeping the large hover bridge alive during motion');
@@ -5224,7 +5227,7 @@ function checkCloseBehaviorDefaultGuard() {
 // may shrink.
 function checkPanelRowOverflowGuard() {
   logStep('Playlist panel tool row overflow guard');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
   const cssCode = stripComments(cssText);
 
@@ -5335,7 +5338,7 @@ function checkPlaylistMultiselectGuard() {
   const detailCode = stripComments(readText('public/js/modules/06-lyrics/02-playlist-detail.js'));
   const multiselectCode = stripComments(readText(MULTISELECT_MODULE));
   const indexCode = stripComments(readText('public/index.html'));
-  const cssCode = stripComments(readText('public/css/index.css'));
+  const cssCode = stripComments(readAllCssFiles());
 
   // ── 1) 五层符号，以及两侧必须拼出同一个频道名 ──────────────────────────────
   if (!/addTracks\(id, sources\)\s*\{/.test(libraryCode)) {
@@ -5581,7 +5584,7 @@ function checkPlaylistMultiselectGuard() {
 function checkFullscreenToolsRowGuard() {
   logStep('Fullscreen tools row guard');
   const indexText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
   const prefsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '02-preferences-ui-modes.js'), 'utf8');
   const overlayText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '04-desktop-overlay-fullscreen.js'), 'utf8');
   const guideText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '09-idle-toast-libraries.js'), 'utf8');
@@ -7591,7 +7594,7 @@ async function checkLargePlaylistVirtualizationGuard() {
   const shelfContentText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '04-shelf', '03-content-list-manager.js'), 'utf8');
   const qishuiText = fs.readFileSync(path.join(appRoot, 'server', 'qishui-api.js'), 'utf8');
   const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
-  const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const cssText = readAllCssFiles();
 
   if (!/fetchNeteaseUserPlaylistsPage/.test(serverText) || !/nextOffset/.test(serverText) || !/hasMore/.test(serverText)) {
     fail('Netease playlist catalog must expose real offset pagination');
@@ -8246,7 +8249,7 @@ function checkFirstLaunchDefaultsAndSplashGuard() {
   const fxArchiveText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
   const splashText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '03-splash.js'), 'utf8');
   const splashCode = splashText.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-  const css = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+  const css = readAllCssFiles();
   const marker = 'var fxDefaults = ';
   const start = defaultsText.indexOf(marker);
   const end = defaultsText.indexOf('\n};', start);

@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 完整桌面模式改用真实桌面壁纸后，几条接线必须一直成立：
 // 1) 设置项存在且默认开启；2) 桌面模式下窗口透明、自带底色关闭；
@@ -17,7 +18,7 @@ const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8')
 const fxDefaults = read('public/js/modules/00-state/04-fx-defaults.js');
 const fxSaveRead = read('public/js/modules/00-state/05a-fx-save-read.js');
 const fxPersistence = read('public/js/modules/02-visual/04-visual-settings-persistence.js');
-const css = read('public/css/index.css');
+const css = readAllCss();
 const overlay = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
 const weLibrary = read('public/js/modules/07-fx/03-wallpaper-engine-library.js');
 const bindings = read('public/js/modules/07-fx/07-bindings-shelf-immersive.js');

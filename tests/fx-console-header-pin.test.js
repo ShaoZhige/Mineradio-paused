@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // DIY 视觉控制台的顶栏卡片要停在原位：面板自身不滚动，内容挂进独立的滚动区，
 // 同时卡片保持原来的悬浮透明样式（圆角 15px、半透明底、模糊）。
@@ -9,7 +10,7 @@ const path = require('path');
 const assert = require('node:assert/strict');
 
 const appRoot = path.resolve(__dirname, '..');
-const css = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+const css = readAllCss();
 const workspace = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '09-console-workspace.js'), 'utf8');
 const panelCode = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js'), 'utf8');
 

@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 const fs = require('fs');
 const path = require('path');
@@ -11,7 +12,7 @@ const data = read('public/js/modules/07-fx/00-preset-archive-data.js');
 const shader = read('public/js/modules/02-visual/00-pointer-cover-particles.js');
 const orbit = read('public/js/modules/01-scene/01-orbit-free-camera.js');
 const grid = read('public/js/modules/07-fx/04-preset-grid-uniforms.js');
-const css = read('public/css/index.css');
+const css = readAllCss();
 const mainLoop = read('public/js/modules/11-main-loop.js');
 
 assert.match(core, /MAX_VISUAL_PRESET_INDEX = 13/);

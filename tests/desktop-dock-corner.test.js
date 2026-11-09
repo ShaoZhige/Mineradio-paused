@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -6,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
-const CSS = fs.readFileSync(path.join(ROOT, 'public', 'css', 'index.css'), 'utf8');
+const CSS = readAllCss();
 const RENDERER = fs.readFileSync(
   path.join(ROOT, 'public', 'js', 'modules', '10-shell', '04-desktop-overlay-fullscreen.js'),
   'utf8'

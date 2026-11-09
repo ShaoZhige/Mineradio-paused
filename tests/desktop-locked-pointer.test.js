@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 桌面模式锁定后的鼠标契约：除了右上角控制器，软件界面完全不参与鼠标命中；
 // 控制器的悬停展开/移开收起由主进程轮询真实光标驱动，面板里的开关仍可点击。
@@ -12,7 +13,7 @@ const assert = require('node:assert/strict');
 const appRoot = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8');
 
-const css = read('public/css/index.css');
+const css = readAllCss();
 const main = read('desktop/main.js');
 const icons = read('desktop/desktop-icons.js');
 const preload = read('desktop/preload.js');

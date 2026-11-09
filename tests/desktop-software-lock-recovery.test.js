@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 锁定软件操作后，右上角必须仍然是可点的「解锁岛」：
 //   1) 锁定期间把手保持可见（不被自动隐藏带走）；
@@ -17,7 +18,7 @@ const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8')
 
 const shell = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
 const runtime = read('desktop/full-desktop-mode-runtime.js');
-const css = read('public/css/index.css');
+const css = readAllCss();
 
 // 1) 锁定期间强制保持把手可见。
 assert.match(shell, /if \(active && softwareLocked\) \{\s*setDesktopModeControlPeek\(true\);\s*cancelDesktopModeControlHide\(\);\s*cancelDesktopModeControlPeekHide\(\);/);

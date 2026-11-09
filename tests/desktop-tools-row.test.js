@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 完整桌面模式会隐藏整条标题栏，但 ? / 更新 / 热键 / DIY 这几个工具按钮不能跟着消失：
 // 它们由脚本搬到 #desktop-tools-zone（桌面控制器面板内的顶部一行），退出桌面模式再搬回标题栏。
@@ -14,7 +15,7 @@ const appRoot = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8');
 
 const html = read('public/index.html');
-const css = read('public/css/index.css');
+const css = readAllCss();
 const prefs = read('public/js/modules/00-state/02-preferences-ui-modes.js');
 const shell = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
 

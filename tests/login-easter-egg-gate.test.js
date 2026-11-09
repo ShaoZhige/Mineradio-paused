@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 const assert = require('assert');
 const fs = require('fs');
@@ -271,7 +272,7 @@ async function run() {
     assert.strictEqual(identitySandbox.providerAccountIdentity('qq', { nickname: 'QQ 123456789', userId: '123456789' }), 'QQ 音乐');
     assert.strictEqual(identitySandbox.providerAccountIdentity('kugou', { nickname: '酷狗 99887766', userId: '99887766' }), '酷狗音乐');
 
-    const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'css', 'index.css'), 'utf8');
+    const css = readAllCss();
     assert(/#user-btn\.login-eye-avatar[\s\S]{0,180}width:\s*48px[\s\S]{0,180}border-radius:\s*50%/.test(css));
     assert(css.includes('.login-easter-unlock-cinematic.is-visible'));
     assert(css.includes('@keyframes login-easter-world-float'));

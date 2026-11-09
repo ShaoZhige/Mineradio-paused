@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 播客面板的平台切换器要跟歌单一致：同一套胶囊行、列出所有已登录平台、一次只渲染一个。
 // 区别在于播客接口目前只有网易云提供，其余平台必须明说「暂无可用播客接口」，
@@ -45,7 +46,7 @@ test('切换器复用歌单的类名与交互', () => {
 // 播客直接沿用歌单的胶囊几何，没有自己的一套尺寸；差别只在「有平台就有这一行」——
 // 这一行同时是当前平台归属的唯一标识，收掉之后就无从判断列表属于哪个平台了。
 test('播客沿用歌单的胶囊尺寸', () => {
-  const CSS = fs.readFileSync(path.join(ROOT, 'public', 'css', 'index.css'), 'utf8');
+  const CSS = readAllCss();
   assert.match(CSS, /\.pl-provider-tab \{\s*flex: 1 1 0;/, '胶囊等分整行，与歌单同一条规则');
   assert.doesNotMatch(CSS, /pl-provider-tabs-solo/, '不要为播客另起一套容器级尺寸');
   assert.doesNotMatch(DETAIL, /pl-provider-tabs-solo/);

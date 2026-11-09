@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // Two invariants:
 //   1. Renderer dialogs must never touch window.prompt — Electron throws on it, which is what
@@ -15,7 +16,7 @@ const { loadDict } = require('./helpers/module-source');
 const appRoot = path.join(__dirname, '..');
 const dialogSource = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '09-prompt-dialogs.js'), 'utf8');
 const loaderSource = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
-const cssSource = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8');
+const cssSource = readAllCss();
 const playlistSource = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '00-built-in-playlists.js'), 'utf8');
 const archiveSource = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '00-preset-archive-data.js'), 'utf8');
 const mainSource = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');

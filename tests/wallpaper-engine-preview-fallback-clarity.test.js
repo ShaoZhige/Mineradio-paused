@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 壁纸"发虚/与真实壁纸不符"四项修复的回归测试。
 // Regression cover for the four fixes behind "blurry wallpaper that does not match the
@@ -16,7 +17,7 @@ const rendererPath = path.join(appRoot, 'public', 'js', 'modules', '07-fx', '03-
 const rendererText = fs.readFileSync(rendererPath, 'utf8');
 const libraryText = fs.readFileSync(path.join(appRoot, 'desktop', 'wallpaper-engine-library.js'), 'utf8');
 const runtimeText = fs.readFileSync(path.join(appRoot, 'desktop', 'wallpaper-engine-runtime.js'), 'utf8');
-const cssText = fs.readFileSync(path.join(appRoot, 'public', 'css', 'index.css'), 'utf8').replace(/\r\n/g, '\n');
+const cssText = readAllCss().replace(/\r\n/g, '\n');
 const htmlText = fs.readFileSync(path.join(appRoot, 'public', 'index.html'), 'utf8');
 
 function sourceBlock(text, startNeedle, endNeedle) {

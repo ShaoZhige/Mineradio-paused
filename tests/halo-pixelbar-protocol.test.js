@@ -1,4 +1,5 @@
 'use strict';
+const { readAllCss } = require('./helpers/css-source');
 
 // 花再 Halo PixelBar 同步：协议字节与接线两件事一起钉。
 // 这台音响没有仿真器，抓包记录是唯一的规格来源，所以每个包形态都写成字节向量 ——
@@ -106,7 +107,7 @@ function testWiring() {
   const loader = read('public/js/index-loader.js');
   const indexHtml = read('public/index.html');
   const bridge = read('public/js/modules/06-lyrics/halo-sync-bridge.js');
-  const css = read('public/css/index.css');
+  const css = readAllCss();
   const haloSource = read('desktop/halo-lyric-sync.js');
 
   // 枚举要按 VID/PID 过滤：不过滤的话本机 15 个键鼠接口全会被报成「找到设备」
