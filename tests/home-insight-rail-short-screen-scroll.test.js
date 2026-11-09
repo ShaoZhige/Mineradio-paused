@@ -24,8 +24,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const cssPath = path.join(__dirname, '..', 'public', 'css', 'index.css');
-const css = fs.readFileSync(cssPath, 'utf8');
+const { readAllCss } = require('./helpers/css-source');
+const css = readAllCss();
 
 function braceDepthAt(index) {
   let depth = 0;
