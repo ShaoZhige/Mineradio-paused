@@ -3265,6 +3265,7 @@ function checkQQVipStatusSyncGuard() {
   const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const vipModuleText = fs.readFileSync(path.join(appRoot, 'server', 'qq-vip-api.js'), 'utf8');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const loginWindowsText = fs.readFileSync(path.join(appRoot, 'desktop', 'login-windows.js'), 'utf8');
   const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const loginStatusText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '02-login-status.js'), 'utf8');
   const loginFlowText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '03-login-modal-flows.js'), 'utf8');
@@ -3301,23 +3302,23 @@ function checkQQVipStatusSyncGuard() {
       /mergeQQPlaybackVipEvidence\(Object\.assign/.test(loginStatusText)) {
     fail('QQ frontend must keep last-known-good membership on transient failures and show unknown membership as pending');
   }
-  if (!/openQQMusicLoginWindow\(owner, options\)/.test(mainText) ||
-      !/const initialCookie = await readQQLoginCookieHeader\(cookieSession\);[\s\S]{0,220}qqCookieHasPlaybackLogin\(initialCookie\)[\s\S]{0,260}options\.forceReauth/.test(mainText) ||
-      !/options\.forceReauth[\s\S]{0,180}clearStorageData/.test(mainText) ||
+  if (!/openQQMusicLoginWindow\(owner, options\)/.test(loginWindowsText) ||
+      !/const initialCookie = await readQQLoginCookieHeader\(cookieSession\);[\s\S]{0,220}qqCookieHasPlaybackLogin\(initialCookie\)[\s\S]{0,260}options\.forceReauth/.test(loginWindowsText) ||
+      !/options\.forceReauth[\s\S]{0,180}clearStorageData/.test(loginWindowsText) ||
       !/openQQMusicLogin:\s*\(options\)/.test(preloadText) ||
       !/forceReauth:\s*!!\(qqLoginStatus && qqLoginStatus\.authorizationIncomplete && qqLoginStatus\.playbackKeyReady === false\)/.test(loginFlowText) ||
       /forceReauth:\s*!!\(qqLoginStatus && qqLoginStatus\.loggedIn\)/.test(loginFlowText)) {
     fail('QQ reauthorization must only clear an explicitly incomplete playback session, never every logged-in session');
   }
-  if (!/function isTrustedQQLoginUrl/.test(mainText) ||
-      !/action:\s*'allow'[\s\S]{0,500}partition:\s*QQ_LOGIN_PARTITION/.test(mainText) ||
-      !/playbackFinalizePending[\s\S]{0,700}setTimeout\(resolveDelay,\s*450\)/.test(mainText) ||
-      !/const showLoginWindow = \(\) =>[\s\S]{0,260}loginWindow\.show\(\)/.test(mainText) ||
-      !/showWatchdog = setTimeout\(showLoginWindow,\s*2500\)/.test(mainText) ||
-      !/const loadQQOfficialLoginEntry = async \(\) =>[\s\S]{0,700}cookieSession\.clearCache\(\)[\s\S]{0,420}QQ_LOGIN_FALLBACK_URL/.test(mainText) ||
-      /loginWindow\.loadURL\('https:\/\/y\.qq\.com\/n\/ryqq\/player'\)/.test(mainText) ||
-      !/function qqLoginCompletionFromCookie[\s\S]{0,500}QQ_PLAYBACK_AUTH_INCOMPLETE/.test(mainText) ||
-      !/resolve\(qqLoginCompletionFromCookie\(cookie\)\)/.test(mainText)) {
+  if (!/function isTrustedQQLoginUrl/.test(loginWindowsText) ||
+      !/action:\s*'allow'[\s\S]{0,900}partition:\s*qqPartition/.test(loginWindowsText) ||
+      !/playbackFinalizePending[\s\S]{0,700}setTimeout\(resolveDelay,\s*450\)/.test(loginWindowsText) ||
+      !/const showLoginWindow = \(\) =>[\s\S]{0,260}loginWindow\.show\(\)/.test(loginWindowsText) ||
+      !/showWatchdog = setTimeout\(showLoginWindow,\s*2500\)/.test(loginWindowsText) ||
+      !/const loadQQOfficialLoginEntry = async \(\) =>[\s\S]{0,700}cookieSession\.clearCache\(\)[\s\S]{0,420}qqFallbackUrl/.test(loginWindowsText) ||
+      /loginWindow\.loadURL\('https:\/\/y\.qq\.com\/n\/ryqq\/player'\)/.test(loginWindowsText) ||
+      !/function qqLoginCompletionFromCookie[\s\S]{0,500}QQ_PLAYBACK_AUTH_INCOMPLETE/.test(loginWindowsText) ||
+      !/resolve\(qqLoginCompletionFromCookie\(cookie\)\)/.test(loginWindowsText)) {
     fail('QQ OAuth must stay in its official window, keep trusted popups on one partition, and reject web-only partial sessions');
   }
   if (!/async function fetchQQVipStatus[\s\S]{0,220}const musicKey = qqCookiePlaybackKey\(cookieObj\)/.test(serverText) ||
@@ -3326,7 +3327,7 @@ function checkQQVipStatusSyncGuard() {
       !/function qqCookieUin[\s\S]{0,180}!!obj\.wxopenid[\s\S]{0,180}obj\.wxuin/.test(serverText)) {
     fail('QQ VIP and vkey requests must use a strict QQ Music playback key and must not persist p_skey-only sessions');
   }
-  if (!/cookieIsExpired/.test(mainText) || !/qqLoginCookieCandidateScore/.test(mainText) ||
+  if (!/cookieIsExpired/.test(loginWindowsText) || !/qqLoginCookieCandidateScore/.test(loginWindowsText) ||
       !/QQ_VKEY_REQUEST_TIMEOUT_MS = 6000/.test(serverText) ||
       !/QQ_AUDIO_PROBE_TOTAL_MS = 6200/.test(serverText) ||
       (playbackText.match(/timeoutMs: 15000/g) || []).length < 2) {
@@ -3359,6 +3360,7 @@ async function checkProviderAuthCookiePathGuard() {
   logStep('Provider auth cookie path guard');
   const serverText = fs.readFileSync(path.join(appRoot, 'server', 'server.js'), 'utf8');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const loginWindowsText = fs.readFileSync(path.join(appRoot, 'desktop', 'login-windows.js'), 'utf8');
   const qqLoginText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '03-login-modal-flows.js'), 'utf8');
   const accountUtilsText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', '01-login-modal-utils.js'), 'utf8');
   const playlistLoadText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '03-podcast-playlist-loaders.js'), 'utf8');
@@ -3429,12 +3431,12 @@ async function checkProviderAuthCookiePathGuard() {
   if (singleInstanceBranch < 0 || mainText.slice(0, singleInstanceBranch).includes(startupStateCall) || !mainText.slice(singleInstanceBranch).includes(startupStateCall)) {
     fail('Secondary instances must quit before they can overwrite the primary startup-state.json');
   }
-  if (!/function qqLoginCompletionFromCookie[\s\S]{0,420}partial:\s*true[\s\S]{0,160}QQ_PLAYBACK_AUTH_INCOMPLETE/.test(mainText) ||
-      !/resolve\(qqLoginCompletionFromCookie\(cookie\)\)/.test(mainText) ||
-      /partial:\s*true,\s*cookie/.test(mainText)) {
+  if (!/function qqLoginCompletionFromCookie[\s\S]{0,420}partial:\s*true[\s\S]{0,160}QQ_PLAYBACK_AUTH_INCOMPLETE/.test(loginWindowsText) ||
+      !/resolve\(qqLoginCompletionFromCookie\(cookie\)\)/.test(loginWindowsText) ||
+      /partial:\s*true,\s*cookie/.test(loginWindowsText)) {
     fail('QQ login must report a web-only session as incomplete without returning its cookie for persistence');
   }
-  if (/resolve\(neteaseCookieHasLogin\(cookie\)[\s\S]{0,140}!qqCookieHasPlaybackLogin/.test(mainText)) {
+  if (/resolve\(neteaseCookieHasLogin\(cookie\)[\s\S]{0,140}!qqCookieHasPlaybackLogin/.test(loginWindowsText)) {
     fail('Netease login must not reuse QQ playback authorization checks');
   }
   if (!/if \(!qqPlaybackReady\)/.test(qqLoginText) || !/login_qq_synced_auth_incomplete/.test(qqLoginText)) {

@@ -7,21 +7,22 @@ const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 const { extractKugouAuth } = require('../server/kugou-api');
-const { mainI18nBlock } = require('./helpers/module-source');
+const { createLoginWindows } = require('../desktop/login-windows');
 
 const root = path.resolve(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'desktop/main.js'), 'utf8');
-const openSource = main.slice(
-  main.indexOf('async function openKugouMusicLoginWindow('),
-  main.indexOf('async function clearKugouMusicLoginSession('),
-);
-// 切片里的窗口标题走 desktopText()，而它定义在文件更早处、不在切片内 —— 必须一起带进去。
-// The sliced login window titles call desktopText(), which lives outside the slice.
-const mainI18n = mainI18nBlock(main, { localesDir: path.join(root, 'public', 'locales') });
 
 function loginHarness(initialCookie) {
   const state = { cookie: initialCookie, clearCount: 0, windows: [], intervals: new Set() };
   const cookieSession = {
+    cookies: {
+      async get() {
+        return String(state.cookie || '').split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
+          const idx = part.indexOf('=');
+          return idx > 0 ? { name: part.slice(0, idx), value: part.slice(idx + 1), domain: 'kugou.com', path: '/', secure: true } : null;
+        }).filter(Boolean);
+      },
+    },
     async clearStorageData(options) {
       assert.ok(options.storages.includes('cookies'));
       state.clearCount += 1;
@@ -47,26 +48,31 @@ function loginHarness(initialCookie) {
       this.emit('closed');
     }
   }
-  const context = vm.createContext({
+  const harness = createLoginWindows({
+    BrowserWindow: LoginWindow,
     session: { fromPartition: (partition) => {
       assert.equal(partition, 'synthetic-kugou-partition');
       return cookieSession;
     } },
-    readKugouLoginCookieHeader: async () => state.cookie,
-    kugouCookieHasPlayback: (cookie) => extractKugouAuth(cookie).playbackReady,
-    kugouCookieHasLogin: (cookie) => extractKugouAuth(cookie).loggedIn,
-    BrowserWindow: LoginWindow,
-    KUGOU_LOGIN_PARTITION: 'synthetic-kugou-partition',
-    KUGOU_LOGIN_URL: 'https://www.kugou.com/',
-    KUGOU_LOGIN_WARMUP_URL: 'https://www.kugou.com/newuc/user/uc/type=edit',
-    APP_ICON_ICO: '',
-    console,
+    shell: {},
+    desktopText: (_key, fallback) => fallback,
+    extractKugouAuth,
+    appIcon: '',
+    neteasePartition: 'synthetic-netease-partition',
+    neteaseLoginUrl: 'https://music.163.com/#/login',
+    qqPartition: 'synthetic-qq-partition',
+    qqLoginUrl: 'https://y.qq.com/n/ryqq/profile',
+    qqFallbackUrl: 'https://y.qq.com/',
+    kugouPartition: 'synthetic-kugou-partition',
+    kugouLoginUrl: 'https://www.kugou.com/',
+    kugouWarmupUrl: 'https://www.kugou.com/newuc/user/uc/type=edit',
+    qqCookiePriority: [],
+    neteaseCookiePriority: [],
+    kugouCookiePriority: [],
     setInterval: (callback) => { state.intervals.add(callback); return callback; },
     clearInterval: (callback) => state.intervals.delete(callback),
-    setTimeout,
   });
-  vm.runInContext(mainI18n + "\n" + openSource, context);
-  return { state, open: context.openKugouMusicLoginWindow };
+  return { state, open: harness.openKugouMusicLoginWindow };
 }
 
 test('Kugou ordinary login keeps a reusable session without clearing storage', async () => {
@@ -133,11 +139,11 @@ test('Kugou renderer re-login options reach the main handler and retain the logi
     loginEasterEggGate: { isUnlocked: () => unlocked },
     loginEasterEggLockedResult: () => ({ ok: false, error: 'LOCKED' }),
     getSenderWindow: () => owner,
-    openKugouMusicLoginWindow: async (receivedOwner, options) => {
+    loginWindows: { openKugouMusicLoginWindow: async (receivedOwner, options) => {
       assert.equal(receivedOwner, owner);
       calls.push(options);
       return { ok: true };
-    },
+    } },
   });
   vm.runInNewContext(fs.readFileSync(path.join(root, 'desktop/preload.js'), 'utf8'), {
     require: (name) => (name === 'os'

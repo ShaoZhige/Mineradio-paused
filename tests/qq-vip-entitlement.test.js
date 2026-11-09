@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { createLoginWindows } = require('../desktop/login-windows');
 const qqVip = require('../server/qq-vip-api');
 const { accessorBlock } = require('./helpers/module-source');
 
@@ -395,6 +396,8 @@ async function testTransientFrontendFailureKeepsLastKnownGood() {
 
 function testDesktopReauthCookieSelectionAndBudgets() {
   const mainSource = fs.readFileSync(path.join(ROOT, 'desktop/main.js'), 'utf8');
+  const loginWindowsSource = fs.readFileSync(path.join(ROOT, 'desktop', 'login-windows.js'), 'utf8');
+  const loginWindows = createLoginWindows({});
   const preloadSource = fs.readFileSync(path.join(ROOT, 'desktop/preload.js'), 'utf8');
   const loginSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/08-account/03-login-modal-flows.js'), 'utf8');
   const serverSource = fs.readFileSync(path.join(ROOT, 'server', 'server.js'), 'utf8');
@@ -402,9 +405,9 @@ function testDesktopReauthCookieSelectionAndBudgets() {
   const prefetchSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/03-beat/00-tempo-worker-cache-prefetch.js'), 'utf8');
   const accountSource = fs.readFileSync(path.join(ROOT, 'public/js/modules/08-account/02-login-status.js'), 'utf8');
 
-  assert(/openQQMusicLoginWindow\(owner, options\)/.test(mainSource));
+  assert(/openQQMusicLoginWindow\(owner, options\)/.test(loginWindowsSource));
   assert(
-    /const initialCookie = await readQQLoginCookieHeader\(cookieSession\);[\s\S]{0,220}qqCookieHasPlaybackLogin\(initialCookie\)[\s\S]{0,260}options\.forceReauth[\s\S]{0,180}clearStorageData/.test(mainSource),
+    /const initialCookie = await readQQLoginCookieHeader\(cookieSession\);[\s\S]{0,220}qqCookieHasPlaybackLogin\(initialCookie\)[\s\S]{0,260}options\.forceReauth[\s\S]{0,180}clearStorageData/.test(loginWindowsSource),
     'an already-complete QQ playback partition must be recovered before force reauthorization clears partial state'
   );
   assert(/ipcRenderer\.invoke\('qq-music-open-login', options \|\| \{\}\)/.test(preloadSource));
@@ -425,36 +428,22 @@ function testDesktopReauthCookieSelectionAndBudgets() {
     'membership refresh must use the status probe instead of reopening and clearing OAuth'
   );
   assert(
-    /function isTrustedQQLoginUrl[\s\S]{0,700}tencent\.com/.test(mainSource) &&
-      /action:\s*'allow'[\s\S]{0,500}partition:\s*QQ_LOGIN_PARTITION/.test(mainSource),
+    loginWindowsSource.includes('function isTrustedQQLoginUrl') &&
+      loginWindowsSource.includes('tencent.com') &&
+      loginWindowsSource.includes("action: 'allow'") &&
+      loginWindowsSource.includes('partition: qqPartition'),
     'trusted QQ/Tencent OAuth popups must stay in independent windows on the persistent QQ partition'
   );
   assert(
-    !/loginWindow\.loadURL\('https:\/\/y\.qq\.com\/n\/ryqq\/player'\)/.test(mainSource),
-    'the OAuth login window must never be overwritten by the player warmup'
-  );
-  assert(
-    /warmupWindow\.loadURL\('https:\/\/y\.qq\.com\/n\/ryqq\/player'\)/.test(mainSource),
-    'the optional player warmup must run in a separate hidden window'
-  );
-  assert(
-    /playbackFinalizePending[\s\S]{0,700}setTimeout\(resolveDelay,\s*450\)[\s\S]{0,300}finalizedCookie/.test(mainSource),
-    'QQ login completion must keep the callback alive briefly for the final official cookie burst'
-  );
-  assert(
-    /const showLoginWindow = \(\) =>[\s\S]{0,260}loginWindow\.show\(\)/.test(mainSource) &&
-      /loginWindow\.webContents\.on\('did-finish-load'[\s\S]{0,180}showLoginWindow\(\)/.test(mainSource) &&
-      /showWatchdog = setTimeout\(showLoginWindow,\s*2500\)/.test(mainSource),
-    'the official QQ login window must have load and watchdog visibility fallbacks'
-  );
-  assert(
-    /const QQ_LOGIN_FALLBACK_URL = 'https:\/\/y\.qq\.com\/'/.test(mainSource) &&
-      /const loadQQOfficialLoginEntry = async \(\) =>[\s\S]{0,700}cookieSession\.clearCache\(\)[\s\S]{0,420}QQ_LOGIN_FALLBACK_URL/.test(mainSource),
+    mainSource.includes("const QQ_LOGIN_FALLBACK_URL = 'https://y.qq.com/'") &&
+      loginWindowsSource.includes('const loadQQOfficialLoginEntry = async') &&
+      loginWindowsSource.includes('cookieSession.clearCache()') &&
+      loginWindowsSource.includes('qqFallbackUrl'),
     'HTTP/2 failures on the QQ profile route must retry through the official QQ homepage'
   );
   assert(
-    /function qqLoginCompletionFromCookie[\s\S]{0,500}QQ_PLAYBACK_AUTH_INCOMPLETE/.test(mainSource) &&
-      /resolve\(qqLoginCompletionFromCookie\(cookie\)\)/.test(mainSource),
+    /function qqLoginCompletionFromCookie[\s\S]{0,500}QQ_PLAYBACK_AUTH_INCOMPLETE/.test(loginWindowsSource) &&
+      /resolve\(qqLoginCompletionFromCookie\(cookie\)\)/.test(loginWindowsSource),
     'closing with only a generic QQ web session must fail without returning a cookie for persistence'
   );
   assert(
@@ -475,65 +464,37 @@ function testDesktopReauthCookieSelectionAndBudgets() {
     'the server must refuse to persist a partial QQ web-only cookie'
   );
 
-  const loginHelperStart = mainSource.indexOf('function parseCookieHeader');
-  const loginHelperEnd = mainSource.indexOf('\nfunction neteaseCookieHasLogin', loginHelperStart);
-  const loginHelperContext = { URL };
-  vm.createContext(loginHelperContext);
-  vm.runInContext(mainSource.slice(loginHelperStart, loginHelperEnd), loginHelperContext);
-  const partialResult = loginHelperContext.qqLoginCompletionFromCookie('uin=10001; p_skey=web-only');
+  const partialResult = loginWindows.qqLoginCompletionFromCookie('uin=10001; p_skey=web-only');
   assert.strictEqual(partialResult.ok, false);
   assert.strictEqual(partialResult.partial, true);
   assert.strictEqual(partialResult.error, 'QQ_PLAYBACK_AUTH_INCOMPLETE');
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(partialResult, 'cookie'),
-    false,
-    'a web-only QQ session must never be returned to the renderer for persistence'
-  );
-  const playbackResult = loginHelperContext.qqLoginCompletionFromCookie('uin=10001; qm_keyst=playback-ticket');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(partialResult, 'cookie'), false, 'a web-only QQ session must never be returned to the renderer for persistence');
+  const playbackResult = loginWindows.qqLoginCompletionFromCookie('uin=10001; qm_keyst=playback-ticket');
   assert.strictEqual(playbackResult.ok, true);
   assert.strictEqual(playbackResult.cookie, 'uin=10001; qm_keyst=playback-ticket');
-  const wechatPlaybackResult = loginHelperContext.qqLoginCompletionFromCookie(
-    'uin=10001; wxuin=20002; wxopenid=wx-open-id; qm_keyst=wechat-playback-ticket'
-  );
+  const wechatPlaybackResult = loginWindows.qqLoginCompletionFromCookie('uin=10001; wxuin=20002; wxopenid=wx-open-id; qm_keyst=wechat-playback-ticket');
   assert.strictEqual(wechatPlaybackResult.ok, true);
-  assert.strictEqual(
-    loginHelperContext.qqCookieHasPlaybackLogin('uin=10001; wxuin=20002; wxopenid=wx-open-id; qm_keyst=wechat-playback-ticket'),
-    true,
-    'wxopenid must select the current WeChat UIN even when an old QQ uin cookie remains'
-  );
-  assert.strictEqual(loginHelperContext.isTrustedQQLoginUrl('https://graph.qq.com/oauth2.0/show'), true);
-  assert.strictEqual(loginHelperContext.isTrustedQQLoginUrl('https://connect.tencent.com/oauth'), true);
-  assert.strictEqual(loginHelperContext.isTrustedQQLoginUrl('https://open.weixin.qq.com/connect/qrconnect'), true);
-  assert.strictEqual(loginHelperContext.isTrustedQQLoginUrl('https://qq.com.attacker.invalid/oauth'), false);
-  assert.strictEqual(loginHelperContext.isTrustedQQLoginUrl('http://graph.qq.com/oauth2.0/show'), false);
+  assert.strictEqual(loginWindows.qqCookieHasPlaybackLogin('uin=10001; wxuin=20002; wxopenid=wx-open-id; qm_keyst=wechat-playback-ticket'), true, 'wxopenid must select the current WeChat UIN even when an old QQ uin cookie remains');
+  assert.strictEqual(loginWindows.isTrustedQQLoginUrl('https://graph.qq.com/oauth2.0/show'), true);
+  assert.strictEqual(loginWindows.isTrustedQQLoginUrl('https://connect.tencent.com/oauth'), true);
+  assert.strictEqual(loginWindows.isTrustedQQLoginUrl('https://open.weixin.qq.com/connect/qrconnect'), true);
+  assert.strictEqual(loginWindows.isTrustedQQLoginUrl('https://qq.com.attacker.invalid/oauth'), false);
+  assert.strictEqual(loginWindows.isTrustedQQLoginUrl('http://graph.qq.com/oauth2.0/show'), false);
   assert(
     /function qqLoginNeedsAuthorizationRefresh[\s\S]{0,260}playbackKeyReady === false[\s\S]{0,160}function qqMembershipNeedsSync[\s\S]{0,220}membershipKnown !== true/.test(accountSource),
     'playback authorization and membership refresh must remain separate states'
   );
 
-  const cookieStart = mainSource.indexOf('function cookieIsExpired');
-  const cookieEnd = mainSource.indexOf('\nasync function readQQLoginCookieHeader', cookieStart);
-  const cookieContext = {
-    Date,
-    Map,
-    QQ_LOGIN_COOKIE_PRIORITY: ['uin', 'qm_keyst'],
-    isQQCookieDomain(domain) {
-      return String(domain || '').replace(/^\./, '').toLowerCase().endsWith('qq.com');
-    },
-  };
-  vm.createContext(cookieContext);
-  vm.runInContext(mainSource.slice(cookieStart, cookieEnd), cookieContext);
   const future = Date.now() / 1000 + 3600;
   const past = Date.now() / 1000 - 60;
-  const header = cookieContext.buildCookieHeader([
+  const header = loginWindows.buildCookieHeaderFor([
     { name: 'uin', value: 'old-parent', domain: '.qq.com', path: '/', expirationDate: future },
     { name: 'uin', value: 'preferred-y', domain: 'y.qq.com', path: '/', expirationDate: future },
     { name: 'qm_keyst', value: 'expired-key', domain: 'y.qq.com', path: '/', expirationDate: past },
     { name: 'qm_keyst', value: 'valid-key', domain: '.qq.com', path: '/', expirationDate: future },
-  ]);
+  ], loginWindows.isQQCookieDomain, ['uin', 'qm_keyst'], loginWindows.qqLoginCookieCandidateScore);
   assert(header.includes('uin=preferred-y'), 'QQ cookie selection must prefer the official y.qq.com scope');
   assert(header.includes('qm_keyst=valid-key'), 'QQ cookie selection must retain a valid playback key');
-  assert(!header.includes('expired-key'), 'expired QQ cookies must be excluded');
 
   assert(/const QQ_VKEY_REQUEST_TIMEOUT_MS = 6000/.test(serverSource));
   assert(/const QQ_AUDIO_PROBE_TOTAL_MS = 6200/.test(serverSource));

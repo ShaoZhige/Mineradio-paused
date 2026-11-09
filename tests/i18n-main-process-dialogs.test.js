@@ -23,6 +23,7 @@ const ROOT = path.join(__dirname, '..');
 const MAIN = fs.readFileSync(path.join(ROOT, 'desktop', 'main.js'), 'utf8');
 const PRELOAD = fs.readFileSync(path.join(ROOT, 'desktop', 'preload.js'), 'utf8');
 const DESKTOP_LYRICS = fs.readFileSync(path.join(ROOT, 'desktop', 'desktop-lyrics.js'), 'utf8');
+const LOGIN_WINDOWS = fs.readFileSync(path.join(ROOT, 'desktop', 'login-windows.js'), 'utf8');
 const SWITCHER = fs.readFileSync(
   path.join(ROOT, 'public', 'js', 'modules', '00-state', '14-i18n-switcher.js'), 'utf8');
 const LANGS = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
@@ -135,11 +136,11 @@ test('preload 暴露了语言同步桥，渲染端在语言变化时调用它', 
 });
 
 test('登录窗口与桌面歌词窗口都带上了标题标记（语言切换后才能补写标题）', () => {
-  const loginMarks = (MAIN.match(/__mineradioLoginWindow = true/g) || []).length;
+  const loginMarks = (LOGIN_WINDOWS.match(/__mineradioLoginWindow = true/g) || []).length;
   assert.strictEqual(loginMarks, 3, '三个登录窗口（网易云 / QQ / 酷狗）都应打标记，实际 ' + loginMarks);
   assert.ok(/__mineradioDesktopLyricsWindow = true/.test(DESKTOP_LYRICS), '桌面歌词窗口没有打标记');
   for (const key of ['desktop_netease_login', 'desktop_qq_login', 'desktop_kugou_login']) {
-    assert.ok(MAIN.includes("__mineradioLoginTitleKey = '" + key + "'"), key + ' 没有被用作窗口标题键');
+    assert.ok(LOGIN_WINDOWS.includes("__mineradioLoginTitleKey = '" + key + "'"), key + ' 没有被用作窗口标题键');
   }
 });
 
