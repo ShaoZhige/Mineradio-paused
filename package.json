@@ -21,7 +21,8 @@
     "archive:release": "node scripts/archive-release-build.mjs",
     "build:win": "electron-builder --win nsis",
     "build:win:dir": "electron-builder --win dir",
-    "qa:lyrics": "node qa/lyrics-classic.js"
+    "qa:lyrics": "node qa/lyrics-classic.js",
+    "qa:desktop": "node qa/desktop-mode.js"
   },
   "build": {
     "appId": "com.mineradio.desktop",

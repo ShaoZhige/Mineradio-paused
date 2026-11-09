@@ -37,3 +37,24 @@ jobs:
           name: lyrics-qa-temp
           path: qa/.tmp
           if-no-files-found: ignore
+
+  desktop-cdp:
+    runs-on: windows-latest
+    needs: gates
+    env:
+      MINERADIO_QA_DESKTOP_PORT: 9443
+      MINERADIO_QA_ALLOW_SKIP: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run qa:desktop
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: desktop-qa-temp
+          path: qa/.tmp
+          if-no-files-found: ignore
