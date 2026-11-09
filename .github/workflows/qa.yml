@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
 jobs:
   gates:
     runs-on: windows-latest
@@ -30,6 +33,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm rebuild electron
       - run: npm run qa:lyrics
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -51,6 +55,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm rebuild electron
       - run: npm run qa:desktop
       - uses: actions/upload-artifact@v4
         if: failure()
