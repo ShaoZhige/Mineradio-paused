@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const CSS_DIR = ['public', 'css'];
-const ORDER = ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css'];
+const ORDER = ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css'];
 const LAST = 'index.css';
 
 function readAllCss(root) {
