@@ -482,12 +482,23 @@
     ui.detect.textContent = haloText('halo_detect_device');
   }
 
+  var started = false;
+  var tickTimer = 0;
+  var configTimer = 0;
+  function stop() {
+    if (tickTimer) { window.clearInterval(tickTimer); tickTimer = 0; }
+    if (configTimer) { window.clearInterval(configTimer); configTimer = 0; }
+    started = false;
+  }
   function start() {
+    if (started) return;
+    started = true;
+    window.addEventListener('pagehide', stop, { once: true });
     buildHaloSection();
     ensureAudio();
     refreshConfig();
-    window.setInterval(tick, 250);
-    window.setInterval(refreshConfig, 5000);
+    tickTimer = window.setInterval(tick, 250);
+    configTimer = window.setInterval(refreshConfig, 5000);
   }
 
   if (typeof window !== 'undefined' && window.MineradioI18n
