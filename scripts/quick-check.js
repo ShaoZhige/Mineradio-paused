@@ -15,7 +15,7 @@ function spawnSync(command, args, options = {}) {
 
 const appRoot = path.resolve(__dirname, '..');
 function readAllCssFiles() {
-  return ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css', 'control-bar.css', 'modal.css', "loading-toast.css","console.css","playlist.css","lyrics.css","gesture.css","responsive.css","home-dashboard.css", 'index.css']
+  return ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css', 'control-bar.css', 'modal.css', "loading-toast.css","console.css","playlist.css","lyrics.css","gesture.css","responsive.css","home-dashboard.css", 'overrides.css']
     .filter((name) => fs.existsSync(path.join(appRoot, 'public', 'css', name)))
     .map((name) => fs.readFileSync(path.join(appRoot, 'public', 'css', name), 'utf8'))
     .join('\n');
@@ -3126,7 +3126,7 @@ function checkSearchGlassEntranceGuard() {
   const searchBoxSourceMergeCount = (searchBoxFilterText.match(/<feMergeNode in="SourceGraphic"/g) || []).length;
   const searchPillSourceMergeCount = (searchPillFilterText.match(/<feMergeNode in="SourceGraphic"/g) || []).length;
   const searchBoxFilterMatchesSavedRgbGlass =
-    /css\/index\.css\?v=20260716-we-continuity-vsync/.test(indexText) &&
+    indexText.includes('css/overrides.css?v=20260716-we-continuity-vsync') &&
     /x="-24%"\s+y="-34%"\s+width="158%"/.test(searchBoxFilterText) &&
     /height="168%"/.test(searchBoxFilterText) &&
     /id="search-box-glass-map"\s+x="-10%"\s+y="-4%"\s+width="120%"\s+height="108%"/.test(searchBoxFilterText) &&
