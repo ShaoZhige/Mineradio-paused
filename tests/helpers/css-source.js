@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const CSS_DIR = ['public', 'css'];
-const FIRST = 'core.css';
+const ORDER = ['core.css', 'background.css', 'startup.css', 'search.css'];
 const LAST = 'index.css';
 
 function readAllCss(root) {
@@ -16,9 +16,9 @@ function readAllCss(root) {
   if (!fs.existsSync(dir)) return '';
   const names = fs.readdirSync(dir).filter((name) => name.endsWith('.css'));
   const middle = names
-    .filter((name) => name !== FIRST && name !== LAST)
+    .filter((name) => !ORDER.includes(name) && name !== LAST)
     .sort((a, b) => a.localeCompare(b));
-  const ordered = [FIRST, ...middle, LAST]
+  const ordered = [...ORDER.filter((name) => names.includes(name)), ...middle, LAST]
     .filter((name, index, list) => names.includes(name) && list.indexOf(name) === index);
   return ordered
     .map((name) => fs.readFileSync(path.join(dir, name), 'utf8'))

@@ -15,7 +15,10 @@ function spawnSync(command, args, options = {}) {
 
 const appRoot = path.resolve(__dirname, '..');
 function readAllCssFiles() {
-  return ['core.css', 'index.css'].map((name) => fs.readFileSync(path.join(appRoot, 'public', 'css', name), 'utf8')).join('\n');
+  return ['core.css', 'background.css', 'startup.css', 'search.css', 'index.css']
+    .filter((name) => fs.existsSync(path.join(appRoot, 'public', 'css', name)))
+    .map((name) => fs.readFileSync(path.join(appRoot, 'public', 'css', name), 'utf8'))
+    .join('\n');
 }
 const QUIT_TEXT = fs.readFileSync(path.join(appRoot, 'desktop', 'quit.js'), 'utf8');
 const runElectron = process.argv.includes('--electron') || process.argv.includes('--full');
