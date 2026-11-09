@@ -126,8 +126,9 @@ async function main() {
     assert(!JSON.stringify(snapshot.projects).includes(temp), 'renderer metadata must not expose absolute paths');
     assert.strictEqual(snapshot.enginePlayableCount, 2, 'valid .pkg and PKGV .pak Scene packages should be engine playable');
     const sceneTarget = await instance.getNativeSceneTarget(scene.id);
-    assert.strictEqual(sceneTarget.scenePackage, path.join(fs.realpathSync(libraryRoot), 'scene-project', 'scene.pkg'));
-    assert.strictEqual(sceneTarget.projectFile, path.join(fs.realpathSync(libraryRoot), 'scene-project', 'project.json'));
+    const realLibraryRoot = fs.realpathSync.native(libraryRoot);
+    assert.strictEqual(sceneTarget.scenePackage, path.join(realLibraryRoot, 'scene-project', 'scene.pkg'));
+    assert.strictEqual(sceneTarget.projectFile, path.join(realLibraryRoot, 'scene-project', 'project.json'));
     assert.deepStrictEqual(sceneTarget.muteProperties, {
       volume: 0,
       dbVolume: -60,
@@ -143,14 +144,14 @@ async function main() {
     assert.strictEqual(sceneDetails.properties.find((property) => property.key === 'music').autoMuted, true);
     assert(!JSON.stringify(sceneDetails).includes(temp), 'on-demand property details must not expose absolute paths');
     const pakTarget = await instance.getNativeSceneTarget(pakScene.id);
-    assert.strictEqual(pakTarget.scenePackage, path.join(fs.realpathSync(libraryRoot), 'pak-project', 'scene.pak'));
-    assert.strictEqual(pakTarget.projectFile, path.join(fs.realpathSync(libraryRoot), 'pak-project', 'project.json'));
+    assert.strictEqual(pakTarget.scenePackage, path.join(realLibraryRoot, 'pak-project', 'scene.pak'));
+    assert.strictEqual(pakTarget.projectFile, path.join(realLibraryRoot, 'pak-project', 'project.json'));
 
     snapshot = await instance.addManualProjectFile(path.join(customPakProject, 'custom-name.pak'));
     const customPakScene = snapshot.projects.find((item) => item.title === 'Custom PAK Scene Fixture');
     assert(customPakScene && customPakScene.enginePlayable, 'a selected custom-name PKGV .pak should become the project package override');
     const customPakTarget = await instance.getNativeSceneTarget(customPakScene.id);
-    assert.strictEqual(customPakTarget.scenePackage, path.join(fs.realpathSync(customPakProject), 'custom-name.pak'));
+    assert.strictEqual(customPakTarget.scenePackage, path.join(fs.realpathSync.native(customPakProject), 'custom-name.pak'));
     await assert.rejects(
       () => instance.addManualProjectFile(path.join(invalidPakProject, 'resources.pak')),
       /不是有效的 Wallpaper Engine PKGV 场景包/
