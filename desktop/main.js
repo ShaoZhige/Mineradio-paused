@@ -14,6 +14,7 @@ const { createAppMemoryManager } = require('./app-memory');
 const { createQuitController } = require('./quit');
 const desktopIcons = require('./desktop-icons');
 const { createMiddleClickPoller } = require('./global-middle-click-poller');
+const { createDesktopLyricsController } = require('./desktop-lyrics');
 const {
   WallpaperEngineLibrary,
   registerWallpaperEngineScheme,
@@ -2948,17 +2949,6 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
-const desktopLyricsController = createDesktopLyricsController({
-  BrowserWindow,
-  screen,
-  spawn,
-  overlayUrl,
-  preloadPath: path.join(__dirname, 'overlay-preload.js'),
-  title: desktopText('desktop_lyrics_window_title', 'Mineradio 桌面歌词'),
-  getMainWindow: () => mainWindow,
-  warn: (...args) => console.warn(...args),
-});
-
 function closeDesktopLyricsWindow() {
   desktopLyricsController.close();
 }
@@ -3242,6 +3232,20 @@ function setDesktopLocale(lang) {
   applyDesktopLocaleToOpenWindows();
   return desktopLocale;
 }
+
+// 控制器创建时会取一次窗口标题，必须等 desktopLocale 初始化之后再构造。
+// The controller reads its window title at construction time, so build it after desktopLocale exists.
+const desktopLyricsController = createDesktopLyricsController({
+  BrowserWindow,
+  screen,
+  spawn,
+  overlayUrl,
+  preloadPath: path.join(__dirname, 'overlay-preload.js'),
+  title: desktopText('desktop_lyrics_window_title', 'Mineradio 桌面歌词'),
+  getMainWindow: () => mainWindow,
+  warn: (...args) => console.warn(...args),
+});
+
 
 function applyDesktopLocaleToOpenWindows() {
   for (const win of BrowserWindow.getAllWindows()) {

@@ -143,3 +143,5 @@ folia源代码/
 
 # 本机架构笔记（绝对路径、会话记录），只服务当前工作区。
 docs/ARCHITECTURE.md
+
+qa/.tmp/

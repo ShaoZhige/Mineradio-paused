@@ -1,0 +1,39 @@
+name: QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:all
+
+  lyrics-cdp:
+    runs-on: windows-latest
+    needs: gates
+    env:
+      MINERADIO_QA_PORT: 9442
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run qa:lyrics
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: lyrics-qa-temp
+          path: qa/.tmp
+          if-no-files-found: ignore

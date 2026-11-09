@@ -20,7 +20,8 @@
     "audit:prod": "node scripts/audit-prod.js",
     "archive:release": "node scripts/archive-release-build.mjs",
     "build:win": "electron-builder --win nsis",
-    "build:win:dir": "electron-builder --win dir"
+    "build:win:dir": "electron-builder --win dir",
+    "qa:lyrics": "node qa/lyrics-classic.js"
   },
   "build": {
     "appId": "com.mineradio.desktop",
