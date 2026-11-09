@@ -3699,3 +3699,295 @@ body.login-guide-active #login-guide-canvas {
   vertical-align: middle;
   box-shadow: 0 0 10px rgba(126, 226, 168, .50)
 }
+
+/* ============================================================
+   文本输入弹层（替代 Electron 渲染进程不支持的 window.prompt）
+   ============================================================ */
+.mineradio-dialog-mask {
+  position: fixed;
+  inset: 0;
+  /* 高于 3D 歌单架 / DIY 面板（<=1500），低于桌面壁纸原生层（>=100000） */
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 48%, rgba(244, 210, 138, .07), transparent 34%), rgba(0, 0, 0, 0.78)
+}
+
+.mineradio-dialog-mask.show {
+  display: flex
+}
+
+.mineradio-text-dialog {
+  width: min(430px, 92vw);
+  max-width: min(430px, 92vw);
+  text-align: left;
+  padding: 26px 26px 22px;
+  border-radius: 18px
+}
+
+.mineradio-text-dialog .mineradio-text-dialog-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: .4px;
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.95)
+}
+
+.mineradio-text-dialog-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .94);
+  font-size: 13.5px;
+  letter-spacing: .2px;
+  outline: none
+}
+
+.mineradio-text-dialog-input:focus {
+  border-color: rgba(244, 210, 138, .48);
+  background: rgba(255, 255, 255, .07)
+}
+
+.mineradio-text-dialog-field {
+  display: none;
+  resize: vertical;
+  min-height: 132px;
+  max-height: 42vh;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  word-break: break-all
+}
+
+.mineradio-text-dialog.multiline .mineradio-text-dialog-input:not(.mineradio-text-dialog-field) {
+  display: none
+}
+
+.mineradio-text-dialog.multiline .mineradio-text-dialog-field {
+  display: block
+}
+
+.mineradio-text-dialog.readonly .mineradio-text-dialog-field {
+  color: rgba(255, 255, 255, .74)
+}
+
+.mineradio-text-dialog-hint {
+  min-height: 15px;
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .48)
+}
+
+.mineradio-text-dialog-hint:empty {
+  min-height: 0
+}
+
+.mineradio-text-dialog .btn-row {
+  justify-content: flex-end
+}
+
+/* ============================================================
+   洛雪自定义音源 / LX custom sources
+   与 hotkey-modal 保持同一套深色玻璃语言：遮罩压暗 + 模糊，卡片走渐变底 + 强调色描边。
+   Shares the hotkey-modal dark glass language: dimmed blurred mask, gradient card with
+   an accent-tinted border.
+   ============================================================ */
+#custom-source-modal {
+  z-index: 1460;
+  background: rgba(0, 0, 0, .52);
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1)));
+  padding: 22px
+}
+
+.custom-source-dialog {
+  width: min(760px, calc(100vw - 36px));
+  max-height: min(720px, calc(100vh - 44px));
+  overflow: auto;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: linear-gradient(180deg, rgba(14, 15, 20, .98), rgba(5, 6, 8, .98));
+  box-shadow: 0 32px 110px rgba(0, 0, 0, .66), inset 0 1px 0 rgba(255, 255, 255, .08);
+  padding: 18px;
+  color: #fff
+}
+
+.custom-source-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08)
+}
+
+.custom-source-title {
+  font-size: 17px;
+  font-weight: 820;
+  letter-spacing: .03em
+}
+
+.custom-source-sub {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, .48)
+}
+
+.custom-source-close {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .04);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer
+}
+
+.custom-source-close:hover {
+  background: rgba(255, 255, 255, .09)
+}
+
+/* 第三方脚本的风险提示必须一直在，不能折叠进「高级」里。 */
+/* The third-party script warning stays visible; it is never tucked behind "advanced". */
+.custom-source-warning {
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 195, 94, .22);
+  border-radius: 12px;
+  background: rgba(255, 174, 46, .075);
+  color: rgba(255, 231, 188, .82);
+  font-size: 12px;
+  line-height: 1.55
+}
+
+.custom-source-list {
+  display: grid;
+  gap: 9px;
+  min-height: 80px
+}
+
+.custom-source-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 110px;
+  color: rgba(255, 255, 255, .4);
+  font-size: 12px
+}
+
+.custom-source-item {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .03)
+}
+
+.custom-source-item.active {
+  border-color: rgba(var(--fc-accent-rgb), .34);
+  background: rgba(var(--fc-accent-rgb), .07)
+}
+
+.custom-source-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px
+}
+
+.custom-source-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, .92)
+}
+
+.custom-source-meta,
+.custom-source-capabilities {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .46);
+  word-break: break-word
+}
+
+.custom-source-status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  font-size: 10px;
+  color: rgba(255, 255, 255, .58)
+}
+
+.custom-source-item.active .custom-source-status {
+  background: rgba(var(--fc-accent-rgb), .13);
+  color: rgba(255, 255, 255, .88)
+}
+
+.custom-source-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px
+}
+
+.custom-source-actions button,
+.custom-source-footer button {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .72);
+  font: 700 11px/1 var(--font-sans);
+  cursor: pointer
+}
+
+.custom-source-actions button:hover,
+.custom-source-footer button:hover {
+  background: rgba(255, 255, 255, .09);
+  color: #fff
+}
+
+.custom-source-actions button.primary,
+.custom-source-footer button.primary {
+  border-color: rgba(var(--fc-accent-rgb), .28);
+  background: rgba(var(--fc-accent-rgb), .11);
+  color: #fff
+}
+
+.custom-source-actions button.danger {
+  color: rgba(255, 150, 150, .82)
+}
+
+.custom-source-alert-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .48)
+}
+
+.custom-source-alert-toggle input {
+  accent-color: rgb(var(--fc-accent-rgb))
+}
+
+.custom-source-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .08)
+}

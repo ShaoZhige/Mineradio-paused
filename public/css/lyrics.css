@@ -56,3 +56,301 @@
     filter: blur(10px)
   }
 }
+
+/* Folia-classic lyric style (clean-room DOM implementation).
+   The WebGL lyric group is hidden while this is active. Words sit in a loose
+   flex line with deterministic poses. Singing a word pops it out of a blurred
+   ghost state with an overshoot, leaves a halo behind, then lets it drift and
+   rotate slowly while the line floats. */
+#folia-classic-lyrics {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .45s ease
+}
+
+#folia-classic-lyrics.show {
+  opacity: 1
+}
+
+.folia-classic-float {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 2rem;
+  animation: folia-classic-float 7s ease-in-out infinite
+}
+
+.folia-classic-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  width: 100%;
+  max-width: 72rem;
+  min-height: 300px;
+  font-weight: 700;
+  line-height: 1.22;
+  gap: 1.1em;
+  row-gap: 1em;
+  color: var(--folia-ink, #f2f8ff);
+  perspective: 1000px
+}
+
+.folia-classic-line.is-in {
+  animation: none
+}
+
+.folia-classic-line.is-in .folia-classic-word {
+  animation: folia-classic-word-in .4s cubic-bezier(.22, .61, .36, 1) backwards
+}
+
+.folia-classic-line.is-instant {
+  animation: none
+}
+
+.folia-classic-line.is-out {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none
+}
+
+.folia-classic-line.is-out .folia-classic-word {
+  animation: folia-classic-word-out .24s cubic-bezier(.33, 0, .2, 1) both;
+  animation-delay: var(--exit-delay, 0ms)
+}
+
+.folia-classic-word {
+  position: relative;
+  display: inline-block;
+  transform-origin: center;
+  white-space: nowrap;
+  line-height: 1.22;
+  opacity: .12;
+  translate: var(--w-wait-x, 0px) var(--w-wait-y, 0px);
+  rotate: calc(var(--w-rot, 0deg) + 24deg);
+  scale: .55;
+  transition: translate .5s ease, rotate .5s ease, scale .5s ease, opacity .35s ease;
+  will-change: translate, rotate, scale, opacity
+}
+
+.folia-classic-word.is-waiting {
+  opacity: .12
+}
+
+.folia-classic-word.is-active {
+  opacity: 1;
+  translate: var(--w-x, 0px) var(--w-y, 0px);
+  rotate: var(--w-rot, 0deg);
+  scale: calc(var(--w-scale, 1) * 1.08);
+  transition: translate .34s cubic-bezier(.2, 1.45, .35, 1),
+    rotate .34s cubic-bezier(.2, 1.45, .35, 1),
+    scale .34s cubic-bezier(.2, 1.45, .35, 1), opacity .1s linear;
+  z-index: 2
+}
+
+.folia-classic-word.is-active::before {
+  content: '';
+  position: absolute;
+  inset: -55% -40%;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.26 * var(--folia-glow-level, 1))), rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.09 * var(--folia-glow-level, 1))) 45%, transparent 70%);
+  pointer-events: none
+}
+
+.folia-classic-word.is-passed {
+  opacity: .72;
+  translate: calc(var(--w-x, 0px) + var(--w-drift-x, 0px))
+    calc(var(--w-y, 0px) + var(--w-drift-y, 0px));
+  rotate: calc(var(--w-rot, 0deg) + var(--w-passed-rot, 0deg));
+  scale: calc(var(--w-scale, 1) * .96);
+  transition: translate .45s ease, scale .45s ease, rotate 2.8s linear,
+    opacity .55s ease
+}
+
+.folia-classic-body {
+  position: relative;
+  z-index: 1;
+  display: block;
+  color: color-mix(in srgb, var(--folia-ink, #eef6ff) 92%, white);
+  animation: folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
+  animation-delay: var(--bob-delay, 0s);
+  transition: color .18s linear, filter .18s ease, text-shadow .25s ease
+}
+
+.folia-classic-word.is-waiting .folia-classic-body {
+  filter: blur(3px)
+}
+
+.folia-classic-word.is-passed .folia-classic-body {
+  animation: folia-classic-passed-glow 4.2s ease-in-out infinite alternate,
+    folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
+  animation-delay: 0s, var(--bob-delay, 0s)
+}
+
+.folia-classic-word.is-active .folia-classic-body {
+  color: var(--folia-hi, #fff);
+  filter: none;
+  text-shadow: 0 0 14px rgba(255, 255, 255, calc(.5 * var(--folia-glow-level, 1))),
+    0 0 36px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.5 * var(--folia-glow-level, 1)))
+}
+
+.folia-classic-word.is-passed .folia-classic-body {
+  color: var(--folia-ink, #eef6ff);
+  filter: none;
+  text-shadow: 0 0 14px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.22 * var(--folia-glow-level, 1)))
+}
+
+.folia-classic-glow {
+  position: absolute;
+  inset: 0;
+  display: block;
+  color: transparent;
+  text-shadow: 0 0 18px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.75 * var(--folia-glow-level, 1))),
+    0 0 44px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.45 * var(--folia-glow-level, 1)));
+  opacity: 0;
+  pointer-events: none
+}
+
+.folia-classic-word.is-active .folia-classic-glow {
+  opacity: 1;
+  animation: folia-classic-glow calc(var(--w-dur, .4s) + .35s) ease-out both
+}
+
+.folia-classic-word.is-passed .folia-classic-glow {
+  opacity: 0;
+  transition: opacity 1.1s ease
+}
+
+
+/* 流光跟随「歌词动画」选择：同一条样式，不同运动语法。 */
+#folia-classic-lyrics[data-motion="smooth"] .folia-classic-word {
+  transition-duration: calc(.85s * var(--folia-soft, 1)), calc(.85s * var(--folia-soft, 1)), calc(.85s * var(--folia-soft, 1)), calc(.5s * var(--folia-soft, 1))
+}
+
+#folia-classic-lyrics[data-motion="smooth"] .folia-classic-word.is-active {
+  translate: var(--w-x, 0px) var(--w-y, 0px);
+  rotate: var(--w-rot, 0deg);
+  scale: calc(var(--w-scale, 1) * 1.16);
+  transition: translate calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1),
+    rotate calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1),
+    scale calc(.95s * var(--folia-soft, 1)) cubic-bezier(.22, .9, .28, 1), opacity .2s linear
+}
+
+#folia-classic-lyrics[data-motion="smooth"] .folia-classic-word.is-passed {
+  transition: translate calc(.6s * var(--folia-soft, 1)) ease, scale calc(.6s * var(--folia-soft, 1)) ease, rotate calc(6.2s * var(--folia-soft, 1)) linear, opacity .9s ease
+}
+
+#folia-classic-lyrics[data-motion="glass"] .folia-classic-body {
+  color: color-mix(in srgb, var(--folia-ink, #eef6ff) 78%, transparent);
+  text-shadow: 0 0 22px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.30 * var(--folia-glow-level, 1)))
+}
+
+#folia-classic-lyrics[data-motion="glass"] .folia-classic-word.is-active .folia-classic-body {
+  color: color-mix(in srgb, var(--folia-hi, #fff) 70%, transparent);
+  filter: blur(.35px);
+  text-shadow: 0 0 26px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.55 * var(--folia-glow-level, 1)))
+}
+
+#folia-classic-lyrics[data-motion="shine"] .folia-classic-word.is-active .folia-classic-body {
+  background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, .95) 48%, transparent 62%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: folia-classic-shine 1.05s ease-out both
+}
+
+#folia-classic-lyrics[data-motion="glitch"] .folia-classic-word.is-active .folia-classic-body {
+  animation: folia-classic-jitter .22s steps(2) infinite;
+  text-shadow: 2px 0 color-mix(in srgb, #ff5470 55%, transparent),
+    -2px 0 color-mix(in srgb, #49d7ff 55%, transparent),
+    0 0 18px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.60 * var(--folia-glow-level, 1)))
+}
+
+@keyframes folia-classic-shine {
+  0% { background-position: 190% 0; opacity: .2 }
+  18% { opacity: 1 }
+  100% { background-position: -60% 0; opacity: .92 }
+}
+
+@keyframes folia-classic-jitter {
+  0% { transform: translate(0, 0) }
+  25% { transform: translate(-1.5px, 1px) }
+  50% { transform: translate(1.5px, -1px) }
+  75% { transform: translate(-1px, -.5px) }
+  100% { transform: translate(0, 0) }
+}
+.folia-classic-translation {
+  position: absolute;
+  left: 50%;
+  bottom: 15%;
+  transform: translateX(-50%);
+  max-width: 72vw;
+  color: rgba(205, 228, 255, .58);
+  font-size: clamp(13px, 1.05vw, 17px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+@keyframes folia-classic-passed-glow {
+  from { text-shadow: 0 0 12px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.16 * var(--folia-glow-level, 1))) }
+  to { text-shadow: 0 0 22px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.34 * var(--folia-glow-level, 1))) }
+}
+
+@keyframes folia-classic-glow {
+  0% { opacity: 0 }
+  35% { opacity: 1 }
+  100% { opacity: .12 }
+}
+
+@keyframes folia-classic-bob {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg) }
+  33% { transform: translate3d(var(--bob-x, 2px), var(--bob-y, -5px), 0) rotate(var(--bob-r, .8deg)) }
+  66% { transform: translate3d(calc(var(--bob-x, 2px) * -.6), calc(var(--bob-y, -5px) * -.7), 0) rotate(calc(var(--bob-r, .8deg) * -.8)) }
+}
+
+@keyframes folia-classic-word-in {
+  from { opacity: 0 }
+}
+
+@keyframes folia-classic-word-out {
+  to {
+    opacity: 0;
+    filter: blur(5px);
+    translate: calc(var(--w-x, 0px) + var(--exit-x, 0px))
+      calc(var(--w-y, 0px) + var(--exit-y, -26px));
+    rotate: calc(var(--w-rot, 0deg) + var(--exit-r, 0deg));
+    scale: .94
+  }
+}
+
+@keyframes folia-classic-line-out {
+  from { opacity: 1; filter: blur(0); transform: translateY(0) }
+  to { opacity: 0; filter: blur(9px); transform: translateY(-10px) }
+}
+
+@keyframes folia-classic-float {
+  0%, 100% { transform: translateY(0) scale(1) }
+  25% { transform: translateY(-14px) scale(1.01) }
+  50% { transform: translateY(0) scale(1) }
+  75% { transform: translateY(6px) scale(.995) }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folia-classic-float,
+  .folia-classic-body,
+  .folia-classic-line.is-in { animation: none }
+  .folia-classic-line.is-out { animation: none }
+  .folia-classic-word { transition: none }
+}

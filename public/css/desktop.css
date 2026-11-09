@@ -1,0 +1,16 @@
+/* ── 完整桌面模式：背景交给真实桌面壁纸 ──────────────────────────────────────
+   窗口本身是透明的；把唯一的不透明底色（body 的黑色、自定义背景、专辑底色）关掉，
+   系统桌面壁纸就自然透出来。用户在 Wallpaper Engine 里把壁纸设为桌面壁纸时，
+   动态壁纸也会出现在这里 —— 不再需要 playInWindow 场景窗口与 DWM 缩略图宿主。
+   Full desktop mode hands the backdrop to the real desktop wallpaper: the window is
+   already transparent, so dropping the opaque layers lets the system wallpaper (and a
+   WE wallpaper set as the Windows desktop wallpaper) show through. */
+body.desktop-wallpaper-mode.desktop-backdrop-desktop {
+  background: transparent;
+}
+
+body.desktop-wallpaper-mode.desktop-backdrop-desktop #custom-bg,
+body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg,
+body.desktop-wallpaper-mode.desktop-backdrop-desktop #album-bg-next {
+  display: none;
+}

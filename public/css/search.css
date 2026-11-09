@@ -541,3 +541,45 @@ body.simple-mode .mini-queue-popover {
     top: 24px
   }
 }
+
+#search-box {
+  position: relative
+}
+
+/* 汽水音乐「需 VIP 且本机无签名能力」时试听横幅的文案会变长，允许换行并容纳授权入口。
+   The Qishui VIP trial banner carries a longer explanation plus an authorization button. */
+#trial-banner {
+  max-width: min(560px, 74vw);
+  flex-wrap: wrap;
+  row-gap: 6px
+}
+
+#trial-banner #trial-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.5;
+  white-space: normal
+}
+
+#trial-banner .trial-client-btn {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--champagne, #f4d28a);
+  color: #1a1208;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter .16s, opacity .16s
+}
+
+#trial-banner .trial-client-btn:hover {
+  filter: brightness(1.08)
+}
+
+#trial-banner .trial-client-btn.busy {
+  opacity: .6;
+  cursor: default
+}

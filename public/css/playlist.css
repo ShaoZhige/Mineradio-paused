@@ -2371,3 +2371,155 @@ html.control-glass-svg-ok #visual-guide-btn:hover {
     width: calc(100vw - 28px) !important
   }
 }
+
+/* ============================================================
+   歌单 / 队列多选与批量加入
+   Multi-select over the queue and playlist detail, plus the bulk "add to built-in playlist" bar.
+   面板用 position:fixed + overflow:auto，所以工具条用 sticky bottom 就能在长列表里钉住底部，
+   内容不够长时它自然落在面板底部（面板高度由内容撑开）。
+   The panel is position:fixed with overflow:auto, so a sticky-bottom bar pins itself in long lists
+   and, when the content is short, simply rests at the panel bottom (the panel is content-sized).
+   ============================================================ */
+.ms-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .04);
+  color: rgba(var(--fc-accent-rgb), 1);
+  transition: border-color .18s, background .18s
+}
+
+.ms-check svg {
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity .15s, transform .15s
+}
+
+.ms-check.on {
+  border-color: rgba(var(--fc-accent-rgb), .92);
+  background: rgba(var(--fc-accent-rgb), .18)
+}
+
+.ms-check.on svg {
+  opacity: 1;
+  transform: scale(1)
+}
+
+.queue-item.ms-selected,
+.pl-detail-row.ms-selected {
+  border-color: rgba(var(--fc-accent-rgb), .42);
+  background: rgba(var(--fc-accent-rgb), .10)
+}
+
+/* 多选态：逐行操作按钮收起，行内链接不再截走点击（点行只切换勾选） */
+body.playlist-multiselect .queue-item .qi-act,
+body.playlist-multiselect .pl-detail-remove {
+  display: none
+}
+
+body.playlist-multiselect .queue-artist-link,
+body.playlist-multiselect .pl-detail-row-artist {
+  pointer-events: none
+}
+
+/* 工具条是 sticky 的，会盖住最后几行，给列表底部留出等高空间 */
+body.playlist-multiselect #queue-pane,
+body.playlist-multiselect #pl-pane {
+  padding-bottom: 56px
+}
+
+.pl-detail-multi {
+  height: 30px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .82);
+  font: 700 11.5px var(--font-sans);
+  cursor: pointer
+}
+
+.pl-detail-multi.active {
+  border-color: rgba(var(--fc-accent-rgb), .42);
+  background: rgba(var(--fc-accent-rgb), .14);
+  color: #eafffb
+}
+
+.multiselect-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 10px -4px 0;
+  padding: 8px 8px 9px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(11, 13, 18, .90), rgba(8, 10, 14, .86)), linear-gradient(135deg, rgba(255, 255, 255, .058), rgba(var(--fc-accent-rgb), .05));
+  border: 1px solid rgba(255, 255, 255, .09);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.25);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.25);
+  box-shadow: 0 13px 30px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .08)
+}
+
+.multiselect-bar.show {
+  display: flex
+}
+
+.ms-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  color: rgba(255, 255, 255, .72);
+  font: 600 11.5px var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.ms-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .86);
+  font: 700 11.5px var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap
+}
+
+.ms-btn.primary {
+  border-color: rgba(var(--fc-accent-rgb), .40);
+  background: rgba(var(--fc-accent-rgb), .16);
+  color: #eafffb
+}
+
+.ms-btn.ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, .62)
+}
+
+.ms-btn:disabled {
+  opacity: .45;
+  cursor: default
+}
+
+.collect-empty {
+  padding: 16px 10px;
+  text-align: center;
+  color: rgba(255, 255, 255, .34);
+  font-size: 11.5px
+}
+
+.collect-list.busy {
+  opacity: .6;
+  pointer-events: none
+}

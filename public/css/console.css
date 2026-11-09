@@ -2976,3 +2976,216 @@ body.desktop-shell.diy-mode #bottom-bar.stage-mode {
     text-align: left
   }
 }
+
+/* ============================================================
+   语言切换 / Language switcher
+   已从标题栏移入 DIY 视觉控制台：@see index.html 的 #fx-lang-row ——
+   四个语言并排一行，选中项高亮，没有下拉菜单，也就不需要「点空白处收起」。
+   Moved from the title bar into the DIY visual console: #fx-lang-row puts the four
+   languages side by side with the active one highlighted. No dropdown, therefore no
+   outside-click dismissal.
+   ============================================================ */
+/* 语言选择：一个显示当前语言的触发器 + 就地展开的选项列表。
+   列表限高可滚 —— 现在只有四门语言，加新语言时不会把面板越撑越长。
+   Language picker: a trigger showing the active language plus an in-place list.
+   The list is height-capped and scrollable so adding languages never stretches the panel. */
+.fx-lang-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px
+}
+
+.fx-lang-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .82);
+  font-family: inherit;
+  font-size: 11.5px;
+  letter-spacing: .3px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .16s, border-color .16s, color .16s
+}
+
+.fx-lang-trigger:hover {
+  background: rgba(255, 255, 255, .1);
+  color: #fff
+}
+
+.fx-lang-trigger[aria-expanded="true"] {
+  border-color: rgba(var(--fc-accent-rgb), .55);
+  background: rgba(var(--fc-accent-rgb), .12);
+  color: #fff
+}
+
+.fx-lang-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.fx-lang-caret {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .18s
+}
+
+.fx-lang-trigger[aria-expanded="true"] .fx-lang-caret {
+  transform: rotate(180deg)
+}
+
+.fx-lang-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  max-height: 146px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 10px;
+  background: rgba(10, 14, 18, .72);
+  overflow-y: auto;
+  overscroll-behavior: contain
+}
+
+/* hidden 必须压过 display:flex，否则列表永远展开。
+   hidden must beat display:flex or the list never closes. */
+.fx-lang-menu[hidden] {
+  display: none
+}
+
+.fx-lang-option {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, .76);
+  font-family: inherit;
+  font-size: 11.5px;
+  letter-spacing: .3px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .16s, color .16s
+}
+
+.fx-lang-option:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #fff
+}
+
+.fx-lang-option.active {
+  background: rgba(var(--fc-accent-rgb), .16);
+  color: #fff
+}
+
+.fx-lang-option:focus-visible {
+  outline: 1px solid rgba(var(--fc-accent-rgb), .7);
+  outline-offset: -1px
+}
+
+/* ── 画质档位 · 毛玻璃降级链 ────────────────────────────────────────────────
+   背景：整个界面有 60 多处 backdrop-filter，每处都要在合成阶段把背后的内容
+   实时重新模糊一次。这是这份样式表里唯一「持续每帧都在算」的开销 —— 静态
+   box-shadow 会被光栅化缓存，一次性 transition 只在那 0.2s 里有成本，都不在此列。
+
+   做法：把所有字面量 blur(Npx) 改写成 blur(calc(Npx * var(--glass-blur-scale)))，
+   由 html[data-perf-quality] 决定这个倍率。只动半径、不动 saturate/brightness，
+   也不改成 none —— 保持「玻璃」的观感，只是没那么磨砂，不会出现面板透到看不清字。
+
+   🔴 最高档 ultra 的倍率必须是 1：那是现在的完整效果，任何视觉改动都算回归。
+      新增毛玻璃时照旧写 blur(Npx)，会被上面的改写规则自动纳入档位体系；
+      只有需要用户自己调半径的那几处（--custom-bg-glass-blur 等）保持 var 原样不动。
+
+   ── Blur-radius downgrade chain ──────────────────────────────────────────
+   Every literal blur(Npx) now multiplies by --glass-blur-scale. The top tier
+   (ultra) must stay at 1 so its look is byte-for-byte what shipped before;
+   the other tiers trade frost for GPU time. Radius only — never `none`,
+   never saturate/brightness — so panels can't become unreadable. */
+:root,
+html[data-perf-quality="ultra"] {
+  --glass-blur-scale: 1;
+}
+html[data-perf-quality="high"] {
+  --glass-blur-scale: .85;
+}
+html[data-perf-quality="balanced"] {
+  --glass-blur-scale: .65;
+}
+html[data-perf-quality="eco"] {
+  --glass-blur-scale: .32;
+}
+
+/* ===== 花再 Halo PixelBar 设置块（DIY 控制台 → 歌词 → 音响）/ Halo PixelBar block =====
+   以前是标题栏一颗按钮 + 一块浮层，现在整块住进 DIY 控制台里，外观直接复用控制台的
+   .fx-toggle / .fx-select-row / .fx-mini-btn，所以这里只补控制台没有的那几条排版。
+   Used to be a titlebar button plus a popover. The block now lives inside the DIY console and
+   reuses .fx-toggle / .fx-select-row / .fx-mini-btn, so only the bespoke layout is left here. */
+.halo-sync-section {
+  display: grid;
+  gap: 10px;
+}
+.halo-sync-group {
+  display: grid;
+  gap: 8px;
+}
+/* 这两条是「并入控制台」的间距归零：.fx-select-row 自带 10px 下边距、.fx-section-label
+   自带 18px 上边距，都是为「整页平铺」设计的；这里块与块之间由 grid gap 统一给，
+   两者叠加会多出一倍的空当。 */
+/* Spacing reset for living inside the console: .fx-select-row carries a 10px bottom margin and
+   .fx-section-label an 18px top margin, both meant for a full-page flow. Here the grid gap
+   already spaces them, and keeping both would double every gap. */
+.halo-sync-section .fx-select-row {
+  margin-bottom: 0;
+}
+.halo-sync-section .fx-section-label {
+  margin: 6px 0 0;
+}
+.halo-sync-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* 控制台的一排按钮是等分宽度（flex:1），芯片要按内容宽排开、自动换行。 */
+/* The console's button rows split the width evenly (flex:1); chips size to their content. */
+.halo-sync-chips .fx-mini-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+}
+/* 按钮行：不用控制台的 .fx-actions —— 那一块是「恢复默认」的抓取目标，共用类名会被抢走。 */
+/* Button row kept separate from the console's .fx-actions, which the reset entry targets. */
+.halo-sync-actions {
+  display: flex;
+  gap: 8px;
+}
+.halo-sync-status {
+  min-height: 15px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .55);
+}
+/* 状态行默认占位会把下面的按钮推开一截，空着时干脆不占位。 */
+/* An empty status line would push the buttons down; collapse it while it holds nothing. */
+.halo-sync-status:empty {
+  display: none;
+}
