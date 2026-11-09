@@ -488,7 +488,7 @@ function endProgressDrag(e, commit) {
 progressBar.addEventListener('pointerup', function (e) { endProgressDrag(e, true); });
 progressBar.addEventListener('pointercancel', function (e) { endProgressDrag(e, false); });
 progressBar.addEventListener('lostpointercapture', function (e) { endProgressDrag(e, true); });
-setInterval(function () {
+var progressUiHeartbeatTimer = setInterval(function () {
   if (!audio) {
     if (restoredLastPlaybackSnapshot && pendingPlaybackResumeAt > 0) applyRestoredPlaybackProgressUi(restoredLastPlaybackSnapshot);
     else updatePlaybackProgressUi();
@@ -503,6 +503,11 @@ setInterval(function () {
   saveLastPlaybackSnapshot(false, 'tick');
   if (audio.currentTime) updateLyricsHighlight();
 }, 200);
+window.addEventListener('pagehide', function () {
+  if (!progressUiHeartbeatTimer) return;
+  clearInterval(progressUiHeartbeatTimer);
+  progressUiHeartbeatTimer = 0;
+}, { once: true });
 
 // ============================================================
 //  文件拖放
