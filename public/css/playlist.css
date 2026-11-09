@@ -1,0 +1,2373 @@
+/* ============================================================ */
+/*  歌单/队列面板                                                 */
+/* ============================================================ */
+#playlist-panel {
+  --playlist-panel-open-ms: var(--mineradio-playlist-panel-open-ms, 280ms);
+  --playlist-panel-close-ms: var(--mineradio-playlist-panel-close-ms, 180ms);
+  --playlist-panel-motion-ms: var(--playlist-panel-open-ms);
+  --playlist-sticky-blur: 38px;
+  --playlist-toolbar-blur: 28px;
+  --playlist-sticky-a1: .94;
+  --playlist-sticky-a2: .90;
+  --playlist-sticky-a3: .78;
+  --playlist-toolbar-a1: .88;
+  --playlist-toolbar-a2: .82;
+  --playlist-toolbar-a3: .68;
+  position: fixed;
+  z-index: 17;
+  top: 78px;
+  left: 32px;
+  width: 340px;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: rgba(12, 12, 18, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 18px;
+  padding-top: 14px;
+  padding-right: 8px;
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity var(--playlist-panel-motion-ms) cubic-bezier(.16, 1, .3, 1), transform var(--playlist-panel-motion-ms) cubic-bezier(.16, 1, .3, 1);
+  pointer-events: none;
+  transform: translate3d(calc(-100% - 64px), 0, 0) !important;
+  overscroll-behavior: contain;
+  will-change: transform, opacity;
+  contain: layout paint
+}
+
+#playlist-panel-body::-webkit-scrollbar {
+  width: 10px;
+}
+
+#playlist-panel-body::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 10px 0;
+}
+
+#playlist-panel-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+#playlist-panel-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, .28);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+#playlist-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+  scrollbar-gutter: stable;
+  scroll-padding-top: 12px;
+}
+
+#playlist-panel.playlist-panel-closing {
+  --playlist-panel-motion-ms: var(--playlist-panel-close-ms)
+}
+
+#playlist-panel.show,
+#playlist-panel.peek {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0) !important
+}
+
+#playlist-panel.pinned {
+  border-color: rgba(var(--fc-accent-rgb), .28);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 0 34px rgba(var(--fc-accent-rgb), .08)
+}
+
+body.desktop-shell.desktop-fullscreen #playlist-panel,
+html:fullscreen body.desktop-shell #playlist-panel {
+  top: clamp(64px, 6vh, 92px);
+  left: clamp(24px, 2.2vw, 54px);
+  width: clamp(340px, 21vw, 430px);
+  max-height: calc(100vh - clamp(96px, 12vh, 142px))
+}
+
+@media (max-height:760px) {
+
+  body.desktop-shell.desktop-fullscreen #playlist-panel,
+  html:fullscreen body.desktop-shell #playlist-panel {
+    top: 56px;
+    max-height: calc(100vh - 78px)
+  }
+}
+
+@media (min-width:2200px) and (min-height:1100px) {
+
+  body.desktop-shell.desktop-fullscreen #playlist-panel,
+  html:fullscreen body.desktop-shell #playlist-panel {
+    width: clamp(380px, 19vw, 460px)
+  }
+}
+
+.playlist-panel-sticky {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 9;
+  margin: 0 10px 12px 0;
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(12, 14, 18, var(--playlist-sticky-a1, .94)), rgba(9, 11, 15, var(--playlist-sticky-a2, .90)) 70%, rgba(9, 11, 15, var(--playlist-sticky-a3, .78))), linear-gradient(135deg, rgba(255, 255, 255, .085), rgba(255, 255, 255, .028) 42%, rgba(var(--fc-accent-rgb), .048));
+  border: 1px solid rgba(255, 255, 255, .090);
+  border-top-color: rgba(255, 255, 255, .17);
+  backdrop-filter: blur(var(--playlist-sticky-blur, 38px)) saturate(1.34) brightness(1.06);
+  -webkit-backdrop-filter: blur(var(--playlist-sticky-blur, 38px)) saturate(1.34) brightness(1.06);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .44), inset 0 1px 0 rgba(255, 255, 255, .11), inset 0 -1px 0 rgba(255, 255, 255, .045);
+  isolation: isolate
+}
+
+.playlist-panel-sticky::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .24), rgba(var(--fc-accent-rgb), .22), transparent);
+  pointer-events: none
+}
+
+.playlist-panel-sticky .queue-head {
+  margin-bottom: 10px
+}
+
+.playlist-panel-sticky .panel-tabs {
+  margin-bottom: 0
+}
+
+.playlist-panel-sticky .fx-title {
+  color: rgba(255, 255, 255, .96);
+  font-weight: 680;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .72), 0 0 18px rgba(255, 255, 255, .08)
+}
+
+.playlist-panel-sticky .fx-sub {
+  color: rgba(255, 255, 255, .48);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .62)
+}
+
+.queue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px
+}
+
+.queue-head-act {
+  display: flex;
+  align-items: center;
+  gap: 6px
+}
+
+/* 面板标题行右侧的图标按钮：图钉与随机共用 30px 方槽。随机原来是文字按钮，
+   俄文「Перемешать」/ 日文「シャッフル」这类长词会把这一行撑开，所以也只放图标。
+   两个按钮都用 flex 居中，不靠按钮默认的行盒 —— svg 是行内元素，靠基线摆放会
+   让图钉比随机高出一两个像素，看起来"没摆到中心"。
+   Icon buttons in the panel header share one 30px square slot. Shuffle used to be a text
+   button; long labels (Russian "Перемешать") overran the row, so it is icon-only too.
+   Both centre the glyph with flex: the default inline baseline would leave the pin a
+   pixel or two higher than the shuffle icon. */
+.playlist-pin-btn,
+.playlist-icon-btn {
+  width: 30px;
+  min-width: 30px;
+  flex: 0 0 auto;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center
+}
+
+.playlist-pin-btn svg,
+.playlist-icon-btn svg {
+  display: block;
+  pointer-events: none
+}
+
+.playlist-pin-btn.active {
+  border-color: rgba(var(--fc-accent-rgb), .38);
+  background: rgba(var(--fc-accent-rgb), .10);
+  color: #fff
+}
+
+.panel-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px
+}
+
+/* 面板只有 302px 可用宽，而标签文案随语言变长：中文 3 个共 210px，日文 285px、俄文 284px，
+   英文 274px。默认的 flex-shrink 会把按钮压窄、把「現在のキュー」折成两行（实测按钮高 30→46px），
+   再长一点就直接溢出被面板边缘裁掉。所以：按钮自己不许被压窄、标签内部不许折行，
+   排不下时让**整行换行**，每个标签始终完整可读。
+   The panel offers 302px while the labels grow with the language: 210px in Chinese, 285px in
+   Japanese, 284px in Russian, 274px in English. The default flex-shrink squeezes the buttons and
+   breaks 「現在のキュー」 across two lines (measured button height 30 -> 46px); one longer label
+   more and the row overflows past the panel edge and gets clipped. So buttons keep their width,
+   labels never break mid-label, and the ROW wraps instead — every label stays fully readable. */
+.panel-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .03);
+  color: rgba(255, 255, 255, .55);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all .2s;
+  font-family: inherit
+}
+
+.panel-tab.active {
+  background: rgba(0, 245, 212, .10);
+  border-color: rgba(0, 245, 212, .34);
+  color: #eafffb
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px
+}
+
+.queue-virtual-spacer,
+.playlist-virtual-spacer,
+.pl-detail-virtual-spacer,
+.search-result-virtual-spacer {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 0;
+  pointer-events: none
+}
+
+.queue-hydration-status,
+.playlist-catalog-status {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: rgba(255, 255, 255, .48);
+  font-size: 10.5px;
+  text-align: center
+}
+
+.queue-hydration-status.compact {
+  min-height: 30px;
+  padding: 6px 8px
+}
+
+/* 失败态：不再转圈（转圈暗示"马上就好"，而失败恰恰是不会自己好），
+   改成琥珀色警示 + 一颗可点的动作按钮，宽度按内容收，别把面板撑高。
+   Error state: no spinner (it implies "any second now" when nothing is coming), just an
+   amber mark plus one compact action button. */
+.playlist-catalog-status.is-error {
+  min-height: 34px;
+  gap: 6px;
+  padding: 6px 10px;
+  color: rgba(244, 210, 138, .80)
+}
+
+.pl-catalog-warn {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(244, 210, 138, .52);
+  font-size: 9px;
+  line-height: 11px;
+  text-align: center;
+  font-style: normal;
+  color: rgba(244, 210, 138, .92)
+}
+
+.playlist-catalog-status.is-error .pl-catalog-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.pl-catalog-action {
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 210, 138, .30);
+  background: rgba(244, 210, 138, .10);
+  color: rgba(244, 210, 138, .92);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, color .18s ease
+}
+
+.pl-catalog-action:hover {
+  border-color: rgba(244, 210, 138, .48);
+  background: rgba(244, 210, 138, .18);
+  color: #f4d28a
+}
+
+.pl-catalog-action:active {
+  transform: translateY(1px)
+}
+
+.queue-hydration-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, .15);
+  border-top-color: rgba(var(--fc-accent-rgb), .92)
+}
+
+.queue-hydration-spinner.spinning {
+  animation: mineradio-queue-loading-spin .72s linear infinite
+}
+
+@keyframes mineradio-queue-loading-spin {
+  to { transform: rotate(360deg) }
+}
+
+.queue-hydration-retry {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--fc-accent-rgb), .28);
+  background: rgba(var(--fc-accent-rgb), .08);
+  color: rgba(255, 255, 255, .84);
+  font: 700 10px var(--font-sans);
+  cursor: pointer
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+  border: 1px solid rgba(255, 255, 255, .04);
+  cursor: pointer;
+  transition: all .2s;
+  will-change: transform, opacity
+}
+
+.queue-item:hover {
+  background: rgba(255, 255, 255, .05)
+}
+
+.queue-item.now {
+  border-color: rgba(0, 245, 212, .34);
+  background: rgba(0, 245, 212, .075)
+}
+
+.queue-item img {
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .06);
+  flex-shrink: 0
+}
+
+.qi-info {
+  flex: 1;
+  min-width: 0
+}
+
+.qi-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, .9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.queue-item.now .qi-name {
+  color: #eafffb
+}
+
+.qi-sub {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.queue-artist-link {
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--fc-accent-rgb), .64);
+  font: inherit;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.queue-artist-link:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px
+}
+
+.qi-act {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity .15s
+}
+
+.queue-item:hover .qi-act {
+  opacity: 1
+}
+
+.qi-act button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .06);
+  color: rgba(255, 255, 255, .55);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1
+}
+
+.qi-act button:hover {
+  background: rgba(255, 255, 255, .15);
+  color: #fff
+}
+
+.qi-act button.queue-next:hover {
+  background: rgba(0, 245, 212, .14);
+  color: #eafffb
+}
+
+.qi-act button.liked,
+.song-action-btn.liked {
+  color: #ff7a90;
+  background: rgba(255, 122, 144, .10)
+}
+
+.song-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .11);
+  background: rgba(255, 255, 255, .045);
+  color: rgba(255, 255, 255, .58);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all .18s;
+  font-size: 14px;
+  line-height: 1
+}
+
+.song-action-btn:hover {
+  background: rgba(0, 245, 212, .10);
+  border-color: rgba(0, 245, 212, .32);
+  color: #eafffb;
+  transform: translateY(-1px)
+}
+
+.queue-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .03);
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .65)
+}
+
+.queue-toolbar {
+  position: sticky;
+  top: 82px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -4px 8px;
+  padding: 7px 4px 6px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(11, 13, 18, var(--playlist-toolbar-a1, .88)), rgba(8, 10, 14, var(--playlist-toolbar-a2, .82)) 74%, rgba(8, 10, 14, var(--playlist-toolbar-a3, .68))), linear-gradient(135deg, rgba(255, 255, 255, .058), rgba(var(--fc-accent-rgb), .042));
+  border: 1px solid rgba(255, 255, 255, .075);
+  backdrop-filter: blur(var(--playlist-toolbar-blur, 28px)) saturate(1.25) brightness(1.05);
+  -webkit-backdrop-filter: blur(var(--playlist-toolbar-blur, 28px)) saturate(1.25) brightness(1.05);
+  box-shadow: 0 13px 30px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .085)
+}
+
+/* 工具条现在固定在滚动区上方，列表从它下面才开始滚：行滚到顶会被滚动框直边裁断，
+   不会再从工具条的圆角或半透明玻璃底下钻出来。 */
+#playlist-panel-tools {
+  flex: 0 0 auto;
+  margin-right: 10px
+}
+
+#playlist-panel-tools .queue-toolbar {
+  position: static;
+  top: auto;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px
+}
+
+.queue-toolbar .fx-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  line-height: 1
+}
+
+/* 「我的歌单」工具条在长语言里放不下：俄语的「+ Новый встроенный」一个就 141px，再加导入与
+   刷新，整排实测 455px 塞进 310px 的面板，右边直接被裁掉。允许换行而不是溢出 —— 面板本身是
+   overflow:auto，多一行不会撑破布局，中文与英文仍然是一行。
+   The 我的歌单 toolbar does not fit in long languages: the Russian "new built-in" button alone is
+   141px, and with import and refresh the row measured 455px inside a 310px panel, so the right
+   edge was simply clipped. Wrapping instead of overflowing — the panel scrolls, and Chinese or
+   English still stay on one line. */
+#pl-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px
+}
+
+/* 按钮组是整块，不许被压缩到字里行间；要挤就挤 chip。 */
+/* The button group stays intact; if something has to give, it is the chip. */
+#pl-toolbar > div {
+  flex: 0 0 auto;
+  max-width: 100%
+}
+
+.pl-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .025);
+  border: 1px solid rgba(255, 255, 255, .04);
+  transition: all .2s;
+  cursor: pointer;
+  margin-bottom: 7px;
+  will-change: transform, opacity
+}
+
+.pl-card:hover {
+  background: rgba(255, 255, 255, .06)
+}
+
+.pl-card img {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .06);
+  flex-shrink: 0
+}
+.pl-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, .9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.pl-sub {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .42);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+/* 播客分栏的内联标题仍然用这个类（见 03-podcast-playlist-loaders.js 拼出的 HTML）。
+   它以前兼作歌单分组的折叠开关，2026-10-26 换成平台切换器之后，这里只剩「小号大写标题」
+   这一个职责，所以 cursor / hover 背景这类可点线索一并去掉，免得看着像能点。
+   The podcast pane still uses this class for its inline heading. It used to double as the group
+   collapse toggle; with the switcher in place it is only a micro heading, so the clickable cues
+   are gone. */
+.pl-section-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(0, 245, 212, .50)
+}
+
+/* 平台切换器：一次只看一个平台，横向胶囊取代原先纵向堆叠的分组标题；它是内容区第一块卡片，
+   等分宽、高 32px、字号 11.5px，选中项用青色渐变填充。歌单与播客两个面板共用这一套尺寸。
+   按钮用缩写（MR/NE/QQ/KG/QS/SP）：面板只有 302px 可用宽，六个全名一行放不下；全名挂在
+   title / aria-label 上，悬停与读屏都能拿到完整名称。
+   The playlists and podcasts panes share one pill geometry: equal-width segments split the row.
+   The pills keep abbreviations because six full names do not fit the 302px the panel offers; the
+   full name rides on title and aria-label.
+   注意：主题段有 `#playlist-panel * { backdrop-filter: none !important }`，所以这张卡片用
+   渐变实色做层次，不要写毛玻璃。 */
+.pl-provider-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 -4px 8px;
+  padding: 5px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .060), rgba(255, 255, 255, .020));
+  border: 1px solid rgba(255, 255, 255, .090);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .070)
+}
+
+.pl-provider-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, .54);
+  cursor: pointer;
+  font: 800 11.5px var(--font-sans);
+  letter-spacing: .08em;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease
+}
+
+.pl-provider-tab:hover,
+.pl-provider-tab:focus-visible {
+  background: rgba(255, 255, 255, .075);
+  color: rgba(255, 255, 255, .84);
+  outline: none
+}
+
+.pl-provider-tab.active {
+  background: linear-gradient(180deg, rgba(0, 245, 212, .28), rgba(0, 245, 212, .14));
+  border-color: rgba(0, 245, 212, .52);
+  color: #f2fffd;
+  box-shadow: 0 2px 12px rgba(0, 245, 212, .22), inset 0 1px 0 rgba(255, 255, 255, .16)
+}
+
+/* 播客面板只有一个平台登录时也保留切换器（它是平台归属的唯一标识），但孤零零一颗按等分规则会
+   撑满整行、读起来像一条大按钮，这里让它收回到按钮该有的长度。歌单那边单平台直接收起整行，
+   不会走到这条规则。
+   A lone pill must stay, since it is the only thing naming the provider, but equal split would make
+   it span the row and read as one big button. The playlists pane never gets here: it drops the row. */
+#podcast-provider-tabs .pl-provider-tab:only-child {
+  flex: 0 0 auto;
+  min-width: 92px;
+  padding: 0 18px
+}
+
+/* 展开详情原来是「摘要头 + 操作行 + 内部滚动列表」，现在摘要头整块删掉（卡片上已有歌名、
+   封面和曲目数，重复一遍只是把按钮往下挤），列表改成分页不再内部滚动，
+   因此基础段只留一个自然高度的容器，几何由主题段与内容共同决定。
+   The summary header is gone and the list pages instead of scrolling, so the base rule only
+   keeps a content-sized container. */
+.pl-inline-detail {
+  position: relative;
+  margin: -1px 0 14px;
+  padding: 0 0 12px;
+  scroll-margin-top: 16px
+}
+
+/* 操作行在卡片内只有 280px 可用，而按钮是不收缩的胶囊：中文「播放歌单/重命名/删除」已占满，
+   再加一个「多选」实测需要 388px → 溢出 108px，后两个按钮被面板边缘直接裁掉（点不到、也看不见）。
+   俄文/日文仅「播放歌单/重命名/删除」三项就需要 315px，本来就已经溢出。
+   所以整行换行 + 按钮不被压窄，换行只是让详情变高，不会裁掉任何内容。
+   The action row has only 280px while its buttons are non-shrinking pills: Chinese already fills
+   it and adding one more needs 388px, a 108px overflow the panel edge clips away entirely. So the
+   row wraps and buttons keep their width — a taller row never clips anything. */
+.pl-detail-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px
+}
+
+.pl-detail-actions > button {
+  flex: 0 0 auto;
+  white-space: nowrap
+}
+
+.pl-detail-play {
+  height: 30px;
+  min-width: 98px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--fc-accent-rgb), .32);
+  background: rgba(var(--fc-accent-rgb), .10);
+  color: #fff;
+  font: 700 11.5px var(--font-sans);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer
+}
+
+.pl-detail-play svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor
+}
+
+.pl-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: visible
+}
+
+/* 分页条取代了「继续滚动加载」：一页固定几首，左右各一个箭头，中间是页码。
+   只有一页时整条不渲染（JS 判断），所以它的高度也要参与虚拟台账的估算。
+   Paging replaces "keep scrolling": fixed page size, two arrows and an indicator. The whole bar is
+   omitted for a single page, so its height is part of the ledger estimate. */
+.pl-detail-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 24px;
+  margin-top: 10px
+}
+
+.pl-pager-btn {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .035);
+  color: rgba(255, 255, 255, .72);
+  font: 700 13px/1 var(--font-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease
+}
+
+.pl-pager-btn:hover:not(:disabled) {
+  background: rgba(0, 245, 212, .12);
+  border-color: rgba(0, 245, 212, .34);
+  color: #eafffb
+}
+
+.pl-pager-btn:disabled {
+  opacity: .26;
+  cursor: default
+}
+
+.pl-pager-indicator {
+  min-width: 46px;
+  text-align: center;
+  font: 700 10.5px var(--font-sans);
+  letter-spacing: .08em;
+  color: rgba(255, 255, 255, .46)
+}
+
+.pl-detail-loading-row {
+  cursor: default;
+  min-height: 52px
+}
+
+.pl-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+  border: 1px solid rgba(255, 255, 255, .04);
+  cursor: pointer
+}
+
+.pl-detail-row:hover {
+  background: rgba(255, 255, 255, .055)
+}
+
+/* 「重命名 / 删除 / 取消收藏」这一排跟「播放歌单」等高，外观走 fx-mini-btn 的玻璃底。
+   原来叫 pl-detail-top-btn（跟着已删除的「回到顶部」命名），现在只是辅助操作，
+   所以改成中性名字。 */
+.pl-detail-aux-btn {
+  height: 30px;
+  min-width: 82px;
+  flex: 0 0 auto;
+  padding: 0 12px
+}
+
+.pl-detail-progress {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, .34);
+  font-size: 10.5px
+}
+
+.pl-detail-row img {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .06);
+  flex: 0 0 auto
+}
+
+.pl-detail-row-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: rgba(255, 255, 255, .86);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.pl-detail-row-artist {
+  display: inline-flex;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--fc-accent-rgb), .68);
+  font: 500 10.5px var(--font-sans);
+  padding: 0;
+  margin-top: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.pl-detail-row-artist:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px
+}
+
+.pl-card.expanded {
+  border-color: rgba(var(--fc-accent-rgb), .32);
+  background: rgba(var(--fc-accent-rgb), .060)
+}
+
+.pl-card.podcast-card {
+  border-color: rgba(0, 245, 212, .075);
+  background: rgba(0, 245, 212, .030)
+}
+
+.pl-card.podcast-card:hover {
+  border-color: rgba(0, 245, 212, .20);
+  background: rgba(0, 245, 212, .070)
+}
+
+.pl-card.podcast-child {
+  margin-left: 10px;
+  background: rgba(255, 255, 255, .03)
+}
+
+.podcast-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 7px
+}
+
+.podcast-inline-head .pl-section-label {
+  margin: 0
+}
+
+.panel-tab.active,
+.queue-item.now,
+.mini-queue-item.now,
+.preset-card.active,
+.fx-toggle.on,
+.fx-seg button.active {
+  border-color: rgba(var(--fc-accent-rgb), .34) !important;
+  background: rgba(var(--fc-accent-rgb), .085) !important;
+  color: #fff !important
+}
+
+#search-box:focus-within,
+#fx-panel,
+#fx-fab,
+#fx-fab:hover,
+#fx-fab.active,
+#upload-btn:hover,
+#home-btn:hover {
+  border-color: rgba(var(--fc-accent-rgb), .42) !important;
+  box-shadow: 0 16px 46px rgba(var(--fc-accent-rgb), .08), inset 0 1px 0 rgba(255, 255, 255, .10)
+}
+
+#search-mode-tabs button.active {
+  background: rgba(var(--fc-accent-rgb), .12) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--fc-accent-rgb), .28), 0 8px 24px rgba(var(--fc-accent-rgb), .07) !important
+}
+
+#search-results::-webkit-scrollbar-thumb,
+#fx-panel::-webkit-scrollbar-thumb,
+#fx-console-scroll::-webkit-scrollbar-thumb {
+  background: rgba(var(--fc-accent-rgb), .30) !important
+}
+
+#fx-panel,
+#fx-console-scroll {
+  scrollbar-color: rgba(var(--fc-accent-rgb), .30) transparent !important
+}
+
+.preset-card.active .pc-icon,
+.fx-section-label,
+.fx-fold-head .arrow,
+.pl-section-label {
+  color: rgba(var(--fc-accent-rgb), .72) !important
+}
+
+.lyric-color-row:focus-within,
+.fx-slider:focus-within,
+.fx-fold.open {
+  border-color: rgba(var(--fc-accent-rgb), .18)
+}
+
+.song-action-btn:hover,
+.qi-act button.queue-next:hover,
+.mini-queue-remove.mini-queue-next:hover {
+  background: rgba(var(--fc-accent-rgb), .12) !important;
+  border-color: rgba(var(--fc-accent-rgb), .30) !important;
+  color: #fff !important
+}
+
+.pl-section-label,
+.fx-section-label,
+.fx-fold-head .arrow {
+  color: rgba(var(--fc-accent-rgb), .58)
+}
+
+.search-result .add-btn:hover,
+.quality-option.active,
+.fx-mini-btn.active,
+.fx-mini-btn.ghost.active,
+.playlist-pin-btn.active {
+  border-color: rgba(var(--fc-accent-rgb), .38) !important;
+  background: rgba(var(--fc-accent-rgb), .12) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 28px rgba(var(--fc-accent-rgb), .08)
+}
+
+#home-btn,
+#upload-btn,
+#play-btn {
+  border-color: rgba(var(--fc-accent-rgb), .24) !important
+}
+
+#home-btn:hover,
+#upload-btn:hover,
+#play-btn:hover,
+.ctrl-btn:hover {
+  border-color: rgba(var(--fc-accent-rgb), .42) !important;
+  background: rgba(var(--fc-accent-rgb), .085) !important;
+  box-shadow: 0 14px 38px rgba(var(--fc-accent-rgb), .10), inset 0 1px 0 rgba(255, 255, 255, .12) !important;
+  color: #fff
+}
+
+#bottom-bar .ctrl-btn:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .055) 44%, rgba(var(--fc-accent-rgb), .070)) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .14), 0 0 18px rgba(var(--fc-accent-rgb), .075), inset 0 1px 0 rgba(255, 255, 255, .30), inset 0 -1px 0 rgba(255, 255, 255, .08) !important;
+  color: #fff
+}
+
+#play-btn {
+  border: 0 !important;
+  background: rgba(0, 0, 0, .10) !important;
+  box-shadow: inset 0 0 2px 1px rgba(255, 255, 255, .34), inset 0 0 10px 4px rgba(255, 255, 255, .13), 0 10px 30px rgba(0, 0, 0, .18) !important
+}
+
+#play-btn:hover {
+  background: rgba(255, 255, 255, .055) !important;
+  box-shadow: inset 0 0 2px 1px rgba(255, 255, 255, .42), inset 0 0 12px 5px rgba(255, 255, 255, .17), 0 12px 34px rgba(0, 0, 0, .22), 0 0 18px rgba(var(--fc-accent-rgb), .10) !important;
+  color: #fff
+}
+
+body.empty-home-active #home-btn {
+  border-color: rgba(var(--fc-accent-rgb), .42) !important;
+  background: rgba(var(--fc-accent-rgb), .14) !important
+}
+
+/* Unified saved glass: keep panels in the same texture as the player bar. */
+#search-box,
+#search-results,
+.search-mode-tabs,
+#fx-panel,
+#playlist-panel,
+#upload-tip,
+#trial-banner,
+#toast,
+#cuefield-feedback,
+#source-fallback-notice,
+#ai-depth-chip,
+#beat-chip,
+.modal,
+.modal.update-modal,
+.track-detail-modal,
+.cover-color-pop,
+.color-lab-pop,
+.visual-guide-card,
+.volume-popover,
+.quality-popover,
+.control-source-switcher,
+.lyric-timing-popover,
+.mini-queue-popover,
+.home-hero,
+.home-card,
+.home-tile,
+.home-mosaic-cell,
+.pl-inline-detail,
+.local-beat-track,
+.custom-lyric-track,
+.cover-crop-stage,
+#drop-overlay .drop-text {
+  background: var(--saved-panel-glass-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-panel-glass-shadow) !important;
+  backdrop-filter: var(--saved-panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-filter) !important;
+}
+
+html.control-glass-svg-ok #search-results,
+html.control-glass-svg-ok #fx-panel,
+html.control-glass-svg-ok #playlist-panel,
+html.control-glass-svg-ok #upload-tip,
+html.control-glass-svg-ok #trial-banner,
+html.control-glass-svg-ok #toast,
+html.control-glass-svg-ok #cuefield-feedback,
+html.control-glass-svg-ok #source-fallback-notice,
+html.control-glass-svg-ok #ai-depth-chip,
+html.control-glass-svg-ok #beat-chip,
+html.control-glass-svg-ok .modal,
+html.control-glass-svg-ok .modal.update-modal,
+html.control-glass-svg-ok .track-detail-modal,
+html.control-glass-svg-ok .cover-color-pop,
+html.control-glass-svg-ok .color-lab-pop,
+html.control-glass-svg-ok .visual-guide-card,
+html.control-glass-svg-ok .volume-popover,
+html.control-glass-svg-ok .quality-popover,
+html.control-glass-svg-ok .lyric-timing-popover,
+html.control-glass-svg-ok .mini-queue-popover,
+html.control-glass-svg-ok .home-hero,
+html.control-glass-svg-ok .home-card,
+html.control-glass-svg-ok .home-tile,
+html.control-glass-svg-ok .home-mosaic-cell,
+html.control-glass-svg-ok .pl-inline-detail,
+html.control-glass-svg-ok .local-beat-track,
+html.control-glass-svg-ok .custom-lyric-track,
+html.control-glass-svg-ok .cover-crop-stage,
+html.control-glass-svg-ok #drop-overlay .drop-text {
+  backdrop-filter: var(--saved-panel-glass-svg-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-svg-filter) !important;
+}
+
+html.control-glass-svg-ok .control-source-switcher {
+  backdrop-filter: var(--saved-panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-filter) !important
+}
+
+.icon-btn,
+#fx-fab,
+.user-capsule-hide-btn,
+.fx-mini-btn,
+.fx-toggle,
+.fx-seg button,
+.panel-tab,
+.preset-card,
+.lyric-color-row,
+.fx-slider,
+.fx-fold,
+.quality-option,
+.modal-btn,
+.visual-guide-actions button,
+.home-chip,
+.pl-card,
+.queue-item,
+.mini-queue-item,
+.pl-detail-row,
+.pl-detail-play,
+.local-beat-tab,
+.search-history-chip,
+.search-result .add-btn,
+.song-action-btn,
+.qi-act button,
+.mini-queue-remove {
+  background: var(--saved-button-glass-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-button-glass-shadow) !important;
+  backdrop-filter: var(--saved-button-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-button-glass-filter) !important;
+}
+
+html.control-glass-svg-ok .icon-btn,
+html.control-glass-svg-ok #fx-fab,
+html.control-glass-svg-ok .user-capsule-hide-btn,
+html.control-glass-svg-ok .fx-mini-btn,
+html.control-glass-svg-ok .fx-toggle,
+html.control-glass-svg-ok .fx-seg button,
+html.control-glass-svg-ok .panel-tab,
+html.control-glass-svg-ok .preset-card,
+html.control-glass-svg-ok .lyric-color-row,
+html.control-glass-svg-ok .fx-slider,
+html.control-glass-svg-ok .fx-fold,
+html.control-glass-svg-ok .quality-option,
+html.control-glass-svg-ok .modal-btn,
+html.control-glass-svg-ok .visual-guide-actions button,
+html.control-glass-svg-ok .home-chip,
+html.control-glass-svg-ok .pl-card,
+html.control-glass-svg-ok .queue-item,
+html.control-glass-svg-ok .mini-queue-item,
+html.control-glass-svg-ok .pl-detail-row,
+html.control-glass-svg-ok .pl-detail-play,
+html.control-glass-svg-ok .local-beat-tab,
+html.control-glass-svg-ok .search-history-chip,
+html.control-glass-svg-ok .search-result .add-btn,
+html.control-glass-svg-ok .song-action-btn,
+html.control-glass-svg-ok .qi-act button,
+html.control-glass-svg-ok .mini-queue-remove {
+  backdrop-filter: var(--saved-button-glass-svg-filter) !important;
+  -webkit-backdrop-filter: var(--saved-button-glass-svg-filter) !important;
+}
+
+.icon-btn:hover,
+#fx-fab:hover,
+#fx-fab.active,
+.fx-mini-btn:hover,
+.fx-mini-btn.active,
+.fx-toggle.on,
+.fx-seg button.active,
+.panel-tab.active,
+.preset-card.active,
+.quality-option.active,
+.modal-btn:hover,
+.visual-guide-actions button:hover,
+.home-chip:hover,
+.home-card:hover,
+.home-tile:hover,
+.pl-card:hover,
+.pl-card.expanded,
+.pl-card.podcast-card,
+.pl-card.podcast-card:hover,
+.queue-item:hover,
+.queue-item.now,
+.mini-queue-item:hover,
+.mini-queue-item.now,
+.pl-detail-row:hover,
+.pl-detail-play:hover,
+.local-beat-tab:hover,
+.local-beat-tab.active,
+.search-history-chip:hover,
+.search-result .add-btn:hover,
+.song-action-btn:hover,
+.qi-act button:hover,
+.mini-queue-remove:hover {
+  background: var(--saved-button-glass-hover-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-button-glass-hover-shadow) !important;
+  color: #fff !important;
+}
+
+.home-hero::before,
+.home-card::before,
+.home-card::after,
+.home-tile::before,
+.home-tile::after,
+.home-mosaic-cell::before,
+.home-mosaic-cell::after,
+.modal.update-modal::before,
+.visual-guide-card::before,
+#upload-tip::before {
+  content: none !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+.fx-section-label,
+.pl-section-label,
+.preset-card.active .pc-icon,
+.fx-fold-head .arrow,
+.visual-guide-kicker {
+  color: rgba(255, 255, 255, .68) !important;
+  text-shadow: none !important
+}
+
+.lyric-color-row:focus-within,
+.fx-slider:focus-within,
+.fx-fold.open,
+#search-box:focus-within {
+  border-color: transparent !important;
+  box-shadow: var(--saved-panel-glass-shadow) !important
+}
+
+/* Left playlist panel rollback: keep this page lightweight. */
+#playlist-panel {
+  background: rgba(12, 12, 18, 0.42) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45) !important;
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important
+}
+
+#playlist-panel * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important
+}
+
+#playlist-panel .playlist-panel-sticky {
+  background: linear-gradient(180deg, rgba(12, 14, 18, var(--playlist-sticky-a1, .94)), rgba(9, 11, 15, var(--playlist-sticky-a2, .90)) 70%, rgba(9, 11, 15, var(--playlist-sticky-a3, .78))), linear-gradient(135deg, rgba(255, 255, 255, .085), rgba(255, 255, 255, .028) 42%, rgba(var(--fc-accent-rgb), .048)) !important;
+  border: 1px solid rgba(255, 255, 255, .090) !important;
+  border-top-color: rgba(255, 255, 255, .17) !important;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .44), inset 0 1px 0 rgba(255, 255, 255, .11), inset 0 -1px 0 rgba(255, 255, 255, .045) !important;
+  backdrop-filter: blur(var(--playlist-sticky-blur, 38px)) saturate(1.34) brightness(1.06) !important;
+  -webkit-backdrop-filter: blur(var(--playlist-sticky-blur, 38px)) saturate(1.34) brightness(1.06) !important
+}
+
+#playlist-panel .queue-toolbar {
+  background: linear-gradient(180deg, rgba(11, 13, 18, var(--playlist-toolbar-a1, .88)), rgba(8, 10, 14, var(--playlist-toolbar-a2, .82)) 74%, rgba(8, 10, 14, var(--playlist-toolbar-a3, .68))), linear-gradient(135deg, rgba(255, 255, 255, .058), rgba(var(--fc-accent-rgb), .042)) !important;
+  border: 1px solid rgba(255, 255, 255, .075) !important;
+  box-shadow: 0 13px 30px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .085) !important;
+  backdrop-filter: blur(var(--playlist-toolbar-blur, 28px)) saturate(1.25) brightness(1.05) !important;
+  -webkit-backdrop-filter: blur(var(--playlist-toolbar-blur, 28px)) saturate(1.25) brightness(1.05) !important
+}
+
+#playlist-panel.pinned {
+  border-color: rgba(var(--fc-accent-rgb), .28) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 0 34px rgba(var(--fc-accent-rgb), .08) !important
+}
+
+#playlist-panel-body::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, .20) !important;
+  background-clip: padding-box !important;
+  border: 3px solid transparent !important;
+  border-radius: 999px !important
+}
+
+#playlist-panel .panel-tab {
+  background: rgba(255, 255, 255, .03) !important;
+  border: 1px solid rgba(255, 255, 255, .1) !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, .55) !important
+}
+
+#playlist-panel .panel-tab.active {
+  background: rgba(var(--fc-accent-rgb), .10) !important;
+  border-color: rgba(var(--fc-accent-rgb), .34) !important;
+  color: #fff !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .queue-item {
+  background: rgba(255, 255, 255, .025) !important;
+  border: 1px solid rgba(255, 255, 255, .04) !important;
+  box-shadow: none !important;
+  color: inherit !important
+}
+
+#playlist-panel .queue-item:hover {
+  background: rgba(255, 255, 255, .05) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .queue-item.now {
+  border-color: rgba(var(--fc-accent-rgb), .34) !important;
+  background: rgba(var(--fc-accent-rgb), .075) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .pl-card {
+  background: rgba(255, 255, 255, .025) !important;
+  border: 1px solid rgba(255, 255, 255, .04) !important;
+  box-shadow: none !important;
+  color: inherit !important
+}
+
+#playlist-panel .pl-card:hover {
+  background: rgba(255, 255, 255, .06) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .pl-card.expanded {
+  border-color: rgba(var(--fc-accent-rgb), .32) !important;
+  background: rgba(var(--fc-accent-rgb), .060) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .pl-card.podcast-card {
+  border-color: rgba(var(--fc-accent-rgb), .075) !important;
+  background: rgba(var(--fc-accent-rgb), .030) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .pl-card.podcast-card:hover {
+  border-color: rgba(var(--fc-accent-rgb), .20) !important;
+  background: rgba(var(--fc-accent-rgb), .070) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .pl-card.podcast-child {
+  background: rgba(255, 255, 255, .03) !important
+}
+
+#playlist-panel .pl-detail-play {
+  background: rgba(var(--fc-accent-rgb), .10) !important;
+  border: 1px solid rgba(var(--fc-accent-rgb), .32) !important;
+  box-shadow: none !important;
+  color: #fff !important
+}
+
+#playlist-panel .pl-detail-row {
+  background: rgba(255, 255, 255, .025) !important;
+  border: 1px solid rgba(255, 255, 255, .04) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .pl-detail-row:hover {
+  background: rgba(255, 255, 255, .055) !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .fx-mini-btn {
+  background: rgba(255, 255, 255, .04) !important;
+  border: 1px solid rgba(255, 255, 255, .12) !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, .78) !important
+}
+
+#playlist-panel .fx-mini-btn:hover {
+  background: rgba(255, 255, 255, .1) !important;
+  color: #fff !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .fx-mini-btn.active,
+#playlist-panel .fx-mini-btn.ghost.active {
+  border-color: rgba(var(--fc-accent-rgb), .38) !important;
+  background: rgba(var(--fc-accent-rgb), .10) !important;
+  color: #fff !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .fx-mini-btn.ghost {
+  background: transparent !important
+}
+
+#playlist-panel .song-action-btn {
+  background: rgba(255, 255, 255, .045) !important;
+  border: 1px solid rgba(255, 255, 255, .11) !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, .58) !important
+}
+
+#playlist-panel .song-action-btn:hover {
+  background: rgba(var(--fc-accent-rgb), .10) !important;
+  border-color: rgba(var(--fc-accent-rgb), .32) !important;
+  color: #fff !important;
+  box-shadow: none !important
+}
+
+#playlist-panel .qi-act button {
+  background: rgba(255, 255, 255, .06) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, .55) !important
+}
+
+#playlist-panel .qi-act button:hover {
+  background: rgba(255, 255, 255, .15) !important;
+  color: #fff !important
+}
+
+#playlist-panel .qi-act button.queue-next:hover {
+  background: rgba(var(--fc-accent-rgb), .14) !important;
+  color: #fff !important
+}
+
+.home-card[data-home-tone],
+.home-tile[data-home-tone] {
+  --tone-a: var(--home-accent);
+  --tone-b: color-mix(in srgb, var(--home-accent) 58%, #2442ff);
+  --tone-c: color-mix(in srgb, var(--home-accent) 42%, #f8f4ee)
+}
+
+.home-hero {
+  border-color: color-mix(in srgb, var(--home-accent) 34%, rgba(255, 255, 255, .085));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--home-accent) 18%, rgba(33, 29, 34, .64)), rgba(9, 10, 14, .76) 48%, color-mix(in srgb, var(--home-accent) 10%, rgba(17, 20, 25, .70)))
+}
+
+.home-hero::before {
+  background: linear-gradient(118deg, color-mix(in srgb, var(--home-accent) 18%, rgba(255, 255, 255, .060)), transparent 24%, color-mix(in srgb, var(--home-accent) 13%, rgba(255, 83, 103, .070)) 54%, color-mix(in srgb, var(--home-accent) 15%, rgba(122, 215, 194, .055)) 82%, transparent 100%), linear-gradient(90deg, rgba(255, 255, 255, .032) 0 1px, transparent 1px 48px), linear-gradient(0deg, rgba(255, 255, 255, .024) 0 1px, transparent 1px 44px)
+}
+
+.home-card,
+.home-tile,
+.home-mosaic-cell {
+  border-color: color-mix(in srgb, var(--home-accent) 22%, rgba(255, 255, 255, .080));
+  box-shadow: 0 20px 64px rgba(0, 0, 0, .28), 0 0 26px color-mix(in srgb, var(--home-accent) 8%, transparent), inset 0 1px 0 rgba(255, 255, 255, .060)
+}
+
+.home-card {
+  background: linear-gradient(142deg, color-mix(in srgb, var(--home-accent) 13%, rgba(18, 21, 26, .66)), rgba(8, 9, 13, .76))
+}
+
+.home-card::before {
+  background: linear-gradient(118deg, color-mix(in srgb, var(--home-accent) 24%, transparent), transparent 38%, color-mix(in srgb, var(--home-accent) 14%, transparent) 74%, transparent), linear-gradient(90deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 38px)
+}
+
+.home-card:hover,
+.home-tile:hover {
+  border-color: color-mix(in srgb, var(--home-accent) 44%, rgba(255, 255, 255, .18));
+  box-shadow: 0 26px 78px rgba(0, 0, 0, .34), 0 0 34px color-mix(in srgb, var(--home-accent) 16%, transparent), inset 0 1px 0 rgba(255, 255, 255, .085)
+}
+
+.home-tile {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--home-accent) 12%, rgba(255, 255, 255, .060)), rgba(255, 255, 255, .025))
+}
+.home-mosaic-cell:not(.has-cover)::before {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--home-accent) 68%, transparent), color-mix(in srgb, var(--home-accent) 36%, #2442ff) 46%, rgba(10, 10, 14, .20)), repeating-linear-gradient(110deg, rgba(255, 255, 255, .16) 0 2px, transparent 2px 18px)
+}
+
+.home-mosaic-cell:nth-child(2):not(.has-cover)::before {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--home-accent) 72%, #7ad7c2), color-mix(in srgb, var(--home-accent) 42%, #9db8cf) 48%, rgba(10, 10, 14, .24)), repeating-linear-gradient(0deg, rgba(255, 255, 255, .16) 0 2px, transparent 2px 16px)
+}
+
+.home-mosaic-cell:nth-child(3):not(.has-cover)::before {
+  background: linear-gradient(135deg, rgba(248, 244, 238, .38), color-mix(in srgb, var(--home-accent) 46%, transparent) 58%, rgba(10, 10, 14, .24)), repeating-linear-gradient(90deg, rgba(255, 255, 255, .15) 0 2px, transparent 2px 15px)
+}
+
+.home-hero,
+.home-card,
+.home-tile,
+.home-mosaic-cell {
+  background: var(--saved-panel-glass-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-panel-glass-shadow) !important;
+  backdrop-filter: var(--saved-panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-filter) !important
+}
+
+html.control-glass-svg-ok .home-hero,
+html.control-glass-svg-ok .home-card,
+html.control-glass-svg-ok .home-tile,
+html.control-glass-svg-ok .home-mosaic-cell {
+  backdrop-filter: var(--saved-panel-glass-svg-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-svg-filter) !important
+}
+
+.home-hero::before,
+.home-card::before,
+.home-card::after,
+.home-tile::before,
+.home-tile::after,
+.home-mosaic-cell::before,
+.home-mosaic-cell::after {
+  content: none !important;
+  background: none !important;
+  box-shadow: none !important
+}
+
+/* Stable panel glass: do not reuse the player bar SVG displacement on tall panels. */
+:root {
+  --panel-glass-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.22) brightness(1.04);
+  --panel-glass-bg: radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .10), transparent 34%), radial-gradient(circle at 88% 8%, rgba(var(--home-accent-rgb), .12), transparent 36%), linear-gradient(145deg, rgba(var(--home-accent-rgb), .115), rgba(12, 13, 18, .70) 42%, rgba(2, 3, 5, .66));
+  --panel-glass-shadow: 0 24px 78px rgba(0, 0, 0, .44), 0 0 0 1px rgba(255, 255, 255, .045), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 -18px 42px rgba(0, 0, 0, .16);
+  --panel-button-bg: linear-gradient(145deg, rgba(255, 255, 255, .075), rgba(var(--home-accent-rgb), .060) 46%, rgba(0, 0, 0, .14));
+}
+
+#search-box,
+#search-results,
+.search-mode-tabs,
+#fx-panel,
+#upload-tip,
+#trial-banner,
+#toast,
+#cuefield-feedback,
+#source-fallback-notice,
+#ai-depth-chip,
+#beat-chip,
+.modal,
+.modal.update-modal,
+.track-detail-modal,
+.cover-color-pop,
+.color-lab-pop,
+.visual-guide-card,
+.home-hero,
+.home-card,
+.home-tile,
+.home-mosaic-cell,
+.pl-inline-detail,
+.local-beat-track,
+.custom-lyric-track,
+.cover-crop-stage,
+#drop-overlay .drop-text {
+  background: var(--panel-glass-bg) !important;
+  border-color: rgba(255, 255, 255, .075) !important;
+  box-shadow: var(--panel-glass-shadow) !important;
+  backdrop-filter: var(--panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--panel-glass-filter) !important;
+}
+
+html.control-glass-svg-ok #search-results,
+html.control-glass-svg-ok #fx-panel,
+html.control-glass-svg-ok #upload-tip,
+html.control-glass-svg-ok #trial-banner,
+html.control-glass-svg-ok #toast,
+html.control-glass-svg-ok #cuefield-feedback,
+html.control-glass-svg-ok #source-fallback-notice,
+html.control-glass-svg-ok #ai-depth-chip,
+html.control-glass-svg-ok #beat-chip,
+html.control-glass-svg-ok .modal,
+html.control-glass-svg-ok .modal.update-modal,
+html.control-glass-svg-ok .track-detail-modal,
+html.control-glass-svg-ok .cover-color-pop,
+html.control-glass-svg-ok .color-lab-pop,
+html.control-glass-svg-ok .visual-guide-card,
+html.control-glass-svg-ok .home-hero,
+html.control-glass-svg-ok .home-card,
+html.control-glass-svg-ok .home-tile,
+html.control-glass-svg-ok .home-mosaic-cell,
+html.control-glass-svg-ok .pl-inline-detail,
+html.control-glass-svg-ok .local-beat-track,
+html.control-glass-svg-ok .custom-lyric-track,
+html.control-glass-svg-ok .cover-crop-stage,
+html.control-glass-svg-ok #drop-overlay .drop-text {
+  backdrop-filter: var(--panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--panel-glass-filter) !important;
+}
+
+.icon-btn:not(.ctrl-btn),
+#fx-fab,
+.user-capsule-hide-btn,
+.fx-mini-btn,
+.fx-toggle,
+.fx-seg button,
+.panel-tab,
+.preset-card,
+.lyric-color-row,
+.fx-slider,
+.fx-fold,
+.quality-option,
+.modal-btn,
+.visual-guide-actions button,
+.home-chip,
+.local-beat-tab,
+.search-history-chip,
+.search-result .add-btn,
+.song-action-btn {
+  background: var(--panel-button-bg) !important;
+  border-color: rgba(255, 255, 255, .070) !important;
+  backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
+}
+
+html.control-glass-svg-ok .icon-btn:not(.ctrl-btn),
+html.control-glass-svg-ok #fx-fab,
+html.control-glass-svg-ok .user-capsule-hide-btn,
+html.control-glass-svg-ok .fx-mini-btn,
+html.control-glass-svg-ok .fx-toggle,
+html.control-glass-svg-ok .fx-seg button,
+html.control-glass-svg-ok .panel-tab,
+html.control-glass-svg-ok .preset-card,
+html.control-glass-svg-ok .lyric-color-row,
+html.control-glass-svg-ok .fx-slider,
+html.control-glass-svg-ok .fx-fold,
+html.control-glass-svg-ok .quality-option,
+html.control-glass-svg-ok .modal-btn,
+html.control-glass-svg-ok .visual-guide-actions button,
+html.control-glass-svg-ok .home-chip,
+html.control-glass-svg-ok .local-beat-tab,
+html.control-glass-svg-ok .search-history-chip,
+html.control-glass-svg-ok .search-result .add-btn,
+html.control-glass-svg-ok .song-action-btn {
+  backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(calc(16px * var(--glass-blur-scale, 1))) saturate(1.18) !important;
+}
+
+html.control-glass-svg-ok #playlist-panel {
+  background: rgba(12, 12, 18, .42) !important;
+  border-color: rgba(255, 255, 255, .08) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .45) !important;
+  backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
+}
+
+.home-hero,
+.home-card,
+.home-tile,
+.home-mosaic-cell {
+  background: linear-gradient(145deg, rgba(var(--home-accent-rgb), .14), rgba(14, 14, 19, .74) 44%, rgba(2, 3, 5, .72)) !important;
+  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+}
+
+.home-hero::before,
+.home-card::before,
+.home-tile::before,
+.home-mosaic-cell::before {
+  content: '' !important;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(118deg, rgba(255, 255, 255, .055), transparent 28%, rgba(var(--home-accent-rgb), .11) 70%, transparent), linear-gradient(90deg, rgba(255, 255, 255, .026) 0 1px, transparent 1px 44px) !important;
+  opacity: .62 !important;
+  pointer-events: none;
+}
+
+.home-card::after,
+.home-tile::after,
+.home-mosaic-cell::after {
+  content: '' !important;
+  position: absolute;
+  inset: auto 18px 14px 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--home-accent-rgb), .30), rgba(255, 255, 255, .12), transparent) !important;
+  opacity: .72 !important;
+  pointer-events: none;
+}
+
+/* Final glass scope: keep SVG only on the search input and main chrome buttons. */
+#search-box {
+  background: var(--saved-panel-glass-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-panel-glass-shadow) !important;
+  backdrop-filter: var(--saved-panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-filter) !important;
+}
+
+#home-btn,
+#upload-btn,
+#visual-guide-btn,
+#fx-fab,
+#top-right .icon-btn {
+  background: var(--saved-button-glass-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-button-glass-shadow) !important;
+  backdrop-filter: var(--saved-button-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-button-glass-filter) !important;
+}
+
+html.control-glass-svg-ok #home-btn,
+html.control-glass-svg-ok #upload-btn,
+html.control-glass-svg-ok #visual-guide-btn,
+html.control-glass-svg-ok #fx-fab,
+html.control-glass-svg-ok #top-right .icon-btn {
+  backdrop-filter: var(--saved-button-glass-svg-filter) !important;
+  -webkit-backdrop-filter: var(--saved-button-glass-svg-filter) !important;
+}
+
+#search-results,
+.search-mode-tabs,
+#playlist-panel,
+#fx-panel {
+  background: rgba(0, 0, 0, .90) !important;
+  border: 1px solid rgba(255, 255, 255, .095) !important;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .10) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+}
+
+html.control-glass-svg-ok #search-results,
+html.control-glass-svg-ok #playlist-panel,
+html.control-glass-svg-ok #fx-panel {
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+}
+
+#search-box {
+  position: relative;
+  background: rgba(0, 0, 0, .10) !important;
+  box-shadow: var(--saved-panel-glass-shadow) !important;
+}
+
+#search-box {
+  overflow: visible;
+  isolation: isolate
+}
+
+#search-box::before {
+  content: none !important;
+}
+
+#search-results {
+  background: rgba(0, 0, 0, .90) !important;
+  border: 1px solid rgba(255, 255, 255, .095) !important;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .10) !important;
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+}
+
+html.control-glass-svg-ok #search-results {
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+}
+
+.fx-mini-btn,
+.fx-toggle,
+.fx-seg button,
+.panel-tab,
+.preset-card,
+.lyric-color-row,
+.quality-option,
+.modal-btn,
+.search-mode-tabs button,
+.visual-guide-actions button,
+.home-chip,
+.pl-card,
+.queue-item,
+.mini-queue-item,
+.pl-detail-row,
+.pl-detail-play,
+.local-beat-tab,
+.search-history-chip,
+.search-result .add-btn,
+.song-action-btn,
+.qi-act button,
+.mini-queue-remove {
+  background: rgba(0, 0, 0, .72) !important;
+  border: 1px solid rgba(255, 255, 255, .10) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.control-glass-svg-ok .fx-mini-btn,
+html.control-glass-svg-ok .fx-toggle,
+html.control-glass-svg-ok .fx-seg button,
+html.control-glass-svg-ok .search-mode-tabs button,
+html.control-glass-svg-ok .panel-tab,
+html.control-glass-svg-ok .preset-card,
+html.control-glass-svg-ok .lyric-color-row,
+html.control-glass-svg-ok .quality-option,
+html.control-glass-svg-ok .modal-btn,
+html.control-glass-svg-ok .visual-guide-actions button,
+html.control-glass-svg-ok .home-chip,
+html.control-glass-svg-ok .pl-card,
+html.control-glass-svg-ok .queue-item,
+html.control-glass-svg-ok .mini-queue-item,
+html.control-glass-svg-ok .pl-detail-row,
+html.control-glass-svg-ok .pl-detail-play,
+html.control-glass-svg-ok .local-beat-tab,
+html.control-glass-svg-ok .search-history-chip,
+html.control-glass-svg-ok .search-result .add-btn,
+html.control-glass-svg-ok .song-action-btn,
+html.control-glass-svg-ok .qi-act button,
+html.control-glass-svg-ok .mini-queue-remove {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.search-artist-link,
+.queue-artist-link,
+.pl-detail-row-artist,
+#thumb-artist,
+.control-artist {
+  color: rgba(255, 255, 255, .92) !important;
+}
+
+.search-artist-link:hover,
+.queue-artist-link:hover,
+.pl-detail-row-artist:hover,
+#thumb-artist:hover,
+.control-artist:hover {
+  color: #fff !important;
+  text-shadow: none !important;
+}
+
+#playlist-panel .pl-card,
+#playlist-panel .queue-item,
+#playlist-panel .pl-detail-row {
+  background: rgba(0, 0, 0, .72) !important;
+  border: 1px solid rgba(255, 255, 255, .10) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#playlist-panel .pl-card:hover,
+#playlist-panel .queue-item:hover,
+#playlist-panel .pl-detail-row:hover {
+  background: rgba(18, 18, 22, .82) !important;
+}
+
+#playlist-panel .pl-card.expanded,
+#playlist-panel .queue-item.now {
+  background: rgba(8, 14, 24, .86) !important;
+  border-color: rgba(var(--fc-accent-rgb), .28) !important;
+}
+
+html.control-glass-svg-ok .icon-btn,
+html.control-glass-svg-ok .fx-mini-btn,
+html.control-glass-svg-ok .fx-toggle,
+html.control-glass-svg-ok .fx-seg button,
+html.control-glass-svg-ok .panel-tab,
+html.control-glass-svg-ok .preset-card,
+html.control-glass-svg-ok .lyric-color-row,
+html.control-glass-svg-ok .quality-option,
+html.control-glass-svg-ok .modal-btn,
+html.control-glass-svg-ok .visual-guide-actions button,
+html.control-glass-svg-ok .home-chip,
+html.control-glass-svg-ok .pl-card,
+html.control-glass-svg-ok .queue-item,
+html.control-glass-svg-ok .mini-queue-item,
+html.control-glass-svg-ok .pl-detail-row,
+html.control-glass-svg-ok .pl-detail-play,
+html.control-glass-svg-ok .local-beat-tab,
+html.control-glass-svg-ok .search-history-chip,
+html.control-glass-svg-ok .search-result .add-btn,
+html.control-glass-svg-ok .song-action-btn,
+html.control-glass-svg-ok .qi-act button,
+html.control-glass-svg-ok .mini-queue-remove {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.control-glass-svg-ok .home-hero,
+html.control-glass-svg-ok .home-card,
+html.control-glass-svg-ok .home-tile,
+html.control-glass-svg-ok .home-mosaic-cell,
+html.control-glass-svg-ok .modal,
+html.control-glass-svg-ok .track-detail-modal,
+html.control-glass-svg-ok .visual-guide-card,
+html.control-glass-svg-ok .volume-popover,
+html.control-glass-svg-ok .quality-popover,
+html.control-glass-svg-ok .lyric-timing-popover,
+html.control-glass-svg-ok .mini-queue-popover,
+html.control-glass-svg-ok .pl-inline-detail {
+  backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(calc(22px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+}
+
+html.control-glass-svg-ok #home-btn,
+html.control-glass-svg-ok #upload-btn,
+html.control-glass-svg-ok #visual-guide-btn,
+html.control-glass-svg-ok #fx-fab,
+html.control-glass-svg-ok #top-right .icon-btn {
+  backdrop-filter: var(--saved-button-glass-svg-filter) !important;
+  -webkit-backdrop-filter: var(--saved-button-glass-svg-filter) !important;
+}
+
+#top-right #user-btn.multi-account,
+html.control-glass-svg-ok #top-right #user-btn.multi-account,
+#top-right #user-btn.multi-account:hover,
+html.control-glass-svg-ok #top-right #user-btn.multi-account:hover {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: none !important;
+}
+
+.top-account-pill {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.top-account-pill::before {
+  background: var(--saved-button-glass-bg) !important;
+  border-color: rgba(244, 210, 138, .44) !important;
+  box-shadow: var(--saved-button-glass-shadow) !important;
+  backdrop-filter: var(--saved-button-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-button-glass-filter) !important;
+}
+
+#user-btn.multi-account:hover .top-account-pill::before {
+  background: var(--saved-button-glass-hover-bg) !important;
+  border-color: rgba(244, 210, 138, .58) !important;
+  box-shadow: var(--saved-button-glass-hover-shadow) !important;
+}
+
+html.control-glass-svg-ok .top-account-pill::before {
+  backdrop-filter: url(#mineradio-account-pill-glass-filter) saturate(1) !important;
+  -webkit-backdrop-filter: url(#mineradio-account-pill-glass-filter) saturate(1) !important;
+}
+
+html.control-glass-svg-ok .search-mode-tabs button,
+html.control-glass-svg-ok .search-history-chip {
+  background: var(--saved-button-glass-bg) !important;
+  border-color: transparent !important;
+  color: rgba(var(--fc-accent-rgb), .78) !important;
+  box-shadow: var(--saved-button-glass-shadow) !important;
+  backdrop-filter: url(#mineradio-search-pill-glass-filter) saturate(1) !important;
+  -webkit-backdrop-filter: url(#mineradio-search-pill-glass-filter) saturate(1) !important;
+  overflow: visible !important;
+}
+
+html.control-glass-svg-ok .search-mode-tabs button:hover,
+html.control-glass-svg-ok .search-mode-tabs button.active,
+html.control-glass-svg-ok .search-history-chip:hover {
+  background: var(--saved-button-glass-hover-bg) !important;
+  color: rgba(var(--fc-accent-rgb), .98) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-button-glass-hover-shadow) !important;
+}
+
+#search-area .search-mode-tabs,
+html.control-glass-svg-ok #search-area .search-mode-tabs {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important
+}
+
+#search-box {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#search-area.peek #search-box {
+  background: var(--saved-panel-glass-bg) !important;
+  border: 1px solid transparent;
+  box-shadow: var(--saved-panel-glass-shadow) !important;
+  backdrop-filter: var(--saved-panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-filter) !important;
+}
+
+html.control-glass-svg-ok #search-area.peek #search-box {
+  backdrop-filter: url(#mineradio-search-box-glass-filter) saturate(1) !important;
+  -webkit-backdrop-filter: url(#mineradio-search-box-glass-filter) saturate(1) !important;
+}
+
+html.control-glass-svg-ok #search-box::before {
+  content: none !important;
+}
+
+#search-box #search-icon,
+#search-box #search-input {
+  position: relative;
+  z-index: 1;
+}
+
+#search-results.show:not(.search-history-surface),
+html.control-glass-svg-ok #search-results.show:not(.search-history-surface) {
+  position: relative;
+  border-radius: 18px !important;
+  border: 1px solid rgba(255, 255, 255, .12) !important;
+  border-top-color: rgba(255, 255, 255, .22) !important;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .11), rgba(18, 20, 26, .28) 42%, rgba(0, 0, 0, .18)) !important;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 0 34px rgba(255, 255, 255, .045) !important;
+  backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#search-results.show:not(.search-history-surface)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255, 255, 255, .14), transparent 34%, rgba(var(--fc-accent-rgb), .08) 70%, transparent);
+  opacity: .34;
+  pointer-events: none;
+}
+
+#search-results.show:not(.search-history-surface) .search-result,
+#search-results.show:not(.search-history-surface) .podcast-result-head,
+#search-results.show:not(.search-history-surface) .search-empty {
+  position: relative;
+  z-index: 1;
+}
+
+#search-results.show:not(.search-history-surface) .search-result {
+  background: rgba(255, 255, 255, .026) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, .055) !important;
+}
+
+#search-results.show:not(.search-history-surface) .search-result:hover {
+  background: rgba(255, 255, 255, .075) !important;
+}
+
+#search-results.search-history-surface,
+html.control-glass-svg-ok #search-results.search-history-surface {
+  position: relative;
+  border-radius: 18px !important;
+  border: 1px solid rgba(255, 255, 255, .12) !important;
+  border-top-color: rgba(255, 255, 255, .22) !important;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .11), rgba(18, 20, 26, .28) 42%, rgba(0, 0, 0, .18)) !important;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 0 34px rgba(255, 255, 255, .045) !important;
+  backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(calc(34px * var(--glass-blur-scale, 1))) saturate(1.34) brightness(1.08) !important;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#search-results.search-history-surface::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255, 255, 255, .14), transparent 34%, rgba(var(--fc-accent-rgb), .08) 70%, transparent);
+  opacity: .34;
+  pointer-events: none;
+}
+
+#search-results.search-history-surface .search-history {
+  position: relative;
+  z-index: 1;
+  padding: 13px 14px 15px;
+}
+
+#search-results.search-history-surface .search-history-head {
+  color: rgba(255, 255, 255, .58);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .28);
+}
+
+#search-results.search-history-surface .search-history-clear {
+  color: rgba(var(--fc-accent-rgb), .82);
+}
+
+#search-mode-tabs button.active,
+.search-history-chip:hover {
+  color: rgba(var(--fc-accent-rgb), .96) !important;
+}
+
+#home-btn,
+#upload-btn,
+#visual-guide-btn,
+#fx-fab,
+#top-right .icon-btn {
+  color: rgba(var(--fc-accent-rgb), .82) !important;
+}
+
+#home-btn svg,
+#upload-btn svg,
+#fx-fab svg,
+#top-right .icon-btn svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+#home-btn:hover,
+#upload-btn:hover,
+#visual-guide-btn:hover,
+#fx-fab:hover,
+#fx-fab.active,
+#top-right .icon-btn:hover {
+  color: rgba(var(--fc-accent-rgb), 1) !important;
+}
+
+#home-btn,
+#upload-btn {
+  color: var(--home-icon-color) !important;
+  border-color: rgba(var(--home-icon-rgb), .42) !important;
+  box-shadow: var(--saved-button-glass-shadow), 0 0 18px rgba(var(--home-icon-rgb), .10) !important;
+}
+
+#home-btn:hover,
+#upload-btn:hover,
+body.empty-home-active #home-btn {
+  color: var(--home-icon-color) !important;
+  border-color: rgba(var(--home-icon-rgb), .68) !important;
+  background: rgba(var(--home-icon-rgb), .075) !important;
+  box-shadow: var(--saved-button-glass-hover-shadow), 0 0 24px rgba(var(--home-icon-rgb), .16) !important;
+}
+
+#visual-guide-btn,
+#fx-fab {
+  color: var(--visual-icon-color) !important;
+  border-color: rgba(var(--visual-icon-rgb), .42) !important;
+  box-shadow: var(--saved-button-glass-shadow), 0 0 18px rgba(var(--visual-icon-rgb), .10) !important;
+}
+
+#visual-guide-btn:hover,
+#fx-fab:hover,
+#fx-fab.active {
+  color: var(--visual-icon-color) !important;
+  border-color: rgba(var(--visual-icon-rgb), .68) !important;
+  background: rgba(var(--visual-icon-rgb), .075) !important;
+  box-shadow: var(--saved-button-glass-hover-shadow), 0 0 24px rgba(var(--visual-icon-rgb), .16) !important;
+}
+
+#visual-guide-btn svg,
+#home-btn svg,
+#upload-btn svg,
+#fx-fab svg {
+  stroke: currentColor !important;
+}
+
+/* 引导按钮窗口化时在标题栏、全屏时在 #fullscreen-tools-zone，两处都要点名 —— 这两条不是冗余的：
+   html.control-glass-svg-ok #visual-guide-btn 的特异性高于光秃秃的 #visual-guide-btn，
+   少点一处，玻璃态下 backdrop-filter 就会从 none 变回玻璃滤镜（按钮外观跟着变）。
+   The guide button sits in the title bar when windowed and in the fullscreen tool row otherwise, so
+   both homes are named here. Neither selector is redundant: html.control-glass-svg-ok #visual-guide-btn
+   outranks a bare #visual-guide-btn, so dropping one flips backdrop-filter back to the glass filter. */
+#visual-guide-btn,
+body.desktop-shell #desktop-titlebar #visual-guide-btn,
+body.desktop-shell #fullscreen-tools-zone #visual-guide-btn,
+html.control-glass-svg-ok #visual-guide-btn {
+  color: rgba(184, 188, 196, .58) !important;
+  border-color: rgba(255, 255, 255, .08) !important;
+  background: rgba(36, 38, 44, .46) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .06) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#visual-guide-btn:hover,
+body.desktop-shell #desktop-titlebar #visual-guide-btn:hover,
+body.desktop-shell #fullscreen-tools-zone #visual-guide-btn:hover,
+html.control-glass-svg-ok #visual-guide-btn:hover {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, .24) !important;
+  background: rgba(72, 76, 86, .72) !important;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .10) !important;
+}
+
+/* Visual console organization and adaptive popovers. */
+.fx-panel-tabs {
+  position: sticky;
+  top: -18px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  margin: -2px -2px 14px;
+  padding: 5px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, .50);
+  border: 1px solid rgba(255, 255, 255, .075);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .07);
+  backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(18px * var(--glass-blur-scale, 1))) saturate(1.12);
+}
+
+.fx-panel-tabs button {
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, .52);
+  font: 700 11px/1 var(--font-sans);
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: background .18s, color .18s, box-shadow .18s, transform .18s;
+}
+
+.fx-panel-tabs button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, .055)
+}
+
+.fx-panel-tabs button.active {
+  color: #fff;
+  background: rgba(var(--fc-accent-rgb), .15);
+  box-shadow: inset 0 0 0 1px rgba(var(--fc-accent-rgb), .24), 0 8px 22px rgba(var(--fc-accent-rgb), .08);
+}
+
+.fx-tab-page {
+  display: none
+}
+
+.fx-tab-page.active {
+  display: block
+}
+
+.fx-tab-page>.fx-section-label:first-child {
+  margin-top: 0
+}
+
+#fx-panel .fx-fold {
+  margin-top: 10px
+}
+
+#fx-panel .fx-fold.open {
+  background: rgba(255, 255, 255, .026)
+}
+
+.lyric-color-row.bg-cover-mode #bg-color-picker {
+  border-color: rgba(255, 255, 255, .26) !important;
+  background: conic-gradient(from 210deg, #f8f4ee, #9db8cf, #2442ff, #f4d28a, #f8f4ee) !important;
+  box-shadow: 0 0 0 1px rgba(var(--fc-accent-rgb), .12), 0 10px 24px rgba(0, 0, 0, .22) !important;
+}
+
+.lyric-color-row.bg-cover-mode #bg-color-picker::-webkit-color-swatch {
+  opacity: .18
+}
+
+.lyric-color-row.bg-cover-mode .fx-color-row-label small {
+  color: rgba(var(--fc-accent-rgb), .78)
+}
+
+.cover-color-pop,
+.color-lab-pop {
+  transform: none !important;
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+}
+
+@keyframes lyric-glitch-button-shift {
+
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0)
+  }
+
+  18% {
+    transform: translate3d(-1px, .5px, 0)
+  }
+
+  22% {
+    transform: translate3d(1.4px, -.5px, 0)
+  }
+
+  48% {
+    transform: translate3d(.3px, 0, 0)
+  }
+
+  52% {
+    transform: translate3d(-1.2px, .4px, 0)
+  }
+}
+
+@keyframes lyric-glitch-scan {
+  0% {
+    transform: translate3d(-120%, 0, 0);
+    opacity: .18
+  }
+
+  48% {
+    opacity: .72
+  }
+
+  100% {
+    transform: translate3d(130%, 0, 0);
+    opacity: .10
+  }
+}
+
+.lyric-motion-style-seg button[data-motion="glitch"] {
+  position: relative;
+  overflow: hidden
+}
+
+.lyric-motion-style-seg.glitch-selected button[data-motion="glitch"].active {
+  color: #fff !important;
+  background: linear-gradient(135deg, rgba(255, 70, 110, .22), rgba(0, 245, 212, .12) 48%, rgba(126, 90, 255, .18)) !important;
+  text-shadow: -1px 0 rgba(255, 70, 110, .72), 1px 0 rgba(0, 245, 212, .62), 0 0 14px rgba(255, 255, 255, .20) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18), 0 0 24px rgba(255, 70, 110, .12), 0 0 28px rgba(0, 245, 212, .08) !important;
+  animation: lyric-glitch-button-shift .72s steps(2, end) infinite;
+}
+
+.lyric-motion-style-seg.glitch-selected button[data-motion="glitch"].active::before {
+  content: '';
+  position: absolute;
+  inset: -20% auto -20% 0;
+  width: 58%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .40), rgba(0, 245, 212, .24), transparent);
+  mix-blend-mode: screen;
+  animation: lyric-glitch-scan 1.05s cubic-bezier(.16, 1, .3, 1) infinite;
+}
+
+.lyric-motion-style-seg.glitch-selected button[data-motion="glitch"].active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(180deg, rgba(255, 255, 255, .18) 0 1px, transparent 1px 5px);
+  opacity: .18;
+  mix-blend-mode: screen;
+}
+
+.lyric-glitch-controls {
+  display: none;
+  margin: 8px 0 12px;
+  padding: 10px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 80, 120, .16);
+  background: linear-gradient(145deg, rgba(255, 70, 110, .065), rgba(0, 245, 212, .030) 52%, rgba(126, 90, 255, .055));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06)
+}
+
+.lyric-glitch-controls.show {
+  display: block
+}
+
+.lyric-glitch-controls .fx-slider {
+  margin-bottom: 8px
+}
+
+.lyric-glitch-bind {
+  width: 100%;
+  margin: 0 0 9px;
+  min-height: 30px
+}
+
+.lyric-glitch-bind.active {
+  border-color: rgba(255, 80, 120, .42) !important;
+  background: linear-gradient(135deg, rgba(255, 70, 110, .18), rgba(0, 245, 212, .10)) !important;
+  color: #fff !important;
+  text-shadow: -1px 0 rgba(255, 70, 110, .55), 1px 0 rgba(0, 245, 212, .48)
+}
+
+@media (max-width:720px) {
+  .fx-panel-tabs {
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
+    top: -14px
+  }
+
+  .fx-panel-tabs::-webkit-scrollbar {
+    display: none
+  }
+
+  .fx-panel-tabs button {
+    flex: 0 0 auto;
+    min-width: 58px;
+    padding: 0 10px
+  }
+
+  .cover-color-pop,
+  .color-lab-pop {
+    width: calc(100vw - 28px) !important
+  }
+}

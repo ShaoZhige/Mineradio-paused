@@ -1,0 +1,640 @@
+/* ============================================================ */
+/*  响应式                                                        */
+/* ============================================================ */
+@media (max-width:720px) {
+
+  #fx-panel,
+  #playlist-panel {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    top: 76px;
+    bottom: auto
+  }
+
+  #playlist-panel {
+    transform: translate3d(calc(-100% - 28px), 0, 0) !important
+  }
+
+  #playlist-panel.show,
+  #playlist-panel.peek {
+    transform: translate3d(0, 0, 0) !important
+  }
+
+  #top-right {
+    right: 12px
+  }
+}
+
+@media (max-width:520px) {
+
+  .preset-grid,
+  .fx-toggle-grid {
+    grid-template-columns: 1fr
+  }
+
+  .fx-slider {
+    grid-template-columns: 74px minmax(0, 1fr) 40px 28px;
+    gap: 8px;
+    padding: 8px
+  }
+
+  .lyric-color-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr))
+  }
+}
+
+#user-btn.multi-account,
+html.control-glass-svg-ok #user-btn.multi-account,
+#user-btn.multi-account:hover,
+html.control-glass-svg-ok #user-btn.multi-account:hover {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: none !important;
+}
+
+#top-right.account-pill-stack {
+  align-items: flex-start
+}
+
+#user-btn.multi-account.external-account-pills,
+html.control-glass-svg-ok #user-btn.multi-account.external-account-pills,
+#user-btn.multi-account.external-account-pills:hover,
+html.control-glass-svg-ok #user-btn.multi-account.external-account-pills:hover {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  max-width: 206px;
+  max-height: calc(100vh - 92px);
+  overflow: visible
+}
+
+#user-btn.multi-account.external-account-pills .top-account-pill {
+  width: 190px;
+  min-width: 190px;
+  justify-content: flex-start
+}
+
+#user-btn.multi-account.external-account-pills .top-account-name {
+  flex: 1 1 auto;
+  max-width: 118px
+}
+
+.queue-item[data-queue-index],
+.mini-queue-item[data-queue-index],
+.pl-card[data-playlist-index] {
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none
+}
+
+body.panel-reordering {
+  cursor: grabbing
+}
+
+body.panel-reordering #playlist-panel .queue-item.is-reordering,
+body.panel-reordering #playlist-panel .pl-card.is-reordering,
+body.panel-reordering .mini-queue-item.is-reordering {
+  transform: translateY(-1px) scale(1.012) !important;
+  border-color: rgba(var(--fc-accent-rgb), .46) !important;
+  background: rgba(var(--fc-accent-rgb), .105) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 14px 34px rgba(var(--fc-accent-rgb), .12) !important;
+  opacity: .96
+}
+
+.queue-item.reorder-pressing,
+.mini-queue-item.reorder-pressing,
+.pl-card.reorder-pressing {
+  border-color: rgba(var(--fc-accent-rgb), .28) !important
+}
+
+/* 左侧歌单详情与整栏共用一条滚动轴：保留虚拟行性能，不再出现内嵌小滚动窗。 */
+/* 高度必须由内容决定：写死高度一旦小于真实内容，overflow:visible 会让最后几首歌压到下一个歌单上。 */
+#playlist-panel .pl-inline-detail {
+  height: auto;
+  min-height: 0;
+  display: block;
+  overflow: visible;
+  box-sizing: border-box;
+  margin: -2px 0 16px;
+  padding: 10px 8px 14px;
+  border: 1px solid rgba(var(--fc-accent-rgb), .30);
+  border-top: 0;
+  border-radius: 0 0 15px 15px;
+  background: linear-gradient(180deg, rgba(var(--fc-accent-rgb), .105), rgba(8, 12, 20, .76) 24%, rgba(4, 7, 12, .56));
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05), 0 16px 34px rgba(0, 0, 0, .18)
+}
+
+#playlist-panel .pl-detail-list {
+  display: block;
+  min-height: 0;
+  overflow: visible;
+  overscroll-behavior: auto;
+  scroll-behavior: auto
+}
+
+#playlist-panel .pl-detail-row {
+  min-height: 50px;
+  margin: 0 0 6px;
+  box-sizing: border-box
+}
+
+#playlist-panel .pl-card.expanded {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 0;
+  border-radius: 13px 13px 6px 6px;
+  border-color: rgba(var(--fc-accent-rgb), .62) !important;
+  background: linear-gradient(105deg, rgba(var(--fc-accent-rgb), .20), rgba(10, 16, 27, .92) 58%, rgba(var(--fc-accent-rgb), .10)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 24px rgba(var(--fc-accent-rgb), .09), 0 0 22px rgba(var(--fc-accent-rgb), .14) !important
+}
+
+#playlist-panel .pl-card.expanded::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: rgb(var(--fc-accent-rgb));
+  box-shadow: 0 0 12px rgba(var(--fc-accent-rgb), .75)
+}
+
+/* Visual console task-first layout. Keep the established panel/button glass; only reorganize information. */
+.fx-console-toolbar {
+  position: relative;
+  z-index: 14;
+  flex: 0 0 auto;
+  margin: -2px -2px 14px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 15px;
+  background: rgba(0, 0, 0, .54);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .07);
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.14);
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1))) saturate(1.14)
+}
+
+.fx-console-search-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 3px 4px 3px 7px;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .025)
+}
+
+.fx-console-search-row:focus-within {
+  border-color: rgba(var(--fc-accent-rgb), .30);
+  box-shadow: inset 0 0 0 1px rgba(var(--fc-accent-rgb), .08), 0 8px 24px rgba(var(--fc-accent-rgb), .06)
+}
+.fx-console-search {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 3px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, .88);
+  font: 500 11.5px/1 var(--font-sans)
+}
+
+.fx-console-search::placeholder {
+  color: rgba(255, 255, 255, .30)
+}
+
+.fx-console-search::-webkit-search-cancel-button {
+  opacity: .55;
+  filter: invert(1)
+}
+
+/* 顶栏：左侧面板标题、右侧成组的撤销 / 历史，底边一条发丝线把它和分类标签页分开。
+   早先是「历史贴左、撤销贴右」，中间空出一大片，看起来像没做完的占位。
+   Panel header: title on the left, the two buttons grouped on the right, a hairline under it.
+   The earlier split (history hard left, undo hard right) left a dead gap in the middle. */
+.fx-console-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 2px 8px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, .055)
+}
+
+.fx-console-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font: 700 9.5px/1 var(--font-sans);
+  letter-spacing: .16em;
+  color: rgba(255, 255, 255, .34);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+/* 标题前的小圆点跟随界面高亮色，像面板的电源指示灯 */
+/* A tiny accent dot, so the title reads as part of the panel rather than stray label text */
+.fx-console-head-title::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(var(--fc-accent-rgb), .9);
+  box-shadow: 0 0 9px rgba(var(--fc-accent-rgb), .6)
+}
+
+.fx-console-toolbar-actions {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0
+}
+
+.fx-console-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  max-height: min(46vh, 340px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 12px;
+  background: rgba(7, 9, 13, .96);
+  box-shadow: 0 22px 58px rgba(0, 0, 0, .52), inset 0 1px 0 rgba(255, 255, 255, .07);
+  /* 模糊跟着性能档位走，别写死像素 —— 和 .fx-console-toolbar 那一套保持一致 */
+  backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(24px * var(--glass-blur-scale, 1))) saturate(1.12)
+}
+
+/* 幽灵按钮：默认只有图标和文字、没有边框和底色，悬停才浮出来。
+   顶栏本来就窄，再给两枚描边胶囊会显得比标签页还重。
+   Ghost buttons: no border or fill until hover — two outlined pills up here would outweigh
+   the tabs below. */
+.fx-console-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, .46);
+  font: 600 10px/1 var(--font-sans);
+  cursor: pointer;
+  transition: color .16s, background .16s, border-color .16s, opacity .16s
+}
+
+.fx-console-tool-btn svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto
+}
+
+.fx-console-tool-btn:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, .06)
+}
+
+.fx-console-tool-btn[aria-expanded="true"] {
+  color: #fff;
+  border-color: rgba(var(--fc-accent-rgb), .22);
+  background: rgba(var(--fc-accent-rgb), .14)
+}
+
+.fx-console-tool-btn:disabled {
+  opacity: .30;
+  cursor: default
+}
+
+.fx-console-toolbar .fx-panel-tabs {
+  position: static;
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  scrollbar-width: none
+}
+
+.fx-console-toolbar .fx-panel-tabs::-webkit-scrollbar {
+  display: none
+}
+
+.fx-console-toolbar .fx-panel-tabs button {
+  flex: 1 0 52px;
+  min-width: 52px;
+  height: 27px;
+  padding: 0 7px;
+  border-radius: 8px;
+  font-size: 10.5px
+}
+.fx-console-result-main,
+.fx-console-history-item>span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px
+}
+
+.fx-console-result-main strong,
+.fx-console-history-item strong {
+  overflow: hidden;
+  color: rgba(255, 255, 255, .88);
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.fx-console-breadcrumb,
+.fx-console-history-item small,
+.fx-console-popover-head small {
+  color: rgba(255, 255, 255, .36);
+  font-size: 9.5px;
+  font-weight: 500
+}
+.fx-console-empty {
+  padding: 18px 10px;
+  color: rgba(255, 255, 255, .40);
+  font-size: 10.5px;
+  line-height: 1.5;
+  text-align: center
+}
+
+.fx-console-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, .06)
+}
+
+.fx-console-popover-head strong {
+  color: rgba(255, 255, 255, .84);
+  font-size: 11px
+}
+
+.fx-console-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-height: 48px;
+  padding: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, .045)
+}
+
+.fx-console-history-item:last-child {
+  border-bottom: 0
+}
+
+.fx-console-history-item button {
+  flex: 0 0 auto;
+  height: 25px;
+  padding: 0 8px;
+  border: 1px solid rgba(var(--fc-accent-rgb), .20);
+  border-radius: 7px;
+  background: rgba(var(--fc-accent-rgb), .065);
+  color: rgba(255, 255, 255, .68);
+  font: 700 9.5px/1 var(--font-sans);
+  cursor: pointer
+}
+
+.fx-console-history-item button:hover {
+  color: #fff;
+  background: rgba(var(--fc-accent-rgb), .13)
+}
+
+.fx-console-tool-btn:focus-visible,
+.fx-console-toolbar .fx-panel-tabs button:focus-visible,
+#fx-panel .fx-console-group .fx-console-group-head:focus-visible,
+.fx-console-history-item button:focus-visible {
+  outline: 1px solid rgba(var(--fc-accent-rgb), .76);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(var(--fc-accent-rgb), .12)
+}
+
+#fx-panel .fx-console-group {
+  margin: 0 0 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .024)
+}
+
+#fx-panel .fx-console-group .fx-console-group-head {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left
+}
+
+#fx-panel .fx-console-group .fx-console-group-body,
+#fx-panel .fx-console-group.open .fx-console-group-body {
+  display: none;
+  padding: 0 11px 11px
+}
+
+#fx-panel .fx-console-group.open .fx-console-group-body {
+  display: block
+}
+
+#fx-panel .fx-console-group.open .fx-console-group-head {
+  color: #fff;
+  background: rgba(255, 255, 255, .024)
+}
+
+/* 控制台里的开关一律单列。基类 .fx-toggle-grid 是两列布局，两个开关会并排 —— 短标题的组
+   （如「恢复与整理」里两个按钮）看着还行，但一旦某个开关带了从属参数，并排就说不清从属块
+   属于哪一个：实验功能里「完整桌面模式」和「Cuefield AutoMix」原本挤在同一行，纵线不知道该
+   接谁。单列让每个开关独占一行，从属块自然落在它下面。
+   Console switches are always single-column. The base .fx-toggle-grid is two columns, so two
+   switches sit side by side; that reads fine for a group of two short buttons, but as soon as one
+   switch has subordinate parameters the nesting becomes ambiguous — in the experimental group full
+   desktop mode and Cuefield AutoMix shared a row and the lead-in line belonged to neither. One
+   switch per row puts each child block unambiguously under its own toggle. */
+.fx-console-toggle-grid {
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 9px
+}
+
+/* 某个开关的从属控件（fxConsoleItem 的 child 标记）：整体左缩进并画一条从开关下方延伸的导线，
+   读起来是"这个开关的参数"而不是组里的并列项。导线用伪元素，避免给 DOM 加多余节点。
+   Subordinate controls of a switch (the item's `child` flag): indented as a block with a lead-in
+   line running down from the switch, so they read as "that switch's parameters" rather than peers.
+   The line is a pseudo-element so no extra nodes are needed in the DOM. */
+.fx-console-child-nest {
+  position: relative;
+  margin: -4px 0 14px 14px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0, 245, 212, .16)
+}
+
+/* 从属块之后若还有新的 toggle grid（下一个独立功能），隔一道横线再开始。当前实验功能里就是
+   完整桌面模式（含它的两个从属参数）之后跟 Cuefield AutoMix —— 两者都会各自新建一个
+   .fx-toggle-grid，所以分隔要加在"childNest 之后的第一个 grid"上，那个后面的独立开关才看得清
+   是新功能的起点，而不是从属块的第三个参数。
+   When another toggle grid follows a child block (a new standalone feature), start it below a rule.
+   In the experimental group that is full desktop mode with its two child parameters followed by
+   Cuefield AutoMix: each switch opens its own .fx-console-toggle-grid, so the rule goes on the first
+   grid after the nest — without it the next switch reads as a third parameter of the block above. */
+.fx-console-child-nest + .fx-toggle-grid {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .06)
+}
+
+.fx-console-child-nest>.fx-slider:first-child,
+.fx-console-child-nest>.fx-seg:first-child {
+  margin-top: 0
+}
+
+.fx-console-group-body>.fx-console-child-nest:first-child {
+  margin-top: 2px
+}
+
+.fx-console-group-body>.fx-slider:first-child,
+.fx-console-group-body>.lyric-color-row:first-child,
+.fx-console-group-body>.fx-seg:first-child,
+.fx-console-group-body>.fx-toggle-grid:first-child {
+  margin-top: 2px
+}
+
+@keyframes fx-console-search-hit {
+  0%, 100% {
+    outline-color: transparent
+  }
+  18%, 76% {
+    outline-color: rgba(var(--fc-accent-rgb), .96)
+  }
+}
+
+#fx-panel .fx-search-hit {
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  animation: fx-console-search-hit 1.55s cubic-bezier(.16, 1, .3, 1)
+}
+
+#fx-panel .fx-console-group-body .lyric-color-row.image-pick-row {
+  grid-template-columns: 42px minmax(0, 1fr) minmax(0, 56%);
+  max-width: 100%;
+  box-sizing: border-box
+}
+
+#fx-panel .fx-console-group-body .image-pick-row .fx-color-row-label {
+  min-width: 0;
+  overflow: hidden
+}
+
+#fx-panel .fx-console-group-body .image-pick-row .fx-color-row-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+#fx-panel .fx-console-group-body .bg-media-actions,
+#fx-panel .fx-console-group-body .wallpaper-engine-actions {
+  width: 100%;
+  min-width: 0
+}
+
+#fx-panel .fx-console-group-body .bg-media-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr))
+}
+
+#fx-panel .fx-console-group-body .wallpaper-engine-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr))
+}
+
+#fx-panel .fx-console-group-body .image-pick-row .fx-mini-btn {
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+@media (max-width:720px) {
+  .fx-console-toolbar {
+    top: -14px
+  }
+
+  .fx-console-toolbar .fx-panel-tabs {
+    top: auto
+  }
+
+  .fx-console-toolbar .fx-panel-tabs button {
+    flex: 0 0 56px;
+    min-width: 56px;
+    padding: 0 8px
+  }
+}
+
+@media (max-width:520px) {
+  .fx-console-tool-btn span {
+    display: none
+  }
+
+  .fx-console-tool-btn {
+    width: 28px;
+    padding: 0
+  }
+
+  .fx-console-search-row {
+    grid-template-columns: 20px minmax(0, 1fr) 28px 28px
+  }
+
+  #fx-panel .fx-console-group-body .lyric-color-row.image-pick-row {
+    grid-template-columns: 42px minmax(0, 1fr)
+  }
+
+  #fx-panel .fx-console-group-body .bg-media-actions,
+  #fx-panel .fx-console-group-body .wallpaper-engine-actions {
+    grid-column: 1 / -1
+  }
+}
+
+@media (max-height:760px) {
+  .fx-console-toolbar {
+    top: -14px
+  }
+
+  #fx-panel .fx-console-group .fx-console-group-head {
+    min-height: 46px;
+    padding: 8px 10px
+  }}
+
+@media (prefers-reduced-motion:reduce) {
+  #fx-panel .fx-search-hit {
+    animation: none;
+    outline-color: rgba(var(--fc-accent-rgb), .92)
+  }
+}

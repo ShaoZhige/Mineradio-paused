@@ -15,7 +15,7 @@ function spawnSync(command, args, options = {}) {
 
 const appRoot = path.resolve(__dirname, '..');
 function readAllCssFiles() {
-  return ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css', 'control-bar.css', 'modal.css', 'index.css']
+  return ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css', 'control-bar.css', 'modal.css', "loading-toast.css","console.css","playlist.css","lyrics.css","gesture.css","responsive.css","home-dashboard.css", 'index.css']
     .filter((name) => fs.existsSync(path.join(appRoot, 'public', 'css', name)))
     .map((name) => fs.readFileSync(path.join(appRoot, 'public', 'css', name), 'utf8'))
     .join('\n');
@@ -7878,7 +7878,6 @@ function checkFxConsoleWorkspaceGuard() {
   const workspacePath = path.join(appRoot, 'public', 'js', 'modules', '07-fx', '09-console-workspace.js');
   const panelPath = path.join(appRoot, 'public', 'js', 'modules', '07-fx', '05-fx-panel-performance.js');
   const loaderPath = path.join(appRoot, 'public', 'js', 'index-loader.js');
-  const cssPath = path.join(appRoot, 'public', 'css', 'index.css');
   const htmlPath = path.join(appRoot, 'public', 'index.html');
   const defaultsPath = path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js');
   const packagedDefaultsPath = path.join(appRoot, 'public', 'js', 'modules', '00-state', '05-packaged-fx-archive.js');
@@ -7891,7 +7890,7 @@ function checkFxConsoleWorkspaceGuard() {
   const workspace = fs.readFileSync(workspacePath, 'utf8');
   const panel = fs.readFileSync(panelPath, 'utf8');
   const loader = fs.readFileSync(loaderPath, 'utf8');
-  const css = fs.readFileSync(cssPath, 'utf8');
+  const css = readAllCssFiles();
   const html = fs.readFileSync(htmlPath, 'utf8');
   const defaults = fs.readFileSync(defaultsPath, 'utf8');
   const packagedDefaults = fs.readFileSync(packagedDefaultsPath, 'utf8');

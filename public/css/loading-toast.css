@@ -1,0 +1,551 @@
+/* ---------- 加载/拖放 ---------- */
+#loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  display: none
+}
+
+#loading-overlay.show {
+  display: block
+}
+
+.spinner {
+  display: none
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg)
+  }
+}
+
+#drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(calc(10px * var(--glass-blur-scale, 1)))
+}
+
+#drop-overlay.show {
+  display: flex
+}
+
+#drop-overlay .drop-text {
+  font-size: 18px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 3px;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  padding: 50px 70px;
+  border-radius: 20px
+}
+
+/* ---------- AI 深度加载角标 ---------- */
+#ai-depth-chip {
+  position: fixed;
+  z-index: 7;
+  top: 80px;
+  right: 24px;
+  background: rgba(10, 10, 16, 0.85);
+  border: 1px solid rgba(244, 210, 138, 0.32);
+  padding: 8px 14px;
+  border-radius: 14px;
+  font-size: 11px;
+  color: var(--champagne);
+  letter-spacing: .4px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)))
+}
+
+#ai-depth-chip.show {
+  display: flex
+}
+
+#ai-depth-chip .mini-spin {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(244, 210, 138, .24);
+  border-top-color: var(--champagne);
+  border-radius: 50%;
+  animation: spin .7s linear infinite
+}
+
+/* 节拍分析角标贴左上：原来在右上角（top:122px right:24px），正好压在「最近播放」那张卡片
+   的右肩上，分析过程中一出现就盖住卡片标题。左上这一块是空的 —— 搜索框居中、标题栏按钮在
+   右上，卡片区从 100px 以下才开始。
+   高度还得让开歌单面板：`#playlist-panel` 是 `top:78px`（桌面全屏模式 56~92px）、z-index 17，
+   角标只有 7，落在 68px 时下面 24px 直接被面板吃掉。这里顶到 34px（34px 高 + 10px 间隙），
+   正好停在面板顶边之上，全屏桌面模式那档再单独让一档（见下方 56px 那组）。 */
+/* The beat-analysis badge sits top-left: it used to be top-right (top:122px right:24px), which
+   lands on the shoulder of the "recently played" card and covers its heading while analysing.
+   The top-left area is empty — the search box is centred, the titlebar buttons are top-right,
+   and the card grid starts below 100px.
+   Height also has to clear the playlist panel: that panel is `top:78px`, while the badge only has
+   z-index 7, so at 68px its bottom 24px was swallowed by the panel. 34px keeps a 10px gap above
+   the panel edge; the fullscreen-desktop tier gets its own offset below. */
+#beat-chip {
+  position: fixed;
+  z-index: 7;
+  top: 34px;
+  left: 32px;
+  background: rgba(10, 10, 16, 0.85);
+  border: 1px solid rgba(126, 226, 168, 0.3);
+  padding: 8px 14px;
+  border-radius: 14px;
+  font-size: 11px;
+  color: #7ee2a8;
+  letter-spacing: .4px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)));
+  -webkit-backdrop-filter: blur(calc(20px * var(--glass-blur-scale, 1)))
+}
+
+#beat-chip.show {
+  display: flex
+}
+
+#beat-chip .mini-spin {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(126, 226, 168, .25);
+  border-top-color: #7ee2a8;
+  border-radius: 50%;
+  animation: spin .7s linear infinite
+}
+
+/* 桌面全屏模式把歌单面板顶到 56~92px，34px 那档就又压上了；这一档整体再让到 18px（底边 52px）。 */
+body.desktop-shell.desktop-fullscreen #beat-chip,
+html:fullscreen body.desktop-shell #beat-chip {
+  top: 18px
+}
+
+/* ---------- toast ---------- */
+#toast {
+  position: fixed;
+  z-index: 200;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  background: rgba(20, 20, 28, 0.44);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  letter-spacing: .5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s, transform .3s;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .13);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.45);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.45)
+}
+
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0)
+}
+
+#cuefield-feedback {
+  position: fixed;
+  z-index: 201;
+  left: 50%;
+  bottom: 112px;
+  width: min(330px, calc(100vw - 34px));
+  padding: 13px 14px 12px;
+  border: 1px solid rgba(255, 240, 196, .18);
+  border-radius: 14px;
+  color: rgba(255, 250, 238, .92);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 14px) scale(.98);
+  transition: opacity .24s ease, transform .28s cubic-bezier(.16, 1, .3, 1);
+}
+
+#cuefield-feedback.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1)
+}
+
+.cuefield-feedback-kicker {
+  color: rgba(255, 212, 128, .72);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.1px
+}
+
+.cuefield-feedback-title {
+  margin-top: 5px;
+  font-size: 13px;
+  font-weight: 700
+}
+
+.cuefield-feedback-meta {
+  margin-top: 4px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .55);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.cuefield-feedback-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-top: 10px
+}
+
+.cuefield-feedback-actions button {
+  min-height: 29px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .055);
+  color: rgba(255, 255, 255, .82);
+  cursor: pointer;
+  font-size: 11px;
+  transition: transform .16s ease, background .16s ease, border-color .16s ease
+}
+
+.cuefield-feedback-actions button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 218, 144, .42);
+  background: rgba(255, 201, 104, .13)
+}
+
+.cookie-export-prompt {
+  position: fixed;
+  z-index: 203;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none
+}
+
+.cookie-export-prompt.show {
+  display: flex;
+  pointer-events: auto
+}
+
+.cookie-export-card {
+  width: min(360px, calc(100vw - 40px));
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(15, 17, 23, .48);
+  color: rgba(255, 255, 255, .86);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .13);
+  backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
+  -webkit-backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
+  transform: translateY(8px) scale(.98);
+  opacity: 0;
+  transition: opacity .22s ease, transform .22s ease
+}
+
+.cookie-export-prompt.show .cookie-export-card {
+  opacity: 1;
+  transform: translateY(0) scale(1)
+}
+
+.cookie-export-kicker {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .16em;
+  color: rgba(var(--fc-accent-rgb), .88);
+  margin-bottom: 7px
+}
+
+.cookie-export-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 6px
+}
+
+.cookie-export-desc {
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, .52)
+}
+
+.cookie-export-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 15px
+}
+
+.cookie-export-actions button {
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .13);
+  background: rgba(255, 255, 255, .06);
+  color: rgba(255, 255, 255, .74);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer
+}
+
+.cookie-export-actions button.primary {
+  border-color: rgba(var(--fc-accent-rgb), .52);
+  background: rgba(var(--fc-accent-rgb), .16);
+  color: #fff
+}
+
+#source-fallback-stack {
+  position: fixed;
+  z-index: 202;
+  top: 72px;
+  right: 24px;
+  width: min(344px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  pointer-events: none
+}
+
+.source-fallback-card {
+  position: relative;
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(12, 13, 18, .46);
+  color: rgba(255, 255, 255, .86);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .12);
+  backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
+  -webkit-backdrop-filter: blur(calc(30px * var(--glass-blur-scale, 1))) saturate(1.45);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateX(16px) translateY(-8px);
+  transition: opacity .24s ease, transform .24s ease
+}
+
+.source-fallback-card.show {
+  opacity: 1;
+  transform: translateX(0) translateY(0)
+}
+
+.source-fallback-card.leaving {
+  opacity: 0;
+  transform: translateX(18px) translateY(-6px)
+}
+
+#source-fallback-notice {
+  position: fixed;
+  z-index: 201;
+  top: 72px;
+  right: 24px;
+  width: min(330px, calc(100vw - 48px));
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(157, 184, 207, .24);
+  background: rgba(12, 13, 18, .86);
+  color: rgba(255, 255, 255, .86);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .08);
+  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.25);
+  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.25);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+  transition: opacity .26s, transform .26s
+}
+
+#source-fallback-notice.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0)
+}
+
+.source-fallback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px
+}
+
+.source-fallback-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .35px;
+  color: #eaf2ff
+}
+
+.source-fallback-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .045);
+  color: rgba(255, 255, 255, .62);
+  cursor: pointer;
+  line-height: 20px;
+  font-size: 15px;
+  transition: background .2s, color .2s
+}
+
+.source-fallback-close:hover {
+  background: rgba(255, 255, 255, .10);
+  color: #fff
+}
+
+.source-fallback-body {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, .58)
+}
+
+#visual-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 620;
+  display: none;
+  pointer-events: auto;
+  cursor: pointer
+}
+
+#visual-guide.show {
+  display: block
+}
+
+.visual-guide-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(244, 210, 138, .05), rgba(255, 83, 103, .035) 34%, rgba(9, 10, 14, .38) 58%, rgba(0, 0, 0, .66)), radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255, 255, 255, .045), rgba(0, 0, 0, .36) 34%, rgba(0, 0, 0, .68));
+  opacity: 0;
+  transition: opacity .28s cubic-bezier(.16, 1, .3, 1)
+}
+
+#visual-guide.show .visual-guide-scrim {
+  opacity: 1
+}
+
+
+.visual-guide-card {
+  position: absolute;
+  width: min(326px, calc(100vw - 32px));
+  padding: 17px 18px 15px;
+  border-radius: 14px;
+  border: 1px solid rgba(244, 210, 138, .18);
+  background: linear-gradient(145deg, rgba(28, 27, 32, .94), rgba(9, 10, 14, .95));
+  box-shadow: 0 28px 86px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 83, 103, .10), inset 0 1px 0 rgba(255, 255, 255, .10);
+  backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.16);
+  -webkit-backdrop-filter: blur(calc(28px * var(--glass-blur-scale, 1))) saturate(1.16);
+  pointer-events: auto;
+  cursor: default;
+  opacity: 0;
+  transform: translateY(10px) scale(.982);
+  transition: left .38s cubic-bezier(.16, 1, .3, 1), top .38s cubic-bezier(.16, 1, .3, 1), opacity .26s, transform .38s cubic-bezier(.16, 1, .3, 1), filter .38s;
+  overflow: hidden
+}
+
+.visual-guide-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 83, 103, .70), rgba(244, 210, 138, .56), transparent)
+}
+
+#visual-guide.show .visual-guide-card {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0)
+}
+
+.visual-guide-kicker {
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: .16em;
+  color: rgba(255, 83, 103, .78);
+  text-transform: uppercase;
+  margin-bottom: 8px
+}
+
+.visual-guide-title {
+  font-size: 16px;
+  font-weight: 760;
+  color: rgba(255, 255, 255, .96);
+  letter-spacing: .2px;
+  margin-bottom: 7px
+}
+
+.visual-guide-body {
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: rgba(255, 255, 255, .64);
+  letter-spacing: .1px
+}
+
+.visual-guide-hint {
+  margin-top: 11px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, .075);
+  background: rgba(255, 255, 255, .038);
+  font-size: 11px;
+  color: rgba(244, 210, 138, .72)
+}
+
+.visual-guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px
+}
+
+.visual-guide-progress {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .38);
+  font-variant-numeric: tabular-nums
+}
+
+.visual-guide-actions button {
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .045);
+  color: rgba(255, 255, 255, .70);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 12px;
+  transition: background .18s, border-color .18s, color .18s, transform .18s
+}
+
+.visual-guide-actions button:hover {
+  background: rgba(255, 255, 255, .085);
+  border-color: rgba(255, 255, 255, .20);
+  color: #fff;
+  transform: translateY(-1px)
+}
+
+.visual-guide-actions .primary {
+  border-color: rgba(255, 83, 103, .42);
+  background: rgba(255, 83, 103, .14);
+  color: #fff
+}
+
+.visual-guide-actions .primary:hover {
+  border-color: rgba(255, 83, 103, .62);
+  background: rgba(255, 83, 103, .20)
+}
+

@@ -1,0 +1,1368 @@
+/* ---------- Home dashboard (scoped; does not alter player/control glass) ---------- */
+#empty-home .empty-home-shell {
+  grid-template-columns: minmax(320px, .82fr) minmax(0, 1.78fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden
+}
+
+#empty-home .home-hero {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  contain: layout paint style;
+  isolation: isolate;
+  transform: translateZ(0);
+  backface-visibility: hidden
+}
+
+#empty-home .daily-review-card {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: clamp(24px, 3vw, 40px);
+  overflow: hidden;
+  background:
+    radial-gradient(520px 420px at 20% 12%, rgba(var(--fc-accent-rgb), .18), transparent 64%),
+    radial-gradient(360px 320px at 96% 4%, rgba(76, 100, 255, .17), transparent 66%),
+    linear-gradient(160deg, rgba(26, 31, 41, .38), rgba(4, 6, 10, .88));
+  color: #fff;
+  contain: layout paint style;
+  isolation: isolate;
+  filter: brightness(1) saturate(1);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  transition: filter .28s ease
+}
+
+#empty-home .daily-review-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(4, 7, 12, .02), rgba(3, 5, 9, .88) 100%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .024) 0 1px, transparent 1px 42px);
+  opacity: 1;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  transition: opacity .28s ease
+}
+
+#empty-home .daily-review-card>:not(.home-dashboard-video) {
+  position: relative;
+  z-index: 2
+}
+
+#empty-home .home-dashboard-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  background: #050608
+}
+
+@media (hover:hover) {
+  #empty-home .daily-review-card:hover {
+    filter: brightness(1.055) saturate(1.06)
+  }
+
+  #empty-home .daily-review-card:hover::before {
+    opacity: .56
+  }
+}
+
+#empty-home .daily-review-date {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .15em;
+  color: rgba(255, 255, 255, .62);
+  text-transform: uppercase
+}
+
+#empty-home .daily-review-time {
+  margin-top: 7px;
+  font-size: clamp(42px, 5vw, 68px);
+  font-weight: 760;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 12px 38px rgba(0, 0, 0, .54)
+}
+
+#empty-home .daily-review-quote {
+  margin-top: 24px;
+  font-size: clamp(21px, 2.2vw, 34px);
+  font-weight: 760;
+  line-height: 1.36;
+  letter-spacing: .01em;
+  text-shadow: 0 8px 34px rgba(0, 0, 0, .68)
+}
+
+#empty-home .daily-review-source {
+  margin-top: 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .58)
+}
+
+#empty-home .daily-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  /* #462：功能按钮默认收起，鼠标经过卡片（或键盘 Tab 进来）才浮现，让 home 页干净。
+     The action row stays hidden until the card is hovered or focused, keeping the home page clean. */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity .22s ease, transform .22s ease
+}
+
+/* 用 opacity 而不是 visibility：按钮在隐藏态仍可被 Tab 聚焦，聚焦即触发 :focus-within 浮现，
+   键盘用户不会摸不到。opacity + pointer-events 组合只挡住鼠标误点。 */
+@media (hover: hover) {
+  #empty-home .daily-review-card:hover .daily-review-actions,
+  #empty-home .daily-review-card:focus-within .daily-review-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none
+  }
+}
+
+/* 触屏/无 hover 设备保持常显，否则这些按钮永远点不到。 */
+@media (hover: none) {
+  #empty-home .daily-review-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none
+  }
+}
+
+#empty-home .daily-review-actions button {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .26);
+  color: rgba(255, 255, 255, .78);
+  font: 700 11px inherit;
+  cursor: pointer;
+  backdrop-filter: blur(calc(12px * var(--glass-blur-scale, 1)))
+}
+
+#empty-home .daily-review-actions button:hover {
+  background: rgba(255, 255, 255, .12);
+  color: #fff
+}
+
+#empty-home .home-grid.home-quick-grid {
+  grid-column: 2;
+  grid-row: 1;
+  /* 两列等宽（两行四张卡全部一样长），右侧留一条固定宽度的空白带给右上角账号胶囊。
+     Two equal columns (all four cards share one length) with a fixed gutter on the right reserved
+     for the top-right account pills.
+
+     为什么必须留白而不是换行就够了：#top-right 是 position:fixed + z-index:10，top:58px
+     right:24px；多账号时 #user-btn 变成纵向堆叠、每个 pill 宽 190px。而 #empty-home 在
+     desktop-shell 下是 width:calc(100vw - 44px) 居中，右边缘离屏幕只剩 22px —— 胶囊横向完全
+     压在首页右侧。1fr 轨道一定会撑满、align-items:stretch 一定填满轨道，所以卡片必然顶到最右，
+     光换行救不了，必须让出真实的空白。
+     Reserving space is required because #top-right is position:fixed/z-index:10 at top:58px
+     right:24px and stacks 190px-wide pills vertically, while #empty-home is
+     width:calc(100vw - 44px) — only 22px from the screen edge. Tracks sized with 1fr always fill
+     the row and stretch always fills the track, so a plain reorder can never clear the pills.
+
+     210px 是怎么来的（对齐 #top-right 里的 home 小房子图标）：
+     #top-right 从右往左是 user-btn（pill 190px）→ gap 10 → home-btn（44px），
+     所以 home 图标左边缘距屏幕右边 = 24 + 190 + 10 = 224px；
+     #empty-home 右边缘距屏幕右边 22px，于是需要让出 224 - 22 = 202px，取 210px 留 8px 余量。
+     胶囊和图标都是固定像素、不随窗口缩放，所以这里用固定像素而不是百分比，
+     这样任何窗口宽度下卡片右边缘都稳定落在 home 图标左边缘的左侧。
+     Where 210px comes from (aligning to the little house icon inside #top-right): reading
+     right-to-left it is user-btn (190px pill) -> 10px gap -> home-btn (44px), so the icon's left
+     edge sits 24+190+10 = 224px from the screen's right edge. #empty-home's right edge is 22px
+     from it, so 224-22 = 202px of clearance is needed; 210px keeps an 8px margin. Both the pills
+     and the icon are pixel-sized and never scale, so this stays a fixed pixel value rather than a
+     percentage — the card edge then lands just left of the icon at any window width. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-right: 210px;
+  grid-auto-flow: row;
+  align-items: stretch;
+  gap: 13px;
+  overflow: visible
+}
+
+#empty-home .home-grid.home-quick-grid .home-card {
+  min-height: 126px;
+  height: auto;
+  padding: 20px
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-featured {
+  min-height: 142px
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
+  max-width: calc(100% - 120px);
+  font-size: 22px
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-featured .home-card-sub {
+  max-width: calc(100% - 120px);
+  font-size: 12.5px
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
+  right: 20px;
+  bottom: 20px;
+  width: 96px;
+  height: 96px;
+  border-radius: 22px
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-quick .home-card-title {
+  max-width: calc(100% - 78px);
+  font-size: 18px
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-quick .home-card-sub {
+  max-width: calc(100% - 74px);
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 10.5px;
+  white-space: normal;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical
+}
+
+#empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
+  right: 14px;
+  bottom: 14px;
+  width: 70px;
+  height: 70px;
+  border-radius: 18px
+}
+
+/* #462-5 小屏（14 寸等）右上快速卡片区把右下滚动板块挤到只剩一行。
+   上面 #empty-home .home-grid.home-quick-grid .home-card 的 min-height 带 ID，特异性高于后面
+   @media (max-height:760px/700px) 里的 body.desktop-shell .home-card 覆盖，所以状态栏/缩放一让
+   可视高度变矮时它并不会跟着缩：四张卡片仍按 158px（首张 176px）占掉约三分之二高度，行 2 的
+   .home-insight-rail 只剩一行的高度，滚轮自然"只有最下面一行能滑"。
+   这里补一份同等特异性的短屏覆盖，并给右下板块留出最小可滚动高度。
+   On short viewports the quick grid used to keep its 158px (featured 176px) min-height because the
+   later body.desktop-shell .home-card overrides lose the specificity fight against this ID-scoped
+   rule, so the four cards ate roughly two thirds of the height and the insight rail was squeezed to
+   a single scrollable row. These equally specific overrides shrink the cards and reserve a minimum
+   scrollable height for the rail. */
+@media (max-height: 820px) {
+  #empty-home .empty-home-shell {
+    grid-template-rows: minmax(0, auto) minmax(190px, 1fr)
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card {
+    min-height: 106px;
+    padding: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured {
+    min-height: 114px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
+    font-size: 20px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
+    right: 16px;
+    bottom: 16px;
+    width: 82px;
+    height: 82px;
+    border-radius: 20px
+  }
+}
+
+@media (max-height: 700px) {
+  #empty-home .empty-home-shell {
+    grid-template-rows: minmax(0, auto) minmax(170px, 1fr)
+  }
+
+  #empty-home .home-grid.home-quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card {
+    min-height: 88px;
+    padding: 13px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured {
+    min-height: 94px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
+    font-size: 18px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-sub {
+    font-size: 11px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
+    width: 60px;
+    height: 60px;
+    border-radius: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
+    width: 50px;
+    height: 50px;
+    border-radius: 14px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-sub {
+    -webkit-line-clamp: 1
+  }
+}
+
+#empty-home .home-insight-rail {
+  grid-column: 2;
+  grid-row: 2;
+  display: block;
+  min-height: 0;
+  align-self: stretch;
+  padding-top: 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .18) transparent
+}
+
+#empty-home .home-insight-rail::-webkit-scrollbar {
+  width: 5px
+}
+
+#empty-home .home-insight-rail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .18)
+}
+
+#empty-home .home-insight-dock {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(280px, .88fr);
+  gap: 13px;
+  min-height: 132px
+}
+
+#empty-home .home-insight-card {
+  position: relative;
+  min-width: 0;
+  min-height: 132px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .105);
+  border-radius: 22px;
+  background: linear-gradient(142deg, rgba(20, 24, 31, .62), rgba(7, 9, 13, .72));
+  box-shadow: 0 20px 62px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .075);
+  color: #fff;
+  backdrop-filter: blur(calc(25px * var(--glass-blur-scale, 1))) saturate(1.18)
+}
+
+#empty-home .home-insight-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(340px 160px at 4% 0, rgba(var(--fc-accent-rgb), .13), transparent 68%),
+    linear-gradient(112deg, rgba(255, 255, 255, .045), transparent 33%, rgba(157, 184, 207, .045));
+  opacity: .92
+}
+
+#empty-home .home-insight-card>* {
+  position: relative;
+  z-index: 1
+}
+
+#empty-home .home-listen-card {
+  padding: 18px 20px
+}
+
+#empty-home .home-insight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px
+}
+
+#empty-home .home-insight-kicker {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  color: rgba(var(--fc-accent-rgb), .82)
+}
+
+#empty-home .home-insight-link {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, .42);
+  font: 700 10px inherit;
+  cursor: pointer
+}
+
+#empty-home .home-insight-link:hover {
+  color: #fff
+}
+
+#empty-home .home-listen-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 17px
+}
+
+#empty-home .home-listen-metric {
+  min-width: 0
+}
+
+#empty-home .home-listen-metric+.home-listen-metric {
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, .085)
+}
+
+#empty-home .home-listen-value {
+  display: block;
+  overflow: hidden;
+  font-size: 21px;
+  font-weight: 780;
+  line-height: 1.05;
+  color: rgba(255, 255, 255, .96);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums
+}
+
+#empty-home .home-listen-label {
+  display: block;
+  overflow: hidden;
+  margin-top: 7px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, .43);
+  white-space: nowrap;
+  text-overflow: ellipsis
+}
+
+#empty-home .home-next-card {
+  width: 100%;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .22s, border-color .22s, background .22s, box-shadow .22s
+}
+
+#empty-home .home-next-card:hover,
+#empty-home .home-ranking-entry:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--fc-accent-rgb), .38);
+  background: linear-gradient(142deg, rgba(28, 34, 43, .72), rgba(7, 9, 14, .80));
+  box-shadow: 0 25px 72px rgba(0, 0, 0, .31), 0 0 30px rgba(var(--fc-accent-rgb), .075), inset 0 1px 0 rgba(255, 255, 255, .10)
+}
+
+#empty-home .home-next-cover {
+  width: 82px;
+  height: 82px;
+  border-radius: 19px;
+  background: linear-gradient(135deg, rgba(var(--fc-accent-rgb), .38), rgba(36, 66, 255, .30), rgba(8, 10, 14, .86));
+  background-position: center;
+  background-size: cover;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .14)
+}
+
+#empty-home .home-next-copy,
+#empty-home .home-ranking-entry-copy {
+  min-width: 0
+}
+
+#empty-home .home-next-title {
+  display: block;
+  overflow: hidden;
+  margin-top: 8px;
+  font-size: 17px;
+  font-weight: 760;
+  color: rgba(255, 255, 255, .96);
+  white-space: nowrap;
+  text-overflow: ellipsis
+}
+
+#empty-home .home-next-sub {
+  display: block;
+  overflow: hidden;
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .48);
+  white-space: nowrap;
+  text-overflow: ellipsis
+}
+
+#empty-home .home-next-arrow {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .07);
+  color: rgba(255, 255, 255, .68);
+  font-size: 17px
+}
+
+#empty-home .home-ranking-entry {
+  width: 100%;
+  min-height: 94px;
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 30px;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .22s, border-color .22s, background .22s, box-shadow .22s
+}
+
+#empty-home .home-ranking-entry-title {
+  display: block;
+  margin-top: 7px;
+  font-size: 18px;
+  font-weight: 790;
+  color: rgba(255, 255, 255, .97)
+}
+
+#empty-home .home-ranking-entry-sub {
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .48);
+  white-space: nowrap;
+  text-overflow: ellipsis
+}
+
+#empty-home .home-ranking-entry-art {
+  height: 52px;
+  padding: 4px 8px;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(var(--fc-accent-rgb), .14), rgba(255, 255, 255, .035));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .11)
+}
+
+#empty-home .home-ranking-entry-art i {
+  display: block;
+  width: 9px;
+  border-radius: 999px 999px 3px 3px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(var(--fc-accent-rgb), .48));
+  box-shadow: 0 0 14px rgba(var(--fc-accent-rgb), .16)
+}
+
+#empty-home .home-ranking-entry-art i:nth-child(1) {
+  height: 22px;
+  opacity: .58
+}
+
+#empty-home .home-ranking-entry-art i:nth-child(2) {
+  height: 38px
+}
+
+#empty-home .home-ranking-entry-art i:nth-child(3) {
+  height: 29px;
+  opacity: .76
+}
+
+#empty-home .home-ranking-entry-art i:nth-child(4) {
+  height: 44px;
+  opacity: .92
+}
+
+#empty-home .home-ranking-entry-art i:nth-child(5) {
+  height: 18px;
+  opacity: .48
+}
+
+#empty-home .home-radio-entry {
+  background: linear-gradient(142deg, rgba(21, 29, 36, .66), rgba(9, 10, 16, .76))
+}
+
+#empty-home .home-radio-entry-art {
+  position: relative;
+  width: 64px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 50%, rgba(var(--fc-accent-rgb), .23), transparent 60%), rgba(255, 255, 255, .035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .11)
+}
+
+#empty-home .home-radio-entry-art::before {
+  content: '';
+  width: 19px;
+  height: 19px;
+  border: 2px solid rgba(255, 255, 255, .88);
+  border-radius: 50%;
+  box-shadow: 0 0 0 7px rgba(var(--fc-accent-rgb), .12), 0 0 22px rgba(var(--fc-accent-rgb), .24)
+}
+
+#empty-home .home-radio-entry-art i,
+#empty-home .home-radio-entry-art i::before,
+#empty-home .home-radio-entry-art i::after {
+  content: '';
+  position: absolute;
+  display: block;
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .72)
+}
+
+#empty-home .home-radio-entry-art i {
+  left: 10px;
+  height: 13px
+}
+
+#empty-home .home-radio-entry-art i::before {
+  top: -6px;
+  left: 6px;
+  height: 25px
+}
+
+#empty-home .home-radio-entry-art i::after {
+  top: -3px;
+  left: 12px;
+  height: 19px
+}
+
+#empty-home .home-radio-entry-art i:last-child {
+  right: 10px;
+  left: auto;
+  transform: scaleX(-1)
+}
+
+#empty-home .home-discovery-strip {
+  grid-column: 1 / -1;
+  min-height: 104px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(160px, .48fr) minmax(0, 1.52fr);
+  align-items: center;
+  gap: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 21px;
+  background: linear-gradient(120deg, rgba(16, 20, 27, .55), rgba(7, 9, 13, .66));
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .06);
+  color: #fff;
+  backdrop-filter: blur(calc(25px * var(--glass-blur-scale, 1))) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(25px * var(--glass-blur-scale, 1))) saturate(1.18);
+  contain: layout paint style;
+  transition: transform .22s, border-color .22s, background .22s, box-shadow .22s
+}
+
+#empty-home .home-discovery-copy {
+  min-width: 0;
+  padding-left: 4px
+}
+
+#empty-home .home-discovery-title {
+  display: block;
+  margin-top: 7px;
+  font-size: 17px;
+  font-weight: 790;
+  color: rgba(255, 255, 255, .96)
+}
+
+#empty-home .home-discovery-sub {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, .43)
+}
+
+#empty-home .home-discovery-list {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px
+}
+
+#empty-home .home-discovery-list.is-empty {
+  grid-template-columns: 1fr
+}
+
+#empty-home .home-discovery-song {
+  min-width: 0;
+  height: 78px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .035);
+  color: #fff;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .18s, border-color .18s, background .18s
+}
+
+#empty-home .home-discovery-song:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--fc-accent-rgb), .32);
+  background: rgba(var(--fc-accent-rgb), .07)
+}
+
+#empty-home .home-discovery-cover {
+  width: 58px;
+  height: 58px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(var(--fc-accent-rgb), .30), rgba(36, 66, 255, .24), rgba(8, 10, 14, .86));
+  background-position: center;
+  background-size: cover;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .25)
+}
+
+#empty-home .home-discovery-song-copy {
+  min-width: 0
+}
+
+#empty-home .home-discovery-song-name,
+#empty-home .home-discovery-song-artist {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis
+}
+
+#empty-home .home-discovery-song-name {
+  font-size: 12px;
+  font-weight: 760
+}
+
+#empty-home .home-discovery-song-artist {
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: rgba(255, 255, 255, .44)
+}
+
+#empty-home .home-discovery-empty {
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  border: 1px dashed rgba(255, 255, 255, .12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .025);
+  color: rgba(255, 255, 255, .82);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer
+}
+
+#empty-home .home-discovery-empty span {
+  font-size: 10px;
+  color: rgba(255, 255, 255, .43)
+}
+
+#empty-home .home-discovery-song:focus-visible,
+#empty-home .home-discovery-empty:focus-visible {
+  outline: 1px solid rgba(var(--fc-accent-rgb), .82);
+  outline-offset: 2px
+}
+
+#empty-home .home-legacy-rail {
+  display: none
+}
+
+@media (min-width:761px) and (max-width:1500px) {
+  /* 六轨道底座和避让列在窄屏同样需要（胶囊宽度不随窗口变），这里不再覆盖列模板。
+     旧的 `.home-card-featured { grid-column: auto }` 是 featured 曾经跨列时的残留，
+     它会把上面 :nth-child() 的避让定位顶掉，所以删掉。
+     The six-track scaffold and the reserved columns are needed at every desktop width because the
+     pill width does not scale with the window. The legacy `grid-column: auto` on the featured card
+     (left over from when it spanned columns) would knock out the :nth-child() placement above. */
+  #empty-home .home-grid.home-quick-grid .home-card-quick {
+    min-height: 116px;
+    padding: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-title {
+    max-width: calc(100% - 62px);
+    font-size: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
+    right: 11px;
+    bottom: 11px;
+    width: 58px;
+    height: 58px;
+    border-radius: 15px
+  }
+
+  #empty-home .home-insight-card,
+  #empty-home .home-next-card {
+    min-height: 118px
+  }
+}
+
+@media (min-width:761px) and (max-width:1060px) {
+  /* 让出右侧轨道后，第一行的卡只剩约六分之一的窗口宽，封面和标题要再收一档才装得下。
+     After reserving the right tracks, row-one cards only get about a sixth of the window, so the
+     art and copy shrink another step to fit. */
+  #empty-home .home-grid.home-quick-grid .home-card-featured {
+    min-height: 112px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card {
+    min-height: 102px;
+    padding: 11px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-title {
+    max-width: calc(100% - 74px);
+    font-size: 18px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-sub {
+    max-width: calc(100% - 74px)
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-featured .home-card-art {
+    right: 11px;
+    bottom: 11px;
+    width: 58px;
+    height: 58px;
+    border-radius: 16px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-title {
+    max-width: calc(100% - 54px);
+    font-size: 15px
+  }
+
+  #empty-home .home-grid.home-quick-grid .home-card-quick .home-card-art {
+    right: 9px;
+    bottom: 9px;
+    width: 46px;
+    height: 46px;
+    border-radius: 13px
+  }
+}
+
+@media (min-width:761px) and (max-height:980px) {
+  #empty-home .empty-home-shell {
+    min-height: 0;
+    contain: layout paint style;
+    transform: translateZ(0)
+  }
+
+  #empty-home .home-grid.home-quick-grid {
+    min-height: 0;
+    height: auto
+  }
+
+  #empty-home .home-insight-rail {
+    padding-right: 5px;
+    padding-bottom: 18px;
+    scrollbar-gutter: stable
+  }
+
+  #empty-home .home-card,
+  #empty-home .home-insight-card,
+  #empty-home .home-discovery-strip {
+    contain: layout paint style;
+    animation: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .065)
+  }
+}
+
+@media (min-width:761px) {
+  body.empty-home-active:not(.desktop-shell) #empty-home,
+  body.empty-home-active:not(.desktop-shell).controls-visible #empty-home {
+    bottom: 128px
+  }
+
+  body.desktop-shell:not(.desktop-wallpaper-mode).empty-home-active #empty-home,
+  body.desktop-shell:not(.desktop-wallpaper-mode).empty-home-active.controls-visible #empty-home,
+  html:fullscreen body.desktop-shell:not(.desktop-wallpaper-mode).empty-home-active #empty-home,
+  html:fullscreen body.desktop-shell:not(.desktop-wallpaper-mode).empty-home-active.controls-visible #empty-home {
+    bottom: 126px
+  }
+}
+
+@media (min-width:761px) and (max-height:760px) {
+  body.empty-home-active:not(.desktop-shell) #empty-home,
+  body.empty-home-active:not(.desktop-shell).controls-visible #empty-home,
+  body.desktop-shell:not(.desktop-wallpaper-mode).empty-home-active #empty-home,
+  body.desktop-shell:not(.desktop-wallpaper-mode).empty-home-active.controls-visible #empty-home {
+    bottom: 122px
+  }
+}
+
+@media (max-width:760px) {
+  #empty-home .empty-home-shell {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(360px, 55vh) auto auto;
+    overflow: auto
+  }
+
+  #empty-home .home-hero {
+    grid-column: 1;
+    grid-row: 1;
+    height: auto
+  }
+
+  #empty-home .home-grid.home-quick-grid {
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: 1fr;
+    /* 单列堆叠时让不出 210px（窄屏整列才三百多像素），回到铺满。
+       A single stacked column cannot spare 210px, so it goes back to full width. */
+    padding-right: 0
+  }
+
+  #empty-home .home-insight-rail {
+    grid-column: 1;
+    grid-row: 3;
+    overflow: visible
+  }
+
+  #empty-home .home-insight-dock {
+    grid-template-columns: 1fr
+  }
+
+  #empty-home .home-discovery-strip {
+    grid-template-columns: 1fr
+  }
+
+  #empty-home .home-discovery-list {
+    grid-template-columns: 1fr
+  }
+
+  #empty-home .home-discovery-song {
+    height: 70px
+  }
+
+  #empty-home .home-listen-metrics {
+    gap: 8px
+  }
+
+  #empty-home .home-listen-metric+.home-listen-metric {
+    padding-left: 8px
+  }
+
+  #empty-home .home-listen-value {
+    font-size: 18px
+  }
+}
+
+.home-platform-recommend-modal {
+  width: min(820px, 92vw);
+  max-width: min(820px, 92vw);
+  max-height: min(84vh, 760px);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-align: left
+}
+
+.home-platform-recommend-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px
+}
+
+.home-platform-recommend-head h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 780
+}
+
+.home-platform-recommend-head p {
+  margin: 0;
+  color: rgba(255, 255, 255, .48);
+  font-size: 11px;
+  line-height: 1.55
+}
+
+.home-platform-recommend-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .72);
+  font: 400 22px/1 inherit;
+  cursor: pointer
+}
+
+.home-platform-recommend-tabs {
+  display: flex;
+  gap: 7px;
+  margin-top: 18px;
+  overflow-x: auto;
+  scrollbar-width: none
+}
+
+.home-platform-recommend-tabs::-webkit-scrollbar {
+  display: none
+}
+
+.home-platform-recommend-tabs button,
+.home-platform-recommend-actions button {
+  min-height: 32px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .045);
+  color: rgba(255, 255, 255, .63);
+  font: 700 11px inherit;
+  white-space: nowrap;
+  cursor: pointer
+}
+
+.home-platform-recommend-tabs button.active,
+.home-platform-recommend-tabs button[aria-selected="true"] {
+  border-color: rgba(var(--fc-accent-rgb), .46);
+  background: rgba(var(--fc-accent-rgb), .12);
+  color: #fff
+}
+
+.home-platform-recommend-status {
+  min-height: 17px;
+  margin-top: 13px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 10.5px
+}
+
+.home-platform-recommend-status.is-error {
+  color: rgba(255, 190, 154, .82)
+}
+
+.home-platform-recommend-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  max-height: min(56vh, 500px);
+  margin-top: 8px;
+  padding-right: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .18) transparent
+}
+
+.home-platform-recommend-list section+section {
+  margin-top: 18px
+}
+
+.home-platform-recommend-list h3 {
+  margin: 0 0 8px;
+  color: rgba(255, 255, 255, .72);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .13em
+}
+
+.home-platform-recommend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px
+}
+
+.home-platform-recommend-card {
+  min-width: 0;
+  min-height: 76px;
+  padding: 8px 10px 8px 8px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, .032);
+  color: #fff;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease
+}
+
+.home-platform-recommend-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--fc-accent-rgb), .34);
+  background: rgba(var(--fc-accent-rgb), .065)
+}
+
+.home-platform-recommend-cover {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(var(--fc-accent-rgb), .28), rgba(36, 66, 255, .22), rgba(8, 10, 14, .9));
+  background-position: center;
+  background-size: cover;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .24)
+}
+
+.home-platform-recommend-copy {
+  min-width: 0
+}
+
+.home-platform-recommend-copy>* {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis
+}
+
+.home-platform-recommend-label {
+  color: rgba(var(--fc-accent-rgb), .72);
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: .05em
+}
+
+.home-platform-recommend-copy strong {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 760
+}
+
+.home-platform-recommend-copy small {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, .42);
+  font-size: 9.5px
+}
+
+.home-platform-recommend-arrow {
+  color: rgba(255, 255, 255, .4);
+  font-size: 19px
+}
+
+.home-platform-recommend-empty,
+.home-platform-recommend-loading {
+  min-height: 180px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(255, 255, 255, .11);
+  border-radius: 16px;
+  color: rgba(255, 255, 255, .67);
+  text-align: center
+}
+
+.home-platform-recommend-empty span,
+.home-platform-recommend-loading {
+  color: rgba(255, 255, 255, .42);
+  font-size: 10.5px;
+  line-height: 1.6
+}
+
+.home-platform-recommend-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px
+}
+
+.home-platform-recommend-actions button:last-child {
+  border-color: rgba(var(--fc-accent-rgb), .42);
+  color: #fff
+}
+
+@media (max-width:640px) {
+  .home-platform-recommend-modal {
+    padding: 18px
+  }
+
+  .home-platform-recommend-grid {
+    grid-template-columns: 1fr
+  }
+
+  .home-platform-recommend-list {
+    max-height: 58vh
+  }
+}
+
+/* Full-desktop work-area layout. These offsets are renderer DIPs supplied by
+   Electron, so a bottom/side taskbar never covers desktop-mode controls. */
+:root {
+  --desktop-safe-top: 0px;
+  --desktop-safe-right: 0px;
+  --desktop-safe-bottom: 0px;
+  --desktop-safe-left: 0px;
+}
+
+body.desktop-shell.desktop-wallpaper-mode #desktop-titlebar {
+  display: none !important;
+}
+
+/* 桌面模式工具行：标题栏整条隐藏后，? / 更新 / 热键 / DIY 停到右上角控制器左侧，
+   最小化/最大化/关闭仍随标题栏一起隐藏。 */
+/* Desktop tool row: with the title bar hidden, the guide / update / hotkey / DIY buttons dock
+   left of the top-right controller; minimize / maximize / close stay hidden with the bar. */
+#desktop-mode-control-panel #desktop-tools-zone {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 2px 2px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+#desktop-mode-control-panel #desktop-tools-zone > button {
+  width: auto;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  letter-spacing: .01em;
+}
+
+#desktop-mode-control-panel #desktop-tools-zone > button svg {
+  width: 15px;
+  height: 15px;
+}
+
+#desktop-tools-zone {
+  position: fixed;
+  top: calc(var(--desktop-safe-top) + 74px);
+  right: calc(var(--desktop-safe-right) + 70px);
+  z-index: 690;
+  display: none;
+  align-items: center;
+  gap: 8px
+}
+
+body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-tools-zone {
+  display: flex
+}
+
+body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
+  top: calc(var(--desktop-safe-top) + 72px);
+}
+
+/* Explorer's layered colour-key host can be reported as fully occluded while
+   the main HWND is being reparented. Chromium then freezes a newly started
+   opacity transition at its transparent first frame even though the final
+   class is already correct. Full desktop uses an immediate outer HUD state;
+   the existing glass/filter contents and their own animations stay untouched. */
+body.desktop-wallpaper-hud-prime.desktop-wallpaper-mode.desktop-wallpaper-interactive #bottom-bar,
+body.desktop-wallpaper-hud-prime.desktop-wallpaper-mode.desktop-wallpaper-interactive #empty-home {
+  transition: none !important;
+}
+
+/* The desktop renderer can be reported as occluded while Explorer reparents
+   it. Keep the final functional surfaces explicit so an opacity transition
+   cannot remain frozen on its transparent first sample. This only fixes the
+   outer visibility state; the saved player glass/filter texture is untouched. */
+body.desktop-wallpaper-mode.desktop-wallpaper-interactive.empty-home-active #empty-home {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateX(-50%) translateY(0) scale(1) !important;
+}
+
+body.desktop-wallpaper-mode.desktop-wallpaper-interactive:not(.empty-home-active):not(.home-controls-locked) #bottom-bar.visible:not(.soft-hidden) {
+  opacity: .91 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateX(-50%) translateY(0) scale(1) !important;
+}
+
+body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
+  top: calc(var(--desktop-safe-top) + 16px);
+  /* 控制器占住最右上角，账号胶囊/Home 等整体往左让位。 */
+  right: calc(var(--desktop-safe-right) + 16px + 52px + 12px);
+}
+
+body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
+  top: calc(var(--desktop-safe-top) + 16px);
+  right: calc(var(--desktop-safe-right) + 16px);
+  left: auto;
+}
+
+body.desktop-wallpaper-mode #bottom-handle {
+  left: calc(50% + (var(--desktop-safe-left) - var(--desktop-safe-right)) / 2);
+  bottom: calc(var(--desktop-safe-bottom) + 13px);
+}
+
+body.desktop-wallpaper-mode #bottom-bar,
+body.desktop-wallpaper-mode #bottom-bar.stage-mode,
+body.desktop-wallpaper-mode.simple-mode #bottom-bar,
+body.desktop-wallpaper-mode.diy-mode #bottom-bar,
+body.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode,
+body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar,
+body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
+  left: calc(50% + (var(--desktop-safe-left) - var(--desktop-safe-right)) / 2);
+  bottom: calc(var(--desktop-safe-bottom) + 16px);
+  width: min(1120px, calc(100vw - var(--desktop-safe-left) - var(--desktop-safe-right) - 48px));
+}
+
+@media (max-width:720px) {
+  body.desktop-wallpaper-mode.desktop-wallpaper-interactive #desktop-mode-control-dock {
+    top: calc(var(--desktop-safe-top) + 70px);
+    right: calc(var(--desktop-safe-right) + 12px);
+  }
+
+  body.desktop-shell.desktop-wallpaper-mode.desktop-wallpaper-interactive #top-right {
+    top: calc(var(--desktop-safe-top) + 14px);
+    right: calc(var(--desktop-safe-right) + 12px);
+  }
+
+  body.desktop-wallpaper-mode #bottom-bar,
+  body.desktop-wallpaper-mode #bottom-bar.stage-mode,
+  body.desktop-wallpaper-mode.simple-mode #bottom-bar,
+  body.desktop-wallpaper-mode.diy-mode #bottom-bar,
+  body.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode,
+  body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar,
+  body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
+    width: calc(100vw - var(--desktop-safe-left) - var(--desktop-safe-right) - 24px);
+  }
+}

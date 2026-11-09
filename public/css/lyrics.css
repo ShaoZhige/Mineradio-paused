@@ -1,0 +1,58 @@
+/* ============================================================ */
+/*  舞台歌词 (大字 + 3D 入场 + 呼吸)                              */
+/* ============================================================ */
+#stage-lyrics {
+  display: none
+}
+@keyframes lyr-bob {
+
+  0%,
+  100% {
+    transform: translate3d(var(--bx, 0px), 0, 0) rotateX(0deg) rotateY(0deg) scale(1)
+  }
+
+  25% {
+    transform: translate3d(calc(var(--bx, 0px) + 6px), -7px, 12px) rotateX(2deg) rotateY(-1.5deg) scale(1.01)
+  }
+
+  50% {
+    transform: translate3d(var(--bx, 0px), 3px, 0) rotateX(-1.5deg) rotateY(0deg) scale(.99)
+  }
+
+  75% {
+    transform: translate3d(calc(var(--bx, 0px) - 6px), -4px, 8px) rotateX(1.2deg) rotateY(1.5deg) scale(1.005)
+  }
+}
+
+@keyframes lyr-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--inx, -60px), var(--iny, 40px), -160px) rotateX(var(--inrx, 28deg)) rotateY(var(--inry, -22deg)) scale(.7);
+    filter: blur(14px) drop-shadow(0 4px 22px rgba(143, 233, 255, .30))
+  }
+
+  55% {
+    opacity: 1;
+    filter: blur(0) drop-shadow(0 4px 22px rgba(143, 233, 255, .30))
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(var(--bx, 0px), 0, 0) rotateX(0deg) rotateY(0deg) scale(1);
+    filter: blur(0) drop-shadow(0 4px 22px rgba(143, 233, 255, .30))
+  }
+}
+
+@keyframes lyr-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(var(--bx, 0px), 0, 0) rotateX(0) rotateY(0) scale(1);
+    filter: blur(0)
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--outx, 60px), var(--outy, -40px), -120px) rotateX(var(--outrx, -22deg)) rotateY(var(--outry, 18deg)) scale(.78);
+    filter: blur(10px)
+  }
+}
