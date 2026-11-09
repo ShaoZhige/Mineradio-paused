@@ -27,8 +27,8 @@ const LANGS = ['zh_cn', 'en_us', 'ja_jp', 'ru_ru'];
 
 const RENDERER_PATH = path.join(__dirname, '..', 'public', 'js', 'modules', '08-account', '00-login-easter-egg.js');
 const RENDERER_SOURCE = fs.readFileSync(RENDERER_PATH, 'utf8');
-const CSS_PATH = path.join(__dirname, '..', 'public', 'css', 'index.css');
-const CSS_SOURCE = fs.readFileSync(CSS_PATH, 'utf8');
+const { readAllCss } = require('./helpers/css-source');
+const CSS_SOURCE = readAllCss();
 
 // 许愿框宽度 min(390px, 100% - 58px) —— 这里只验最宽的那一档。
 // The wish box is min(390px, 100% - 58px) wide; this covers the widest of the two cases.

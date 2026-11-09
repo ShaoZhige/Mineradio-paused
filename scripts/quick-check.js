@@ -15,7 +15,7 @@ function spawnSync(command, args, options = {}) {
 
 const appRoot = path.resolve(__dirname, '..');
 function readAllCssFiles() {
-  return ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css', 'index.css']
+  return ['core.css', 'background.css', 'startup.css', 'search.css', 'home.css', 'topbar.css', 'mini-cover.css', 'player.css', 'control-bar.css', 'modal.css', 'index.css']
     .filter((name) => fs.existsSync(path.join(appRoot, 'public', 'css', name)))
     .map((name) => fs.readFileSync(path.join(appRoot, 'public', 'css', name), 'utf8'))
     .join('\n');

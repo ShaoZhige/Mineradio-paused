@@ -1,0 +1,348 @@
+/* ---------- 控制栏自适应实验：中轴固定 + 左右等宽弹性 ---------- */
+#bottom-bar,
+#bottom-bar.stage-mode,
+body.simple-mode #bottom-bar {
+  box-sizing: border-box;
+  width: min(1120px, calc(100vw - clamp(20px, 5vw, 72px)));
+  padding: clamp(8px, 1.2vw, 11px) clamp(12px, 2.2vw, 24px) clamp(10px, 1.35vw, 14px);
+}
+
+body.diy-mode #bottom-bar,
+body.diy-mode #bottom-bar.stage-mode {
+  left: 50%;
+  width: min(1120px, calc(100vw - clamp(28px, 8vw, 148px)));
+}
+
+#controls,
+body.simple-mode #controls,
+body.diy-mode #controls {
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  gap: clamp(8px, 1.7vw, 18px);
+}
+
+.control-cluster {
+  min-width: 0
+}
+
+.control-cluster.actions {
+  justify-content: flex-start;
+  overflow: visible;
+}
+
+.control-cluster.transport {
+  justify-self: center;
+  justify-content: center;
+  width: max-content;
+  gap: clamp(8px, 1.1vw, 13px);
+}
+
+.control-cluster.modes {
+  justify-content: flex-end;
+  overflow: visible;
+}
+
+.control-track {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.control-meta {
+  max-width: min(320px, 100%);
+}
+
+@media (max-width:1180px) {
+
+  body.diy-mode #bottom-bar,
+  body.diy-mode #bottom-bar.stage-mode {
+    left: 50%;
+    width: calc(100vw - clamp(28px, 8vw, 142px));
+  }
+
+  .control-meta {
+    max-width: min(220px, 100%)
+  }
+}
+
+@media (max-width:920px) {
+
+  #bottom-bar,
+  #bottom-bar.stage-mode,
+  body.simple-mode #bottom-bar,
+  body.diy-mode #bottom-bar,
+  body.diy-mode #bottom-bar.stage-mode {
+    width: calc(100vw - 28px);
+  }
+
+  #controls,
+  body.simple-mode #controls,
+  body.diy-mode #controls {
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  }
+
+  .control-meta {
+    max-width: min(170px, 100%)
+  }
+}
+
+@media (max-width:720px) {
+  .control-cover {
+    display: none
+  }
+
+  .control-meta {
+    max-width: min(132px, 100%)
+  }
+
+  .control-cluster.modes {
+    gap: 6px
+  }
+}
+
+@media (max-width:1180px) {
+  body.diy-mode .control-cluster.modes {
+    gap: 7px
+  }
+
+  body.diy-mode #controls {
+    gap: 10px
+  }
+}
+
+@media (max-width:1040px) {
+
+  body.diy-mode #time-display,
+  body.diy-mode #controls-hide-btn {
+    display: none !important
+  }
+
+  body.diy-mode .control-track {
+    max-width: 260px
+  }
+}
+
+@media (max-width:940px) {
+
+  body.diy-mode .lyrics-toggle-btn,
+  body.diy-mode #volume-control,
+  body.diy-mode .fullscreen-toggle-btn {
+    display: none !important
+  }
+}
+
+@media (max-width:620px) {
+
+  #controls,
+  body.simple-mode #controls,
+  body.diy-mode #controls {
+    grid-template-columns: 1fr;
+  }
+
+  .control-cluster.actions,
+  .control-cluster.transport,
+  .control-cluster.modes {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
+body.immersive-mode #desktop-titlebar,
+body.immersive-mode #search-area,
+body.immersive-mode #top-right,
+body.immersive-mode #thumb-wrap,
+body.immersive-mode #fx-fab,
+body.immersive-mode #fx-panel,
+body.immersive-mode #trial-banner,
+body.immersive-mode #ai-depth-chip,
+body.immersive-mode #beat-chip,
+body.immersive-mode #gesture-hud,
+body.immersive-mode #hand-canvas,
+body.immersive-mode #hint,
+body.immersive-mode #upload-tip,
+body.immersive-mode #drop-overlay,
+body.immersive-mode #idle-guide-canvas,
+body.immersive-mode #login-guide-canvas,
+body.immersive-mode #toast,
+body.immersive-mode #cuefield-feedback,
+body.immersive-mode #source-fallback-notice,
+body.immersive-mode .modal-mask {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important
+}
+
+body.immersive-mode .modal-mask {
+  display: none !important
+}
+
+body.immersive-mode #bottom-bar.visible {
+  z-index: 32;
+  bottom: 22px;
+  width: min(620px, calc(100vw - 56px));
+  padding: 10px 20px 13px;
+  gap: 9px;
+  border-radius: 22px;
+  background: radial-gradient(circle at 20% 0%, rgba(255, 255, 255, .13), transparent 35%), linear-gradient(112deg, rgba(255, 255, 255, .060), rgba(12, 15, 18, .45) 52%, rgba(2, 4, 7, .58));
+  border-color: rgba(255, 255, 255, .060);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, .32), 0 0 42px rgba(152, 221, 255, .055), inset 0 1px 0 rgba(255, 255, 255, .15), inset 0 -22px 58px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(calc(46px * var(--glass-blur-scale, 1))) saturate(1.36);
+  -webkit-backdrop-filter: blur(calc(46px * var(--glass-blur-scale, 1))) saturate(1.36)
+}
+
+body.immersive-mode #bottom-bar.soft-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(96px) scale(.97);
+  filter: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none
+}
+
+body.immersive-mode #progress-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, .10)
+}
+
+body.immersive-mode #progress-bar:hover,
+body.immersive-mode #progress-bar.is-dragging {
+  height: 5px;
+  background: rgba(255, 255, 255, .14)
+}
+
+body.immersive-mode #controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px
+}
+
+body.immersive-mode .control-cluster {
+  grid-column: auto !important;
+  justify-content: center;
+  height: 64px;
+  gap: 14px
+}
+
+body.immersive-mode .control-cluster.actions {
+  display: none
+}
+
+body.immersive-mode .control-cluster.transport {
+  display: flex;
+  order: 1
+}
+
+body.immersive-mode .control-cluster.modes {
+  display: flex;
+  order: 2;
+  gap: 14px
+}
+
+body.immersive-mode .control-track,
+body.immersive-mode #heart-btn,
+body.immersive-mode #collect-btn,
+body.immersive-mode #play-mode-btn,
+body.immersive-mode .lyrics-toggle-btn,
+body.immersive-mode #mini-queue-btn,
+body.immersive-mode #quality-control,
+body.immersive-mode #volume-control,
+body.immersive-mode #controls-hide-btn,
+body.immersive-mode .control-divider,
+body.immersive-mode .fullscreen-toggle-btn {
+  display: none !important
+}
+
+body.immersive-mode #mini-queue-popover {
+  display: none !important
+}
+
+body.immersive-mode .ctrl-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px
+}
+
+body.immersive-mode .ctrl-btn svg {
+  width: 22px;
+  height: 22px
+}
+
+body.immersive-mode #play-btn {
+  width: 64px;
+  height: 64px
+}
+
+body.immersive-mode #play-btn svg {
+  width: 25px;
+  height: 25px
+}
+
+body.immersive-mode #immersive-btn {
+  color: #fff;
+  text-shadow: 0 0 18px rgba(255, 255, 255, .38)
+}
+
+body.immersive-mode #time-display {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  min-width: 86px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .58)
+}
+
+@media (max-width: 620px) {
+  body.immersive-mode #bottom-bar {
+    width: calc(100vw - 20px);
+    padding: 10px 12px 12px
+  }
+
+  body.immersive-mode #controls {
+    gap: 10px
+  }
+
+  body.immersive-mode .control-cluster {
+    gap: 10px;
+    height: 60px
+  }
+
+  body.immersive-mode .ctrl-btn {
+    width: 36px;
+    height: 36px
+  }
+
+  body.immersive-mode .ctrl-btn svg {
+    width: 20px;
+    height: 20px
+  }
+
+  body.immersive-mode #play-btn {
+    width: 58px;
+    height: 58px
+  }
+
+  body.immersive-mode #time-display {
+    min-width: 72px;
+    font-size: 10.5px
+  }
+}
+
+@media (max-width: 420px) {
+  body.immersive-mode #time-display {
+    display: none
+  }
+}
+
+body.immersive-mode::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 118px;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, .16))
+}
