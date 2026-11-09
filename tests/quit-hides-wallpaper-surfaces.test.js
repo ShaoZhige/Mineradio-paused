@@ -10,6 +10,7 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const MAIN = fs.readFileSync(path.join(ROOT, 'desktop', 'main.js'), 'utf8');
+const QUIT = fs.readFileSync(path.join(ROOT, 'desktop', 'quit.js'), 'utf8');
 
 function functionSource(source, signature) {
   const from = source.indexOf(signature);
@@ -28,7 +29,7 @@ function functionSource(source, signature) {
 }
 
 test('退出清理一开始就撤掉画面，不等清理链走完', () => {
-  const beforeQuit = functionSource(MAIN, "app.on('before-quit', (event) => {");
+  const beforeQuit = functionSource(QUIT, 'function beforeQuit(event) {');
   const hideAt = beforeQuit.indexOf('hideVisibleSurfacesForQuit()');
   assert.ok(hideAt >= 0, 'before-quit 必须调用 hideVisibleSurfacesForQuit');
   const cleanupAt = beforeQuit.indexOf('wallpaperEngineRuntime.dispose()');

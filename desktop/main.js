@@ -6,6 +6,13 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const systemMemory = require('./system-memory');
+const fxAutosave = require('./fx-autosave');
+const windowBehavior = require('./window-behavior');
+const { createTrayController } = require('./tray');
+const { createAppMemoryManager } = require('./app-memory');
+const { createQuitController } = require('./quit');
+const desktopIcons = require('./desktop-icons');
+const { createMiddleClickPoller } = require('./global-middle-click-poller');
 const {
   WallpaperEngineLibrary,
   registerWallpaperEngineScheme,
@@ -52,44 +59,15 @@ let mainWindow = null;
 let localServer = null;
 let customSourceManager = null;
 let mainServerPort = 0;
-let desktopLyricsWindow = null;
-let desktopLyricsState = {};
-let desktopLyricsUserBounds = null;
-let desktopLyricsProgrammaticMove = false;
-let desktopLyricsPointerCapture = false;
-let desktopLyricsMouseIgnored = null;
-let desktopLyricsMousePoller = null;
-let desktopLyricsMousePollerBuffer = '';
-let desktopLyricsHotBounds = null;
-let desktopLyricsLastMiddleAt = 0;
 let htmlFullscreenActive = false;
 let windowFullscreenActive = false;
 let windowFullscreenDisplayId = null;
 let mainWindowStateTimer = null;
-let appMemoryTrimTimer = null;
-let appMemoryTrimInFlight = false;
-let lastAppMemoryTrimAt = 0;
-let lastAppMemoryTrimReason = '';
-let memoryAutoTimer = null;
-let memoryAutoState = {
-  appTrimEnabled: true,
-  backgroundTrimEnabled: true,
-  enabled: false,
-  mask: systemMemory.MEMORY_MASK_DEFAULT,
-  intervalMin: 30,
-  thresholdPercent: 78,
-  autoElevate: false,
-  lastRunAt: 0,
-  lastReason: '',
-  lastResult: null,
-  lastError: '',
-};
 let closeBehavior = 'tray';
 let appQuitting = false;
-let appQuitCleanupPromise = null;
-let appQuitCleanupComplete = false;
+let quitController = null;
 let mainWindowCloseFlushArmed = false;
-let tray = null;
+let trayController = null;
 let startupCompleted = false;
 let startupErrorReported = false;
 let localServerStartPromise = null;
@@ -123,8 +101,6 @@ const APP_METADATA = APP_PACKAGE_INFO.mineradio || {};
 const APP_NAME = process.env.MINERADIO_RUNTIME_NAME || APP_METADATA.runtimeName || APP_PACKAGE_INFO.productName || 'Mineradio';
 const APP_USER_MODEL_ID = process.env.MINERADIO_APP_USER_MODEL_ID || APP_METADATA.appUserModelId || (APP_PACKAGE_INFO.build && APP_PACKAGE_INFO.build.appId) || 'com.mineradio.desktop';
 const APP_ICON_ICO = path.join(__dirname, '..', 'build', 'icon.ico');
-const CURRENT_FX_AUTOSAVE_FILE = 'current-fx-autosave.json';
-const CURRENT_FX_AUTOSAVE_MAX_BYTES = 12 * 1024 * 1024;
 // 音源脚本的体积上限：正常的洛雪脚本只有几十 KB，5 MB 足够宽松又能挡住误选的大文件。
 // Size ceiling for a source script: real LX scripts are tens of KB, so 5 MB is generous
 // while still rejecting an obviously wrong file pick.
@@ -170,6 +146,17 @@ const KUGOU_LOGIN_URL = 'https://www.kugou.com/';
 const KUGOU_LOGIN_WARMUP_URL = 'https://www.kugou.com/newuc/user/uc/type=edit';
 const SPOTIFY_LOGIN_PARTITION = 'persist:mineradio-spotify-login';
 const SPOTIFY_OAUTH_TIMEOUT_MS = 3 * 60 * 1000;
+const { createSpotifyLogin } = require('./spotify-login');
+const spotifyLogin = createSpotifyLogin({
+  shell,
+  session,
+  getSpotifyOAuthConfig,
+  buildSpotifyOAuthAuthorizeUrl,
+  exchangeSpotifyOAuthCode,
+  clearSpotifyToken,
+  partition: SPOTIFY_LOGIN_PARTITION,
+  timeoutMs: SPOTIFY_OAUTH_TIMEOUT_MS,
+});
 
 // Keep app-owned settings and provider credentials independent from the
 // user-selectable Chromium cache. app.setName() must run before the first
@@ -1015,43 +1002,15 @@ function waitForLocalHttpReady(port, timeoutMs = STARTUP_HTTP_TIMEOUT_MS) {
 }
 
 function getCurrentFxAutosavePath() {
-  return path.join(app.getPath('userData'), CURRENT_FX_AUTOSAVE_FILE);
+  return fxAutosave.getPath(app.getPath('userData'));
 }
 
 function readCurrentFxAutosaveFile() {
-  try {
-    const file = getCurrentFxAutosavePath();
-    if (!fs.existsSync(file)) return null;
-    const stat = fs.statSync(file);
-    if (!stat || stat.size <= 0 || stat.size > CURRENT_FX_AUTOSAVE_MAX_BYTES) return null;
-    const raw = fs.readFileSync(file, 'utf8');
-    const payload = JSON.parse(raw);
-    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
-  } catch (e) {
-    console.warn('[FxAutosave] read skipped:', e.message);
-    return null;
-  }
+  return fxAutosave.read(app.getPath('userData'));
 }
 
 function writeCurrentFxAutosaveFile(payload) {
-  try {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return { ok: false, error: 'INVALID_AUTOSAVE_PAYLOAD' };
-    }
-    const text = JSON.stringify(payload);
-    if (Buffer.byteLength(text, 'utf8') > CURRENT_FX_AUTOSAVE_MAX_BYTES) {
-      return { ok: false, error: 'AUTOSAVE_PAYLOAD_TOO_LARGE' };
-    }
-    const file = getCurrentFxAutosavePath();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, text, 'utf8');
-    fs.renameSync(tmp, file);
-    return { ok: true };
-  } catch (e) {
-    console.warn('[FxAutosave] write failed:', e.message);
-    return { ok: false, error: e.message || 'AUTOSAVE_WRITE_FAILED' };
-  }
+  return fxAutosave.write(app.getPath('userData'), payload);
 }
 
 function flushMainWindowFxAutosave(reason) {
@@ -1159,10 +1118,10 @@ function broadcastDesktopWallpaperStatus(status) {
   if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.webContents || mainWindow.webContents.isDestroyed()) return;
   mainWindow.webContents.send('mineradio-wallpaper-runtime-state', {
     ...(status || fullDesktopModeRuntime.getStatus('broadcast')),
-    recoveryTrayAvailable: !!tray,
+    recoveryTrayAvailable: trayIsAvailable(),
     escapeShortcutRegistered: fullDesktopEscapeRegistered === true,
   });
-  if (tray) createOrUpdateTray();
+  if (trayIsAvailable()) createOrUpdateTray();
   // 锁状态、启用/退出、图标层变化都会广播状态，顺手同步「锁定期间的光标轮询」。
   // Lock changes, enable/exit and icon-layer updates all broadcast status; keep the locked-mode
   // cursor poll in sync from here.
@@ -1898,7 +1857,7 @@ function syncWallpaperEngineWithFullDesktopMode(win, reason = 'desktop-state') {
   } else if (!appQuitting && desktopMode.interactive !== false) {
     resumeWallpaperEngineForVisibleHost(win, `full-desktop-${reason}`);
   }
-  if (tray) createOrUpdateTray();
+  if (trayIsAvailable()) createOrUpdateTray();
   sendWindowState(win);
 }
 
@@ -2480,155 +2439,48 @@ function collectAppTrimPids() {
   return Array.from(pids);
 }
 
-// 应用级内存口径：systemMemory.getMemorySnapshot().process 只有主进程自己的 RSS，
-// 而渲染进程（Three.js 纹理、DOM、canvas 后备存储）才是真正的内存大头。这里用
-// app.getAppMetrics() 把浏览器 / 渲染 / GPU / 工具进程的工作集合计起来，
-// 渲染层据此判断「应用整体越过了水位」。
-// App-level memory: getMemorySnapshot().process only covers the main process RSS, while the
-// renderer (Three.js textures, DOM, canvas backstores) is where the memory actually goes.
-// getAppMetrics() aggregates the working set of browser / renderer / GPU / utility processes so
-// the renderer can tell when the app as a whole crossed a waterline.
+const memoryManager = createAppMemoryManager({
+  app,
+  systemMemory,
+  getMainWindow: () => mainWindow,
+  collectAppTrimPids,
+  platform: process.platform,
+});
+
 function collectAppMemoryMetrics() {
-  const totals = { browserMB: 0, rendererMB: 0, gpuMB: 0, utilityMB: 0, otherMB: 0, totalMB: 0 };
-  let rows = [];
-  try {
-    rows = app.getAppMetrics() || [];
-  } catch (e) {
-    rows = [];
-  }
-  const processes = [];
-  rows.forEach((row) => {
-    const memory = (row && row.memory) || {};
-    const workingSetKB = Number(memory.workingSetSize) || 0;
-    const mb = Math.round(workingSetKB / 1024);
-    const type = String((row && row.type) || '').toLowerCase();
-    if (type === 'tab' || type === 'renderer' || type === 'webview') totals.rendererMB += mb;
-    else if (type === 'gpu') totals.gpuMB += mb;
-    else if (type === 'utility') totals.utilityMB += mb;
-    else if (type === 'browser') totals.browserMB += mb;
-    else totals.otherMB += mb;
-    totals.totalMB += mb;
-    processes.push({
-      pid: Number(row && row.pid) || 0,
-      type: type || 'unknown',
-      name: String((row && row.name) || ''),
-      workingSetMB: mb,
-      peakWorkingSetMB: Math.round((Number(memory.peakWorkingSetSize) || 0) / 1024),
-    });
-  });
-  return Object.assign({ ok: true, sampledAt: Date.now(), processCount: processes.length, processes }, totals);
+  return memoryManager.metrics();
 }
 
 function isMainWindowForegroundVisible() {
-  try {
-    return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized());
-  } catch (e) {
-    return false;
-  }
+  return memoryManager.isMainWindowForegroundVisible();
 }
 
-async function trimAppMemoryNow(reason) {
-  if (appMemoryTrimInFlight) {
-    return { ok: false, skipped: true, reason: 'in-flight' };
-  }
-  const trimReason = String(reason || 'manual');
-  if (isMainWindowForegroundVisible() && trimReason !== 'manual-force') {
-    return { ok: false, skipped: true, reason: 'foreground-visible' };
-  }
-  appMemoryTrimInFlight = true;
-  lastAppMemoryTrimAt = Date.now();
-  lastAppMemoryTrimReason = trimReason;
-  try {
-    const before = systemMemory.getMemorySnapshot();
-    const trim = await systemMemory.trimAppWorkingSets(collectAppTrimPids());
-    const after = systemMemory.getMemorySnapshot();
-    return { ok: true, reason: lastAppMemoryTrimReason, before, trim, after };
-  } catch (e) {
-    return { ok: false, reason: lastAppMemoryTrimReason, error: e.message || 'APP_MEMORY_TRIM_FAILED', snapshot: systemMemory.getMemorySnapshot() };
-  } finally {
-    appMemoryTrimInFlight = false;
-  }
+function trimAppMemoryNow(reason) {
+  return memoryManager.trimNow(reason);
 }
 
 function scheduleAppMemoryTrim(reason, delay = 9000) {
-  if (process.platform !== 'win32') return;
-  if (memoryAutoState.appTrimEnabled === false || memoryAutoState.backgroundTrimEnabled === false) return;
-  if (Date.now() - lastAppMemoryTrimAt < 120000) return;
-  if (appMemoryTrimTimer) clearTimeout(appMemoryTrimTimer);
-  appMemoryTrimTimer = setTimeout(() => {
-    appMemoryTrimTimer = null;
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (!mainWindow.isMinimized() && mainWindow.isVisible()) return;
-    trimAppMemoryNow(reason).catch(() => {});
-  }, Math.max(4000, delay));
+  return memoryManager.scheduleTrim(reason, delay);
 }
 
 function normalizeMemoryAutoState(payload = {}) {
-  const systemEnabled = systemMemory.SYSTEM_PURGE_AVAILABLE === true && systemMemory.SYSTEM_PURGE_ENABLED === true;
-  return {
-    appTrimEnabled: payload.appTrimEnabled !== false,
-    backgroundTrimEnabled: payload.backgroundTrimEnabled !== false,
-    enabled: systemEnabled && payload.enabled === true,
-    mask: systemMemory.normalizeMask(payload.mask != null ? payload.mask : memoryAutoState.mask),
-    intervalMin: Math.max(5, Math.min(180, Math.round(Number(payload.intervalMin != null ? payload.intervalMin : memoryAutoState.intervalMin) || 30))),
-    thresholdPercent: Math.max(0, Math.min(100, Math.round(Number(payload.thresholdPercent != null ? payload.thresholdPercent : memoryAutoState.thresholdPercent) || 0))),
-    autoElevate: payload.autoElevate === true,
-    lastRunAt: memoryAutoState.lastRunAt || 0,
-    lastReason: memoryAutoState.lastReason || '',
-    lastResult: memoryAutoState.lastResult || null,
-    lastError: '',
-  };
+  return memoryManager.normalizeState(payload);
 }
 
 function stopMemoryAutoTimer() {
-  if (memoryAutoTimer) {
-    clearInterval(memoryAutoTimer);
-    memoryAutoTimer = null;
-  }
+  memoryManager.stopAutoTimer();
 }
 
 function syncMemoryAutoTimer() {
-  stopMemoryAutoTimer();
-  if (!memoryAutoState.enabled) return;
-  memoryAutoTimer = setInterval(() => {
-    runMemoryAutoTick('timer').catch(() => {});
-  }, Math.max(5, memoryAutoState.intervalMin) * 60000);
+  memoryManager.syncAutoTimer();
 }
 
 async function runMemoryAutoTick(reason = 'auto') {
-  if (!memoryAutoState.enabled) return { ok: false, skipped: true, reason: 'disabled', state: memoryAutoState };
-  if (isMainWindowForegroundVisible()) {
-    memoryAutoState.lastRunAt = Date.now();
-    memoryAutoState.lastReason = reason + ':foreground-visible';
-    memoryAutoState.lastResult = { ok: true, skipped: true, reason: 'foreground-visible' };
-    return { ok: true, skipped: true, reason: 'foreground-visible', state: memoryAutoState };
-  }
-  const snapshot = await systemMemory.getMemorySnapshotExtended();
-  const threshold = Number(memoryAutoState.thresholdPercent) || 0;
-  if (threshold > 0 && snapshot && snapshot.usedPercent < threshold) {
-    memoryAutoState.lastRunAt = Date.now();
-    memoryAutoState.lastReason = reason + ':below-threshold';
-    memoryAutoState.lastResult = { ok: true, skipped: true, usedPercent: snapshot.usedPercent, thresholdPercent: threshold };
-    return { ok: true, skipped: true, snapshot, state: memoryAutoState };
-  }
-  memoryAutoState.lastRunAt = Date.now();
-  memoryAutoState.lastReason = reason;
-  try {
-    const result = await systemMemory.purgeSystemMemorySmart(memoryAutoState.mask, {
-      autoElevate: memoryAutoState.autoElevate === true,
-    });
-    memoryAutoState.lastResult = result;
-    memoryAutoState.lastError = '';
-    return { ok: true, result, snapshot: await systemMemory.getMemorySnapshotExtended(), state: memoryAutoState };
-  } catch (e) {
-    memoryAutoState.lastError = e.message || 'MEMORY_AUTO_FAILED';
-    memoryAutoState.lastResult = { ok: false, error: memoryAutoState.lastError };
-    return { ok: false, error: memoryAutoState.lastError, snapshot: systemMemory.getMemorySnapshot(), state: memoryAutoState };
-  }
+  return memoryManager.runAutoTick(reason);
 }
 
 function normalizeCloseBehavior(value) {
-  return value === 'tray' ? 'tray' : 'exit';
+  return windowBehavior.normalizeCloseBehavior(value);
 }
 
 function resetMainWindowZoom(win = mainWindow) {
@@ -2687,62 +2539,48 @@ function disposeQishuiAuthForQuit() {
   }
 }
 
-function createOrUpdateTray() {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
-  if (!tray) {
-    try {
-      tray = new Tray(APP_ICON_ICO);
-      tray.setToolTip(APP_NAME);
-      tray.on('click', () => focusMainWindow());
-      tray.on('double-click', () => focusMainWindow());
-    } catch (e) {
-      console.warn('Tray init failed:', e.message);
-      tray = null;
-      return;
-    }
-  }
-  const desktopMode = fullDesktopModeRuntime.getStatus('tray-menu');
-  const menu = Menu.buildFromTemplate([
-    { label: `显示 ${APP_NAME}`, click: () => focusMainWindow() },
-    {
-      label: '退出完整桌面模式',
-      visible: desktopMode.enabled === true,
-      click: () => disableFullDesktopMode('tray-exit-desktop-mode').catch((error) => {
+function getTrayController() {
+  if (!trayController) {
+    trayController = createTrayController({
+      Tray,
+      Menu,
+      appName: APP_NAME,
+      iconPath: APP_ICON_ICO,
+      onShow: () => focusMainWindow(),
+      getDesktopModeEnabled: () => fullDesktopModeRuntime.getStatus('tray-menu').enabled === true,
+      onExitDesktopMode: () => disableFullDesktopMode('tray-exit-desktop-mode').catch((error) => {
         console.warn('[FullDesktopMode] tray exit failed:', error && error.message || error);
       }),
-    },
-    { type: 'separator' },
-    {
-      label: '退出',
-      click: () => {
+      onQuit: () => {
         appQuitting = true;
         app.quit();
       },
-    },
-  ]);
-  tray.setContextMenu(menu);
+      warn: (...args) => console.warn(...args),
+    });
+  }
+  return trayController;
+}
+
+function trayIsAvailable() {
+  return !!(trayController && trayController.isAvailable());
+}
+
+function createOrUpdateTray() {
+  return getTrayController().update();
 }
 
 function ensureFullDesktopModeRecoveryTray() {
-  if (tray) {
-    createOrUpdateTray();
-    return true;
-  }
-  createOrUpdateTray();
-  if (!tray) return false;
-  return true;
+  getTrayController().update();
+  return trayIsAvailable();
 }
 
 function releaseFullDesktopModeRecoveryTray() {
   if (fullDesktopModeRuntime.getStatus('release-recovery-tray').enabled === true) return false;
   if (closeBehavior === 'tray') {
-    if (tray) createOrUpdateTray();
+    if (trayIsAvailable()) createOrUpdateTray();
     return false;
   }
-  if (tray) {
-    try { tray.destroy(); } catch (_) {}
-    tray = null;
-  }
+  if (trayController) trayController.destroy();
   return true;
 }
 
@@ -3665,296 +3503,6 @@ async function clearQishuiMusicLoginSession() {
   return { ok: true };
 }
 
-function base64Url(buffer) {
-  return Buffer.from(buffer)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
-function createSpotifyPkcePair() {
-  const codeVerifier = base64Url(crypto.randomBytes(48));
-  const codeChallenge = base64Url(crypto.createHash('sha256').update(codeVerifier).digest());
-  return { codeVerifier, codeChallenge };
-}
-
-function spotifyOAuthRedirectMatches(targetUrl, redirectUri) {
-  try {
-    const target = new URL(String(targetUrl || ''));
-    const redirect = new URL(String(redirectUri || ''));
-    const normalizePath = (value) => (value || '/').replace(/\/+$/, '') || '/';
-    return target.protocol === redirect.protocol &&
-      target.host === redirect.host &&
-      normalizePath(target.pathname) === normalizePath(redirect.pathname);
-  } catch (e) {
-    return false;
-  }
-}
-
-function spotifyOAuthResultHtml(ok, message) {
-  const escaped = String(message || '').replace(/[<>&"]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[ch]));
-  return [
-    '<!doctype html><meta charset="utf-8">',
-    '<title>Spotify Login</title>',
-    '<style>',
-    'html,body{margin:0;height:100%;background:#101414;color:#f3fff6;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}',
-    'body{display:grid;place-items:center;}',
-    'main{max-width:520px;padding:30px;text-align:center;}',
-    '.brand{font-size:12px;letter-spacing:.24em;color:#1ed760;font-weight:900;margin-bottom:14px;}',
-    'h1{font-size:26px;margin:0 0 12px;font-weight:850;}',
-    'p{margin:0 auto;color:rgba(243,255,246,.72);line-height:1.7;font-size:14px;}',
-    '</style>',
-    '<main><div class="brand">SPOTIFY</div><h1>' + (ok ? '授权完成' : '授权失败') + '</h1><p>' + escaped + '</p></main>',
-  ].join('');
-}
-
-function startSpotifyOAuthCallbackServer(redirectUri, onCallback) {
-  return new Promise((resolve, reject) => {
-    let redirect = null;
-    try {
-      redirect = new URL(String(redirectUri || ''));
-    } catch (e) {
-      reject(Object.assign(new Error('SPOTIFY_REDIRECT_URI_INVALID'), { code: 'SPOTIFY_REDIRECT_URI_INVALID' }));
-      return;
-    }
-    const redirectHost = String(redirect.hostname || '').toLowerCase();
-    if (redirect.protocol !== 'http:' || (redirectHost !== '127.0.0.1' && redirectHost !== '::1' && redirectHost !== '[::1]')) {
-      reject(Object.assign(new Error('SPOTIFY_REDIRECT_URI_MUST_BE_HTTP_LOCALHOST'), { code: 'SPOTIFY_REDIRECT_URI_MUST_BE_HTTP_LOCALHOST' }));
-      return;
-    }
-    const port = Number(redirect.port || 80);
-    const host = redirect.hostname || '127.0.0.1';
-    const normalizePath = (value) => (value || '/').replace(/\/+$/, '') || '/';
-    const expectedPath = normalizePath(redirect.pathname);
-    const callbackServer = http.createServer(async (req, res) => {
-      let current = null;
-      try {
-        current = new URL(req.url || '/', redirect.origin);
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Bad callback URL');
-        return;
-      }
-      if (normalizePath(current.pathname) !== expectedPath) {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Not Found');
-        return;
-      }
-      try {
-        const result = await onCallback(current);
-        const ok = !!(result && result.ok);
-        res.writeHead(ok ? 200 : 500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(spotifyOAuthResultHtml(ok, (result && (result.message || result.error)) || (ok ? '可以回到 Mineradio。' : '请回到 Mineradio 重新尝试。')));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(spotifyOAuthResultHtml(false, e && e.message || 'SPOTIFY_OAUTH_CALLBACK_FAILED'));
-      }
-    });
-    callbackServer.once('error', (err) => {
-      const code = err && err.code === 'EADDRINUSE' ? 'SPOTIFY_CALLBACK_PORT_BUSY' : (err && err.code || 'SPOTIFY_CALLBACK_SERVER_FAILED');
-      reject(Object.assign(new Error(code), { code, cause: err }));
-    });
-    callbackServer.listen(port, host, () => {
-      resolve({
-        server: callbackServer,
-        close: () => {
-          try { callbackServer.close(); } catch (_) {}
-        },
-      });
-    });
-  });
-}
-
-async function verifySpotifyOAuthCallbackEndpoint() {
-  const config = getSpotifyOAuthConfig();
-  if (!config.configured) {
-    return {
-      ok: false,
-      provider: 'spotify',
-      error: 'SPOTIFY_OAUTH_NOT_CONFIGURED',
-      missing: config.missing || [],
-      redirectUri: config.redirectUri,
-      message: !config.clientIdValid
-        ? 'Client ID 格式不正确，请重新复制。'
-        : '请先保存 Spotify Client ID。',
-    };
-  }
-  let callbackServer = null;
-  try {
-    callbackServer = await startSpotifyOAuthCallbackServer(config.redirectUri, async () => ({
-      ok: false,
-      error: 'SPOTIFY_PREFLIGHT_ONLY',
-      message: '当前仅执行本机回调检测。',
-    }));
-    return {
-      ok: true,
-      provider: 'spotify',
-      redirectUri: config.redirectUri,
-      callbackReady: true,
-      message: '本机回调端口可用。请确认 Spotify Dashboard 中保存了完全相同的地址。',
-    };
-  } catch (error) {
-    const code = error && (error.code || error.message) || 'SPOTIFY_CALLBACK_SERVER_FAILED';
-    return {
-      ok: false,
-      provider: 'spotify',
-      error: code,
-      redirectUri: config.redirectUri,
-      callbackReady: false,
-      message: code === 'SPOTIFY_CALLBACK_PORT_BUSY'
-        ? '本机 43879 端口被其他程序占用，请关闭占用程序后重试。'
-        : '本机回调检测失败：' + code,
-    };
-  } finally {
-    if (callbackServer && typeof callbackServer.close === 'function') callbackServer.close();
-  }
-}
-
-async function openSpotifyMusicLoginWindow(owner) {
-  const config = getSpotifyOAuthConfig();
-  if (!config.configured) {
-    return {
-      ok: false,
-      provider: 'spotify',
-      error: 'SPOTIFY_OAUTH_NOT_CONFIGURED',
-      missing: config.missing,
-      redirectUri: config.redirectUri,
-      message: 'Spotify 登录需要先配置 SPOTIFY_CLIENT_ID，并在 Spotify Developer Dashboard 登记本地回调地址 ' + config.redirectUri,
-    };
-  }
-
-  const oauthState = crypto.randomBytes(16).toString('hex');
-  const pkce = createSpotifyPkcePair();
-  let authUrl = '';
-  try {
-    authUrl = buildSpotifyOAuthAuthorizeUrl({
-      state: oauthState,
-      codeChallenge: pkce.codeChallenge,
-      redirectUri: config.redirectUri,
-      scope: config.scope,
-    });
-  } catch (e) {
-    return {
-      ok: false,
-      provider: 'spotify',
-      error: e.code || e.message,
-      missing: e.missing || config.missing,
-      message: e.message || 'Spotify 授权地址生成失败',
-    };
-  }
-
-  return new Promise(async (resolve) => {
-    let settled = false;
-    let exchangeStarted = false;
-    let callbackServer = null;
-    let oauthTimeout = null;
-
-    const finish = (result) => {
-      if (settled) return result;
-      settled = true;
-      if (oauthTimeout) clearTimeout(oauthTimeout);
-      if (callbackServer && typeof callbackServer.close === 'function') callbackServer.close();
-      resolve(result);
-      return result;
-    };
-
-    const exchangeFromRedirect = async (targetUrl, event) => {
-      if (event && typeof event.preventDefault === 'function') event.preventDefault();
-      if (exchangeStarted) return { ok: true, provider: 'spotify', message: 'Spotify 授权正在处理。' };
-      exchangeStarted = true;
-      let parsed = null;
-      try {
-        parsed = targetUrl instanceof URL ? targetUrl : new URL(String(targetUrl || ''));
-      } catch (e) {
-        return finish({ ok: false, provider: 'spotify', error: 'SPOTIFY_OAUTH_BAD_REDIRECT', message: e.message });
-      }
-      const returnedState = parsed.searchParams.get('state') || '';
-      if (returnedState !== oauthState) {
-        return finish({ ok: false, provider: 'spotify', error: 'SPOTIFY_OAUTH_STATE_MISMATCH', message: 'Spotify 授权状态校验失败，请重新登录。' });
-      }
-      const oauthError = parsed.searchParams.get('error') || '';
-      if (oauthError) {
-        return finish({
-          ok: false,
-          provider: 'spotify',
-          error: oauthError,
-          message: parsed.searchParams.get('error_description') || 'Spotify 授权已取消或失败。',
-        });
-      }
-      const code = parsed.searchParams.get('code') || '';
-      if (!code) {
-        return finish({ ok: false, provider: 'spotify', error: 'SPOTIFY_OAUTH_CODE_MISSING', message: 'Spotify 回调没有返回 code。' });
-      }
-      try {
-        const info = await exchangeSpotifyOAuthCode({
-          code,
-          codeVerifier: pkce.codeVerifier,
-          redirectUri: config.redirectUri,
-        });
-        return finish(Object.assign({ ok: true, provider: 'spotify', opened: true }, info || {}, {
-          redirectUri: config.redirectUri,
-          message: 'Spotify 登录成功，会员状态、歌单和 Liked Songs 已可同步。',
-        }));
-      } catch (e) {
-        return finish({
-          ok: false,
-          provider: 'spotify',
-          error: e.code || e.message || 'SPOTIFY_OAUTH_EXCHANGE_FAILED',
-          message: e.message || 'Spotify token 换取失败。',
-          missing: e.missing || [],
-        });
-      }
-    };
-
-    try {
-      callbackServer = await startSpotifyOAuthCallbackServer(config.redirectUri, exchangeFromRedirect);
-    } catch (e) {
-      resolve({
-        ok: false,
-        provider: 'spotify',
-        error: e.code || e.message || 'SPOTIFY_CALLBACK_SERVER_FAILED',
-        redirectUri: config.redirectUri,
-        message: (e.code || e.message) === 'SPOTIFY_CALLBACK_PORT_BUSY'
-          ? 'Spotify 本地回调端口被占用，请关闭占用 43879 端口的程序后重试。'
-          : 'Spotify 本地回调端口启动失败：' + (e.message || e.code || ''),
-      });
-      return;
-    }
-
-    oauthTimeout = setTimeout(() => {
-      finish({
-        ok: false,
-        provider: 'spotify',
-        error: 'SPOTIFY_OAUTH_TIMEOUT',
-        redirectUri: config.redirectUri,
-        message: '三分钟内没有收到 Spotify 回调。请确认 Dashboard 回调地址完全一致、App 所有者为 Premium，且当前账号已加入 Users Management。',
-      });
-    }, SPOTIFY_OAUTH_TIMEOUT_MS);
-
-    try {
-      await shell.openExternal(authUrl);
-    } catch (error) {
-      finish({
-        ok: false,
-        provider: 'spotify',
-        error: error && error.message || 'SPOTIFY_AUTH_BROWSER_OPEN_FAILED',
-        redirectUri: config.redirectUri,
-        message: '无法打开系统浏览器，请检查 Windows 默认浏览器设置。',
-      });
-    }
-  });
-}
-
-async function clearSpotifyMusicLoginSession() {
-  const cookieSession = session.fromPartition(SPOTIFY_LOGIN_PARTITION);
-  await cookieSession.clearStorageData({
-    storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'],
-  });
-  clearSpotifyToken();
-  return { ok: true, provider: 'spotify' };
-}
-
 function loginEasterEggLockedResult() {
   return {
     ok: false,
@@ -3988,7 +3536,7 @@ async function clearAllProviderLoginState(reason) {
     clearQQMusicLoginSession(),
     clearKugouMusicLoginSession(),
     clearQishuiMusicLoginSession(),
-    clearSpotifyMusicLoginSession(),
+    spotifyLogin.clearSession(),
   ]);
   const failed = results.find((result) => result.status === 'rejected');
   if (failed) throw failed.reason;
@@ -4195,271 +3743,19 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
-function desktopLyricsDefaultBounds(payload = desktopLyricsState) {
-  const display = desktopLyricsUserBounds
-    ? screen.getDisplayMatching(desktopLyricsUserBounds)
-    : screen.getPrimaryDisplay();
-  const bounds = display.bounds;
-  const yRatio = clampNumber(payload.y, 0.08, 0.92, 0.76);
-  const width = Math.round(Math.min(Math.max(880, bounds.width * 0.72), bounds.width - 96));
-  const height = Math.round(Math.min(Math.max(340, bounds.height * 0.38), 560, bounds.height - 96));
-  return {
-    x: Math.round(bounds.x + (bounds.width - width) / 2),
-    y: Math.round(bounds.y + bounds.height * yRatio - height / 2),
-    width,
-    height,
-  };
-}
-
-function constrainDesktopLyricsBounds(bounds) {
-  const display = screen.getDisplayMatching(bounds);
-  const area = display.bounds;
-  const next = {
-    ...bounds,
-    width: Math.round(Math.min(Math.max(320, bounds.width), area.width)),
-    height: Math.round(Math.min(Math.max(180, bounds.height), area.height)),
-  };
-  const maxX = area.x + Math.max(0, area.width - next.width);
-  const maxY = area.y + Math.max(0, area.height - next.height);
-  next.x = Math.round(clampNumber(next.x, area.x, maxX, area.x));
-  next.y = Math.round(clampNumber(next.y, area.y, maxY, area.y));
-  return next;
-}
-
-function setDesktopLyricsBounds(bounds) {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return;
-  const nextBounds = constrainDesktopLyricsBounds(bounds);
-  const currentBounds = desktopLyricsWindow.getBounds();
-  if (
-    currentBounds.x === nextBounds.x
-    && currentBounds.y === nextBounds.y
-    && currentBounds.width === nextBounds.width
-    && currentBounds.height === nextBounds.height
-  ) {
-    return;
-  }
-  desktopLyricsProgrammaticMove = true;
-  desktopLyricsWindow.setBounds(nextBounds, false);
-  setTimeout(() => {
-    desktopLyricsProgrammaticMove = false;
-  }, 120);
-}
-
-function rememberDesktopLyricsBounds() {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed() || desktopLyricsProgrammaticMove) return;
-  desktopLyricsUserBounds = desktopLyricsWindow.getBounds();
-}
-
-function applyDesktopLyricsMouseBehavior() {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return;
-  const locked = desktopLyricsState.clickThrough !== false;
-  const shouldIgnore = locked || !desktopLyricsPointerCapture;
-  if (desktopLyricsMouseIgnored === shouldIgnore) return;
-  desktopLyricsMouseIgnored = shouldIgnore;
-  desktopLyricsWindow.setIgnoreMouseEvents(shouldIgnore, { forward: true });
-}
-
-function desktopLyricsHotBoundsOnScreen() {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return null;
-  const winBounds = desktopLyricsWindow.getBounds();
-  const rel = desktopLyricsHotBounds;
-  if (!rel) return winBounds;
-  return {
-    x: winBounds.x + rel.left,
-    y: winBounds.y + rel.top,
-    width: Math.max(1, rel.right - rel.left),
-    height: Math.max(1, rel.bottom - rel.top),
-  };
-}
-
-function pointInBounds(point, bounds) {
-  if (!point || !bounds) return false;
-  return point.x >= bounds.x
-    && point.x <= bounds.x + bounds.width
-    && point.y >= bounds.y
-    && point.y <= bounds.y + bounds.height;
-}
-
-function handleDesktopLyricsGlobalMiddleClick() {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return;
-  if (!desktopLyricsState.enabled) return;
-  const now = Date.now();
-  if (now - desktopLyricsLastMiddleAt < 260) return;
-  const point = screen.getCursorScreenPoint();
-  if (!pointInBounds(point, desktopLyricsHotBoundsOnScreen())) return;
-  desktopLyricsLastMiddleAt = now;
-  const nextLocked = desktopLyricsState.clickThrough === false;
-  desktopLyricsState = { ...desktopLyricsState, clickThrough: nextLocked };
-  desktopLyricsPointerCapture = !nextLocked;
-  applyDesktopLyricsMouseBehavior();
-  broadcastDesktopLyricsLockState();
-}
-
-function startDesktopLyricsMousePoller() {
-  if (process.platform !== 'win32' || desktopLyricsMousePoller) return;
-  const script = `
-$ErrorActionPreference = "SilentlyContinue"
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class MineradioMousePoll {
-  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
-}
-"@
-$prev = $false
-while ($true) {
-  $down = (([MineradioMousePoll]::GetAsyncKeyState(4) -band 0x8000) -ne 0)
-  if ($down -and -not $prev) {
-    [Console]::Out.WriteLine("MMB")
-    [Console]::Out.Flush()
-  }
-  $prev = $down
-  Start-Sleep -Milliseconds 24
-}
-`;
-  try {
-    desktopLyricsMousePoller = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    desktopLyricsMousePoller.stdout.on('data', (chunk) => {
-      desktopLyricsMousePollerBuffer += chunk.toString('utf8');
-      const lines = desktopLyricsMousePollerBuffer.split(/\r?\n/);
-      desktopLyricsMousePollerBuffer = lines.pop() || '';
-      lines.forEach((line) => {
-        if (line.trim() === 'MMB') handleDesktopLyricsGlobalMiddleClick();
-      });
-    });
-    desktopLyricsMousePoller.on('exit', () => {
-      desktopLyricsMousePoller = null;
-      desktopLyricsMousePollerBuffer = '';
-    });
-    desktopLyricsMousePoller.on('error', () => {
-      desktopLyricsMousePoller = null;
-      desktopLyricsMousePollerBuffer = '';
-    });
-  } catch (e) {
-    desktopLyricsMousePoller = null;
-    desktopLyricsMousePollerBuffer = '';
-  }
-}
-
-function stopDesktopLyricsMousePoller() {
-  if (!desktopLyricsMousePoller) return;
-  try {
-    desktopLyricsMousePoller.kill();
-  } catch (e) {}
-  desktopLyricsMousePoller = null;
-  desktopLyricsMousePollerBuffer = '';
-}
-
-function broadcastDesktopLyricsLockState() {
-  const locked = desktopLyricsState.clickThrough !== false;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('mineradio-desktop-lyrics-lock-state', { locked });
-  }
-  sendDesktopLyricsState();
-}
-
-function broadcastDesktopLyricsEnabledState(enabled) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('mineradio-desktop-lyrics-enabled-state', { enabled: !!enabled });
-  }
-}
-
-function positionDesktopLyricsWindow(payload = desktopLyricsState, options = {}) {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return;
-  const shouldUseManualBounds = desktopLyricsUserBounds && !options.force;
-  setDesktopLyricsBounds(shouldUseManualBounds ? desktopLyricsUserBounds : desktopLyricsDefaultBounds(payload));
-  if (typeof desktopLyricsWindow.setOpacity === 'function') {
-    desktopLyricsWindow.setOpacity(clampNumber(payload.opacity, 0.28, 1, 0.92));
-  }
-}
-
-function sendDesktopLyricsState() {
-  if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return;
-  desktopLyricsWindow.webContents.send('mineradio-desktop-lyrics-state', desktopLyricsState);
-}
-
-function createDesktopLyricsWindow(payload = {}) {
-  const previousY = desktopLyricsState.y;
-  const previousOpacity = desktopLyricsState.opacity;
-  desktopLyricsState = { ...desktopLyricsState, ...payload, enabled: true };
-  const hasY = Object.prototype.hasOwnProperty.call(payload || {}, 'y');
-  const nextY = clampNumber(desktopLyricsState.y, 0.08, 0.92, 0.76);
-  const yChanged = hasY && Number.isFinite(Number(previousY)) && Math.abs(nextY - clampNumber(previousY, 0.08, 0.92, 0.76)) > 0.001;
-  const opacityChanged = Object.prototype.hasOwnProperty.call(payload || {}, 'opacity')
-    && Math.abs(clampNumber(desktopLyricsState.opacity, 0.28, 1, 0.92) - clampNumber(previousOpacity, 0.28, 1, 0.92)) > 0.001;
-  if (yChanged) desktopLyricsUserBounds = null;
-  if (desktopLyricsWindow && !desktopLyricsWindow.isDestroyed()) {
-    if (yChanged) {
-      positionDesktopLyricsWindow(desktopLyricsState, { force: yChanged });
-    } else if (opacityChanged && typeof desktopLyricsWindow.setOpacity === 'function') {
-      desktopLyricsWindow.setOpacity(clampNumber(desktopLyricsState.opacity, 0.28, 1, 0.92));
-    }
-    applyDesktopLyricsMouseBehavior();
-    sendDesktopLyricsState();
-    return desktopLyricsWindow;
-  }
-
-  desktopLyricsWindow = new BrowserWindow({
-    width: 920,
-    height: 190,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    resizable: false,
-    movable: true,
-    focusable: false,
-    skipTaskbar: true,
-    show: false,
-    title: desktopText('desktop_lyrics_window_title', 'Mineradio 桌面歌词'),
-    webPreferences: {
-      preload: path.join(__dirname, 'overlay-preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      backgroundThrottling: false,
-    },
-  });
-  desktopLyricsWindow.__mineradioDesktopLyricsWindow = true;
-  try {
-    desktopLyricsWindow.setAlwaysOnTop(true, 'screen-saver');
-    desktopLyricsWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  } catch (e) {
-    console.warn('Desktop lyrics topmost setup skipped:', e.message);
-  }
-  startDesktopLyricsMousePoller();
-  applyDesktopLyricsMouseBehavior();
-  positionDesktopLyricsWindow(desktopLyricsState, { force: yChanged || !desktopLyricsUserBounds });
-  desktopLyricsWindow.once('ready-to-show', () => {
-    if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return;
-    desktopLyricsWindow.showInactive();
-    sendDesktopLyricsState();
-  });
-  desktopLyricsWindow.webContents.once('did-finish-load', sendDesktopLyricsState);
-  desktopLyricsWindow.on('closed', () => {
-    desktopLyricsWindow = null;
-    desktopLyricsMouseIgnored = null;
-  });
-  desktopLyricsWindow.on('moved', rememberDesktopLyricsBounds);
-  desktopLyricsWindow.loadURL(overlayUrl('desktop-lyrics.html')).catch((e) => console.warn('Desktop lyrics load failed:', e.message));
-  return desktopLyricsWindow;
-}
+const desktopLyricsController = createDesktopLyricsController({
+  BrowserWindow,
+  screen,
+  spawn,
+  overlayUrl,
+  preloadPath: path.join(__dirname, 'overlay-preload.js'),
+  title: desktopText('desktop_lyrics_window_title', 'Mineradio 桌面歌词'),
+  getMainWindow: () => mainWindow,
+  warn: (...args) => console.warn(...args),
+});
 
 function closeDesktopLyricsWindow() {
-  desktopLyricsState = { ...desktopLyricsState, enabled: false };
-  desktopLyricsPointerCapture = false;
-  desktopLyricsMouseIgnored = null;
-  desktopLyricsHotBounds = null;
-  stopDesktopLyricsMousePoller();
-  if (desktopLyricsWindow && !desktopLyricsWindow.isDestroyed()) {
-    sendDesktopLyricsState();
-    desktopLyricsWindow.close();
-  }
-  desktopLyricsWindow = null;
-  broadcastDesktopLyricsEnabledState(false);
+  desktopLyricsController.close();
 }
 
 function nativeWindowHandleDecimal(win) {
@@ -4937,26 +4233,26 @@ ipcMain.handle('mineradio-memory-get-snapshot', async () => {
       systemPurgeAvailable: systemMemory.SYSTEM_PURGE_AVAILABLE === true,
       systemPurgeEnabled: systemMemory.SYSTEM_PURGE_ENABLED === true,
       appMetrics: systemMemory.getMemorySnapshot().process,
-      auto: memoryAutoState,
-      lastTrimAt: lastAppMemoryTrimAt,
-      lastTrimReason: lastAppMemoryTrimReason,
+      auto: memoryManager.getState(),
+      lastTrimAt: memoryManager.getLastTrim().at,
+      lastTrimReason: memoryManager.getLastTrim().reason,
     };
   } catch (e) {
-    return { ok: false, error: e.message || 'MEMORY_SNAPSHOT_FAILED', snapshot: systemMemory.getMemorySnapshot(), auto: memoryAutoState };
+    return { ok: false, error: e.message || 'MEMORY_SNAPSHOT_FAILED', snapshot: systemMemory.getMemorySnapshot(), auto: memoryManager.getState() };
   }
 });
 
 ipcMain.handle('mineradio-app-memory-metrics', async () => collectAppMemoryMetrics());
 
 ipcMain.handle('mineradio-memory-configure-auto', async (_event, payload = {}) => {
-  memoryAutoState = normalizeMemoryAutoState(payload);
+  memoryManager.setState(normalizeMemoryAutoState(payload));
   syncMemoryAutoTimer();
-  if (memoryAutoState.enabled && payload.runNow === true && !isMainWindowForegroundVisible()) {
+  if (memoryManager.getState().enabled && payload.runNow === true && !isMainWindowForegroundVisible()) {
     await runMemoryAutoTick('configure');
   }
   return {
     ok: true,
-    state: memoryAutoState,
+    state: memoryManager.getState(),
     systemPurgeAvailable: systemMemory.SYSTEM_PURGE_AVAILABLE === true,
     systemPurgeEnabled: systemMemory.SYSTEM_PURGE_ENABLED === true,
   };
@@ -6107,11 +5403,11 @@ ipcMain.handle('qishui-music-clear-login', async () => {
 // channels suffice: start the flow, probe the loopback callback, and clear the stored token.
 ipcMain.handle('spotify-music-open-login', async (event) => {
   if (!loginEasterEggGate.isUnlocked()) return loginEasterEggLockedResult();
-  return openSpotifyMusicLoginWindow(getSenderWindow(event));
+  return spotifyLogin.openLogin(getSenderWindow(event));
 });
 
 ipcMain.handle('spotify-music-verify-setup', async () => {
-  return verifySpotifyOAuthCallbackEndpoint();
+  return spotifyLogin.verifyCallbackEndpoint();
 });
 
 ipcMain.handle('spotify-music-clear-login', async () => {
@@ -6149,10 +5445,10 @@ ipcMain.handle('mineradio-restart-app', async () => {
 ipcMain.handle('mineradio-desktop-lyrics-set-enabled', async (_event, enabled, payload) => {
   try {
     if (enabled) {
-      createDesktopLyricsWindow(payload || {});
-      broadcastDesktopLyricsEnabledState(true);
+      desktopLyricsController.create(payload || {});
+      desktopLyricsController.broadcastEnabled(true);
     } else {
-      closeDesktopLyricsWindow();
+      desktopLyricsController.close();
     }
     return { ok: true };
   } catch (e) {
@@ -6162,15 +5458,7 @@ ipcMain.handle('mineradio-desktop-lyrics-set-enabled', async (_event, enabled, p
 
 ipcMain.handle('mineradio-desktop-lyrics-update', async (_event, payload) => {
   try {
-    const nextState = { ...desktopLyricsState, ...(payload || {}) };
-    if (nextState.enabled) {
-      createDesktopLyricsWindow(payload || {});
-    } else if (desktopLyricsWindow && !desktopLyricsWindow.isDestroyed()) {
-      desktopLyricsState = nextState;
-      sendDesktopLyricsState();
-    } else {
-      desktopLyricsState = nextState;
-    }
+    desktopLyricsController.update(payload || {});
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'DESKTOP_LYRICS_UPDATE_FAILED' };
@@ -6179,8 +5467,7 @@ ipcMain.handle('mineradio-desktop-lyrics-update', async (_event, payload) => {
 
 ipcMain.handle('mineradio-desktop-lyrics-set-pointer-capture', async (_event, active) => {
   try {
-    desktopLyricsPointerCapture = !!active;
-    applyDesktopLyricsMouseBehavior();
+    desktopLyricsController.setPointerCapture(active);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'DESKTOP_LYRICS_POINTER_FAILED' };
@@ -6189,11 +5476,7 @@ ipcMain.handle('mineradio-desktop-lyrics-set-pointer-capture', async (_event, ac
 
 ipcMain.handle('mineradio-desktop-lyrics-set-hot-bounds', async (_event, bounds) => {
   try {
-    const left = clampNumber(bounds && bounds.left, -2000, 4000, 0);
-    const top = clampNumber(bounds && bounds.top, -2000, 4000, 0);
-    const right = clampNumber(bounds && bounds.right, left + 1, 6000, left + 1);
-    const bottom = clampNumber(bounds && bounds.bottom, top + 1, 6000, top + 1);
-    desktopLyricsHotBounds = { left, top, right, bottom };
+    desktopLyricsController.setHotBounds(bounds);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'DESKTOP_LYRICS_HOT_BOUNDS_FAILED' };
@@ -6202,11 +5485,7 @@ ipcMain.handle('mineradio-desktop-lyrics-set-hot-bounds', async (_event, bounds)
 
 ipcMain.handle('mineradio-desktop-lyrics-set-lock-state', async (_event, locked) => {
   try {
-    desktopLyricsState = { ...desktopLyricsState, clickThrough: !!locked };
-    if (desktopLyricsState.clickThrough !== false) desktopLyricsPointerCapture = false;
-    applyDesktopLyricsMouseBehavior();
-    broadcastDesktopLyricsLockState();
-    return { ok: true, locked: desktopLyricsState.clickThrough !== false };
+    return desktopLyricsController.setLockState(locked);
   } catch (e) {
     return { ok: false, error: e.message || 'DESKTOP_LYRICS_LOCK_FAILED' };
   }
@@ -6214,17 +5493,7 @@ ipcMain.handle('mineradio-desktop-lyrics-set-lock-state', async (_event, locked)
 
 ipcMain.handle('mineradio-desktop-lyrics-move-by', async (_event, dx, dy) => {
   try {
-    if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return { ok: false, error: 'NO_DESKTOP_LYRICS_WINDOW' };
-    if (desktopLyricsState.clickThrough !== false) return { ok: false, error: 'DESKTOP_LYRICS_LOCKED' };
-    const bounds = desktopLyricsWindow.getBounds();
-    const next = {
-      ...bounds,
-      x: Math.round(bounds.x + clampNumber(dx, -160, 160, 0)),
-      y: Math.round(bounds.y + clampNumber(dy, -160, 160, 0)),
-    };
-    desktopLyricsWindow.setBounds(next, false);
-    desktopLyricsUserBounds = desktopLyricsWindow.getBounds();
-    return { ok: true };
+    return desktopLyricsController.moveBy(dx, dy);
   } catch (e) {
     return { ok: false, error: e.message || 'DESKTOP_LYRICS_MOVE_FAILED' };
   }
@@ -6377,7 +5646,7 @@ ipcMain.handle('mineradio-wallpaper-update', async (event) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, enabled: false, error: 'WALLPAPER_UNTRUSTED_SENDER' };
   const status = {
     ...fullDesktopModeRuntime.getStatus('renderer-update'),
-    recoveryTrayAvailable: !!tray,
+    recoveryTrayAvailable: trayIsAvailable(),
     escapeShortcutRegistered: fullDesktopEscapeRegistered === true,
   };
   return { ok: true, enabled: status.enabled === true, interactive: status.interactive === true, status };
@@ -6389,7 +5658,7 @@ ipcMain.handle('mineradio-wallpaper-get-status', async (event) => {
     ok: true,
     status: {
       ...fullDesktopModeRuntime.getStatus('renderer-query'),
-      recoveryTrayAvailable: !!tray,
+      recoveryTrayAvailable: trayIsAvailable(),
       escapeShortcutRegistered: fullDesktopEscapeRegistered === true,
       backdrop: {
         kind: mainDesktopBackdropKind === 'mineradio' ? 'mineradio' : 'system-desktop',
@@ -7330,10 +6599,7 @@ async function createWindowOnce() {
       clearTimeout(mainWindowStateTimer);
       mainWindowStateTimer = null;
     }
-    if (appMemoryTrimTimer) {
-      clearTimeout(appMemoryTrimTimer);
-      appMemoryTrimTimer = null;
-    }
+    memoryManager.cancelPendingTrim();
     cancelWallpaperEngineHostBoundsRestart();
     fullDesktopModeHostVisibilityTransitionDepth = 0;
     wallpaperEngineHostVisibilitySuspended = false;
@@ -7455,105 +6721,6 @@ if (!gotSingleInstanceLock) {
 // If a previous session was killed (window destroyed, crash, power loss) that state survives on
 // Explorer and every desktop icon gets a black box. One check at startup restores it so the user
 // does not have to restart Explorer by hand.
-function buildDesktopIconRepairScript(iconsHiddenByUs) {
-  const script = [
-    "$ErrorActionPreference='SilentlyContinue'",
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'public static class MineradioIconLeakRepair {',
-    '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);',
-    '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
-    '  [DllImport("user32.dll", EntryPoint="GetWindowLongPtr")] public static extern IntPtr GetWindowLongPtr(IntPtr h, int i);',
-    '  [DllImport("user32.dll", EntryPoint="SetWindowLongPtr")] public static extern IntPtr SetWindowLongPtr(IntPtr h, int i, IntPtr v);',
-    '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint f, uint t, out IntPtr r);',
-    '  [DllImport("user32.dll")] public static extern bool InvalidateRect(IntPtr h, IntPtr r, bool e);',
-    '  [DllImport("user32.dll")] public static extern bool UpdateWindow(IntPtr h);',
-    '  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);',
-    '}',
-    '"@',
-    "$forceShow = '" + (iconsHiddenByUs ? '1' : '0') + "'",
-    "$progman=[MineradioIconLeakRepair]::FindWindow('Progman',$null)",
-    '$defview=[IntPtr]::Zero',
-    'if($progman -ne [IntPtr]::Zero){$defview=[MineradioIconLeakRepair]::FindWindowEx($progman,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}',
-    'if($defview -eq [IntPtr]::Zero){$w=[IntPtr]::Zero; do{$w=[MineradioIconLeakRepair]::FindWindowEx([IntPtr]::Zero,$w,"WorkerW",$null); if($w -ne [IntPtr]::Zero){$defview=[MineradioIconLeakRepair]::FindWindowEx($w,[IntPtr]::Zero,"SHELLDLL_DefView",$null)}}while($w -ne [IntPtr]::Zero -and $defview -eq [IntPtr]::Zero)}',
-    'if($defview -eq [IntPtr]::Zero){return}',
-    '$list=[MineradioIconLeakRepair]::FindWindowEx($defview,[IntPtr]::Zero,"SysListView32",$null)',
-    'if($list -eq [IntPtr]::Zero){return}',
-    '$ex=[MineradioIconLeakRepair]::GetWindowLongPtr($list,-20).ToInt64()',
-    '$layered=($ex -band 0x00080000) -ne 0',
-    '$transparent=($ex -band 0x20) -ne 0',
-    '$bg=[IntPtr]::Zero',
-    '[void][MineradioIconLeakRepair]::SendMessageTimeout($list,0x1000,[IntPtr]::Zero,[IntPtr]::Zero,2,2000,[ref]$bg)',
-    'if(-not $layered -and -not $transparent -and $bg.ToInt64() -ne 0 -and $forceShow -ne \'1\'){return}',
-    'if($layered -or $transparent){[void][MineradioIconLeakRepair]::SetWindowLongPtr($list,-20,[IntPtr](($ex -band (-bnot 0x00080000)) -band (-bnot 0x20)))}',
-    '$r=[IntPtr]::Zero',
-    '[void][MineradioIconLeakRepair]::SendMessageTimeout($list,0x1001,[IntPtr]::Zero,[IntPtr](-1),2,2000,[ref]$r)',
-    'if($forceShow -eq \'1\'){[void][MineradioIconLeakRepair]::ShowWindow($list,5)}',
-    '[void][MineradioIconLeakRepair]::InvalidateRect($list,[IntPtr]::Zero,$true)',
-    '[void][MineradioIconLeakRepair]::UpdateWindow($list)',
-    '"ICON_LAYER_REPAIRED layered=$layered transparent=$transparent shown=$forceShow"',
-  ].join('\n').replace(/\n/g, '\r\n');
-  return script;
-}
-
-function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function runDesktopIconRecoveryScript(script) {
-  return new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
-      windowsHide: true,
-      timeout: 8000,
-      env: { ...process.env, TEMP: NATIVE_HELPER_TEMP_PATH, TMP: NATIVE_HELPER_TEMP_PATH },
-    }, (error, stdout, stderr) => {
-      const line = String(stdout || '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
-      resolve({ error, line, stderr: String(stderr || '') });
-    });
-  });
-}
-
-async function restartExplorerForDesktopIcons() {
-  await new Promise((resolve) => {
-    execFile('taskkill', ['/f', '/im', 'explorer.exe'], { windowsHide: true, timeout: 5000 }, () => resolve());
-  });
-  await sleepMs(800);
-  try {
-    const child = spawn('explorer.exe', [], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-  } catch (_) { }
-  // Explorer needs a moment to recreate SHELLDLL_DefView / SysListView32.
-  await sleepMs(3200);
-}
-
-async function repairLeakedDesktopIconLayer() {
-  if (process.platform !== 'win32') return false;
-  const iconsHiddenMarker = path.join(NATIVE_HELPER_TEMP_PATH, 'mineradio-desktop-icons-hidden.flag');
-  let iconsHiddenByUs = false;
-  try { iconsHiddenByUs = fs.existsSync(iconsHiddenMarker); } catch (_) { }
-
-  let result = await runDesktopIconRecoveryScript(buildDesktopIconRepairScript(iconsHiddenByUs));
-  if (!result.line && iconsHiddenByUs) {
-    // The desktop view itself is gone (Explorer crashed or was killed while the icons were
-    // hidden), so ShowWindow cannot reach it. Rebuild the shell, then retry once.
-    console.warn('[FullDesktopMode] desktop icon host missing; restarting Explorer to restore icons');
-    await restartExplorerForDesktopIcons();
-    result = await runDesktopIconRecoveryScript(buildDesktopIconRepairScript(true));
-  }
-  if (result.error) console.warn('[FullDesktopMode] icon layer leak repair failed:', result.error.message || result.error);
-  if (result.line) console.log('[FullDesktopMode] icon layer leak repair:', result.line);
-  else if (iconsHiddenByUs) console.warn('[FullDesktopMode] icon layer leak repair produced no output:', result.stderr.slice(-200));
-
-  const restored = /ICON_LAYER_REPAIRED/.test(result.line);
-  if (!iconsHiddenByUs || restored) {
-    try { fs.unlinkSync(iconsHiddenMarker); } catch (_) { }
-  } else {
-    console.warn('[FullDesktopMode] desktop icons may still be hidden; keeping marker for the next start');
-  }
-  return restored;
-}
-
   app.whenReady().then(async () => {
     try {
       await localMusicLibrary.installProtocol(protocol);
@@ -7569,9 +6736,9 @@ async function repairLeakedDesktopIconLayer() {
     // 启动后延迟一点再修图标层残留：不阻塞启动，也避开 Explorer 刚登录时的重排。
     // Repair a leaked icon layer shortly after startup: does not block boot and dodges the
     // Explorer re-layout that happens right after login.
-    setTimeout(() => { repairLeakedDesktopIconLayer().catch(() => {}); }, 2500);
+    setTimeout(() => { desktopIcons.repairLeakedDesktopIconLayer(NATIVE_HELPER_TEMP_PATH).catch(() => {}); }, 2500);
     const handleDisplayLayoutChanged = (_event, _display, changedMetrics) => {
-      positionDesktopLyricsWindow();
+      desktopLyricsController.reposition();
       positionWallpaperWindow(Array.isArray(changedMetrics) ? 'display-metrics-changed' : 'display-layout-changed');
       if (fullDesktopModeRuntime.getStatus('display-layout-clamp').enabled !== true) {
         ensureMainWindowInsideDisplay(mainWindow);
@@ -7601,130 +6768,28 @@ async function repairLeakedDesktopIconLayer() {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('before-quit', (event) => {
-    appQuitting = true;
-    if (appQuitCleanupComplete) return;
-    event.preventDefault();
-    if (appQuitCleanupPromise) return;
-    const quitSteps = [
-      ['hide-visible-surfaces', () => hideVisibleSurfacesForQuit()],
-      ['clear-wallpaper-capture-grant', () => clearWallpaperEngineCaptureGrant()],
-      ['wallpaper-engine-library-dispose', () => wallpaperEngineLibrary.dispose()],
-      ['stop-memory-timer', () => stopMemoryAutoTimer()],
-      ['unregister-desktop-escape', () => unregisterFullDesktopEscapeShortcut()],
-      ['unregister-global-hotkeys', () => unregisterMineradioGlobalHotkeys()],
-      ['close-desktop-lyrics', () => closeDesktopLyricsWindow()],
-      ['dispose-qishui-auth', () => disposeQishuiAuthForQuit()],
-    ];
-    for (let i = 0; i < quitSteps.length; i += 1) {
-      const stepName = quitSteps[i][0];
-      try {
-        quitSteps[i][1]();
-      } catch (error) {
-        console.error('[Shutdown] cleanup step failed:', stepName, error && error.stack || error);
-      }
-    }
-    // 先收脚本宿主再关本地服务：宿主窗口是本地服务解析 URL 的消费者，反过来会留下悬挂请求。
-    // Tear down the script host before the local server: the host windows consume URL
-    // resolution from that server, and the reverse order leaves dangling requests.
-    if (customSourceManager) {
-      const manager = customSourceManager;
-      customSourceManager = null;
-      void manager.dispose();
-    }
-    if (localServer && typeof localServer.setCustomSourceResolver === 'function') {
-      localServer.setCustomSourceResolver(null);
-    }
-    if (localServer && localServer.close) localServer.close();
-    if (tray) {
-      try { tray.destroy(); } catch (e) {}
-      tray = null;
-    }
-    const quitMainWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-    const forceDestroyQuitMainWindow = (reason, detail) => {
-      console.error(`[FullDesktopMode] ${reason}; destroying the exact main window as the HWND cleanup fallback.`, detail || '');
-      if (!quitMainWindow || quitMainWindow.isDestroyed()) {
-        console.warn('[FullDesktopMode] main window HWND fallback was already unavailable.');
-        return;
-      }
-      try {
-        quitMainWindow.destroy();
-        console.warn('[FullDesktopMode] main window destroyed after incomplete desktop-mode cleanup.');
-      } catch (destroyError) {
-        console.error('[FullDesktopMode] main window HWND fallback destroy failed:', destroyError && destroyError.message || destroyError);
-      }
-    };
-    const disposeFullDesktopModeWithGuard = async () => {
-      let fullDesktopCleanupTimeout = null;
-      let timedOut = false;
-      const timeoutResult = new Promise((resolve) => {
-        fullDesktopCleanupTimeout = setTimeout(() => {
-          timedOut = true;
-          resolve({ ok: false, error: 'FULL_DESKTOP_DISPOSE_TIMEOUT' });
-        }, 7000);
-      });
-      let result = null;
-      try {
-        result = await Promise.race([
-          fullDesktopModeRuntime.dispose('app-before-quit'),
-          timeoutResult,
-        ]);
-      } catch (error) {
-        if (fullDesktopCleanupTimeout) clearTimeout(fullDesktopCleanupTimeout);
-        forceDestroyQuitMainWindow('dispose failed', error && error.message || error);
-        return;
-      }
-      if (fullDesktopCleanupTimeout) clearTimeout(fullDesktopCleanupTimeout);
-      if (!result || result.ok !== true) {
-        const detail = result && (result.error || result.status && result.status.lastError) || 'unknown';
-        forceDestroyQuitMainWindow(timedOut ? 'dispose timed out after 7000ms' : 'dispose incomplete', detail);
-      }
-    };
-    // fs.watch 的句柄是常驻的，不关进程退不出去，所以退出路径上必须先收掉。
-    // fs.watch handles are live and keep the process alive, so they must go before quitting.
-    try {
-      localMusicLibrary.stopWatching();
-    } catch (error) {
-      console.warn('[LocalLibrary] watcher stop failed:', error && error.message || error);
-    }
-    let cleanupTimeout = null;
-    const fullDesktopAndWallpaperEngineCleanup = (async () => {
-      // A passive desktop host must become a verified top-level HWND before
-      // its exact WE source/DWM companion is disposed. Running these in
-      // parallel can race the native detach acknowledgement.
-      await disposeFullDesktopModeWithGuard();
-      await wallpaperEngineRuntime.dispose().then((result) => {
-        if (result && result.ok === false) {
-          console.warn('[Wallpaper Engine] dispose incomplete:', result.reason || 'WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED');
-        }
-      }).catch((error) => {
-        console.warn('[Wallpaper Engine] dispose failed:', error && error.message || error);
-      });
-      // 常驻 PowerShell 只有在 WE 真正关完之后才能收：窗口控制宿主编译一次要 1.5s 上下，退出时
-      // 提前杀掉它会让正在跑的关窗请求退回一次性脚本，白等一轮。dispose 内部也会收，这里兜住
-      // dispose 超时或提前返回的情况。
-      wallpaperEngineRuntime.stopResidentHelpers('quit');
-    })();
-    const runtimeCleanup = fullDesktopAndWallpaperEngineCleanup;
-    const timeoutCleanup = new Promise((resolve) => {
-      cleanupTimeout = setTimeout(() => {
-        console.warn('[Shutdown] runtime cleanup exceeded 15000ms; continuing bounded application exit.');
-        resolve();
-      }, 15000);
-    });
-    appQuitCleanupPromise = Promise.race([runtimeCleanup, timeoutCleanup]).finally(() => {
-      if (cleanupTimeout) clearTimeout(cleanupTimeout);
-      appQuitCleanupComplete = true;
-      app.quit();
-      // 如果还有窗口拒绝关闭（例如汽水音乐安全验证窗口会 preventDefault），app.quit() 会永远停在
-      // before-quit 之后，进程就变成没有界面的僵尸。兜底硬退出，别让用户只能去任务管理器杀进程。
-      // If any window refuses to close, app.quit() never completes; force the exit as a fallback.
-      setTimeout(() => {
-        console.error('[Shutdown] quit still pending after cleanup; forcing application exit.');
-        app.exit(0);
-      }, 3000);
-    });
+  quitController = createQuitController({
+    app,
+    setQuitting: (value) => { appQuitting = value; },
+    getMainWindow: () => mainWindow,
+    hideVisibleSurfacesForQuit,
+    clearWallpaperEngineCaptureGrant,
+    wallpaperEngineLibrary,
+    stopMemoryAutoTimer,
+    unregisterFullDesktopEscapeShortcut,
+    unregisterMineradioGlobalHotkeys,
+    closeDesktopLyricsWindow,
+    disposeQishuiAuthForQuit,
+    getCustomSourceManager: () => customSourceManager,
+    clearCustomSourceManager: () => { customSourceManager = null; },
+    getLocalServer: () => localServer,
+    getTrayController: () => trayController,
+    fullDesktopModeRuntime,
+    localMusicLibrary,
+    wallpaperEngineRuntime,
   });
+  app.on('before-quit', (event) => quitController.beforeQuit(event));
+
 }
 
 // will-quit 兜底：万一 before-quit 因任何原因被绕过（硬退出、外部 kill、二次退出竞态），
@@ -7732,8 +6797,5 @@ async function repairLeakedDesktopIconLayer() {
 // will-quit belt-and-suspenders: if before-quit was ever bypassed, destroy the tray once
 // more so no ghost icon lingers. No-op when before-quit already nulled the tray.
 app.on('will-quit', () => {
-  if (tray) {
-    try { tray.destroy(); } catch (e) {}
-    tray = null;
-  }
+  if (quitController) quitController.willQuit();
 });

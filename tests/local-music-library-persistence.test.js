@@ -291,6 +291,7 @@ test('renderer and Electron wiring restore persistent tracks instead of blob-onl
   const appRoot = path.join(__dirname, '..');
   const main = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
   const localLibrary = fs.readFileSync(path.join(appRoot, 'desktop', 'local-music-library.js'), 'utf8');
+  const quit = fs.readFileSync(path.join(appRoot, 'desktop', 'quit.js'), 'utf8');
   const preload = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const upload = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '06-lyrics', '05-upload-dragdrop.js'), 'utf8');
   const startup = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '10-shell', '05-startup-bindings.js'), 'utf8');
@@ -312,7 +313,7 @@ test('renderer and Electron wiring restore persistent tracks instead of blob-onl
   // before quit. A missing leg leaks either notifications or file handles.
   assert.match(main, /onWatchChange: \(change\) =>/);
   assert.match(main, /localMusicLibrary\.startWatching\(\)/);
-  assert.match(main, /localMusicLibrary\.stopWatching\(\)/);
+  assert.match(quit, /localMusicLibrary\.stopWatching\(\)/);
   assert.match(main, /mineradio-local-library-changed/);
   assert.match(preload, /onLocalMusicLibraryChanged/);
   assert.match(upload, /bindPersistentLocalLibraryWatch/);

@@ -14,6 +14,7 @@ function spawnSync(command, args, options = {}) {
 }
 
 const appRoot = path.resolve(__dirname, '..');
+const QUIT_TEXT = fs.readFileSync(path.join(appRoot, 'desktop', 'quit.js'), 'utf8');
 const runElectron = process.argv.includes('--electron') || process.argv.includes('--full');
 const forbiddenPattern = /\b(fsr|dlss|native-fg|framegen)\b|frame generation/i;
 
@@ -755,6 +756,7 @@ function checkWallpaperEngineImportGuard() {
   const rendererText = fs.readFileSync(rendererPath, 'utf8');
   const controlGlassText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '05-playback', '15-control-glass-animations.js'), 'utf8');
   const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const quitText = fs.readFileSync(path.join(appRoot, 'desktop', 'quit.js'), 'utf8');
   const preloadText = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
   const libraryText = fs.readFileSync(path.join(appRoot, 'desktop', 'wallpaper-engine-library.js'), 'utf8');
   const runtimeText = fs.readFileSync(path.join(appRoot, 'desktop', 'wallpaper-engine-runtime.js'), 'utf8');
@@ -996,7 +998,7 @@ function checkWallpaperEngineImportGuard() {
     || !/payload\.all === true/.test(mainText) || !permissionAllowlist || /['"]media['"]/.test(permissionAllowlist[1])) {
     fail('Wallpaper Engine DWM readiness must stay bound to the exact source/session without broad media permission');
   }
-  if (!/appQuitCleanupPromise/.test(mainText) || !/event\.preventDefault\(\)/.test(mainText) || !/Promise\.race\(\[runtimeCleanup, timeoutCleanup\]\)/.test(mainText)) {
+  if (!QUIT_TEXT.includes('cleanupPromise') || !QUIT_TEXT.includes('event.preventDefault()') || !QUIT_TEXT.includes('Promise.race([runtimeCleanup, timeoutCleanup])')) {
     fail('Wallpaper Engine shutdown must wait briefly for the Mineradio-owned source window to close');
   }
   if (!/if \(stopAll\) \{[\s\S]{0,220}wallpaperEngineCaptureOperation \+= 1;[\s\S]{0,220}clearWallpaperEngineCaptureGrant\(\);[\s\S]{0,220}\}\s*const result = await wallpaperEngineRuntime\.stop/.test(mainText)) {
@@ -1249,7 +1251,7 @@ function checkDesktopWallpaperModeGuard() {
   if (/\b(?:GetCursorPos|SetCursorPos|SendInput|ShowCursor|SetSystemCursor|SetWindowsHookEx|WM_MOUSEMOVE)\b/.test(isolatedDesktopText)) {
     fail('full desktop mode must preserve the real Windows cursor and must not synthesize pointer input');
   }
-  const shutdownBlock = mainText.slice(mainText.indexOf("app.on('before-quit'"));
+  const shutdownBlock = QUIT_TEXT;
   if (!/fullDesktopModeRuntime\.dispose\('app-before-quit'\)/.test(shutdownBlock)
     || !/await disposeFullDesktopModeWithGuard\(\);[\s\S]{0,900}await wallpaperEngineRuntime\.dispose\(\)/.test(shutdownBlock)
     || !/WALLPAPER_ENGINE_WINDOW_CLOSE_FAILED/.test(shutdownBlock)
@@ -1832,7 +1834,7 @@ function checkPersistentCacheStorageGuard() {
   // The native helper script fallback must stay inside the app folder as well; it may not drop
   // back to %LOCALAPPDATA% or os.tmpdir().
   const portablePathsText = fs.readFileSync(path.join(appRoot, 'desktop', 'portable-paths.js'), 'utf8');
-  const nativeTempCallers = ['app-memory.js', 'system-memory.js', 'wallpaper-engine-runtime.js', 'desktop-native-icon-layer-runtime.js']
+  const nativeTempCallers = ['system-memory.js', 'wallpaper-engine-runtime.js', 'desktop-native-icon-layer-runtime.js']
     .map((file) => fs.readFileSync(path.join(appRoot, 'desktop', file), 'utf8'));
   if (!/APP_NATIVE_TEMP_PATH = path\.join\(APP_ROOT_PATH, 'userdata', 'cache', 'native-helper-temp'\)/.test(portablePathsText)
     || !/function resolveNativeTempDir\(\)/.test(portablePathsText)
@@ -2394,6 +2396,7 @@ async function checkSpotifyProviderGuard() {
   };
   assertSpotifyImports('server/server.js', serverText, /const\s*\{([\s\S]*?)\}\s*=\s*require\('\.\/spotify-api'\);/);
   assertSpotifyImports('desktop/main.js', desktopMainText, /const\s*\{([\s\S]*?)\}\s*=\s*require\('\.\.\/server\/spotify-api'\);/);
+  const desktopSpotifyText = fs.readFileSync(path.join(appRoot, 'desktop', 'spotify-login.js'), 'utf8');
   if (!/require\('\.\/spotify-api'\)/.test(serverText) || !/\/api\/spotify\/status/.test(serverText) || !/\/api\/spotify\/config/.test(serverText) || !/\/api\/spotify\/setup\/diagnostics/.test(serverText) || !/\/api\/spotify\/search/.test(serverText) || !/\/api\/spotify\/song\/url/.test(serverText) || !/\/api\/spotify\/lyric/.test(serverText)) {
     fail('server.js must route Spotify status/config/setup diagnostics/search/song-url/lyric through the backend bridge');
   }
@@ -2504,7 +2507,8 @@ async function checkSpotifyProviderGuard() {
   if (!/\/api\/spotify\/logout/.test(serverText) || !/\/api\/spotify\/user\/playlists/.test(serverText) || !/\/api\/spotify\/playlist\/tracks/.test(serverText)) {
     fail('server.js must route Spotify logout, user playlists, and playlist track detail endpoints');
   }
-  if (!/SPOTIFY_LOGIN_PARTITION/.test(desktopMainText) || !/openSpotifyMusicLoginWindow/.test(desktopMainText) || !/verifySpotifyOAuthCallbackEndpoint/.test(desktopMainText) || !/spotify-music-open-login/.test(desktopMainText) || !/spotify-music-verify-setup/.test(desktopMainText) || !/shell\.openExternal\(authUrl\)/.test(desktopMainText) || !/SPOTIFY_OAUTH_TIMEOUT_MS/.test(desktopMainText) || !/SPOTIFY_TOKEN_FILE/.test(desktopMainText) || !/127\.0\.0\.1:43879\/callback/.test(spotifyText + desktopMainText)) {
+  const desktopSpotify = desktopMainText + '\n' + desktopSpotifyText;
+  if (!/SPOTIFY_LOGIN_PARTITION/.test(desktopSpotify) || !/openSpotifyMusicLoginWindow/.test(desktopSpotify) || !/verifySpotifyOAuthCallbackEndpoint/.test(desktopSpotify) || !/spotify-music-open-login/.test(desktopMainText) || !/spotify-music-verify-setup/.test(desktopMainText) || !desktopSpotify.includes('shell.openExternal(authUrl)') || !/SPOTIFY_OAUTH_TIMEOUT_MS/.test(desktopSpotify) || !/SPOTIFY_TOKEN_FILE/.test(desktopMainText) || !(spotifyText + desktopSpotify).includes('127.0.0.1:43879/callback')) {
     fail('desktop main must provide system-browser PKCE, a verified loopback callback, bounded timeout, and userData token storage');
   }
   if (!/openSpotifyMusicLogin/.test(desktopPreloadText) || !/verifySpotifyMusicSetup/.test(desktopPreloadText) || !/clearSpotifyMusicLogin/.test(desktopPreloadText)) {
@@ -5319,6 +5323,7 @@ function checkPlaylistMultiselectGuard() {
   const stripComments = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const libraryCode = stripComments(readText('desktop/built-in-playlist-library.js'));
   const mainCode = stripComments(readText('desktop/main.js'));
+  const desktopSpotifyText = fs.readFileSync(path.join(appRoot, 'desktop', 'spotify-login.js'), 'utf8');
   const preloadCode = stripComments(readText('desktop/preload.js'));
   const loaderCode = stripComments(readText('public/js/index-loader.js'));
   const rendererCode = stripComments(readText('public/js/modules/06-lyrics/00-built-in-playlists.js'));

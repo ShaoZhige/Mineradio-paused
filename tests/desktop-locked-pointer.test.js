@@ -14,6 +14,7 @@ const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8')
 
 const css = read('public/css/index.css');
 const main = read('desktop/main.js');
+const icons = read('desktop/desktop-icons.js');
 const preload = read('desktop/preload.js');
 const nativeLayer = read('desktop/desktop-native-icon-layer-runtime.js');
 const runtime = read('desktop/full-desktop-mode-runtime.js');
@@ -57,9 +58,9 @@ assert.doesNotMatch(pollBody, /ensureIconLayerOrder/);
 // 上次会话被强杀时会把图标 ListView 留在 layered 状态；启动时要检查并还原，否则图标整片黑底。
 // A killed session can leave the icon ListView layered; startup must repair it or every icon is
 // drawn on black.
-assert.match(main, /function repairLeakedDesktopIconLayer\(\)/);
-assert.match(main, /WS_EX_LAYERED|0x00080000/);
-assert.match(main, /setTimeout\(\(\) => \{ repairLeakedDesktopIconLayer\(\)\.catch/);
+assert.match(icons, /function repairLeakedDesktopIconLayer\(tempDir\)/);
+assert.match(icons, /WS_EX_LAYERED|0x00080000/);
+assert.match(main, /setTimeout\(\(\) => \{ desktopIcons\.repairLeakedDesktopIconLayer\(NATIVE_HELPER_TEMP_PATH\)\.catch/);
 // 状态广播会同步轮询
 assert.match(main, /syncDesktopControllerPointerPoll\(\);\s*\n\}/, 'status broadcasts must keep the poll in sync');
 

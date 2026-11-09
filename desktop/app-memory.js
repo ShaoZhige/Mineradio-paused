@@ -1,100 +1,227 @@
 'use strict';
 
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
-const { execFile } = require('child_process');
-const portablePaths = require('./portable-paths');
+// 应用内存口径与后台清理。从 desktop/main.js 抽出：main.js 只保留
+// collectAppTrimPids（依赖主窗口）与 IPC 转接。
+//
+// App-level memory and background trimming. Extracted from desktop/main.js so the
+// main process keeps only the window-dependent PID collection and IPC wiring.
 
-const isWin = process.platform === 'win32';
+function createAppMemoryManager({
+  app,
+  systemMemory,
+  getMainWindow,
+  collectAppTrimPids,
+  platform = process.platform,
+  now = Date.now,
+  warn = console.warn,
+} = {}) {
+  let trimTimer = null;
+  let autoTimer = null;
+  let trimInFlight = false;
+  let lastTrimAt = 0;
+  let lastTrimReason = '';
+  let state = {
+    appTrimEnabled: true,
+    backgroundTrimEnabled: true,
+    enabled: false,
+    mask: systemMemory.MEMORY_MASK_DEFAULT,
+    intervalMin: 30,
+    thresholdPercent: 78,
+    autoElevate: false,
+    lastRunAt: 0,
+    lastReason: '',
+    lastResult: null,
+    lastError: '',
+  };
 
-function getMemorySnapshot() {
-  const total = os.totalmem();
-  const free = os.freemem();
-  const used = total > free ? total - free : 0;
+  function getState() {
+    return state;
+  }
+
+  function setState(next) {
+    state = next;
+    return state;
+  }
+
+  function isMainWindowForegroundVisible() {
+    try {
+      const win = getMainWindow && getMainWindow();
+      return !!(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized());
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function metrics() {
+    const totals = { browserMB: 0, rendererMB: 0, gpuMB: 0, utilityMB: 0, otherMB: 0, totalMB: 0 };
+    let rows = [];
+    try {
+      rows = app.getAppMetrics() || [];
+    } catch (e) {
+      rows = [];
+    }
+    const processes = [];
+    rows.forEach((row) => {
+      const memory = (row && row.memory) || {};
+      const workingSetKB = Number(memory.workingSetSize) || 0;
+      const mb = Math.round(workingSetKB / 1024);
+      const type = String((row && row.type) || '').toLowerCase();
+      if (type === 'tab' || type === 'renderer' || type === 'webview') totals.rendererMB += mb;
+      else if (type === 'gpu') totals.gpuMB += mb;
+      else if (type === 'utility') totals.utilityMB += mb;
+      else if (type === 'browser') totals.browserMB += mb;
+      else totals.otherMB += mb;
+      totals.totalMB += mb;
+      processes.push({
+        pid: Number(row && row.pid) || 0,
+        type: type || 'unknown',
+        name: String((row && row.name) || ''),
+        workingSetMB: mb,
+        peakWorkingSetMB: Math.round((Number(memory.peakWorkingSetSize) || 0) / 1024),
+      });
+    });
+    return Object.assign({ ok: true, sampledAt: now(), processCount: processes.length, processes }, totals);
+  }
+
+  async function trimNow(reason) {
+    if (trimInFlight) {
+      return { ok: false, skipped: true, reason: 'in-flight' };
+    }
+    const trimReason = String(reason || 'manual');
+    if (isMainWindowForegroundVisible() && trimReason !== 'manual-force') {
+      return { ok: false, skipped: true, reason: 'foreground-visible' };
+    }
+    trimInFlight = true;
+    lastTrimAt = now();
+    lastTrimReason = trimReason;
+    try {
+      const before = systemMemory.getMemorySnapshot();
+      const trim = await systemMemory.trimAppWorkingSets(collectAppTrimPids());
+      const after = systemMemory.getMemorySnapshot();
+      return { ok: true, reason: lastTrimReason, before, trim, after };
+    } catch (e) {
+      return {
+        ok: false,
+        reason: lastTrimReason,
+        error: e.message || 'APP_MEMORY_TRIM_FAILED',
+        snapshot: systemMemory.getMemorySnapshot(),
+      };
+    } finally {
+      trimInFlight = false;
+    }
+  }
+
+  function scheduleTrim(reason, delay = 9000) {
+    if (platform !== 'win32') return;
+    if (state.appTrimEnabled === false || state.backgroundTrimEnabled === false) return;
+    if (now() - lastTrimAt < 120000) return;
+    if (trimTimer) clearTimeout(trimTimer);
+    trimTimer = setTimeout(() => {
+      trimTimer = null;
+      const win = getMainWindow && getMainWindow();
+      if (!win || win.isDestroyed()) return;
+      if (!win.isMinimized() && win.isVisible()) return;
+      trimNow(reason).catch(() => {});
+    }, Math.max(4000, delay));
+  }
+
+  function cancelPendingTrim() {
+    if (trimTimer) {
+      clearTimeout(trimTimer);
+      trimTimer = null;
+    }
+  }
+
+  function normalizeState(payload = {}) {
+    const systemEnabled = systemMemory.SYSTEM_PURGE_AVAILABLE === true && systemMemory.SYSTEM_PURGE_ENABLED === true;
+    return {
+      appTrimEnabled: payload.appTrimEnabled !== false,
+      backgroundTrimEnabled: payload.backgroundTrimEnabled !== false,
+      enabled: systemEnabled && payload.enabled === true,
+      mask: systemMemory.normalizeMask(payload.mask != null ? payload.mask : state.mask),
+      intervalMin: Math.max(5, Math.min(180, Math.round(Number(payload.intervalMin != null ? payload.intervalMin : state.intervalMin) || 30))),
+      thresholdPercent: Math.max(0, Math.min(100, Math.round(Number(payload.thresholdPercent != null ? payload.thresholdPercent : state.thresholdPercent) || 0))),
+      autoElevate: payload.autoElevate === true,
+      lastRunAt: state.lastRunAt || 0,
+      lastReason: state.lastReason || '',
+      lastResult: state.lastResult || null,
+      lastError: '',
+    };
+  }
+
+  function stopAutoTimer() {
+    if (autoTimer) {
+      clearInterval(autoTimer);
+      autoTimer = null;
+    }
+  }
+
+  function syncAutoTimer() {
+    stopAutoTimer();
+    if (!state.enabled) return;
+    autoTimer = setInterval(() => {
+      runAutoTick('timer').catch(() => {});
+    }, Math.max(5, state.intervalMin) * 60000);
+  }
+
+  async function runAutoTick(reason = 'auto') {
+    if (!state.enabled) {
+      return { ok: false, skipped: true, reason: 'disabled', state };
+    }
+    if (isMainWindowForegroundVisible()) {
+      state.lastRunAt = now();
+      state.lastReason = reason + ':foreground-visible';
+      state.lastResult = { ok: true, skipped: true, reason: 'foreground-visible' };
+      return { ok: true, skipped: true, reason: 'foreground-visible', state };
+    }
+    const snapshot = await systemMemory.getMemorySnapshotExtended();
+    const threshold = Number(state.thresholdPercent) || 0;
+    if (threshold > 0 && snapshot && snapshot.usedPercent < threshold) {
+      state.lastRunAt = now();
+      state.lastReason = reason + ':below-threshold';
+      state.lastResult = { ok: true, skipped: true, usedPercent: snapshot.usedPercent, thresholdPercent: threshold };
+      return { ok: true, skipped: true, snapshot, state };
+    }
+    state.lastRunAt = now();
+    state.lastReason = reason;
+    try {
+      const result = await systemMemory.purgeSystemMemorySmart(state.mask, {
+        autoElevate: state.autoElevate === true,
+      });
+      state.lastResult = result;
+      state.lastError = '';
+      return { ok: true, result, snapshot: await systemMemory.getMemorySnapshotExtended(), state };
+    } catch (e) {
+      state.lastError = e.message || 'MEMORY_AUTO_FAILED';
+      state.lastResult = { ok: false, error: state.lastError };
+      return { ok: false, error: state.lastError, snapshot: systemMemory.getMemorySnapshot(), state };
+    }
+  }
+
+  function getLastTrim() {
+    return { at: lastTrimAt, reason: lastTrimReason };
+  }
+
+  function destroy() {
+    cancelPendingTrim();
+    stopAutoTimer();
+  }
+
   return {
-    platform: process.platform,
-    totalBytes: total,
-    freeBytes: free,
-    usedBytes: used,
-    totalMB: Math.round(total / 1048576),
-    freeMB: Math.round(free / 1048576),
-    usedMB: Math.round(used / 1048576),
-    usedPercent: total > 0 ? Math.round(used * 100 / total) : 0,
-    process: {
-      rssMB: Math.round(process.memoryUsage().rss / 1048576),
-      heapMB: Math.round(process.memoryUsage().heapUsed / 1048576),
-    },
+    metrics,
+    getState,
+    setState,
+    normalizeState,
+    trimNow,
+    scheduleTrim,
+    cancelPendingTrim,
+    stopAutoTimer,
+    syncAutoTimer,
+    runAutoTick,
+    getLastTrim,
+    isMainWindowForegroundVisible,
+    destroy,
   };
 }
 
-function tempScriptPath() {
-  // 临时脚本优先落在软件目录内的 native 临时区，避免往 %TEMP% 散落 helper 脚本；
-  // 环境变量丢失时兜底同样走软件目录，不会退回 os.tmpdir()。
-  // Prefer the app's own native temp folder so helper scripts never scatter into %TEMP%, and
-  // keep the fallback inside the app folder too instead of dropping back to os.tmpdir().
-  const root = portablePaths.resolveNativeTempDir();
-  try { fs.mkdirSync(root, { recursive: true }); } catch (_) {}
-  return path.join(root, 'mineradio-app-trim-' + process.pid + '-' + Date.now() + '.ps1');
-}
-
-function safeUnlink(filePath) {
-  try { if (filePath) fs.unlinkSync(filePath); } catch (e) {}
-}
-
-function trimAppWorkingSets(pids) {
-  if (!isWin) return Promise.resolve({ ok: true, unsupported: true, trimmed: 0, scope: 'app' });
-  const list = Array.isArray(pids)
-    ? pids.filter((pid) => Number.isFinite(Number(pid)) && Number(pid) > 0).map((pid) => Math.round(Number(pid)))
-    : [];
-  const pidLiteral = (list.length ? Array.from(new Set(list)) : [process.pid]).join(',');
-  const scriptPath = tempScriptPath();
-  const script = [
-    'Add-Type @\'',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'public static class MineradioTrim {',
-    '  [DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr h);',
-    '  [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);',
-    '  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);',
-    '  public static int TrimMany(int[] pids) {',
-    '    int n = 0;',
-    '    foreach (int pid in pids) {',
-    '      IntPtr h = OpenProcess(0x0500, false, pid);',
-    '      if (h == IntPtr.Zero) continue;',
-    '      try { if (EmptyWorkingSet(h)) n++; } finally { CloseHandle(h); }',
-    '    }',
-    '    return n;',
-    '  }',
-    '}',
-    '\'@',
-    '$pids = @(' + pidLiteral + ')',
-    '$trimmed = [MineradioTrim]::TrimMany([int[]]$pids)',
-    'Write-Output (@{ ok=$true; trimmed=$trimmed; scope="app"; pids=$pids } | ConvertTo-Json -Compress)',
-  ].join('\r\n');
-  fs.writeFileSync(scriptPath, script, 'utf8');
-  return new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
-      windowsHide: true,
-      timeout: 15000,
-      maxBuffer: 1024 * 1024,
-    }, (error, stdout) => {
-      safeUnlink(scriptPath);
-      if (error) {
-        resolve({ ok: false, error: error.message || 'APP_MEMORY_TRIM_FAILED', scope: 'app' });
-        return;
-      }
-      try {
-        const text = String(stdout || '').replace(/^\uFEFF/, '').trim();
-        resolve(text ? JSON.parse(text) : { ok: true, trimmed: 0, scope: 'app' });
-      } catch (parseError) {
-        resolve({ ok: false, error: parseError.message || 'APP_MEMORY_TRIM_PARSE_FAILED', scope: 'app' });
-      }
-    });
-  });
-}
-
-module.exports = {
-  getMemorySnapshot,
-  trimAppWorkingSets,
-};
+module.exports = { createAppMemoryManager };

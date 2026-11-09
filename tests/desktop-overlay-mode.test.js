@@ -13,6 +13,7 @@ const appRoot = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(appRoot, relative), 'utf8');
 
 const main = read('desktop/main.js');
+const icons = read('desktop/desktop-icons.js');
 const preload = read('desktop/preload.js');
 const runtime = read('desktop/full-desktop-mode-runtime.js');
 const shell = read('public/js/modules/10-shell/04-desktop-overlay-fullscreen.js');
@@ -47,6 +48,6 @@ assert.match(runtime, /async disableOverlayInternal\(reason = 'disabled', preser
 assert.match(runtime, /this\.attachment\.kind === 'icon-host' \|\| this\.attachment\.kind === 'overlay'/);
 
 // 5) 启动时的图标层残留修复仍然保留，负责清理旧版本可能留下的黑底状态。
-assert.match(main, /function repairLeakedDesktopIconLayer\(\)/);
+assert.match(icons, /function repairLeakedDesktopIconLayer\(tempDir\)/);
 
 console.log('OK desktop-overlay-mode');

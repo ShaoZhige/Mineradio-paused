@@ -69,7 +69,7 @@ test('app-owned data stays inside the application folder', () => {
   const portablePathsText = fs.readFileSync(path.join(appRoot, 'desktop', 'portable-paths.js'), 'utf8');
   assert.match(portablePathsText, /APP_NATIVE_TEMP_PATH = path\.join\(APP_ROOT_PATH, 'userdata', 'cache', 'native-helper-temp'\)/);
   assert.match(portablePathsText, /\[PortableData\] app native temp folder is not writable/);
-  for (const file of ['app-memory.js', 'system-memory.js', 'wallpaper-engine-runtime.js', 'desktop-native-icon-layer-runtime.js']) {
+  for (const file of ['system-memory.js', 'wallpaper-engine-runtime.js', 'desktop-native-icon-layer-runtime.js']) {
     const text = fs.readFileSync(path.join(appRoot, 'desktop', file), 'utf8');
     assert.match(text, /portablePaths\.resolveNativeTempDir\(\)/, `${file} must use the app-folder native temp fallback`);
     assert.doesNotMatch(text, /'Mineradio',\s*'native-helper-temp'/, `${file} must not rebuild a user-profile helper temp path`);

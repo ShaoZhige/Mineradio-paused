@@ -17,6 +17,7 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const MAIN = fs.readFileSync(path.join(ROOT, 'desktop', 'main.js'), 'utf8');
+const QUIT = fs.readFileSync(path.join(ROOT, 'desktop', 'quit.js'), 'utf8');
 const AUTH = fs.readFileSync(path.join(ROOT, 'server', 'qishui-auth-v6.js'), 'utf8');
 const OVERLAY = fs.readFileSync(
   path.join(ROOT, 'public', 'js', 'modules', '10-shell', '04-desktop-overlay-fullscreen.js'),
@@ -31,7 +32,7 @@ function slice(text, startMarker, endMarker) {
 }
 
 test('before-quit 会销毁汽水音乐验证窗口，并在退不掉时强制退出', () => {
-  const quit = slice(MAIN, "app.on('before-quit'", "app.on('will-quit'");
+  const quit = slice(QUIT, 'function beforeQuit(event) {', 'function willQuit()');
   assert.match(quit, /'dispose-qishui-auth',\s*\(\)\s*=>\s*disposeQishuiAuthForQuit\(\)/);
   assert.match(quit, /app\.exit\(0\)/);
   assert.match(quit, /quit still pending/);

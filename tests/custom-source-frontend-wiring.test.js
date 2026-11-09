@@ -211,10 +211,11 @@ test('the renderer bridge and the main-process channels line up', () => {
 
 test('the manager is restored on startup and released on quit', () => {
   const main = read(path.join(ROOT, 'desktop/main.js'));
+  const quit = read(path.join(ROOT, 'desktop/quit.js'));
   assert.ok(main.includes('await initializeCustomSourceManager();'), '启动时没有恢复音源');
   assert.ok(main.includes('localServer.setCustomSourceResolver('), '没有注入本地解析器');
-  assert.ok(main.includes('manager.dispose();'), '退出时没有释放脚本宿主');
-  assert.ok(main.includes('setCustomSourceResolver(null)'), '退出时没有摘掉解析器');
+  assert.ok(quit.includes('manager.dispose();'), '退出时没有释放脚本宿主');
+  assert.ok(quit.includes('setCustomSourceResolver(null)'), '退出时没有摘掉解析器');
   // 音源初始化失败不能拦住启动。
   assert.ok(main.includes("[CustomSource] initialization skipped"), '音源初始化失败没有降级处理');
 });
