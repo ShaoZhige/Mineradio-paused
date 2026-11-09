@@ -8,6 +8,7 @@ const { execFile, spawn } = require('child_process');
 const systemMemory = require('./system-memory');
 const fxAutosave = require('./fx-autosave');
 const windowBehavior = require('./window-behavior');
+const { registerWindowControlIpc } = require('./ipc-window-controls');
 const { createTrayController } = require('./tray');
 const { createCacheSettingsManager } = require('./cache-settings');
 const { createAppMemoryManager } = require('./app-memory');
@@ -3289,61 +3290,18 @@ ipcMain.handle('mineradio-installer-language', () => {
   return installerLanguage;
 });
 
-ipcMain.handle('desktop-window-minimize', async (event) => {
-  const win = getSenderWindow(event);
-  if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-minimize').enabled === true) {
-    return setFullDesktopModeInteractive(false, 'window-minimize');
-  }
-  if (win === mainWindow) armMainWindowMinimizeIntent(win, 'renderer-window-control');
-  win?.minimize();
-  return getWindowState(win);
-});
-
-ipcMain.handle('desktop-window-restore', async (event) => {
-  const win = getSenderWindow(event);
-  if (!win || win.isDestroyed()) return null;
-  if (win === mainWindow) clearMainWindowMinimizeIntent(win);
-  if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-restore').enabled === true) {
-    await setFullDesktopModeInteractive(true, 'window-restore');
-    return getWindowState(win);
-  }
-  if (win.isMinimized()) win.restore();
-  if (!win.isVisible()) win.show();
-  try { win.moveTop(); } catch (_) { }
-  try { win.focus(); } catch (_) { }
-  sendWindowState(win);
-  return getWindowState(win);
-});
-
-ipcMain.handle('desktop-window-toggle-maximize', (event) => {
-  const win = getSenderWindow(event);
-  if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-toggle-maximize').enabled === true) {
-    return getWindowState(win);
-  }
-  toggleFullscreen(win);
-  return getWindowState(win);
-});
-
-ipcMain.handle('desktop-window-toggle-fullscreen', (event) => {
-  const win = getSenderWindow(event);
-  if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-toggle-fullscreen').enabled === true) {
-    return getWindowState(win);
-  }
-  toggleFullscreen(win);
-  return getWindowState(win);
-});
-
-ipcMain.handle('desktop-window-exit-fullscreen-windowed', (event) => {
-  const win = getSenderWindow(event);
-  if (win === mainWindow && fullDesktopModeRuntime.getStatus('window-exit-fullscreen').enabled === true) {
-    return getWindowState(win);
-  }
-  exitFullscreenToWindow(win);
-  return getWindowState(win);
-});
-
-ipcMain.handle('desktop-window-get-state', (event) => {
-  return getWindowState(getSenderWindow(event));
+registerWindowControlIpc({
+  ipcMain,
+  getMainWindow: () => mainWindow,
+  getSenderWindow,
+  fullDesktopModeRuntime,
+  setFullDesktopModeInteractive,
+  getWindowState,
+  sendWindowState,
+  armMainWindowMinimizeIntent,
+  clearMainWindowMinimizeIntent,
+  toggleFullscreen,
+  exitFullscreenToWindow,
 });
 
 ipcMain.on('mineradio-full-desktop-icon-shields', (event, payload = {}) => {
