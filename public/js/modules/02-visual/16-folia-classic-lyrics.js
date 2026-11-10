@@ -513,33 +513,49 @@
       return;
     }
     var body = node.querySelector('.folia-classic-body');
-    var text = String((body && body.textContent) || '').replace(/\s+/g, '');
-    var count = Math.min(3, Math.max(3, text.length));
-    if (layer && Number(layer.dataset.count) === count) return;
+    if (!body) return;
+    var textNode = body.firstChild;
+    var text = String((textNode && textNode.nodeValue) || body.textContent || '');
+    var chars = Array.from(text);
+    if (!chars.length) return;
+    var count = chars.length;
+    var wanted = Math.min(count, 1 + Math.floor(Math.random() * Math.min(3, count)));
+    var indices = [];
+    for (var k = 0; k < count; k += 1) indices.push(k);
+    for (var m = indices.length - 1; m > 0; m -= 1) {
+      var q = Math.floor(Math.random() * (m + 1));
+      var tmp = indices[m]; indices[m] = indices[q]; indices[q] = tmp;
+    }
+    indices = indices.slice(0, wanted).sort(function (a, b) { return a - b; });
+    var key = indices.join(',');
+    if (layer && layer.dataset.key === key) return;
     if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
     layer = document.createElement('span');
     layer.className = 'folia-word-rings';
     layer.dataset.count = String(count);
-    // Random centres: sometimes on a glyph, sometimes drifting off it, but
-    // always sorted left to right so the halos still grow in that direction.
-    var spots = [];
-    for (var j = 0; j < count; j += 1) {
-      var pad = count === 2 ? 18 : 16;
-      var baseX = pad + (j * (100 - pad * 2)) / Math.max(1, count - 1);
-      var drift = (count === 2 ? 8 : 6) * (Math.random() - 0.5);
-      var x = Math.max(10, Math.min(90, baseX + drift));
-      var y = (j % 2 === 0) ? 74 + Math.random() * 12 : 14 + Math.random() * 12;
-      spots.push({ x: x, y: y });
-    }
-    spots.sort(function (a, b) { return a.x - b.x; });
-    for (var i = 0; i < count; i += 1) {
+    layer.dataset.key = key;
+    var wordRect = node.getBoundingClientRect();
+    var range = document.createRange();
+    for (var j = 0; j < indices.length; j += 1) {
+      var idx = indices[j];
+      var x = ((idx + 0.5) / count) * 100;
+      if (textNode && textNode.nodeType === 3 && wordRect.width > 0) {
+        try {
+          range.setStart(textNode, idx);
+          range.setEnd(textNode, idx + 1);
+          var cr = range.getBoundingClientRect();
+          if (cr.width > 0 && cr.height > 0) {
+            x = ((cr.left + cr.width / 2 - wordRect.left) / wordRect.width) * 100;
+          }
+        } catch (err) { /* fall back to proportional centre */ }
+      }
       var ring = document.createElement('span');
       ring.className = 'folia-word-ring';
-      ring.style.setProperty('--ring-x', spots[i].x.toFixed(2) + '%');
-      ring.style.setProperty('--ring-y', spots[i].y.toFixed(2) + '%');
-      var size = 0.8 + (count > 1 ? (i / (count - 1)) : 0) * 0.75;
+      ring.style.setProperty('--ring-x', x.toFixed(2) + '%');
+      ring.style.setProperty('--ring-y', '50%');
+      var size = 1.45 + (indices.length > 1 ? (j / (indices.length - 1)) : 0) * 0.15;
       ring.style.setProperty('--ring-s', size.toFixed(2) + 'em');
-      ring.style.setProperty('--ring-d', (i * 0.2).toFixed(2) + 's');
+      ring.style.setProperty('--ring-d', (j * 0.18).toFixed(2) + 's');
       layer.appendChild(ring);
     }
     node.appendChild(layer);

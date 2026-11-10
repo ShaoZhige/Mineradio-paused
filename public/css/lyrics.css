@@ -238,11 +238,11 @@
   margin-top: calc(var(--ring-s) / -2);
   margin-left: calc(var(--ring-s) / -2);
   border-radius: 50%;
-  border: 1px solid rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.45 * var(--folia-glow-level, 1)));
+  border: 1px solid rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.62 * var(--folia-glow-level, 1)));
   box-shadow:
     0 0 6px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.18 * var(--folia-glow-level, 1))),
     inset 0 0 8px rgba(255, 255, 255, calc(.10 * var(--folia-glow-level, 1)));
-  filter: blur(.55px);
+  filter: blur(.45px);
   opacity: .35;
   animation: folia-word-ring 2.4s ease-in-out infinite;
   animation-delay: var(--ring-d, 0s)

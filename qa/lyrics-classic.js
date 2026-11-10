@@ -109,9 +109,11 @@ function assert(condition, message) {
     assert(pose.computed.indexOf('matrix(') === 0, 'line pose must stay 2D (no perspective)');
     assert(pose.order === '晚风穿过城市灯火慢慢亮起', 'word order was reordered');
     assert(Math.abs(parseFloat(pose.camera || '0')) > 0.2, 'camera did not follow the active word');
-    assert(pose.rings.length >= 2, 'active word needs multiple halo rings');
-    assert(pose.rings[pose.rings.length - 1].w > pose.rings[0].w, 'halo rings should grow from left to right');
-    assert(pose.rings[0].l < pose.rings[pose.rings.length - 1].l, 'halo rings should travel left to right');
+    assert(pose.rings.length >= 1 && pose.rings.length <= 3, 'active word needs one to three random halo rings');
+    if (pose.rings.length > 1) {
+      assert(pose.rings[pose.rings.length - 1].w > pose.rings[0].w, 'halo rings should grow from left to right');
+      assert(pose.rings[0].l < pose.rings[pose.rings.length - 1].l, 'halo rings should travel left to right');
+    }
     assert(parseFloat(pose.wordDur) <= 0.2, 'word entrance is too slow: ' + pose.wordDur);
     assert(parseFloat(pose.wordDelay) <= 0.1, 'first word entrance is delayed: ' + pose.wordDelay);
     assert(parseFloat(pose.lineDur) <= 0.2, 'line entrance is too slow: ' + pose.lineDur);
