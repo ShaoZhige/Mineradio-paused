@@ -397,10 +397,12 @@
     ghost.classList.remove('is-in', 'is-instant');
     ghost.classList.add('is-out');
     ghost.setAttribute('aria-hidden', 'true');
-    floatNode.appendChild(ghost);
+    var staleRings = ghost.querySelectorAll('.folia-word-rings');
+    for (var r = 0; r < staleRings.length; r++) staleRings[r].parentNode.removeChild(staleRings[r]);
+    floatNode.insertBefore(ghost, lineNode);
     window.setTimeout(function () {
       if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
-    }, 280);
+    }, 210);
   }
 
   function renderLine(line, nextLine, lineIndex) {

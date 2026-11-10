@@ -90,6 +90,8 @@
 }
 
 .folia-classic-line {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-content: center;
@@ -144,12 +146,13 @@
   position: absolute;
   inset: 0;
   margin: auto;
-  pointer-events: none
+  z-index: 0;
+  pointer-events: none;
+  animation: folia-classic-line-out .18s ease both
 }
 
 .folia-classic-line.is-out .folia-classic-word {
-  animation: folia-classic-word-out .24s cubic-bezier(.33, 0, .2, 1) both;
-  animation-delay: var(--exit-delay, 0ms)
+  animation: none
 }
 
 .folia-classic-word {
