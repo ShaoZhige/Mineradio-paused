@@ -181,15 +181,7 @@
   z-index: 2
 }
 
-.folia-classic-word.is-active::before {
-  content: '';
-  position: absolute;
-  inset: -55% -40%;
-  z-index: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.26 * var(--folia-glow-level, 1))), rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.09 * var(--folia-glow-level, 1))) 45%, transparent 70%);
-  pointer-events: none
-}
+
 
 .folia-classic-word.is-passed {
   opacity: .72;

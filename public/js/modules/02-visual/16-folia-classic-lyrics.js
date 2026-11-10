@@ -513,7 +513,7 @@
       return;
     }
     var body = node.querySelector('.folia-classic-body');
-    var text = String((body && body.textContent) || '').replace(/s+/g, '');
+    var text = String((body && body.textContent) || '').replace(/\s+/g, '');
     var count = Math.min(3, Math.max(3, text.length));
     if (layer && Number(layer.dataset.count) === count) return;
     if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
