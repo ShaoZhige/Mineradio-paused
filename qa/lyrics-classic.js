@@ -85,6 +85,17 @@ function assert(condition, message) {
       await sleep(200);
     }
     await sleep(350);
+    await evaluate("window.cjkWordSegmenter && cjkWordSegmenter.ensureLoaded(); 'started'");
+    for (let i = 0; i < 50; i++) {
+      if (await evaluate('!!(window.cjkWordSegmenter && cjkWordSegmenter.isReady())')) break;
+      await sleep(100);
+    }
+    const dictState = await evaluate("(function(){var s=window.cjkWordSegmenter;return {ready:!!(s&&s.isReady()), words:s?s.segment('愿与愁'):[], failed:s?!!s.hasFailed():true, vis:document.visibilityState};})()");
+    console.log('dictState:', JSON.stringify(dictState));
+    assert(dictState.ready, 'jieba dictionary did not load in the app runtime');
+    assert(dictState.words.length === 1 && dictState.words[0] === '愿与愁', 'known single-character title was not merged: ' + JSON.stringify(dictState.words));
+    // The dictionary-ready rebuild retires the previous line into a 280ms ghost.
+    await sleep(400);
     const state = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var chars=root?root.querySelectorAll('.folia-classic-word'):[];return {shown:!!(root&&root.classList.contains('show')),words:chars.length,active:root?root.querySelectorAll('.folia-classic-word.is-active').length:0,passed:root?root.querySelectorAll('.folia-classic-word.is-passed').length:0,waiting:root?root.querySelectorAll('.folia-classic-word.is-waiting').length:0};})()");
     console.log('state:', JSON.stringify(state));
     assert(state.shown, 'overlay is not shown');

@@ -73,6 +73,12 @@ test('unknown CJK characters fall back to single-character words', async () => {
   assert.deepEqual(Array.from(segmenter.segment('龘靐齉')), ['龘', '靐', '齉']);
 });
 
+test('known single-character runs merge into one visual word', async () => {
+  await ready();
+  assert.deepEqual(Array.from(segmenter.segment('愿与愁')), ['愿与愁']);
+  assert.deepEqual(Array.from(segmenter.segment('我爱你')), ['我爱你']);
+});
+
 test('empty and null input return an empty word list', async () => {
   await ready();
   assert.deepEqual(Array.from(segmenter.segment('')), []);

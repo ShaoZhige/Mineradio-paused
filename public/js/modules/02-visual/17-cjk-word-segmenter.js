@@ -67,31 +67,12 @@
   }
 
   function parseLines(lines) {
+    // Parsing the trimmed dictionary takes ~100-200ms; doing it in one go is
+    // more reliable than idle slices, which never run in hidden/background
+    // windows and left the segmenter stuck on single-character fallback.
     state.words = new Map();
-    var index = 0;
-
-    // A visible window can afford to breathe between slices.  Hidden windows
-    // throttle timers to ~1s, which would stretch this into a minute, so there
-    // we parse in one go (the QA window is short-lived and invisible anyway).
-    var hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-    if (hidden) {
-      while (index < lines.length) addDictionaryLine(lines[index++]);
-      finishLoading();
-      return;
-    }
-
-    function slice() {
-      var started = Date.now();
-      while (index < lines.length && Date.now() - started < 8) addDictionaryLine(lines[index++]);
-      if (index < lines.length) {
-        if (global.requestIdleCallback) global.requestIdleCallback(slice, { timeout: 350 });
-        else setTimeout(slice, 12);
-      } else {
-        finishLoading();
-      }
-    }
-    if (global.requestIdleCallback) global.requestIdleCallback(slice, { timeout: 350 });
-    else setTimeout(slice, 0);
+    for (var index = 0; index < lines.length; index++) addDictionaryLine(lines[index]);
+    finishLoading();
   }
 
   function ensureLoaded() {
@@ -170,6 +151,30 @@
       var step = choice[cursor] || cursor + 1;
       out.push(chars.slice(start + cursor, start + step).join(''));
       cursor = step;
+    }
+    return mergeKnownSingleRuns(out);
+  }
+
+  // Jieba's DAG prefers single characters when a title/phrase is not in the
+  // dictionary (e.g. 愿与愁).  Three or more consecutive *known* single Han
+  // characters read as one visual unit in the lyric styles, so merge them.
+  // Unknown characters stay single (the test suite relies on that fallback).
+  function mergeKnownSingleRuns(words) {
+    var out = [];
+    var i = 0;
+    while (i < words.length) {
+      var runStart = i;
+      if (words[i].length === 1 && state.words.has(words[i])) {
+        var j = i + 1;
+        while (j < words.length && words[j].length === 1 && state.words.has(words[j])) j++;
+        if (j - i >= 3) {
+          out.push(words.slice(i, j).join(''));
+          i = j;
+          continue;
+        }
+      }
+      out.push(words[i]);
+      i++;
     }
     return out;
   }

@@ -32,14 +32,18 @@ test('中文词典文件存在且包含常用歌词词条', () => {
   assert.match(firstLine, /^\S+ [0-9]+\r?$/, 'dictionary should stay word/frequency pairs');
 });
 
-test('分词器使用 DAG + 最大概率路径，并在后台懒加载词典', () => {
+test('分词器使用 DAG + 最大概率路径，并同步解析词典', () => {
   assert.match(SEGMENTER, /function segmentHanRun\(/);
   assert.match(SEGMENTER, /state\.words\.set\(word, freq\)/);
   assert.match(SEGMENTER, /Math\.log\(freq \/ total\)/);
   assert.match(SEGMENTER, /function ensureLoaded\(/);
   assert.match(SEGMENTER, /function onReady\(/);
   assert.match(SEGMENTER, /global\.cjkWordSegmenter = \{/);
-  assert.match(SEGMENTER, /document\.visibilityState === 'hidden'/);
+  // The dictionary is parsed synchronously: idle slices never run in a hidden
+  // window, which used to leave the segmenter stuck in "loading" forever.
+  assert.match(SEGMENTER, /function parseLines\(/);
+  assert.doesNotMatch(SEGMENTER, /requestIdleCallback/);
+  assert.match(SEGMENTER, /function mergeKnownSingleRuns\(/);
 });
 
 test('词典在经典歌词模块之前加载，并被 16 模块调用', () => {
