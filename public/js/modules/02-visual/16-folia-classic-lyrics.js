@@ -467,7 +467,7 @@
     }
     lineNode.classList.remove('is-in');
     void lineNode.offsetWidth;
-    var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.12 : 0.26;
+    var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.08 : 0.18;
     lineNode.style.animationDuration = enterDuration.toFixed(2) + 's, 7.5s';
     lineNode.classList.toggle('is-instant', revealMode === 'instant');
     lineNode.classList.add('is-in');

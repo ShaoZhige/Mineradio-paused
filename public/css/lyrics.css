@@ -120,8 +120,7 @@
 
 @keyframes folia-line-pose-in {
   from {
-    opacity: 0;
-    filter: blur(10px);
+    filter: blur(4px);
     transform: translate3d(var(--pose-from-x, 0px), var(--pose-from-y, 0px), 0)
       rotate(calc(var(--pose-rz, 0deg) + var(--pose-from-r, 0deg)))
       scale(.9)
@@ -129,8 +128,12 @@
 }
 
 .folia-classic-line.is-in .folia-classic-word {
-  animation: folia-classic-word-in .4s cubic-bezier(.22, .61, .36, 1) backwards;
-  animation-delay: calc(var(--word-i, 0) * 45ms)
+  animation: folia-classic-word-in .16s cubic-bezier(.22, .61, .36, 1) backwards;
+  animation-delay: calc(var(--word-i, 0) * 24ms)
+}
+
+.folia-classic-line.is-in .folia-classic-word.is-active {
+  animation: none
 }
 
 .folia-classic-line.is-instant {
@@ -174,7 +177,7 @@
   scale: calc(var(--w-scale, 1) * 1.08);
   transition: translate .34s cubic-bezier(.2, 1.45, .35, 1),
     rotate .34s cubic-bezier(.2, 1.45, .35, 1),
-    scale .34s cubic-bezier(.2, 1.45, .35, 1), opacity .1s linear;
+    scale .34s cubic-bezier(.2, 1.45, .35, 1), opacity 0s linear;
   z-index: 2
 }
 
