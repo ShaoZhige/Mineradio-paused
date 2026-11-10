@@ -108,11 +108,16 @@
 }
 
 .folia-classic-line.is-in {
-  animation-name: folia-line-pose-in, folia-line-camera;
-  animation-duration: .72s, 7.5s;
+  animation-name: folia-line-pose-in, folia-line-camera, folia-line-fade-in;
+  animation-duration: .72s, 7.5s, .72s;
   animation-timing-function: cubic-bezier(.22, .9, .28, 1), ease-in-out;
   animation-iteration-count: 1, infinite;
   animation-direction: normal, alternate
+}
+
+@keyframes folia-line-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes folia-line-camera {
