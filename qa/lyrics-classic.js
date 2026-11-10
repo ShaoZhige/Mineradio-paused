@@ -117,22 +117,6 @@ function assert(condition, message) {
     assert(Number(glow.off.level) === 0, 'glow off level is not 0');
     assert(Number(glow.full.level) > 1, 'glow strength did not scale up');
     assert(/255, 0, 0/.test(glow.custom.rgb || ''), 'custom glow color not applied');
-    await evaluate("fx.lyricStyle='scatter'; if(typeof updateLyricStyleControls==='function')updateLyricStyleControls(); window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'scatter'");
-    await sleep(500);
-    const scatter = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var words=line?Array.prototype.slice.call(line.querySelectorAll('.folia-classic-word')):[];var boxes=words.map(function(w){var b=w.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,h:b.height,fs:parseFloat(getComputedStyle(w).fontSize),left:w.style.getPropertyValue('--sx'),top:w.style.getPropertyValue('--sy')};});return {isScatter:!!(root&&root.classList.contains('is-scatter')),lineScatter:!!(line&&line.classList.contains('is-scatter')),count:words.length,active:line?line.querySelectorAll('.is-active').length:0,boxes:boxes};})()");
-    console.log('scatter:', JSON.stringify(scatter).slice(0, 500));
-    assert(scatter.isScatter && scatter.lineScatter, 'scatter layout class did not apply');
-    assert(scatter.count === 6, `scatter expected 6 words, got ${scatter.count}`);
-    assert(scatter.active >= 1, 'scatter has no active word');
-    const xs = scatter.boxes.map((b) => b.x);
-    const ys = scatter.boxes.map((b) => b.y);
-    const sizes = scatter.boxes.map((b) => b.fs);
-    assert(Math.max(...xs) - Math.min(...xs) > 300, 'scatter words are not spread horizontally');
-    assert(Math.max(...ys) - Math.min(...ys) > 150, 'scatter words are not spread vertically');
-    assert(Math.max(...sizes) - Math.min(...sizes) > 8, 'scatter word sizes are uniform');
-    for (const b of scatter.boxes) {
-      assert(b.x + b.w > 0 && b.x < 1920 && b.y + b.h > 0 && b.y < 1080, 'scatter word outside viewport');
-    }
     await evaluate("fx.lyricStyle='default'; if(typeof updateLyricStyleControls==='function')updateLyricStyleControls(); window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'off'");
     await sleep(600);
     const off = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');return {shown:!!(root&&root.classList.contains('show'))};})()");
