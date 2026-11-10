@@ -105,11 +105,31 @@
 }
 
 .folia-classic-line.is-in {
-  animation: none
+  animation-name: folia-line-pose-in, folia-line-camera;
+  animation-duration: .72s, 7.5s;
+  animation-timing-function: cubic-bezier(.22, .9, .28, 1), ease-in-out;
+  animation-iteration-count: 1, infinite;
+  animation-direction: normal, alternate
+}
+
+@keyframes folia-line-camera {
+  from { rotate: 0deg; }
+  to { rotate: var(--pose-drift, 0deg); }
+}
+
+@keyframes folia-line-pose-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translate3d(var(--pose-from-x, 0px), var(--pose-from-y, 0px), 0)
+      rotate(calc(var(--pose-rz, 0deg) + var(--pose-from-r, 0deg)))
+      scale(.9)
+  }
 }
 
 .folia-classic-line.is-in .folia-classic-word {
-  animation: folia-classic-word-in .4s cubic-bezier(.22, .61, .36, 1) backwards
+  animation: folia-classic-word-in .4s cubic-bezier(.22, .61, .36, 1) backwards;
+  animation-delay: calc(var(--word-i, 0) * 45ms)
 }
 
 .folia-classic-line.is-instant {
@@ -336,8 +356,8 @@
 }
 
 @keyframes folia-classic-line-out {
-  from { opacity: 1; filter: blur(0); transform: translateY(0) }
-  to { opacity: 0; filter: blur(9px); transform: translateY(-10px) }
+  from { opacity: 1; filter: blur(0); translate: 0 0 }
+  to { opacity: 0; filter: blur(9px); translate: 0 -12px }
 }
 
 @keyframes folia-classic-float {

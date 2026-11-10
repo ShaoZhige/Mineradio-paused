@@ -81,6 +81,24 @@
     return x - Math.floor(x);
   }
 
+  // 每一行像被一台随机角度的摄影机拍到：整行绕中心做轻微旋转/横向压缩，并从
+  // 不同方向进入；但词仍然按句子顺序留在同一行里，不单个乱蹦。
+  function linePose(seed) {
+    var s = Math.max(0.01, Number(seed) || 0.01);
+    var rx = (hashUnit(s * 3.13 + 0.7) - 0.5) * 28;
+    var ry = (hashUnit(s * 5.71 + 1.3) - 0.5) * 36;
+    var rz = (hashUnit(s * 7.37 + 2.1) - 0.5) * 14;
+    var scale = 0.88 + hashUnit(s * 9.19 + 3.7) * 0.16;
+    var scaleX = 0.92 + hashUnit(s * 17.41 + 7.3) * 0.16;
+    var fromX = (hashUnit(s * 11.31 + 4.9) - 0.5) * 240;
+    var fromY = (hashUnit(s * 13.73 + 5.3) - 0.5) * 190;
+    var fromR = (hashUnit(s * 15.17 + 6.1) - 0.5) * 9;
+    return {
+      rx: rx, ry: ry, rz: rz, scale: scale, scaleX: scaleX,
+      fromX: fromX, fromY: fromY, fromR: fromR
+    };
+  }
+
   // Folia 对 LRC 行的收尾不是直接用下一行时间：如果中间隔了很久，会把这一行
   // 按阅读时长截断，剩下的空档交给间奏。否则长间奏会把整行歌词拖成慢动作。
   function lineSpanEnd(line, nextLine) {
@@ -424,6 +442,18 @@
     }
 
     var seed = Math.max(0.01, Number(line && line.t) || 0.01);
+    var pose = linePose(seed);
+    lineNode.style.transformOrigin = '50% 50%';
+    lineNode.style.transform =
+      'rotate(' + (pose.rz + pose.ry * 0.22).toFixed(2) + 'deg)'
+      + ' scale(' + pose.scale.toFixed(3) + ', ' + (pose.scale * pose.scaleX).toFixed(3) + ')';
+    lineNode.style.setProperty('--pose-rx', pose.rx.toFixed(2) + 'deg');
+    lineNode.style.setProperty('--pose-ry', pose.ry.toFixed(2) + 'deg');
+    lineNode.style.setProperty('--pose-rz', pose.rz.toFixed(2) + 'deg');
+    lineNode.style.setProperty('--pose-from-x', pose.fromX.toFixed(1) + 'px');
+    lineNode.style.setProperty('--pose-from-y', pose.fromY.toFixed(1) + 'px');
+    lineNode.style.setProperty('--pose-from-r', pose.fromR.toFixed(2) + 'deg');
+    lineNode.style.setProperty('--pose-drift', ((hashUnit(seed * 19.73 + 8.1) - 0.5) * 4.4).toFixed(2) + 'deg');
     var justifyOptions = ['center'];
     var alignOptions = ['center', 'flex-start', 'flex-end'];
     lineNode.style.justifyContent = justifyOptions[Math.floor(seed * 10) % justifyOptions.length];
@@ -431,13 +461,14 @@
 
     for (var i = 0; i < wordTimes.length; i++) {
       var node = makeWordNode(wordTimes[i], i, seed * 1000 + i, fontSize);
+      node.style.setProperty('--word-i', String(i));
       lineNode.appendChild(node);
       wordNodes.push(node);
     }
     lineNode.classList.remove('is-in');
     void lineNode.offsetWidth;
     var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.12 : 0.26;
-    lineNode.style.animationDuration = enterDuration.toFixed(2) + 's';
+    lineNode.style.animationDuration = enterDuration.toFixed(2) + 's, 7.5s';
     lineNode.classList.toggle('is-instant', revealMode === 'instant');
     lineNode.classList.add('is-in');
   }
