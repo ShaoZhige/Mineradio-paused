@@ -506,6 +506,8 @@
     // Folia's word state is decided by the word's own start/end and the line's
     // reveal profile: active starts lookahead seconds early; passed happens at
     // its active end (line-render end for micro/fast lines).
+    var cameraTarget = 0;
+    var hasActive = false;
     for (var i = 0; i < wordNodes.length; i++) {
       var node = wordNodes[i];
       var t = wordTimes[i];
@@ -517,6 +519,7 @@
       if (now < t.start - lineTiming.lookahead) state = 'waiting';
       else if (now > activeEnd) state = 'passed';
       else state = 'active';
+      if (state === 'active') hasActive = true;
       if (node.__foliaState !== state) {
         node.__foliaState = state;
         node.classList.remove('is-waiting', 'is-active', 'is-passed');
@@ -529,6 +532,28 @@
             glow.style.animation = '';
           }
         }
+      }
+    }
+    if (lineNode) {
+      if (hasActive) {
+        var lineRect = lineNode.getBoundingClientRect();
+        var activeRect = null;
+        for (var a = 0; a < wordNodes.length; a++) {
+          if (wordNodes[a] && wordNodes[a].classList.contains('is-active')) {
+            activeRect = wordNodes[a].getBoundingClientRect();
+            break;
+          }
+        }
+        if (activeRect && lineRect.width > 0) {
+          var wordCenter = (activeRect.left + activeRect.right) / 2;
+          var lineCenter = (lineRect.left + lineRect.right) / 2;
+          cameraTarget = Math.max(-36, Math.min(36, -(wordCenter - lineCenter) * 0.08));
+        }
+      }
+      var camPx = Math.round(cameraTarget * 10) / 10;
+      if (lineNode.__foliaCamPx !== camPx) {
+        lineNode.__foliaCamPx = camPx;
+        lineNode.style.translate = camPx + 'px 0px';
       }
     }
   }

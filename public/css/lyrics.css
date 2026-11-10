@@ -101,7 +101,8 @@
   gap: 1.1em;
   row-gap: 1em;
   color: var(--folia-ink, #f2f8ff);
-  perspective: 1000px
+  perspective: 1000px;
+  transition: translate .55s cubic-bezier(.22,.61,.36,1)
 }
 
 .folia-classic-line.is-in {
@@ -220,8 +221,34 @@
 .folia-classic-word.is-active .folia-classic-body {
   color: var(--folia-hi, #fff);
   filter: none;
-  text-shadow: 0 0 14px rgba(255, 255, 255, calc(.5 * var(--folia-glow-level, 1))),
-    0 0 36px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.5 * var(--folia-glow-level, 1)))
+  text-shadow: 0 0 6px rgba(255, 255, 255, calc(.9 * var(--folia-glow-level, 1))),
+    0 0 16px rgba(255, 255, 255, calc(.55 * var(--folia-glow-level, 1))),
+    0 0 32px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.6 * var(--folia-glow-level, 1))),
+    0 0 72px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.34 * var(--folia-glow-level, 1)))
+}
+
+.folia-classic-word.is-active::after {
+  content: '';
+  position: absolute;
+  right: -.28em;
+  top: 50%;
+  width: 1.35em;
+  height: 1.35em;
+  margin-top: -.675em;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.62 * var(--folia-glow-level, 1)));
+  box-shadow:
+    0 0 14px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.42 * var(--folia-glow-level, 1))),
+    inset 0 0 10px rgba(255, 255, 255, calc(.22 * var(--folia-glow-level, 1)));
+  pointer-events: none;
+  z-index: 0;
+  animation: folia-active-ring 2.6s ease-in-out infinite;
+  transition: opacity .2s ease
+}
+
+@keyframes folia-active-ring {
+  0%, 100% { opacity: .55; scale: .94; }
+  50% { opacity: 1; scale: 1.08; }
 }
 
 .folia-classic-word.is-passed .folia-classic-body {

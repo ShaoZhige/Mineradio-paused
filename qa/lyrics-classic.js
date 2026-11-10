@@ -92,11 +92,13 @@ function assert(condition, message) {
     assert(state.active >= 1, 'no active word');
     assert(state.passed >= 1, 'no passed word');
     assert(state.active + state.passed + state.waiting === 6, 'word state counts do not add up');
-    const pose = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var cs=line?getComputedStyle(line):null;return {inline:line?line.style.transform:'',computed:cs?cs.transform:'none',order:line?Array.prototype.map.call(line.querySelectorAll('.folia-classic-word'),function(w){return w.dataset.text||w.textContent;}).join(''):''};})()");
+    const pose = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var cs=line?getComputedStyle(line):null;var act=line&&line.querySelector('.folia-classic-word.is-active');var ring=act?getComputedStyle(act,'::after'):null;return {inline:line?line.style.transform:'',computed:cs?cs.transform:'none',order:line?Array.prototype.map.call(line.querySelectorAll('.folia-classic-word'),function(w){return w.dataset.text||w.textContent;}).join(''):'',camera:line?line.style.translate:'',ringWidth:ring?ring.borderTopWidth:'0px'};})()");
     console.log('pose:', JSON.stringify(pose));
     assert(pose.inline && pose.inline.indexOf('rotate(') >= 0, 'line has no random rotation');
     assert(pose.computed.indexOf('matrix(') === 0, 'line pose must stay 2D (no perspective)');
     assert(pose.order === '晚风穿过城市灯火慢慢亮起', 'word order was reordered');
+    assert(Math.abs(parseFloat(pose.camera || '0')) > 0.2, 'camera did not follow the active word');
+    assert(parseFloat(pose.ringWidth) > 0, 'active word has no halo ring');
     await evaluate("fx.lyricMotionStyle='glitch'; fx.lyricOffsetX=0.9; fx.lyricOffsetY=-0.4; fx.lyricTiltY=14; fx.lyricScale=0.92; fx.lyricLetterSpacing=1.5; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'motion'");
     await sleep(450);
     const motion = await evaluate("(function(){var r=document.getElementById('folia-classic-lyrics');var l=r&&r.querySelector('.folia-classic-line');return {motion:r&&r.dataset.motion,transform:r&&r.style.transform,spacing:l&&getComputedStyle(l).letterSpacing};})()");
