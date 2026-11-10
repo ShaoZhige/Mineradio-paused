@@ -502,6 +502,49 @@
     }
   }
 
+  // Draw two or three soft halos inside the active word.  They sit on the
+  // character centres (left to right), shrink on the left and grow on the
+  // right, and breathe with a small delay so the light appears to travel
+  // along the word rather than sitting on one glyph.
+  function syncWordRings(node, state) {
+    var layer = node.querySelector('.folia-word-rings');
+    if (state !== 'active') {
+      if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+      return;
+    }
+    var body = node.querySelector('.folia-classic-body');
+    var text = String((body && body.textContent) || '').replace(/s+/g, '');
+    var count = Math.min(3, Math.max(3, text.length));
+    if (layer && Number(layer.dataset.count) === count) return;
+    if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+    layer = document.createElement('span');
+    layer.className = 'folia-word-rings';
+    layer.dataset.count = String(count);
+    // Random centres: sometimes on a glyph, sometimes drifting off it, but
+    // always sorted left to right so the halos still grow in that direction.
+    var spots = [];
+    for (var j = 0; j < count; j += 1) {
+      var pad = count === 2 ? 18 : 16;
+      var baseX = pad + (j * (100 - pad * 2)) / Math.max(1, count - 1);
+      var drift = (count === 2 ? 8 : 6) * (Math.random() - 0.5);
+      var x = Math.max(10, Math.min(90, baseX + drift));
+      var y = (j % 2 === 0) ? 74 + Math.random() * 12 : 14 + Math.random() * 12;
+      spots.push({ x: x, y: y });
+    }
+    spots.sort(function (a, b) { return a.x - b.x; });
+    for (var i = 0; i < count; i += 1) {
+      var ring = document.createElement('span');
+      ring.className = 'folia-word-ring';
+      ring.style.setProperty('--ring-x', spots[i].x.toFixed(2) + '%');
+      ring.style.setProperty('--ring-y', spots[i].y.toFixed(2) + '%');
+      var size = 0.8 + (count > 1 ? (i / (count - 1)) : 0) * 0.75;
+      ring.style.setProperty('--ring-s', size.toFixed(2) + 'em');
+      ring.style.setProperty('--ring-d', (i * 0.2).toFixed(2) + 's');
+      layer.appendChild(ring);
+    }
+    node.appendChild(layer);
+  }
+
   function paintStates(now) {
     // Folia's word state is decided by the word's own start/end and the line's
     // reveal profile: active starts lookahead seconds early; passed happens at
@@ -524,6 +567,7 @@
         node.__foliaState = state;
         node.classList.remove('is-waiting', 'is-active', 'is-passed');
         node.classList.add('is-' + state);
+        syncWordRings(node, state);
         if (state === 'active') {
           var glow = node.querySelector('.folia-classic-glow');
           if (glow) {

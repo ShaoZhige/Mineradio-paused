@@ -103,13 +103,15 @@ function assert(condition, message) {
     assert(state.active >= 1, 'no active word');
     assert(state.passed >= 1, 'no passed word');
     assert(state.active + state.passed + state.waiting === 6, 'word state counts do not add up');
-    const pose = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var cs=line?getComputedStyle(line):null;var act=line&&line.querySelector('.folia-classic-word.is-active');var ring=act?getComputedStyle(act,'::after'):null;return {inline:line?line.style.transform:'',computed:cs?cs.transform:'none',order:line?Array.prototype.map.call(line.querySelectorAll('.folia-classic-word'),function(w){return w.dataset.text||w.textContent;}).join(''):'',camera:line?line.style.translate:'',ringWidth:ring?ring.borderTopWidth:'0px',wordDur:act?getComputedStyle(act).animationDuration:'',wordDelay:act?getComputedStyle(act).animationDelay:'',lineDur:line?line.style.animationDuration:''};})()");
+    const pose = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var cs=line?getComputedStyle(line):null;var act=line&&line.querySelector('.folia-classic-word.is-active');var rings=act?Array.prototype.map.call(act.querySelectorAll('.folia-word-ring'),function(r){return {w:parseFloat(getComputedStyle(r).width),l:parseFloat(getComputedStyle(r).left)};}):[];return {inline:line?line.style.transform:'',computed:cs?cs.transform:'none',order:line?Array.prototype.map.call(line.querySelectorAll('.folia-classic-word'),function(w){return w.dataset.text||w.textContent;}).join(''):'',camera:line?line.style.translate:'',rings:rings,wordDur:act?getComputedStyle(act).animationDuration:'',wordDelay:act?getComputedStyle(act).animationDelay:'',lineDur:line?line.style.animationDuration:''};})()");
     console.log('pose:', JSON.stringify(pose));
     assert(pose.inline && pose.inline.indexOf('rotate(') >= 0, 'line has no random rotation');
     assert(pose.computed.indexOf('matrix(') === 0, 'line pose must stay 2D (no perspective)');
     assert(pose.order === '晚风穿过城市灯火慢慢亮起', 'word order was reordered');
     assert(Math.abs(parseFloat(pose.camera || '0')) > 0.2, 'camera did not follow the active word');
-    assert(parseFloat(pose.ringWidth) > 0, 'active word has no halo ring');
+    assert(pose.rings.length >= 2, 'active word needs multiple halo rings');
+    assert(pose.rings[pose.rings.length - 1].w > pose.rings[0].w, 'halo rings should grow from left to right');
+    assert(pose.rings[0].l < pose.rings[pose.rings.length - 1].l, 'halo rings should travel left to right');
     assert(parseFloat(pose.wordDur) <= 0.2, 'word entrance is too slow: ' + pose.wordDur);
     assert(parseFloat(pose.wordDelay) <= 0.1, 'first word entrance is delayed: ' + pose.wordDelay);
     assert(parseFloat(pose.lineDur) <= 0.2, 'line entrance is too slow: ' + pose.lineDur);

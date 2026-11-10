@@ -230,28 +230,35 @@
     0 0 72px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.34 * var(--folia-glow-level, 1)))
 }
 
-.folia-classic-word.is-active::after {
-  content: '';
+.folia-word-rings {
   position: absolute;
-  right: -.28em;
-  top: 50%;
-  width: 1.35em;
-  height: 1.35em;
-  margin-top: -.675em;
-  border-radius: 50%;
-  border: 1px solid rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.62 * var(--folia-glow-level, 1)));
-  box-shadow:
-    0 0 14px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.42 * var(--folia-glow-level, 1))),
-    inset 0 0 10px rgba(255, 255, 255, calc(.22 * var(--folia-glow-level, 1)));
+  inset: 0;
   pointer-events: none;
-  z-index: 0;
-  animation: folia-active-ring 2.6s ease-in-out infinite;
-  transition: opacity .2s ease
+  z-index: 2
 }
 
-@keyframes folia-active-ring {
-  0%, 100% { opacity: .55; scale: .94; }
-  50% { opacity: 1; scale: 1.08; }
+.folia-word-ring {
+  position: absolute;
+  left: var(--ring-x);
+  top: var(--ring-y, 50%);
+  width: var(--ring-s);
+  height: var(--ring-s);
+  margin-top: calc(var(--ring-s) / -2);
+  margin-left: calc(var(--ring-s) / -2);
+  border-radius: 50%;
+  border: 1px solid rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.45 * var(--folia-glow-level, 1)));
+  box-shadow:
+    0 0 6px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.18 * var(--folia-glow-level, 1))),
+    inset 0 0 8px rgba(255, 255, 255, calc(.10 * var(--folia-glow-level, 1)));
+  filter: blur(.55px);
+  opacity: .35;
+  animation: folia-word-ring 2.4s ease-in-out infinite;
+  animation-delay: var(--ring-d, 0s)
+}
+
+@keyframes folia-word-ring {
+  0%, 100% { opacity: .28; scale: .94; }
+  50% { opacity: .78; scale: 1.06; }
 }
 
 .folia-classic-word.is-passed .folia-classic-body {
