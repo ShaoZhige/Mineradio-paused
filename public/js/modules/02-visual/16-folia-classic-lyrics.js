@@ -86,8 +86,8 @@
   function linePose(seed) {
     var s = Math.max(0.01, Number(seed) || 0.01);
     var rx = (hashUnit(s * 3.13 + 0.7) - 0.5) * 28;
-    var ry = (hashUnit(s * 5.71 + 1.3) - 0.5) * 36;
-    var rz = (hashUnit(s * 7.37 + 2.1) - 0.5) * 14;
+    var ry = (hashUnit(s * 5.71 + 1.3) - 0.5) * 44;
+    var rz = (hashUnit(s * 7.37 + 2.1) - 0.5) * 20;
     var scale = 0.88 + hashUnit(s * 9.19 + 3.7) * 0.16;
     var scaleX = 0.92 + hashUnit(s * 17.41 + 7.3) * 0.16;
     var fromX = (hashUnit(s * 11.31 + 4.9) - 0.5) * 240;
