@@ -657,6 +657,9 @@ function setVolume(value, silent) {
   try { localStorage.setItem('apex-player-volume', String(next)); } catch (e) { }
   if (shouldRestoreAudibleEnvelope) cancelAudioElementFadeFrame();
   applyVolumeToAudio({ restoreEnvelope: shouldRestoreAudibleEnvelope });
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive() && typeof externalAppleMusicRequest === 'function') {
+    void externalAppleMusicRequest('setVolume', { volume: next });
+  }
   updateVolumeUi();
   if (!silent) showToast(audioGraphControlsText('gesture_volume') + Math.round(next * 100) + '%');
   if (window.haloSync) window.haloSync.onVolume(next);

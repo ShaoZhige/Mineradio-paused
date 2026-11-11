@@ -146,6 +146,7 @@ const {
   handleSpotifySongUrl,
   handleSpotifyLyric,
 } = require('./spotify-api');
+const { handleAppleMusicSearch, handleAppleMusicPlaylists, handleAppleMusicPlaylistTracks } = require('./apple-music-api');
 const {
   appendCuefieldFeedback,
   readCuefieldFeedbackStats,
@@ -4920,6 +4921,10 @@ async function loadNeteaseLyricBundle(id, cookie) {
   }
 }
 
+// Apple Music 的 companion 由 Electron 主进程持有；server 与主进程同进程，只做转发。
+// The Apple Music companion lives in the Electron main process; this server forwards to it.
+let appleMusicRequester = null;
+
 const server = http.createServer(async (req, res) => {
   refreshConfiguredCookieStores(false);
   const url = new URL(req.url, 'http://localhost:' + PORT);
@@ -5296,6 +5301,64 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[KugouRecommendations]', err);
       sendJSON(res, { provider: 'kugou', error: err.message, songs: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/apple-music/request') {
+    if (req.method !== 'POST') {
+      sendJSON(res, { provider: 'appleMusic', ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+      return;
+    }
+    if (!appleMusicRequester) {
+      sendJSON(res, { provider: 'appleMusic', ok: false, error: 'runtime-unavailable' }, 503);
+      return;
+    }
+    try {
+      const body = await readRequestBody(req);
+      const result = await appleMusicRequester(body.operation, body.params || {});
+      sendJSON(res, { provider: 'appleMusic', ...result });
+    } catch (err) {
+      console.error('[AppleMusic]', err && (err.code || err.message || err));
+      sendJSON(res, { provider: 'appleMusic', ok: false, error: 'request-failed' }, 502);
+    }
+    return;
+  }
+
+  if (pn === '/api/apple-music/search') {
+    try {
+      const kw = url.searchParams.get('keywords') || url.searchParams.get('q') || '';
+      const limit = Math.max(1, Math.min(20, parseInt(url.searchParams.get('limit') || '10', 10) || 10));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+      sendJSON(res, await handleAppleMusicSearch(appleMusicRequester, kw, limit, offset));
+    } catch (err) {
+      console.error('[AppleMusicSearch]', err && (err.code || err.message || err));
+      sendJSON(res, { provider: 'applemusic', configured: !!appleMusicRequester, error: 'request-failed', songs: [] }, 502);
+    }
+    return;
+  }
+
+  if (pn === '/api/apple-music/playlists') {
+    try {
+      const limit = Math.max(1, Math.min(100, parseInt(url.searchParams.get('limit') || '25', 10) || 25));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+      sendJSON(res, await handleAppleMusicPlaylists(appleMusicRequester, limit, offset));
+    } catch (err) {
+      console.error('[AppleMusicPlaylists]', err && (err.code || err.message || err));
+      sendJSON(res, { provider: 'applemusic', configured: !!appleMusicRequester, error: 'request-failed', playlists: [] }, 502);
+    }
+    return;
+  }
+
+  if (pn === '/api/apple-music/playlist/tracks') {
+    try {
+      const id = url.searchParams.get('id') || '';
+      const limit = Math.max(1, Math.min(100, parseInt(url.searchParams.get('limit') || '25', 10) || 25));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+      sendJSON(res, await handleAppleMusicPlaylistTracks(appleMusicRequester, id, limit, offset));
+    } catch (err) {
+      console.error('[AppleMusicPlaylistTracks]', err && (err.code || err.message || err));
+      sendJSON(res, { provider: 'applemusic', configured: !!appleMusicRequester, error: 'request-failed', songs: [] }, 502);
     }
     return;
   }
@@ -7054,6 +7117,10 @@ server.clearAllLoginCredentials = clearAllRuntimeLoginCredentials;
 
 server.setCustomSourceResolver = resolver => {
   customSourceResolver = typeof resolver === 'function' ? resolver : null;
+};
+
+server.setAppleMusicRequester = requester => {
+  appleMusicRequester = typeof requester === 'function' ? requester : null;
 };
 
 module.exports = server;

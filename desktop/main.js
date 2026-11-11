@@ -57,6 +57,8 @@ const {
   exchangeSpotifyOAuthCode,
 } = require('../server/spotify-api');
 const { CustomSourceManager } = require('./custom-source/manager');
+const { createCompanionClient } = require('./apple-music/companionClient.cjs');
+const { resolveNativeExecutable } = require('./apple-music/nativePaths.cjs');
 
 registerWallpaperEngineScheme(protocol);
 registerLocalMusicScheme(protocol);
@@ -163,6 +165,33 @@ const spotifyLogin = createSpotifyLogin({
   partition: SPOTIFY_LOGIN_PARTITION,
   timeoutMs: SPOTIFY_OAUTH_TIMEOUT_MS,
 });
+
+// Apple Music 由系统 WebView2 宿主承载；主进程只保留一个 companion 实例，登录、搜索、
+// 播放控制都经同一条私有管道。宿主不存在时返回 runtime-unavailable，交给前端提示安装。
+// Apple Music runs in a system WebView2 host; one companion instance owns login, search and
+// playback over a private pipe. A missing host resolves runtime-unavailable for the UI.
+let appleMusicCompanion = null;
+function getAppleMusicCompanion() {
+  if (appleMusicCompanion) return appleMusicCompanion;
+  const nativeExecutablePath = resolveNativeExecutable({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    projectRoot: path.join(__dirname, '..'),
+    override: process.env.MINERADIO_APPLE_MUSIC_NATIVE || '',
+  });
+  if (!nativeExecutablePath) return null;
+  appleMusicCompanion = createCompanionClient({
+    nativeExecutablePath,
+    profilePath: path.join(app.getPath('userData'), 'apple-music-companion'),
+  });
+  return appleMusicCompanion;
+}
+async function requestAppleMusic(operation, params) {
+  const companion = getAppleMusicCompanion();
+  if (!companion) return { ok: false, error: 'runtime-unavailable' };
+  return companion.request(String(operation || ''), params && typeof params === 'object' ? params : {});
+}
 
 // Keep app-owned settings and provider credentials independent from the
 // user-selectable Chromium cache. app.setName() must run before the first
@@ -4416,6 +4445,13 @@ ipcMain.handle('spotify-music-clear-login', async () => {
   return clearSpotifyToken();
 });
 
+// Apple Music 渲染进程只能发固定 operation；参数与白名单由 companionRequests 再校验。
+// The renderer can only send fixed operations; companionRequests validates them again.
+ipcMain.handle('apple-music-request', async (event, operation, params) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+  return requestAppleMusic(operation, params);
+});
+
 ipcMain.handle('mineradio-open-update-page', async (event, value) => {
   try {
     if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
@@ -4997,6 +5033,9 @@ async function ensureLocalServerStarted() {
     const serverModulePath = path.join(__dirname, '..', 'server', 'server.js');
     try { delete require.cache[require.resolve(serverModulePath)]; } catch (_) {}
     localServer = require(serverModulePath);
+    if (typeof localServer.setAppleMusicRequester === 'function') {
+      localServer.setAppleMusicRequester(requestAppleMusic);
+    }
     await waitForServer(localServer, STARTUP_SERVER_TIMEOUT_MS);
     await waitForLocalHttpReady(port, STARTUP_HTTP_TIMEOUT_MS);
     writeStartupState('server-ready', { serverReadyAt: Date.now(), port });

@@ -1022,6 +1022,195 @@ async function playLocalQueueSong(song, idx, token, firstVisualPlay, opts, resum
   return true;
 }
 
+// ── Apple Music external playback ───────────────────────────────────────────
+// Apple Music 的音频由 WebView2 companion 播放，本页没有 audio.src。这里维护一份镜像状态，
+// 让进度条/播放键/MediaSession/歌词继续走原来的读取接口，同时把控制命令转发给 companion。
+// Apple Music audio lives in the WebView2 companion, not in audio.src. This mirror keeps the
+// existing progress/play-button/MediaSession/lyric readers working and forwards controls.
+var externalPlaybackPollTimer = 0;
+var externalPlaybackPollBusy = false;
+var externalPlaybackFailures = 0;
+
+function externalAppleMusicRequest(operation, params) {
+  var bridge = typeof window !== 'undefined' ? window.desktopWindow : null;
+  if (!bridge || typeof bridge.appleMusicRequest !== 'function') {
+    return Promise.resolve({ ok: false, error: 'runtime-unavailable' });
+  }
+  try {
+    return Promise.resolve(bridge.appleMusicRequest(operation, params || {}));
+  } catch (error) {
+    return Promise.resolve({ ok: false, error: 'runtime-unavailable' });
+  }
+}
+function isExternalAppleMusicSong(song) {
+  return !!(song && (
+    song.provider === 'applemusic' ||
+    song.provider === 'appleMusic' ||
+    song.source === 'applemusic' ||
+    song.source === 'appleMusic' ||
+    song.playbackMode === 'external' ||
+    song.externalPlayback === true
+  ) && (song.catalogId || song.appleMusicId || song.providerSongId || song.id));
+}
+function isExternalPlaybackActive() {
+  return !!(typeof externalPlaybackState !== 'undefined' && externalPlaybackState && externalPlaybackState.provider === 'applemusic');
+}
+function externalPlaybackCurrentSeconds() {
+  var state = externalPlaybackState;
+  if (!state) return 0;
+  var elapsed = state.isPlaying ? Math.max(0, Date.now() - (state.updatedAt || Date.now())) : 0;
+  return Math.max(0, ((Number(state.positionMs) || 0) + elapsed) / 1000);
+}
+function stopExternalPlaybackPolling() {
+  if (externalPlaybackPollTimer) {
+    clearInterval(externalPlaybackPollTimer);
+    externalPlaybackPollTimer = 0;
+  }
+  externalPlaybackPollBusy = false;
+  externalPlaybackFailures = 0;
+}
+function stopExternalPlayback(reason) {
+  stopExternalPlaybackPolling();
+  var state = externalPlaybackState;
+  externalPlaybackState = null;
+  if (state && state.isPlaying) {
+    void externalAppleMusicRequest('pause', {});
+  }
+  if (typeof playing !== 'undefined' && reason !== 'keep-ui') {
+    playing = false;
+    if (typeof setPlayIcon === 'function') setPlayIcon(false);
+  }
+  if (typeof updatePlaybackProgressUi === 'function') updatePlaybackProgressUi();
+}
+function applyExternalPlaybackState(result) {
+  var state = externalPlaybackState;
+  if (!state || !result || result.ok !== true) return;
+  var data = result.data || {};
+  state.isPlaying = data.isPlaying === true;
+  state.positionMs = Math.max(0, Number(data.positionMs) || 0);
+  state.durationMs = Math.max(0, Number(data.durationMs) || state.durationMs || 0);
+  state.updatedAt = Date.now();
+  state.starting = data.starting === true;
+  state.ended = !state.isPlaying && state.durationMs > 0 && state.positionMs >= state.durationMs - 1200;
+  playing = state.isPlaying;
+  if (typeof setPlayIcon === 'function') setPlayIcon(state.isPlaying);
+  if (typeof updatePlaybackProgressUi === 'function') updatePlaybackProgressUi();
+  if (typeof syncMediaSession === 'function') syncMediaSession(false);
+  if (state.ended && !state.endHandled) {
+    state.endHandled = true;
+    var endedToken = state.token;
+    setTimeout(function () {
+      if (!isExternalPlaybackActive() || externalPlaybackState.token !== endedToken) return;
+      if (typeof nextTrack === 'function') nextTrack();
+    }, 260);
+  }
+}
+async function pollExternalPlayback() {
+  if (!isExternalPlaybackActive() || externalPlaybackPollBusy) return;
+  externalPlaybackPollBusy = true;
+  try {
+    var result = await externalAppleMusicRequest('playbackStatus', {});
+    if (!result || result.ok !== true) {
+      externalPlaybackFailures += 1;
+      if (externalPlaybackFailures >= 3 && externalPlaybackState) {
+        hideLoading();
+        showToast(playbackStartAudioText('psa_start_failed', '播放启动失败，请重新选择歌曲'));
+        stopExternalPlayback('failed');
+      }
+      return;
+    }
+    externalPlaybackFailures = 0;
+    applyExternalPlaybackState(result);
+  } finally {
+    externalPlaybackPollBusy = false;
+  }
+}
+function startExternalPlaybackPolling() {
+  stopExternalPlaybackPolling();
+  externalPlaybackPollTimer = setInterval(function () { void pollExternalPlayback(); }, 750);
+  if (externalPlaybackPollTimer && typeof externalPlaybackPollTimer.unref === 'function') externalPlaybackPollTimer.unref();
+}
+async function startExternalAppleMusicPlayback(song, idx, token, opts) {
+  opts = opts || {};
+  var catalogId = String(song.catalogId || song.appleMusicId || song.providerSongId || song.id || '').replace(/^applemusic:/i, '');
+  if (!/^\d{1,40}$/.test(catalogId)) {
+    showToast(playbackStartAudioText('psa_start_failed', '播放启动失败，请重新选择歌曲'));
+    return false;
+  }
+  stopExternalPlaybackPolling();
+  var previous = externalPlaybackState;
+  externalPlaybackState = null;
+  if (previous && previous.isPlaying) void externalAppleMusicRequest('pause', {});
+  if (typeof pauseCurrentAudioForTrackSwitch === 'function') pauseCurrentAudioForTrackSwitch();
+  showLoading({ trackSwitch: true, seamlessCover: true });
+  var startSec = Math.max(0, Number(opts.resumeAt) || 0);
+  var requestKey = 'am_' + String(token) + '_' + Date.now();
+  var result = await externalAppleMusicRequest('playSong', { catalogId: catalogId, startSec: startSec, requestKey: requestKey });
+  if (token !== trackSwitchToken) return false;
+  if (!result || result.ok !== true) {
+    hideLoading();
+    if (typeof handlePlaybackUnavailable === 'function') handlePlaybackUnavailable(song, result || {});
+    else showToast(playbackStartAudioText('psa_start_failed', '播放启动失败，请重新选择歌曲'));
+    return false;
+  }
+  externalPlaybackState = {
+    provider: 'applemusic',
+    song: song,
+    catalogId: catalogId,
+    token: token,
+    isPlaying: true,
+    positionMs: startSec * 1000,
+    durationMs: playbackDurationFromSong(song) * 1000,
+    updatedAt: Date.now(),
+    starting: true,
+    ended: false,
+    endHandled: false
+  };
+  hideLoading();
+  playing = true;
+  if (typeof setPlayIcon === 'function') setPlayIcon(true);
+  if (typeof updateControlTrackInfo === 'function') updateControlTrackInfo(song);
+  if (typeof updatePlaybackProgressUi === 'function') updatePlaybackProgressUi();
+  if (typeof applyMediaSessionMetadata === 'function') applyMediaSessionMetadata(song);
+  if (typeof applyMediaSessionPlaybackState === 'function') applyMediaSessionPlaybackState();
+  if (typeof targetVolume !== 'undefined' && typeof externalAppleMusicRequest === 'function') {
+    void externalAppleMusicRequest('setVolume', { volume: targetVolume });
+  }
+  startExternalPlaybackPolling();
+  void pollExternalPlayback();
+  return true;
+}
+async function toggleExternalAppleMusicPlayback() {
+  if (!isExternalPlaybackActive()) return false;
+  var state = externalPlaybackState;
+  var operation = state.isPlaying ? 'pause' : 'resume';
+  var result = await externalAppleMusicRequest(operation, {});
+  if (!result || result.ok !== true) {
+    showToast(playbackStartAudioText('psa_start_failed', '播放启动失败，请重新选择歌曲'));
+    return true;
+  }
+  state.isPlaying = operation === 'resume';
+  state.updatedAt = Date.now();
+  state.endHandled = false;
+  playing = state.isPlaying;
+  if (typeof setPlayIcon === 'function') setPlayIcon(state.isPlaying);
+  if (typeof updatePlaybackProgressUi === 'function') updatePlaybackProgressUi();
+  if (typeof syncMediaSession === 'function') syncMediaSession(true);
+  if (state.isPlaying) void pollExternalPlayback();
+  return true;
+}
+async function seekExternalAppleMusic(seconds) {
+  if (!isExternalPlaybackActive()) return false;
+  var target = Math.max(0, Number(seconds) || 0);
+  var result = await externalAppleMusicRequest('seek', { seconds: target });
+  if (!result || result.ok !== true) return false;
+  externalPlaybackState.positionMs = target * 1000;
+  externalPlaybackState.updatedAt = Date.now();
+  if (typeof updatePlaybackProgressUi === 'function') updatePlaybackProgressUi();
+  if (typeof syncMediaSession === 'function') syncMediaSession(true);
+  return true;
+}
+
 async function playQueueAt(idx, opts) {
   opts = opts || {};
   if (typeof beginSourceFallbackPlaybackInvocation === 'function' && !beginSourceFallbackPlaybackInvocation(opts)) return false;
@@ -1210,6 +1399,13 @@ async function playQueueAt(idx, opts) {
       }
       return localStarted === true;
     }
+    if (isExternalAppleMusicSong(song)) {
+      markPlayPhase('apple-music-external');
+      return await startExternalAppleMusicPlayback(song, idx, token, opts);
+    }
+    // Switching away from Apple Music must stop the companion player; otherwise it keeps
+    // sounding under the newly started local audio.
+    if (typeof externalPlaybackState !== 'undefined' && externalPlaybackState) stopExternalPlayback();
     safePlaybackStep('show-loading', function () { showLoading({ trackSwitch: true, seamlessCover: true }); });
     if (!qualitySwitch) lyricSunEnergy = 0; lyricSunTarget = 0; lyricSunHold = 0; lyricSunAvg = 0; lyricSunPeak = 0.55;
 

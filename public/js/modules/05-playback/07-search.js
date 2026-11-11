@@ -497,6 +497,7 @@ document.addEventListener('click', function (e) {
 updateSearchModeTabs();
 
 function songProviderKey(song) {
+  if (song && (song.provider === 'applemusic' || song.provider === 'appleMusic' || song.source === 'applemusic' || song.source === 'appleMusic' || song.type === 'applemusic' || song.appleMusicId || song.catalogId && song.playbackMode === 'external')) return 'applemusic';
   if (song && (song.provider === 'spotify' || song.source === 'spotify' || song.type === 'spotify' || song.spotifyId || song.spotifyUri)) return 'spotify';
   if (song && (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq')) return 'qq';
   if (song && (song.provider === 'qishui' || song.source === 'qishui' || song.type === 'qishui')) return 'qishui';
@@ -506,8 +507,8 @@ function songProviderKey(song) {
 function songSourceTagHtml(song, opts) {
   opts = opts || {};
   var rawKey = song && (song.resolvedPlaybackProvider || song.playbackProvider || song.audioProvider || song.providerResolved || '');
-  var key = /^(netease|qq|kugou|qishui|spotify)$/.test(String(rawKey || '')) ? String(rawKey) : songProviderKey(song);
-  var label = key === 'qq' ? 'QQ' : (key === 'kugou' ? 'KG' : (key === 'qishui' ? 'QS' : (key === 'spotify' ? 'SP' : 'NE')));
+  var key = /^(netease|qq|kugou|qishui|spotify|applemusic)$/.test(String(rawKey || '')) ? String(rawKey) : songProviderKey(song);
+  var label = key === 'qq' ? 'QQ' : (key === 'kugou' ? 'KG' : (key === 'qishui' ? 'QS' : (key === 'spotify' ? 'SP' : (key === 'applemusic' ? 'AM' : 'NE'))));
   if (opts.switcher) {
     return '<button type="button" class="tag-source ' + key + searchPanelText('search_switcher_chip_html') + label + '</button>';
   }
@@ -864,7 +865,7 @@ function searchQueryTokens(text) {
   return raw.split(/[\s·・，。,.!?！？"“”‘’()（）【】\[\]\-_/]+/).map(function (token) {
     return simpleSearchNorm(token);
   }).filter(function (token, index, all) {
-    if (!token || /^(qq|网易云|网易云音乐|酷狗|酷狗音乐|汽水|汽水音乐|spotify)$/.test(token)) return false;
+    if (!token || /^(qq|网易云|网易云音乐|酷狗|酷狗音乐|汽水|汽水音乐|spotify|applemusic|apple music|苹果音乐)$/.test(token)) return false;
     return all.indexOf(token) === index;
   });
 }
@@ -1038,7 +1039,7 @@ function scoreSongSearchResult(song, q, sourceIndex) {
   if (song && song.playable === false) score -= 6;
   return score;
 }
-function mergeSongSearchResults(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, spotifySongs, limit, q) {
+function mergeSongSearchResults(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, spotifySongs, applemusicSongs, limit, q) {
   var out = [];
   var providerSeen = {};
   var canonicalSeen = {};
@@ -1062,6 +1063,7 @@ function mergeSongSearchResults(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, 
   (kugouSongs || []).forEach(function (song, i) { push(song, i); });
   (qishuiSongs || []).forEach(function (song, i) { push(song, i); });
   (spotifySongs || []).forEach(function (song, i) { push(song, i); });
+  (applemusicSongs || []).forEach(function (song, i) { push(song, i); });
   out.sort(function (a, b) { return (b._searchScore || 0) - (a._searchScore || 0); });
   return out.slice(0, limit);
 }
@@ -1099,7 +1101,7 @@ async function fetchMusicSearchResults(q, mode, previousPages) {
   Object.keys(previousPages || {}).forEach(function (provider) {
     providerPages[provider] = Object.assign({}, previousPages[provider]);
   });
-  var pageLimitByProvider = { netease: 18, qq: 12, kugou: 12, qishui: 12, spotify: 10 };
+  var pageLimitByProvider = { netease: 18, qq: 12, kugou: 12, qishui: 12, spotify: 10, applemusic: 10 };
   var fetchProviders = providers.filter(function (provider) {
     return !previousPages || !previousPages[provider] || previousPages[provider].hasMore;
   });
@@ -1111,7 +1113,7 @@ async function fetchMusicSearchResults(q, mode, previousPages) {
       return { provider: provider, offset: offset, requestedLimit: limit, value: value || {} };
     });
   }));
-  var songsByProvider = { netease: [], qq: [], kugou: [], qishui: [], spotify: [] };
+  var songsByProvider = { netease: [], qq: [], kugou: [], qishui: [], spotify: [], applemusic: [] };
   fetchProviders.forEach(function (provider, index) {
     var entry = result[index];
     if (!entry || entry.status !== 'fulfilled') {
@@ -1146,6 +1148,7 @@ async function fetchMusicSearchResults(q, mode, previousPages) {
     songsByProvider.kugou,
     songsByProvider.qishui,
     songsByProvider.spotify,
+    songsByProvider.applemusic,
     MUSIC_SEARCH_MAX_RESULTS,
     q
   );

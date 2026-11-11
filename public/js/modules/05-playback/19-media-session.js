@@ -85,6 +85,9 @@ function mediaSessionCurrentSong() {
 }
 
 function mediaSessionPlaybackIsPaused() {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    return !(externalPlaybackState && externalPlaybackState.isPlaying);
+  }
   var media = mediaSessionMedia();
   if (media && typeof media.paused === 'boolean') return media.paused;
   return !(typeof playing !== 'undefined' && playing);
@@ -171,6 +174,26 @@ function applyMediaSessionPosition(force) {
   var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   if (!force && now - mediaSessionState.positionAt < MEDIA_SESSION_POSITION_INTERVAL_MS) return false;
   var media = mediaSessionMedia();
+  var external = typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive();
+  if (external) {
+    var externalDuration = Number(externalPlaybackState && externalPlaybackState.durationMs) / 1000 || 0;
+    if (!(externalDuration > 0)) return false;
+    var externalPosition = typeof externalPlaybackCurrentSeconds === 'function' ? externalPlaybackCurrentSeconds() : 0;
+    mediaSessionState.positionAt = now;
+    try {
+      if (typeof navigator.mediaSession.setPositionState === 'function') {
+        navigator.mediaSession.setPositionState({
+          duration: externalDuration,
+          playbackRate: 1,
+          position: Math.max(0, Math.min(externalPosition, externalDuration))
+        });
+      }
+    } catch (error) {
+      console.warn('[MediaSession] external position rejected:', error && (error.message || error) || error);
+      return false;
+    }
+    return true;
+  }
   // 规范要求 duration 是正的有限数，否则 setPositionState 直接抛 InvalidStateError；流媒体在
   // 元数据到手前是 NaN，那种情况下干脆不上报，而不是报一个假时长。
   // The spec demands a positive finite duration or setPositionState throws; live streams report NaN
@@ -204,6 +227,13 @@ function applyMediaSessionPosition(force) {
 function mediaSessionSeekTo(seconds) {
   var target = Number(seconds);
   if (!isFinite(target)) return false;
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    var externalDuration = Number(externalPlaybackState && externalPlaybackState.durationMs) / 1000 || 0;
+    var externalTarget = Math.max(0, Math.min(target, externalDuration > 0 ? externalDuration : target));
+    if (typeof seekExternalAppleMusic === 'function') seekExternalAppleMusic(externalTarget);
+    applyMediaSessionPosition(true);
+    return true;
+  }
   var media = mediaSessionMedia();
   if (!media) return false;
   var duration = isFinite(media.duration) && media.duration > 0 ? Number(media.duration) : Infinity;
@@ -233,6 +263,10 @@ function mediaSessionSeekTo(seconds) {
 }
 
 function mediaSessionSeekBy(deltaSeconds) {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    var current = typeof externalPlaybackCurrentSeconds === 'function' ? externalPlaybackCurrentSeconds() : 0;
+    return mediaSessionSeekTo(current + deltaSeconds);
+  }
   var media = mediaSessionMedia();
   if (!media || !isFinite(media.currentTime)) return false;
   return mediaSessionSeekTo(media.currentTime + deltaSeconds);

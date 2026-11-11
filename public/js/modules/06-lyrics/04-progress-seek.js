@@ -139,10 +139,17 @@ function playbackDurationFromSong(song) {
   return normalizePlaybackDurationSeconds(song.duration || song.durationMs || song.dt || 0);
 }
 function getPlaybackDurationSeconds() {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    var externalDuration = Number(externalPlaybackState.durationMs) || 0;
+    if (externalDuration > 0) return externalDuration / 1000;
+  }
   if (audio && isFinite(audio.duration) && audio.duration > 0) return audio.duration;
   return playbackDurationFromSong(currentCoverSong());
 }
 function getPlaybackCurrentSeconds() {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    return typeof externalPlaybackCurrentSeconds === 'function' ? externalPlaybackCurrentSeconds() : 0;
+  }
   return audio && isFinite(audio.currentTime) && audio.currentTime > 0 ? audio.currentTime : 0;
 }
 function setProgressVisual(percent) {
@@ -390,6 +397,10 @@ function primeProgressSeekPlayback(media, mediaSrc, serial) {
   }
 }
 function commitProgressSeek(targetTime, resumeAfterSeek) {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    if (typeof seekExternalAppleMusic === 'function') seekExternalAppleMusic(Number(targetTime) || 0);
+    return true;
+  }
   var media = progressDragState.media || audio;
   if (!media) return;
   var durationSec = progressDragState.previewDuration || getPlaybackDurationSeconds();
@@ -432,6 +443,13 @@ function commitProgressSeek(targetTime, resumeAfterSeek) {
 }
 var progressBar = document.getElementById('progress-bar');
 progressBar.addEventListener('pointerdown', function (e) {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    var rect = progressBar.getBoundingClientRect();
+    var ratio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
+    var target = Math.max(0, Math.min(1, ratio)) * getPlaybackDurationSeconds();
+    if (typeof seekExternalAppleMusic === 'function') seekExternalAppleMusic(target);
+    return;
+  }
   if (!audio || !getPlaybackDurationSeconds()) return;
   if (typeof resetCuefieldAutoMix === 'function') resetCuefieldAutoMix('manual-seek');
   if (

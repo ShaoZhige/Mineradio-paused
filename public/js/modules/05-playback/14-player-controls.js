@@ -594,6 +594,10 @@ async function togglePlay() {
   playToggleBusy = true;
   try {
     forcePlaybackControlsInteractive();
+    if (isExternalPlaybackActive()) {
+      await toggleExternalAppleMusicPlayback();
+      return;
+    }
     if ((!audio || !audio.src) && playQueue.length && currentIdx >= 0) {
       await playQueueAt(currentIdx, { manual: true });
       return;

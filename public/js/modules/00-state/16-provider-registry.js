@@ -145,6 +145,23 @@ var PROVIDER_REGISTRY_ROWS = [
     //    track search Spotify once and then auto-switch away — one extra search and one extra client
     //    launch attempt versus not setting it. It is an explicit user choice, not a default.
     caps: { login: true, mainSearch: false, sourceSwitcher: true, directFallback: false, preferred: true }
+  },
+  {
+    key: 'applemusic',
+    badge: 'AM',
+    // Apple Music is a brand name in every locale, so no dictionary key is
+    // needed (same reasoning as Spotify above).
+    labelKey: '',
+    labelFallback: 'Apple Music',
+    compactKey: '',
+    compactFallback: 'Apple Music',
+    appKey: '',
+    appFallback: 'Apple Music',
+    searchPath: '/api/apple-music/search',
+    // login is true because the account panel opens the companion's official
+    // Apple Music window. directFallback stays false: there is no direct audio
+    // URL, playback goes through the external companion.
+    caps: { login: true, mainSearch: true, sourceSwitcher: true, directFallback: false, preferred: false }
   }
 ];
 

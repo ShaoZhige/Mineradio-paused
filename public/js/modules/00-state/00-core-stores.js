@@ -42,6 +42,11 @@ var lastStrongDrop = 0;           // 用于 burst 预设的强 drop 时刻
 
 var lyricsLines = [], lyricsTranslationLines = [], lyricsVisible = false, lyricsHasNativeKaraoke = false, lyricsTimingSource = 'none', lyricsTranslationSource = 'none';
 var playlist = [], playQueue = [], currentIdx = -1, playing = false, playToggleBusy = false;
+// Apple Music 由 WebView2 companion 播放，音频不在本页；这里保存一份可读的镜像状态，
+// 让进度条、播放键、MediaSession 和歌词都能像本地 audio 一样读时间和播放状态。
+// Apple Music plays in the WebView2 companion, outside this page; this mirror lets the progress
+// bar, play button, MediaSession and lyrics read time/state like a local audio element.
+var externalPlaybackState = null;
 var searchMode = 'song', podcastResults = [], podcastPrograms = [], podcastCurrentRadio = null;
 // 这三处的兜底是**刻意写的**：本模块在解析期求值，而词典是异步 fetch 的，那时缺键会返回键名本身。
 // 没有兜底的话，初值会被固化成 vip_none / provider_kugou / provider_qishui 这种裸键名。
@@ -96,7 +101,7 @@ var AUDIO_FADE_IN_MS = audioFadePreference.fadeInMs;
 var AUDIO_FADE_OUT_MS = audioFadePreference.fadeOutMs;
 var AUDIO_SILENCE_GAIN = 0.0001;
 var audioFadeEnvelope = 1;
-var userPlaylists = [], builtInPlaylists = [], neteasePlaylists = [], qqPlaylists = [], kugouPlaylists = [], qishuiPlaylists = [], spotifyPlaylists = [], myPodcastCollections = [], myPodcastItems = {}, playlistCoverCache = {};
+var userPlaylists = [], builtInPlaylists = [], neteasePlaylists = [], qqPlaylists = [], kugouPlaylists = [], qishuiPlaylists = [], spotifyPlaylists = [], appleMusicPlaylists = [], myPodcastCollections = [], myPodcastItems = {}, playlistCoverCache = {};
 var builtInPlaylistLoadPromise = null;
 var queueHydrationState = {
   token: 0,
