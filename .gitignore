@@ -8,6 +8,15 @@ out/
 release/
 releases/
 win-unpacked/
+
+# Apple Music companion: local .NET SDK/toolchain and C# intermediates
+build/.dotnet/
+build/dotnet-install.ps1
+build/dotnet-install.log
+build/apple-music-native/windows/bin/
+build/apple-music-native/windows/obj/
+# Directory.Build.props redirects MSBuild intermediates to windows-obj/
+build/apple-music-native/windows-obj/
 *.exe
 *.msi
 *.blockmap

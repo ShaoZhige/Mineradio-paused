@@ -19,6 +19,9 @@
     "check:package": "node scripts/verify-package.js",
     "audit:prod": "node scripts/audit-prod.js",
     "archive:release": "node scripts/archive-release-build.mjs",
+    "build:apple-music": "node build/build-apple-music.js",
+    "prebuild:win": "npm run build:apple-music",
+    "prebuild:win:dir": "npm run build:apple-music",
     "build:win": "electron-builder --win nsis",
     "build:win:dir": "electron-builder --win dir",
     "qa:lyrics": "node qa/lyrics-classic.js",
@@ -46,10 +49,28 @@
         "to": "VisualElements"
       }
     ],
+    "extraResources": [
+      {
+        "from": "build/apple-music-native/windows/bin/Release/net48",
+        "to": "apple-music/windows",
+        "filter": [
+          "MineradioAppleMusicCompanion.exe",
+          "MineradioAppleMusicCompanion.exe.config",
+          "Microsoft.Web.WebView2.Core.dll",
+          "Microsoft.Web.WebView2.WinForms.dll",
+          "WebView2Loader.dll",
+          "runtimes/**/*"
+        ]
+      }
+    ],
     "files": [
       "desktop/**/*",
       "public/**/*",
       "build/**/*",
+      "!build/.dotnet/**",
+      "!build/apple-music-native/**",
+      "!build/dotnet-install.ps1",
+      "!build/dotnet-install.log",
       "cuefield/**/*",
       "server/**/*",
       "LICENSE",

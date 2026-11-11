@@ -96,4 +96,22 @@ module.exports = async function afterPack(context) {
       console.log('  • trimmed locale ' + name + ' (' + (bytes / 1048576).toFixed(2) + ' MB)');
     });
   }
+
+  // The Apple Music provider is an out-of-process WebView2 host. Packaging
+  // without it would leave a visible provider entry that can never start, so
+  // fail the build instead of shipping a broken integration.
+  const appleMusicDir = path.join(context.appOutDir, 'resources', 'apple-music', 'windows');
+  const appleMusicFiles = [
+    'MineradioAppleMusicCompanion.exe',
+    'MineradioAppleMusicCompanion.exe.config',
+    'Microsoft.Web.WebView2.Core.dll',
+    'Microsoft.Web.WebView2.WinForms.dll',
+    'WebView2Loader.dll'
+  ];
+  const missingAppleMusicFiles = appleMusicFiles.filter(function(name) {
+    return !fs.existsSync(path.join(appleMusicDir, name));
+  });
+  if (missingAppleMusicFiles.length) {
+    throw new Error('Apple Music companion is missing from the package: ' + missingAppleMusicFiles.join(', '));
+  }
 };
