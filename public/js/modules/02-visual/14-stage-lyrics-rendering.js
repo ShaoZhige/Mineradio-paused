@@ -242,6 +242,9 @@ function stageLyricRestoreWarmupSeconds() {
     return null;
   }
   var actual = audio && isFinite(Number(audio.currentTime)) ? Math.max(0, Number(audio.currentTime) || 0) : 0;
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    actual = Math.max(0, Number(externalPlaybackCurrentSeconds()) || 0);
+  }
   if (actual > 0.35 && Math.abs(actual - seconds) <= 1.25) {
     return actual;
   }
@@ -1535,6 +1538,7 @@ function stageLyricPlaybackSeconds() {
   if (preview != null && isFinite(Number(preview))) return Math.max(0, Number(preview));
   var restoreSeconds = stageLyricRestoreWarmupSeconds();
   if (restoreSeconds != null) return restoreSeconds;
+  if (typeof getPlaybackCurrentSeconds === 'function') return Math.max(0, Number(getPlaybackCurrentSeconds()) || 0);
   return audio && isFinite(Number(audio.currentTime)) ? Math.max(0, Number(audio.currentTime)) : 0;
 }
 function stageLyricProgressSeekVisualReady(seconds) {

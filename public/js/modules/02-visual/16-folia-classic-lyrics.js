@@ -22,6 +22,8 @@
   var renderedNextLine = null;
   var lineTiming = { renderEnd: 0, revealMode: 'normal', lookahead: 0.15 };
   var lastPaletteKey = '';
+  var lastGlowBeatStep = null;
+  var lastSettingsKey = '';
   var lastTrackToken = null;
   var trackSwitchQuietUntil = 0;
   var groupWasHiddenByUs = false;
@@ -53,20 +55,23 @@
     root.innerHTML = '';
     floatNode = document.createElement('div');
     floatNode.className = 'folia-classic-float';
-    lineNode = document.createElement('div');
-    lineNode.className = 'folia-classic-line';
-    floatNode.appendChild(lineNode);
     translationNode = document.createElement('div');
     translationNode.className = 'folia-classic-translation';
     root.appendChild(floatNode);
     root.appendChild(translationNode);
+    lineNode = null;
     wordNodes = [];
     wordTimes = [];
     lastLineKey = '';
+    lastPaletteKey = '';
+    lastGlowBeatStep = null;
+    lastSettingsKey = '';
   }
 
   function lyricNowSeconds() {
-    var seconds = typeof audio !== 'undefined' && audio && isFinite(audio.currentTime) ? audio.currentTime : 0;
+    var seconds = typeof getPlaybackCurrentSeconds === 'function'
+      ? getPlaybackCurrentSeconds()
+      : (typeof audio !== 'undefined' && audio && isFinite(audio.currentTime) ? audio.currentTime : 0);
     if (typeof getAdjustedLyricPlaybackTime === 'function') {
       var adjusted = getAdjustedLyricPlaybackTime(seconds);
       if (isFinite(adjusted)) seconds = adjusted;
@@ -81,8 +86,9 @@
     return x - Math.floor(x);
   }
 
-  // 每一行像被一台随机角度的摄影机拍到：整行绕中心做轻微旋转/横向压缩，并从
-  // 不同方向进入；但词仍然按句子顺序留在同一行里，不单个乱蹦。
+  // 每一行像被一台随机角度的摄影机拍到：整行绕中心做轻微旋转/横向压缩。
+  // 换行时新句从上一句的机位平滑落到自己的机位，所以这里只描述"落点"，
+  // 不再把整行从屏幕外甩进来。
   function linePose(seed) {
     var s = Math.max(0.01, Number(seed) || 0.01);
     var rx = (hashUnit(s * 3.13 + 0.7) - 0.5) * 28;
@@ -90,12 +96,8 @@
     var rz = (hashUnit(s * 7.37 + 2.1) - 0.5) * 20;
     var scale = 0.88 + hashUnit(s * 9.19 + 3.7) * 0.16;
     var scaleX = 0.92 + hashUnit(s * 17.41 + 7.3) * 0.16;
-    var fromX = (hashUnit(s * 11.31 + 4.9) - 0.5) * 240;
-    var fromY = (hashUnit(s * 13.73 + 5.3) - 0.5) * 190;
-    var fromR = (hashUnit(s * 15.17 + 6.1) - 0.5) * 9;
     return {
-      rx: rx, ry: ry, rz: rz, scale: scale, scaleX: scaleX,
-      fromX: fromX, fromY: fromY, fromR: fromR
+      rx: rx, ry: ry, rz: rz, scale: scale, scaleX: scaleX
     };
   }
 
@@ -325,16 +327,26 @@
     if (glowOn && typeof fx !== 'undefined' && fx && fx.lyricGlowBeat && typeof stageLyrics !== 'undefined' && stageLyrics) {
       beat = Math.max(0, Math.min(1, Number(stageLyrics.beatGlow) || 0));
     }
-    var level = glowOn ? Math.max(0, Math.min(1.3, strength / 0.28)) * (1 + beat * 0.35) : 0;
+    // 鼓点每帧都在变；按 0.2 量化后最多 5 次/秒写一次辉光。写入的是根节点
+    // 的 CSS 变量，会让整棵歌词重新计算 text-shadow/圆环；5Hz 对柔和的辉光
+    // 脉冲几乎不可见，却把这类重算次数从 10Hz 再减半。
+    var beatStep = Math.round(beat * 5) / 5;
+    var level = glowOn ? Math.max(0, Math.min(1.3, strength / 0.28)) * (1 + beatStep * 0.35) : 0;
     var rgb = hexRgb(glowHex);
-    var key = [pal.primary, pal.highlight, pal.secondary, glowHex, glowOn, linked, strength.toFixed(2), (Math.round(beat * 20) / 20).toFixed(2)].join('|');
-    if (key === lastPaletteKey) return;
-    lastPaletteKey = key;
-    root.style.setProperty('--folia-ink', pal.primary || '#eaf3ff');
-    root.style.setProperty('--folia-hi', pal.highlight || '#ffffff');
-    root.style.setProperty('--folia-glow', glowHex);
-    root.style.setProperty('--folia-glow-rgb', rgb);
-    root.style.setProperty('--folia-glow-level', level.toFixed(3));
+    var key = [pal.primary, pal.highlight, pal.secondary, glowHex, glowOn, linked, strength.toFixed(2)].join('|');
+    if (key !== lastPaletteKey) {
+      lastPaletteKey = key;
+      root.style.setProperty('--folia-ink', pal.primary || '#eaf3ff');
+      root.style.setProperty('--folia-hi', pal.highlight || '#ffffff');
+      root.style.setProperty('--folia-glow', glowHex);
+      root.style.setProperty('--folia-glow-rgb', rgb);
+      // 调色盘/强度变了，即使鼓点没动也要把新的亮度写进去。
+      lastGlowBeatStep = null;
+    }
+    if (beatStep !== lastGlowBeatStep) {
+      lastGlowBeatStep = beatStep;
+      root.style.setProperty('--folia-glow-level', level.toFixed(3));
+    }
   }
 
   function hexRgb(value) {
@@ -387,29 +399,85 @@
     return node;
   }
 
-  // Keep the previous line around long enough to fade out; the new line starts
-  // immediately so playback never waits on an exit animation.
-  function retireLineNode() {
-    if (!lineNode || !lineNode.childElementCount || !floatNode) return;
-    var ghosts = floatNode.querySelectorAll('.folia-classic-line.is-out');
-    for (var g = 0; g < ghosts.length; g++) ghosts[g].parentNode.removeChild(ghosts[g]);
-    var ghost = lineNode.cloneNode(true);
-    ghost.classList.remove('is-in', 'is-instant');
-    ghost.classList.add('is-out');
-    ghost.setAttribute('aria-hidden', 'true');
-    var staleRings = ghost.querySelectorAll('.folia-word-rings');
-    for (var r = 0; r < staleRings.length; r++) staleRings[r].parentNode.removeChild(staleRings[r]);
-    floatNode.insertBefore(ghost, lineNode);
+  // The outgoing line keeps its own DOM node. Cloning it restarted every bob /
+  // glow / word-spring animation and duplicated the four-layer text shadows at
+  // the exact moment of the switch, which is where the visible stutter came
+  // from. Keeping the live node means the exit is a compositor-only fade, and
+  // its camera translate / pose stay exactly where the viewer last saw them.
+  function retireLineNode(node) {
+    if (!node || !node.parentNode) return { rotate: '', transform: '', cam: null };
+    // Never let two ghosts stack: in a rapid section the previous exit may
+    // still be fading when the next line starts. It is already almost
+    // transparent by then, so dropping it reads as a clean cut, while keeping
+    // it would put two texts on screen at once.
+    if (floatNode) {
+      var staleGhosts = floatNode.querySelectorAll('.folia-classic-line.is-out');
+      for (var sg = 0; sg < staleGhosts.length; sg += 1) {
+        if (staleGhosts[sg].parentNode) staleGhosts[sg].parentNode.removeChild(staleGhosts[sg]);
+      }
+    }
+    var rotate = '';
+    var transform = '';
+    var opacity = '1';
+    var cam = null;
+    try {
+      var cs = window.getComputedStyle(node);
+      rotate = String(cs.rotate || '');
+      transform = String(cs.transform || '');
+      opacity = String(cs.opacity || '1');
+      var liveTranslate = String(cs.translate || '');
+      if (liveTranslate && liveTranslate !== 'none') {
+        var liveCam = parseFloat(liveTranslate);
+        if (isFinite(liveCam)) {
+          cam = liveCam;
+          node.style.translate = liveTranslate;
+        }
+      }
+    } catch (_) {
+      rotate = '';
+      transform = '';
+      opacity = '1';
+      cam = null;
+    }
+    if (rotate === 'none' || rotate === 'normal') rotate = '';
+    if (transform === 'none') transform = node.__foliaPoseTransform || '';
+    // Freeze the current camera rotate and the current (possibly still
+    // animating) pose before `is-in` is removed, otherwise the old line snaps
+    // back to its rest pose at the exact frame the new line fades in.
+    if (rotate) node.style.rotate = rotate;
+    if (transform) node.style.transform = transform;
+    // Freeze the layout box as well. The ghost is absolutely positioned inside
+    // the float, so if the incoming line is taller the float grows and the
+    // ghost re-centres, visibly dropping during the fade. offsetTop/Height are
+    // untransformed, unlike getBoundingClientRect.
+    if (node.offsetHeight > 0) {
+      node.style.top = node.offsetTop + 'px';
+      node.style.height = node.offsetHeight + 'px';
+      node.style.bottom = 'auto';
+      node.style.margin = '0 auto';
+    }
+    // A line can be retired while its fade-in is still running (very short
+    // lines, dictionary rebuild). Start the exit from the current opacity so
+    // it never flashes to full before fading.
+    node.style.setProperty('--folia-exit-opacity', opacity);
+    // A line retired in a fast/instant section must not linger for the full
+    // normal exit: at <0.18s per line several ghosts would overlap and read as
+    // double text. Match the exit to the mode that produced the line.
+    var exitDuration = node.__foliaRevealMode === 'instant' ? 0.1 : node.__foliaRevealMode === 'fast' ? 0.14 : 0.22;
+    node.style.animationDuration = exitDuration.toFixed(2) + 's';
+    node.classList.remove('is-in', 'is-instant');
+    node.classList.add('is-out');
+    node.setAttribute('aria-hidden', 'true');
     window.setTimeout(function () {
-      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
-    }, 210);
+      if (node.parentNode) node.parentNode.removeChild(node);
+    }, 280);
+    return { rotate: rotate, transform: transform, cam: cam };
   }
 
   function renderLine(line, nextLine, lineIndex) {
     ensureRoot();
     var key = lineIndex + '|' + String(line && line.text || '');
     if (key === lastLineKey) return;
-    lastLineKey = key;
 
     wordTimes = buildWords(line, nextLine);
     renderedLine = line || null;
@@ -427,8 +495,25 @@
       revealMode: revealMode,
       lookahead: revealMode === 'instant' ? 0.03 : revealMode === 'fast' ? 0.08 : 0.15
     };
-    retireLineNode();
-    lineNode.innerHTML = '';
+
+    // Hand the outgoing line over to the exit animation. We deliberately keep
+    // the existing DOM node (see retireLineNode) and start the incoming line
+    // from the old line's exact transform/camera so there is no jump at the
+    // seams.
+    var previous = lineNode;
+    var previousCam = 0;
+    if (previous) {
+      previousCam = Number(previous.__foliaCamPx);
+      if (!isFinite(previousCam)) previousCam = parseFloat(previous.style.translate) || 0;
+    }
+    var retired = previous ? retireLineNode(previous) : null;
+    if (retired && retired.cam !== null) previousCam = retired.cam;
+    var previousRotate = retired ? retired.rotate : '';
+    var previousPose = retired ? retired.transform : '';
+
+    var next = document.createElement('div');
+    next.className = 'folia-classic-line';
+    lineNode = next;
     wordNodes = [];
     translationNode.textContent = line && line.translation ? String(line.translation) : '';
 
@@ -438,41 +523,62 @@
       fontScale = Math.max(0.6, Math.min(1.8, Number(fx.lyricFontScale)));
     }
     var fontSize = Math.max(36, Math.min(72, width * 0.06)) * fontScale;
-    lineNode.style.fontSize = fontSize.toFixed(2) + 'px';
+    next.style.fontSize = fontSize.toFixed(2) + 'px';
     if (typeof lyricFontStackForKey === 'function') {
-      lineNode.style.fontFamily = lyricFontStackForKey(fx && fx.lyricFont);
+      next.style.fontFamily = lyricFontStackForKey(fx && fx.lyricFont);
     }
+    next.style.letterSpacing = clampNumber(fx && fx.lyricLetterSpacing, 0, -4, 12).toFixed(2) + 'px';
 
     var seed = Math.max(0.01, Number(line && line.t) || 0.01);
     var pose = linePose(seed);
-    lineNode.style.transformOrigin = '50% 50%';
-    lineNode.style.transform =
+    next.style.transformOrigin = '50% 50%';
+    next.style.transform =
       'rotate(' + (pose.rz + pose.ry * 0.22).toFixed(2) + 'deg)'
       + ' scale(' + pose.scale.toFixed(3) + ', ' + (pose.scale * pose.scaleX).toFixed(3) + ')';
-    lineNode.style.setProperty('--pose-rx', pose.rx.toFixed(2) + 'deg');
-    lineNode.style.setProperty('--pose-ry', pose.ry.toFixed(2) + 'deg');
-    lineNode.style.setProperty('--pose-rz', pose.rz.toFixed(2) + 'deg');
-    lineNode.style.setProperty('--pose-from-x', pose.fromX.toFixed(1) + 'px');
-    lineNode.style.setProperty('--pose-from-y', pose.fromY.toFixed(1) + 'px');
-    lineNode.style.setProperty('--pose-from-r', pose.fromR.toFixed(2) + 'deg');
-    lineNode.style.setProperty('--pose-drift', ((hashUnit(seed * 19.73 + 8.1) - 0.5) * 4.4).toFixed(2) + 'deg');
+    next.style.setProperty('--pose-drift', ((hashUnit(seed * 19.73 + 8.1) - 0.5) * 4.4).toFixed(2) + 'deg');
     var justifyOptions = ['center'];
     var alignOptions = ['center', 'flex-start', 'flex-end'];
-    lineNode.style.justifyContent = justifyOptions[Math.floor(seed * 10) % justifyOptions.length];
-    lineNode.style.alignItems = alignOptions[Math.floor(seed * 20) % alignOptions.length];
+    next.style.justifyContent = justifyOptions[Math.floor(seed * 10) % justifyOptions.length];
+    next.style.alignItems = alignOptions[Math.floor(seed * 20) % alignOptions.length];
 
     for (var i = 0; i < wordTimes.length; i++) {
       var node = makeWordNode(wordTimes[i], i, seed * 1000 + i, fontSize);
       node.style.setProperty('--word-i', String(i));
-      lineNode.appendChild(node);
+      next.appendChild(node);
       wordNodes.push(node);
     }
-    lineNode.classList.remove('is-in');
-    void lineNode.offsetWidth;
+    floatNode.appendChild(next);
+    attachLineRings(seed);
+
+    // Measure the final layout once, while the new line is still unanimated.
+    // The old code measured getBoundingClientRect() while every word was in the
+    // waiting pose (translated/rotated/scaled), so the camera target was the
+    // position of the drift, not the word.
+    var lineWidth = next.clientWidth || 1;
+    var lineCenter = lineWidth / 2;
+    for (var wi = 0; wi < wordNodes.length; wi += 1) {
+      var wnode = wordNodes[wi];
+      var activeX = parseFloat(wnode.style.getPropertyValue('--w-x')) || 0;
+      wnode.__foliaCenter = wnode.offsetLeft + wnode.offsetWidth / 2 + activeX - lineCenter;
+    }
+
+    if (previousPose) next.style.setProperty('--pose-prev-transform', previousPose);
+    if (previousRotate) next.style.setProperty('--pose-prev-rotate', previousRotate);
+    next.__foliaCamPx = previousCam;
+    next.__foliaRevealMode = revealMode;
+    next.style.translate = previousCam.toFixed(1) + 'px 0px';
+    next.__foliaPoseTransform = next.style.transform;
+
+    // Flush the starting camera position before `is-in` starts the animations
+    // or paintStates moves the camera, so the .55s translate transition has a
+    // real starting value instead of teleporting by up to 36px.
+    void next.offsetWidth;
     var enterDuration = revealMode === 'instant' ? 0 : revealMode === 'fast' ? 0.08 : 0.18;
     lineNode.style.animationDuration = enterDuration.toFixed(2) + 's, 7.5s, ' + enterDuration.toFixed(2) + 's';
-    lineNode.classList.toggle('is-instant', revealMode === 'instant');
-    lineNode.classList.add('is-in');
+    next.classList.toggle('is-instant', revealMode === 'instant');
+    if (revealMode === 'instant' && previousRotate) next.style.rotate = previousRotate;
+    next.classList.add('is-in');
+    lastLineKey = key;
   }
 
   function clampNumber(value, fallback, min, max) {
@@ -487,7 +593,6 @@
     if (!root) return;
     var motion = (typeof fx !== 'undefined' && fx && fx.lyricMotionStyle) ? String(fx.lyricMotionStyle) : 'float';
     if (motion !== 'float' && motion !== 'smooth' && motion !== 'glass' && motion !== 'shine' && motion !== 'glitch') motion = 'float';
-    root.dataset.motion = motion;
 
     var stageScale = clampNumber(fx && fx.lyricScale, 1, 0.35, 1.65);
     var offsetX = clampNumber(fx && fx.lyricOffsetX, 0, -4, 4) * 6;
@@ -495,72 +600,62 @@
     var tiltX = clampNumber(fx && fx.lyricTiltX, 0, -84, 84);
     var tiltY = clampNumber(fx && fx.lyricTiltY, 0, -84, 84);
     var softness = clampNumber(fx && fx.lyricMotionSoftness, 0.72, 0, 1);
+    var letterSpacing = clampNumber(fx && fx.lyricLetterSpacing, 0, -4, 12);
+
+    // These values only change when the user drags a DIY slider. Writing the
+    // root transform (and the live line's letter-spacing) on every animation
+    // frame forces a style/layout pass for nothing, which is part of the
+    // general jank while the glow is animating.
+    var key = [motion, stageScale.toFixed(3), offsetX.toFixed(2), offsetY.toFixed(2),
+      tiltX.toFixed(2), tiltY.toFixed(2), softness.toFixed(3), letterSpacing.toFixed(2)].join('|');
+    if (key === lastSettingsKey) return;
+    lastSettingsKey = key;
+
+    root.dataset.motion = motion;
     root.style.transform = 'translate3d(' + offsetX.toFixed(2) + 'vw, ' + offsetY.toFixed(2) + 'vh, 0)'
       + ' perspective(1200px) rotateX(' + tiltX.toFixed(2) + 'deg) rotateY(' + tiltY.toFixed(2) + 'deg)'
       + ' scale(' + stageScale.toFixed(3) + ')';
     root.style.setProperty('--folia-soft', (0.55 + softness * 1.1).toFixed(3));
-    if (lineNode) {
-      lineNode.style.letterSpacing = clampNumber(fx && fx.lyricLetterSpacing, 0, -4, 12).toFixed(2) + 'px';
-    }
+    if (lineNode) lineNode.style.letterSpacing = letterSpacing.toFixed(2) + 'px';
   }
 
-  // Draw two or three soft halos inside the active word.  They sit on the
-  // character centres (left to right), shrink on the left and grow on the
-  // right, and breathe with a small delay so the light appears to travel
-  // along the word rather than sitting on one glyph.
-  function syncWordRings(node, state) {
-    var layer = node.querySelector('.folia-word-rings');
-    if (state !== 'active') {
-      if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
-      return;
-    }
-    var body = node.querySelector('.folia-classic-body');
-    if (!body) return;
-    var textNode = body.firstChild;
-    var text = String((textNode && textNode.nodeValue) || body.textContent || '');
-    var chars = Array.from(text);
+  // One word per line owns a small halo cluster: 1-2 rings total, instead of
+  // 1-3 rings on every word that becomes active.  The rings are built once at
+  // render time (hidden until their host word is active) so a word transition
+  // no longer creates/removes DOM and restarts four-layer shadows.  This is the
+  // main fix for the "every word pops circles" frequency and the switch jank.
+  function attachLineRings(seed) {
+    if (!wordNodes.length) return;
+    var hostIndex = Math.floor(hashUnit(seed * 7.93 + 2.17) * wordNodes.length);
+    var host = wordNodes[hostIndex];
+    if (!host) return;
+    var chars = Array.from(String(host.dataset.text || ''));
     if (!chars.length) return;
-    var count = chars.length;
-    var wanted = Math.min(count, 1 + Math.floor(Math.random() * Math.min(3, count)));
-    var indices = [];
-    for (var k = 0; k < count; k += 1) indices.push(k);
-    for (var m = indices.length - 1; m > 0; m -= 1) {
-      var q = Math.floor(Math.random() * (m + 1));
-      var tmp = indices[m]; indices[m] = indices[q]; indices[q] = tmp;
+    // Two rings only when the host word has at least two glyphs; otherwise a
+    // single ring.  Roughly half the lines get two, so the average stays in the
+    // requested 1-2 per line.
+    var wanted = chars.length > 1 && hashUnit(seed * 11.3 + 4.7) > 0.5 ? 2 : 1;
+    var start = Math.floor(hashUnit(seed * 3.17 + 9.41) * chars.length);
+    var indices = [start];
+    if (wanted === 2) {
+      var second = (start + 1 + Math.floor(hashUnit(seed * 5.71 + 1.33) * (chars.length - 1))) % chars.length;
+      indices.push(second);
+      indices.sort(function (a, b) { return a - b; });
     }
-    indices = indices.slice(0, wanted).sort(function (a, b) { return a - b; });
-    var key = indices.join(',');
-    if (layer && layer.dataset.key === key) return;
-    if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
-    layer = document.createElement('span');
+    var layer = document.createElement('span');
     layer.className = 'folia-word-rings';
-    layer.dataset.count = String(count);
-    layer.dataset.key = key;
-    var wordRect = node.getBoundingClientRect();
-    var range = document.createRange();
     for (var j = 0; j < indices.length; j += 1) {
       var idx = indices[j];
-      var x = ((idx + 0.5) / count) * 100;
-      if (textNode && textNode.nodeType === 3 && wordRect.width > 0) {
-        try {
-          range.setStart(textNode, idx);
-          range.setEnd(textNode, idx + 1);
-          var cr = range.getBoundingClientRect();
-          if (cr.width > 0 && cr.height > 0) {
-            x = ((cr.left + cr.width / 2 - wordRect.left) / wordRect.width) * 100;
-          }
-        } catch (err) { /* fall back to proportional centre */ }
-      }
       var ring = document.createElement('span');
       ring.className = 'folia-word-ring';
-      ring.style.setProperty('--ring-x', x.toFixed(2) + '%');
+      ring.style.setProperty('--ring-x', ((((idx + 0.5) / chars.length) * 100).toFixed(2)) + '%');
       ring.style.setProperty('--ring-y', '50%');
       var size = 1.45 + (indices.length > 1 ? (j / (indices.length - 1)) : 0) * 0.15;
       ring.style.setProperty('--ring-s', size.toFixed(2) + 'em');
       ring.style.setProperty('--ring-d', (j * 0.18).toFixed(2) + 's');
       layer.appendChild(ring);
     }
-    node.appendChild(layer);
+    host.appendChild(layer);
   }
 
   function paintStates(now) {
@@ -568,7 +663,7 @@
     // reveal profile: active starts lookahead seconds early; passed happens at
     // its active end (line-render end for micro/fast lines).
     var cameraTarget = 0;
-    var hasActive = false;
+    var activeIndex = -1;
     for (var i = 0; i < wordNodes.length; i++) {
       var node = wordNodes[i];
       var t = wordTimes[i];
@@ -580,40 +675,22 @@
       if (now < t.start - lineTiming.lookahead) state = 'waiting';
       else if (now > activeEnd) state = 'passed';
       else state = 'active';
-      if (state === 'active') hasActive = true;
+      if (state === 'active') activeIndex = i;
       if (node.__foliaState !== state) {
         node.__foliaState = state;
         node.classList.remove('is-waiting', 'is-active', 'is-passed');
         node.classList.add('is-' + state);
-        syncWordRings(node, state);
-        if (state === 'active') {
-          var glow = node.querySelector('.folia-classic-glow');
-          if (glow) {
-            glow.style.animation = 'none';
-            void glow.offsetWidth;
-            glow.style.animation = '';
-          }
-        }
       }
     }
     if (lineNode) {
-      if (hasActive) {
-        var lineRect = lineNode.getBoundingClientRect();
-        var activeRect = null;
-        for (var a = 0; a < wordNodes.length; a++) {
-          if (wordNodes[a] && wordNodes[a].classList.contains('is-active')) {
-            activeRect = wordNodes[a].getBoundingClientRect();
-            break;
-          }
-        }
-        if (activeRect && lineRect.width > 0) {
-          var wordCenter = (activeRect.left + activeRect.right) / 2;
-          var lineCenter = (lineRect.left + lineRect.right) / 2;
-          cameraTarget = Math.max(-36, Math.min(36, -(wordCenter - lineCenter) * 0.08));
+      if (activeIndex >= 0) {
+        var activeNode = wordNodes[activeIndex];
+        if (activeNode && typeof activeNode.__foliaCenter === 'number') {
+          cameraTarget = Math.max(-36, Math.min(36, -(activeNode.__foliaCenter) * 0.08));
         }
       }
       var camPx = Math.round(cameraTarget * 10) / 10;
-      if (lineNode.__foliaCamPx !== camPx) {
+      if (lineNode.__foliaCamPx === undefined || Math.abs(lineNode.__foliaCamPx - camPx) >= 0.6) {
         lineNode.__foliaCamPx = camPx;
         lineNode.style.translate = camPx + 'px 0px';
       }
@@ -635,11 +712,24 @@
 
   function clearOverlay() {
     if (!root) return;
-    if (floatNode) {
-      var ghosts = floatNode.querySelectorAll('.folia-classic-line.is-out');
-      for (var g = 0; g < ghosts.length; g++) ghosts[g].parentNode.removeChild(ghosts[g]);
+    if (lineNode) {
+      // Keep the float's height while the last line fades: making it absolute
+      // with no in-flow sibling collapses the float and the ghost would visibly
+      // drop by half its height.
+      var keepHeight = lineNode.offsetHeight;
+      if (floatNode && keepHeight > 0) {
+        // border-box: min-height includes the float's vertical padding, so add
+        // it back or the collapsed float is 4rem shorter and the ghost drops.
+        var floatStyle = window.getComputedStyle(floatNode);
+        var padY = (parseFloat(floatStyle.paddingTop) || 0) + (parseFloat(floatStyle.paddingBottom) || 0);
+        floatNode.style.minHeight = (keepHeight + padY) + 'px';
+        window.setTimeout(function () {
+          if (floatNode) floatNode.style.minHeight = '';
+        }, 300);
+      }
+      retireLineNode(lineNode);
+      lineNode = null;
     }
-    if (lineNode) lineNode.innerHTML = '';
     if (translationNode) translationNode.textContent = '';
     wordNodes = [];
     wordTimes = [];

@@ -74,7 +74,11 @@ test('流光每个词有持续的随机浮动动画', () => {
   assert.match(MODULE, /--bob-dur/);
   assert.match(CSS, /@keyframes folia-classic-bob/);
   assert.match(CSS, /animation: folia-classic-bob/);
-  assert.match(CSS, /\.folia-classic-body,[\s\S]*?\.folia-classic-line\.is-in \{ animation: none \}/);
+  // 减少动态效果只停环境性的漂浮/呼吸；歌词入场、退场与逐词过渡是流光本体的反馈，必须保留。
+  assert.match(CSS, /\.folia-classic-float,\s*\.folia-classic-body \{ animation: none \}/);
+  assert.doesNotMatch(CSS, /\.folia-classic-line\.is-in \{ animation: none \}/);
+  assert.doesNotMatch(CSS, /\.folia-classic-line\.is-out \{ animation: none \}/);
+  assert.doesNotMatch(CSS, /\.folia-classic-word \{ transition: none \}/);
 });
 
 test('歌词样式分段控件登记进 DIY 视野控制台', () => {

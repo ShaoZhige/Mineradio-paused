@@ -79,7 +79,10 @@ function assert(condition, message) {
     await sleep(1200);
     await evaluate("var st=document.createElement('style'); st.id='folia-qa-hide-ui'; st.textContent='#empty-home,#search-area,#top-actions,#playlist-panel,#bottom-bar,.bottom-bar,#player-bar,#top-bar,#home-dashboard,#home-shell,#home-view{display:none!important}'; document.head.appendChild(st); 'ui hidden'");
     await call('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
-    await evaluate("var text='晚风穿过城市灯火慢慢亮起'; var words=[]; var chunks=['晚风','穿过','城市','灯火','慢慢','亮起']; var c0=0; for(var i=0;i<chunks.length;i++){var w=chunks[i]; words.push({text:w,t:0.6+i*0.5,d:0.5,c0:c0,c1:c0+w.length}); c0+=w.length;} lyricsLines=[{t:0.6,duration:3.4,text:text,words:words,charCount:text.length,source:'yrc-word',translation:'晚风穿过城市，灯火慢慢亮起'}]; window.__foliaNow=1.8; getAdjustedLyricPlaybackTime=function(){return window.__foliaNow;}; document.body.classList.remove('empty-home-active','splash-active'); fx.lyricStyle='classic'; if(typeof updateLyricStyleControls==='function')updateLyricStyleControls(); 'ok'");
+    // 1.2s leaves the second word active. At 1.8s the middle word is active and
+    // sits on the line centre, so the correct camera offset is ~0px and the
+    // "camera follows the active word" assertion cannot test anything.
+    await evaluate("var text='晚风穿过城市灯火慢慢亮起'; var words=[]; var chunks=['晚风','穿过','城市','灯火','慢慢','亮起']; var c0=0; for(var i=0;i<chunks.length;i++){var w=chunks[i]; words.push({text:w,t:0.6+i*0.5,d:0.5,c0:c0,c1:c0+w.length}); c0+=w.length;} lyricsLines=[{t:0.6,duration:3.4,text:text,words:words,charCount:text.length,source:'yrc-word',translation:'晚风穿过城市，灯火慢慢亮起'}]; window.__foliaNow=1.2; getAdjustedLyricPlaybackTime=function(){return window.__foliaNow;}; document.body.classList.remove('empty-home-active','splash-active'); fx.lyricStyle='classic'; if(typeof updateLyricStyleControls==='function')updateLyricStyleControls(); 'ok'");
     for (let i = 0; i < 6; i += 1) {
       await evaluate("window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'tick'");
       await sleep(200);
@@ -103,16 +106,30 @@ function assert(condition, message) {
     assert(state.active >= 1, 'no active word');
     assert(state.passed >= 1, 'no passed word');
     assert(state.active + state.passed + state.waiting === 6, 'word state counts do not add up');
-    const pose = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var cs=line?getComputedStyle(line):null;var act=line&&line.querySelector('.folia-classic-word.is-active');var rings=act?Array.prototype.map.call(act.querySelectorAll('.folia-word-ring'),function(r){return {w:parseFloat(getComputedStyle(r).width),l:parseFloat(getComputedStyle(r).left)};}):[];return {inline:line?line.style.transform:'',computed:cs?cs.transform:'none',order:line?Array.prototype.map.call(line.querySelectorAll('.folia-classic-word'),function(w){return w.dataset.text||w.textContent;}).join(''):'',camera:line?line.style.translate:'',rings:rings,wordDur:act?getComputedStyle(act).animationDuration:'',wordDelay:act?getComputedStyle(act).animationDelay:'',lineDur:line?line.style.animationDuration:''};})()");
+    const pose = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var line=root&&root.querySelector('.folia-classic-line');var cs=line?getComputedStyle(line):null;var act=line&&line.querySelector('.folia-classic-word.is-active');var all=line?Array.prototype.slice.call(line.querySelectorAll('.folia-word-ring')):[];var hosts=line?line.querySelectorAll('.folia-word-rings'):[];var layer=hosts[0];var host=layer&&layer.parentNode; return {inline:line?line.style.transform:'',computed:cs?cs.transform:'none',order:line?Array.prototype.map.call(line.querySelectorAll('.folia-classic-word'),function(w){return w.dataset.text||w.textContent;}).join(''):'',camera:line?line.style.translate:'',ringCount:all.length,hostCount:hosts.length,activeRings:act?act.querySelectorAll('.folia-word-ring').length:0,hostActive:!!(host&&host.classList.contains('is-active')),hostDisplay:layer?getComputedStyle(layer).display:'',hostIndex:host?Array.prototype.indexOf.call(line.querySelectorAll('.folia-classic-word'),host):-1,ringWidths:all.map(function(r){return parseFloat(getComputedStyle(r).width);}),ringLefts:all.map(function(r){return parseFloat(getComputedStyle(r).left);}),wordDur:act?getComputedStyle(act).animationDuration:'',wordDelay:act?getComputedStyle(act).animationDelay:'',lineDur:line?line.style.animationDuration:''};})()");
     console.log('pose:', JSON.stringify(pose));
     assert(pose.inline && pose.inline.indexOf('rotate(') >= 0, 'line has no random rotation');
     assert(pose.computed.indexOf('matrix(') === 0, 'line pose must stay 2D (no perspective)');
     assert(pose.order === '晚风穿过城市灯火慢慢亮起', 'word order was reordered');
     assert(Math.abs(parseFloat(pose.camera || '0')) > 0.2, 'camera did not follow the active word');
-    assert(pose.rings.length >= 1 && pose.rings.length <= 3, 'active word needs one to three random halo rings');
-    if (pose.rings.length > 1) {
-      assert(pose.rings[pose.rings.length - 1].w > pose.rings[0].w, 'halo rings should grow from left to right');
-      assert(pose.rings[0].l < pose.rings[pose.rings.length - 1].l, 'halo rings should travel left to right');
+    assert(pose.ringCount >= 1 && pose.ringCount <= 2, 'a line should have one or two halo rings, got ' + pose.ringCount);
+    assert(pose.hostCount === 1, 'halo rings should live on exactly one host word, got ' + pose.hostCount);
+    if (pose.ringCount > 1) {
+      assert(pose.ringWidths[1] > pose.ringWidths[0], 'halo rings should grow from left to right');
+      assert(pose.ringLefts[0] < pose.ringLefts[1], 'halo rings should travel left to right');
+    }
+    assert(pose.activeRings === 0 || pose.activeRings === pose.ringCount, 'only the active host word may show halos');
+    assert(pose.hostDisplay === (pose.hostActive ? 'block' : 'none'), 'halo layer should only be visible on its active host');
+    if (pose.hostIndex >= 0) {
+      const hostTime = 0.75 + pose.hostIndex * 0.5;
+      await evaluate("window.__foliaNow=" + hostTime + "; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'host'");
+      await sleep(60);
+      const hostState = await evaluate("(function(){var line=document.querySelector('#folia-classic-lyrics .folia-classic-line');var layer=line&&line.querySelector('.folia-word-rings');return {active:!!(layer&&layer.parentNode.classList.contains('is-active')),display:layer?getComputedStyle(layer).display:'',rings:layer?layer.querySelectorAll('.folia-word-ring').length:0};})()");
+      console.log('ring-host:', JSON.stringify(hostState));
+      assert(hostState.active, 'ring host word did not become active');
+      assert(hostState.display === 'block', 'halo layer did not show on its active host');
+      assert(hostState.rings === pose.ringCount, 'host ring count changed');
+      await evaluate("window.__foliaNow=1.2; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'restore'");
     }
     assert(parseFloat(pose.wordDur) <= 0.2, 'word entrance is too slow: ' + pose.wordDur);
     assert(parseFloat(pose.wordDelay) <= 0.1, 'first word entrance is delayed: ' + pose.wordDelay);
@@ -140,6 +157,34 @@ function assert(condition, message) {
     assert(Number(glow.off.level) === 0, 'glow off level is not 0');
     assert(Number(glow.full.level) > 1, 'glow strength did not scale up');
     assert(/255, 0, 0/.test(glow.custom.rgb || ''), 'custom glow color not applied');
+
+    // Seam test: retire a line while its camera is off-centre and verify the
+    // outgoing node keeps its frozen camera/pose instead of snapping, while the
+    // incoming node inherits the previous pose. This is the regression that
+    // produced the sideways jump and the double-image stutter at every switch.
+    await evaluate("lyricsLines=[{t:0.6,duration:2.0,text:text,words:words,charCount:text.length,source:'yrc-word'},{t:2.8,duration:2.0,text:'第二行测试文字',words:[{text:'第二',t:2.8,d:0.5,c0:0,c1:2},{text:'行测',t:3.3,d:0.5,c0:2,c1:4},{text:'试文',t:3.8,d:0.5,c0:4,c1:6},{text:'字',t:4.3,d:0.5,c0:6,c1:7}],charCount:7,source:'yrc-word'}]; window.__foliaNow=1.2; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'two-lines'");
+    await sleep(120);
+    const pre = await evaluate("(function(){var l=document.querySelector('#folia-classic-lyrics .folia-classic-line.is-in');var cs=l?getComputedStyle(l):null;return {cam:cs?(parseFloat(cs.translate)||0):0,rotate:cs?cs.rotate:'',left:l?l.offsetLeft:-1,top:l?l.offsetTop:-1};})()");
+    await evaluate("window.__foliaNow=3.2; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'switch'");
+    await sleep(150);
+    const seam = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');var out=root&&root.querySelector('.folia-classic-line.is-out');var inn=root&&root.querySelector('.folia-classic-line.is-in');var ocs=out?getComputedStyle(out):null;return {outCam:out?(parseFloat(out.style.translate)||0):0,outTranslate:ocs?ocs.translate:'',outRotate:ocs?ocs.rotate:'',outDur:out?parseFloat(out.style.animationDuration):0,outAnims:out?out.getAnimations().map(function(a){return {name:a.animationName,dur:a.effect&&a.effect.getTiming().duration};}):[],outLeft:out?out.offsetLeft:-1,outTop:out?out.offsetTop:-1,inCount:root?root.querySelectorAll('.folia-classic-line.is-in').length:0,outCount:root?root.querySelectorAll('.folia-classic-line.is-out').length:0,prev:inn?inn.style.getPropertyValue('--pose-prev-transform'):'',inDur:inn?inn.style.animationDuration:''};})()");
+    console.log('pre-switch:', JSON.stringify(pre));
+    console.log('seam:', JSON.stringify(seam));
+    assert(Math.abs(pre.cam) > 0.2, 'pre-switch camera is not off-centre');
+    assert(seam.outCount === 1 && seam.inCount === 1, 'expected exactly one outgoing and one incoming line');
+    assert(Math.abs(seam.outCam - pre.cam) < 0.2, 'outgoing line lost its camera translate');
+    assert(Math.abs((parseFloat(seam.outTranslate) || 0) - pre.cam) < 0.2, 'outgoing line animated its translate away');
+    assert(Math.abs((parseFloat(seam.outRotate) || 0) - (parseFloat(pre.rotate) || 0)) < 0.05, 'outgoing line snapped its camera rotate');
+    assert(Math.abs(seam.outDur - 0.22) < 0.01, 'outgoing line exit duration is wrong: ' + seam.outDur);
+    assert(seam.outAnims.some(function (a) { return a.name === 'folia-classic-line-out' && Math.abs(a.dur - 220) < 1; }), 'outgoing line has no running exit animation (reduced-motion?)');
+    assert(Math.abs(seam.outLeft - pre.left) < 1, 'outgoing line jumped horizontally: ' + pre.left + ' -> ' + seam.outLeft);
+    assert(Math.abs(seam.outTop - pre.top) < 1, 'outgoing line jumped vertically: ' + pre.top + ' -> ' + seam.outTop);
+    assert(!!seam.prev, 'incoming line has no previous-pose handoff');
+    assert(parseFloat(seam.inDur) <= 0.2, 'incoming line entrance is too slow: ' + seam.inDur);
+    await sleep(220);
+    const ghosts = await evaluate("document.querySelectorAll('#folia-classic-lyrics .folia-classic-line.is-out').length");
+    assert(ghosts === 0, 'outgoing line was not removed after the fade');
+
     await evaluate("fx.lyricStyle='default'; if(typeof updateLyricStyleControls==='function')updateLyricStyleControls(); window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'off'");
     await sleep(600);
     const off = await evaluate("(function(){var root=document.getElementById('folia-classic-lyrics');return {shown:!!(root&&root.classList.contains('show'))};})()");

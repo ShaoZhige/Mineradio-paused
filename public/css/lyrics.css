@@ -85,7 +85,7 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  padding: 2rem;
+  padding: 2rem 0;
   animation: folia-classic-float 7s ease-in-out infinite
 }
 
@@ -96,8 +96,9 @@
   flex-wrap: wrap;
   align-content: center;
   width: 100%;
-  max-width: 72rem;
+  max-width: calc(72rem + 4rem);
   min-height: 300px;
+  padding: 0 2rem;
   font-weight: 700;
   line-height: 1.22;
   gap: 1.1em;
@@ -110,7 +111,7 @@
 .folia-classic-line.is-in {
   animation-name: folia-line-pose-in, folia-line-camera, folia-line-fade-in;
   animation-duration: .72s, 7.5s, .72s;
-  animation-timing-function: cubic-bezier(.22, .9, .28, 1), ease-in-out;
+  animation-timing-function: cubic-bezier(.22, .9, .28, 1), ease-in-out, ease-out;
   animation-iteration-count: 1, infinite;
   animation-direction: normal, alternate
 }
@@ -121,26 +122,15 @@
 }
 
 @keyframes folia-line-camera {
-  from { rotate: 0deg; }
+  from { rotate: var(--pose-prev-rotate, 0deg); }
   to { rotate: var(--pose-drift, 0deg); }
 }
 
+/* Start from the outgoing line's exact pose and settle into this line's pose.
+   There is deliberately no fly-in translation or blur: the two lines overlap
+   for the length of the crossfade, so any offset reads as a jump. */
 @keyframes folia-line-pose-in {
-  from {
-    filter: blur(4px);
-    transform: translate3d(var(--pose-from-x, 0px), var(--pose-from-y, 0px), 0)
-      rotate(calc(var(--pose-rz, 0deg) + var(--pose-from-r, 0deg)))
-      scale(.9)
-  }
-}
-
-.folia-classic-line.is-in .folia-classic-word {
-  animation: folia-classic-word-in .16s cubic-bezier(.22, .61, .36, 1) backwards;
-  animation-delay: calc(var(--word-i, 0) * 24ms)
-}
-
-.folia-classic-line.is-in .folia-classic-word.is-active {
-  animation: none
+  from { transform: var(--pose-prev-transform, scale(.985)); }
 }
 
 .folia-classic-line.is-instant {
@@ -153,11 +143,8 @@
   margin: auto;
   z-index: 0;
   pointer-events: none;
-  animation: folia-classic-line-out .18s ease both
-}
-
-.folia-classic-line.is-out .folia-classic-word {
-  animation: none
+  animation: folia-classic-line-out .22s ease-out both;
+  will-change: opacity, scale
 }
 
 .folia-classic-word {
@@ -170,8 +157,7 @@
   translate: var(--w-wait-x, 0px) var(--w-wait-y, 0px);
   rotate: calc(var(--w-rot, 0deg) + 24deg);
   scale: .55;
-  transition: translate .5s ease, rotate .5s ease, scale .5s ease, opacity .35s ease;
-  will-change: translate, rotate, scale, opacity
+  transition: translate .5s ease, rotate .5s ease, scale .5s ease, opacity .35s ease
 }
 
 .folia-classic-word.is-waiting {
@@ -186,6 +172,7 @@
   transition: translate .34s cubic-bezier(.2, 1.45, .35, 1),
     rotate .34s cubic-bezier(.2, 1.45, .35, 1),
     scale .34s cubic-bezier(.2, 1.45, .35, 1), opacity 0s linear;
+  will-change: translate, rotate, scale, opacity;
   z-index: 2
 }
 
@@ -208,17 +195,12 @@
   color: color-mix(in srgb, var(--folia-ink, #eef6ff) 92%, white);
   animation: folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
   animation-delay: var(--bob-delay, 0s);
-  transition: color .18s linear, filter .18s ease, text-shadow .25s ease
-}
-
-.folia-classic-word.is-waiting .folia-classic-body {
-  filter: blur(3px)
+  transition: color .18s linear, filter .18s ease
 }
 
 .folia-classic-word.is-passed .folia-classic-body {
-  animation: folia-classic-passed-glow 4.2s ease-in-out infinite alternate,
-    folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
-  animation-delay: 0s, var(--bob-delay, 0s)
+  animation: folia-classic-bob var(--bob-dur, 4.4s) ease-in-out infinite;
+  animation-delay: var(--bob-delay, 0s)
 }
 
 .folia-classic-word.is-active .folia-classic-body {
@@ -230,11 +212,19 @@
     0 0 72px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.34 * var(--folia-glow-level, 1)))
 }
 
+/* One host word per line owns 1-2 rings. The layer is built once at render and
+   only paints while that word is active, so word changes do not create DOM or
+   restart the ring animation. */
 .folia-word-rings {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 2
+  z-index: 2;
+  display: none
+}
+
+.folia-classic-word.is-active .folia-word-rings {
+  display: block
 }
 
 .folia-word-ring {
@@ -250,7 +240,6 @@
   box-shadow:
     0 0 6px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.18 * var(--folia-glow-level, 1))),
     inset 0 0 8px rgba(255, 255, 255, calc(.10 * var(--folia-glow-level, 1)));
-  filter: blur(.45px);
   opacity: .35;
   animation: folia-word-ring 2.4s ease-in-out infinite;
   animation-delay: var(--ring-d, 0s)
@@ -264,7 +253,7 @@
 .folia-classic-word.is-passed .folia-classic-body {
   color: var(--folia-ink, #eef6ff);
   filter: none;
-  text-shadow: 0 0 14px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.22 * var(--folia-glow-level, 1)))
+  text-shadow: 0 0 14px rgba(var(--folia-glow-rgb, 169, 212, 255), .22)
 }
 
 .folia-classic-glow {
@@ -272,8 +261,8 @@
   inset: 0;
   display: block;
   color: transparent;
-  text-shadow: 0 0 18px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.75 * var(--folia-glow-level, 1))),
-    0 0 44px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.45 * var(--folia-glow-level, 1)));
+  text-shadow: 0 0 18px rgba(var(--folia-glow-rgb, 169, 212, 255), .75),
+    0 0 44px rgba(var(--folia-glow-rgb, 169, 212, 255), .45);
   opacity: 0;
   pointer-events: none
 }
@@ -309,13 +298,13 @@
 
 #folia-classic-lyrics[data-motion="glass"] .folia-classic-body {
   color: color-mix(in srgb, var(--folia-ink, #eef6ff) 78%, transparent);
-  text-shadow: 0 0 22px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.30 * var(--folia-glow-level, 1)))
+  text-shadow: 0 0 22px rgba(var(--folia-glow-rgb, 169, 212, 255), .30)
 }
 
 #folia-classic-lyrics[data-motion="glass"] .folia-classic-word.is-active .folia-classic-body {
   color: color-mix(in srgb, var(--folia-hi, #fff) 70%, transparent);
   filter: blur(.35px);
-  text-shadow: 0 0 26px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.55 * var(--folia-glow-level, 1)))
+  text-shadow: 0 0 26px rgba(var(--folia-glow-rgb, 169, 212, 255), .55)
 }
 
 #folia-classic-lyrics[data-motion="shine"] .folia-classic-word.is-active .folia-classic-body {
@@ -331,7 +320,7 @@
   animation: folia-classic-jitter .22s steps(2) infinite;
   text-shadow: 2px 0 color-mix(in srgb, #ff5470 55%, transparent),
     -2px 0 color-mix(in srgb, #49d7ff 55%, transparent),
-    0 0 18px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.60 * var(--folia-glow-level, 1)))
+    0 0 18px rgba(var(--folia-glow-rgb, 169, 212, 255), .60)
 }
 
 @keyframes folia-classic-shine {
@@ -360,11 +349,6 @@
   text-overflow: ellipsis
 }
 
-@keyframes folia-classic-passed-glow {
-  from { text-shadow: 0 0 12px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.16 * var(--folia-glow-level, 1))) }
-  to { text-shadow: 0 0 22px rgba(var(--folia-glow-rgb, 169, 212, 255), calc(.34 * var(--folia-glow-level, 1))) }
-}
-
 @keyframes folia-classic-glow {
   0% { opacity: 0 }
   35% { opacity: 1 }
@@ -377,24 +361,12 @@
   66% { transform: translate3d(calc(var(--bob-x, 2px) * -.6), calc(var(--bob-y, -5px) * -.7), 0) rotate(calc(var(--bob-r, .8deg) * -.8)) }
 }
 
-@keyframes folia-classic-word-in {
-  from { opacity: 0 }
-}
-
-@keyframes folia-classic-word-out {
-  to {
-    opacity: 0;
-    filter: blur(5px);
-    translate: calc(var(--w-x, 0px) + var(--exit-x, 0px))
-      calc(var(--w-y, 0px) + var(--exit-y, -26px));
-    rotate: calc(var(--w-rot, 0deg) + var(--exit-r, 0deg));
-    scale: .94
-  }
-}
-
+/* The outgoing line is a real element kept in the DOM, not a clone. It fades
+   and shrinks by 3.5% where it already sits; it never translates, blurs or
+   rotates, because those were the sources of the sideways snap at the seam. */
 @keyframes folia-classic-line-out {
-  from { opacity: 1; filter: blur(0); translate: 0 0 }
-  to { opacity: 0; filter: blur(9px); translate: 0 -12px }
+  from { opacity: var(--folia-exit-opacity, 1); scale: 1 }
+  to { opacity: 0; scale: .965 }
 }
 
 @keyframes folia-classic-float {
@@ -405,9 +377,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 本机 prefers-reduced-motion 恒为真。若连歌词入场/退场也禁用，流光样式就只剩硬切，
+     用户会看到“退场直接消失”。歌词叠加层本身就是可视化本体，保留其一次性入场/退场与
+     逐词过渡；只关掉环境性的漂浮/呼吸循环，避免整段动画被系统设置静音。 */
   .folia-classic-float,
-  .folia-classic-body,
-  .folia-classic-line.is-in { animation: none }
-  .folia-classic-line.is-out { animation: none }
-  .folia-classic-word { transition: none }
+  .folia-classic-body { animation: none }
+
+  /* 已唱过的词不要再各自跑一条无限 bob 动画；一行最多 6 条 transform
+     循环，在本机减少动态效果的环境里是持续的合成开销。 */
+  .folia-classic-word.is-passed .folia-classic-body { animation: none }
+
+  /* 光圈保留静态可见，但不再每圈跑 2.4s 的缩放/透明度循环。 */
+  .folia-word-ring { animation: none; opacity: .55; scale: 1 }
 }
