@@ -1855,11 +1855,18 @@ body.login-guide-active #login-guide-canvas {
   color: #d8ffe2
 }
 
+.login-platform-tabs button.applemusic.active,
+.user-platform-tabs button.applemusic.active {
+  background: rgba(250, 45, 72, .14);
+  color: #ffe0e4
+}
+
 .login-node-providers.login-platform-tabs button.netease.active,
 .login-node-providers.login-platform-tabs button.qq.active,
 .login-node-providers.login-platform-tabs button.kugou.active,
 .login-node-providers.login-platform-tabs button.qishui.active,
-.login-node-providers.login-platform-tabs button.spotify.active {
+.login-node-providers.login-platform-tabs button.spotify.active,
+.login-node-providers.login-platform-tabs button.applemusic.active {
   background: linear-gradient(135deg, rgba(255, 255, 255, .064), rgba(var(--fc-accent-rgb), .026));
   color: rgba(255, 255, 255, .95)
 }

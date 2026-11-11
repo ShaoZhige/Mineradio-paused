@@ -127,18 +127,20 @@ function bindMiniQueueLazyRender() {
 }
 function normalizePlaylistProvider(provider) {
   if (provider === 'mineradio') return 'mineradio';
+  if (provider === 'applemusic' || provider === 'appleMusic' || provider === 'apple_music') return 'applemusic';
   if (provider === 'qq' || provider === 'kugou' || provider === 'qishui' || provider === 'spotify') return provider;
   return 'netease';
 }
 function playlistProviderLabel(provider) {
   provider = normalizePlaylistProvider(provider);
   if (provider === 'mineradio') return 'MR';
-  return provider === 'qq' ? 'QQ' : (provider === 'kugou' ? 'KG' : (provider === 'qishui' ? 'QS' : (provider === 'spotify' ? 'SP' : 'NE')));
+  return provider === 'qq' ? 'QQ' : (provider === 'kugou' ? 'KG' : (provider === 'qishui' ? 'QS' : (provider === 'spotify' ? 'SP' : (provider === 'applemusic' ? 'AM' : 'NE'))));
 }
 function playlistProviderName(provider) {
   provider = normalizePlaylistProvider(provider);
   if (provider === 'mineradio') return playlistDetailText('pl_builtin');
   if (provider === 'spotify') return 'Spotify';
+  if (provider === 'applemusic') return 'Apple Music';
   return provider === 'qq' ? playlistDetailText('login_qq', 'QQ 音乐') : (provider === 'kugou' ? playlistDetailText('provider_kugou') : (provider === 'qishui' ? playlistDetailText('provider_qishui') : playlistDetailText('track_netease_music')));
 }
 function playlistPanelKey(provider, id) {
@@ -152,6 +154,7 @@ function playlistPanelProviderId(provider, id) {
   if (provider === 'kugou') return 'kugou:' + id;
   if (provider === 'qishui') return 'qishui:' + id;
   if (provider === 'spotify') return 'spotify:' + id;
+  if (provider === 'applemusic') return 'applemusic:' + id;
   return id;
 }
 function playlistCardPriority(pl) {
@@ -295,6 +298,7 @@ function playlistTracksEndpoint(provider, id, params) {
   if (provider === 'kugou') return '/api/kugou/playlist/tracks?' + query;
   if (provider === 'qishui') return '/api/qishui/playlist/tracks?' + query;
   if (provider === 'spotify') return '/api/spotify/playlist/tracks?' + query;
+  if (provider === 'applemusic') return '/api/apple-music/playlist/tracks?' + query;
   return '/api/playlist/tracks?' + query;
 }
 function fetchPlaylistTracksPage(provider, id, params, requestOptions) {
@@ -618,7 +622,7 @@ var playlistPanelActiveProvider = (function () {
 })();
 // 平台展示顺序固定，不随登录状态变化，避免同一平台的位置跳来跳去。
 // The order is fixed so a provider never jumps around as accounts log in and out.
-var PLAYLIST_PROVIDER_ORDER = ['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'];
+var PLAYLIST_PROVIDER_ORDER = ['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify', 'applemusic'];
 function playlistPanelProviderBuckets() {
   var groups = {};
   PLAYLIST_PROVIDER_ORDER.forEach(function (key) { groups[key] = []; });

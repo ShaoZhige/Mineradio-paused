@@ -1,3 +1,5 @@
+var appleMusicLoginStatus = { loggedIn: false, configured: false, nickname: '', avatarUrl: '', storefront: '', error: '' };
+
 // 文案统一走 i18n：缺键返回键名（不返回空串），params 同时喂给词典与兜底模板。
 // Copy goes through i18n; a missing key returns the key itself rather than an empty string.
 function loginModalUtilsText(key, fallback, params) {
@@ -264,6 +266,7 @@ function platformMeta(provider) {
 }
 function platformStatus(provider) {
   if (provider === 'spotify') return spotifyLoginStatus;
+  if (provider === 'applemusic') return appleMusicLoginStatus;
   if (provider === 'qishui') return qishuiLoginStatus;
   if (provider === 'kugou') return kugouLoginStatus;
   return provider === 'qq' ? qqLoginStatus : loginStatus;
@@ -335,8 +338,8 @@ function providerAvatarSrc(provider, status) {
   status = status || platformStatus(provider) || {};
   if (status.avatar) return avatarSrc(status.avatar);
   var meta = platformMeta(provider);
-  var fill = provider === 'qq' ? '#bfd66b' : (provider === 'kugou' ? '#56e0ff' : (provider === 'qishui' ? '#45d68f' : (provider === 'spotify' ? '#1ed760' : '#d95b67')));
-  var bg = provider === 'qq' ? '#11150b' : (provider === 'kugou' ? '#071722' : (provider === 'qishui' ? '#071a12' : (provider === 'spotify' ? '#06140a' : '#180b0f')));
+  var fill = provider === 'qq' ? '#bfd66b' : (provider === 'kugou' ? '#56e0ff' : (provider === 'qishui' ? '#45d68f' : (provider === 'spotify' ? '#1ed760' : (provider === 'applemusic' ? '#fa2d48' : '#d95b67'))));
+  var bg = provider === 'qq' ? '#11150b' : (provider === 'kugou' ? '#071722' : (provider === 'qishui' ? '#071a12' : (provider === 'spotify' ? '#06140a' : (provider === 'applemusic' ? '#1d060b' : '#180b0f'))));
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="' + bg + '"/><circle cx="48" cy="48" r="34" fill="' + fill + '" opacity=".16"/><text x="48" y="56" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="' + fill + '">' + meta.short + '</text></svg>';
   return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
 }

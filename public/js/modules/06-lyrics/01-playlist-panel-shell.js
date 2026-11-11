@@ -554,6 +554,7 @@ function playlistCatalogProviderArray(provider) {
   if (provider === 'kugou') return kugouPlaylists;
   if (provider === 'qishui') return qishuiPlaylists;
   if (provider === 'spotify') return spotifyPlaylists;
+  if (provider === 'applemusic') return appleMusicPlaylists;
   return [];
 }
 function setPlaylistCatalogProviderArray(provider, rows) {
@@ -563,6 +564,7 @@ function setPlaylistCatalogProviderArray(provider, rows) {
   else if (provider === 'kugou') kugouPlaylists = rows;
   else if (provider === 'qishui') qishuiPlaylists = rows;
   else if (provider === 'spotify') spotifyPlaylists = rows;
+  else if (provider === 'applemusic') appleMusicPlaylists = rows;
 }
 function playlistCatalogProviderLoggedIn(provider) {
   if (provider === 'netease') return !!loginStatus.loggedIn;
@@ -570,6 +572,7 @@ function playlistCatalogProviderLoggedIn(provider) {
   if (provider === 'kugou') return !!kugouLoginStatus.loggedIn;
   if (provider === 'qishui') return !!qishuiLoginStatus.loggedIn;
   if (provider === 'spotify') return !!spotifyLoginStatus.loggedIn;
+  if (provider === 'applemusic') return typeof appleMusicLoginStatus !== 'undefined' && !!appleMusicLoginStatus.loggedIn;
   return false;
 }
 function playlistCatalogPageUrl(provider, offset, limit) {
@@ -577,6 +580,7 @@ function playlistCatalogPageUrl(provider, offset, limit) {
   limit = Math.max(1, Number(limit) || PLAYLIST_CATALOG_FIRST_PAGE_SIZE);
   if (provider === 'netease') return '/api/user/playlists?paged=1&limit=' + limit + '&offset=' + offset;
   if (provider === 'spotify') return '/api/spotify/user/playlists?limit=' + Math.min(500, limit) + '&offset=' + offset;
+  if (provider === 'applemusic') return '/api/apple-music/playlists?limit=' + Math.min(100, limit) + '&offset=' + offset;
   if (provider === 'qq') return '/api/qq/user/playlists';
   if (provider === 'kugou') return '/api/kugou/user/playlists';
   if (provider === 'qishui') return '/api/qishui/user/playlists';
@@ -600,7 +604,7 @@ function rebuildUserPlaylistsFromCatalog(opts) {
   opts = opts || {};
   // 本地曲库以虚拟歌单插在最前（#462）；本地库为空时它返回 null，不占位置。
   // The local library rides along as one virtual playlist; it returns null when the library is empty.
-  var merged = builtInPlaylists.concat(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists);
+  var merged = builtInPlaylists.concat(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists, appleMusicPlaylists);
   userPlaylists = typeof withLocalLibraryPlaylist === 'function' ? withLocalLibraryPlaylist(merged) : merged;
   if (typeof applyUserPlaylistOrder === 'function') applyUserPlaylistOrder();
   playlistCatalogRevision += 1;
@@ -639,7 +643,7 @@ async function loadPlaylistCatalogProviderPage(provider, reason) {
     state.loaded = merged.length;
     state.total = Math.max(state.loaded, Number(r && r.total) || 0);
     state.nextOffset = r && r.nextOffset != null ? Math.max(0, Number(r.nextOffset) || 0) : (requestOffset + incoming.length);
-    var supportsPaging = provider === 'netease' || provider === 'spotify';
+    var supportsPaging = provider === 'netease' || provider === 'spotify' || provider === 'applemusic';
     state.hasMore = supportsPaging ? !!(r && r.hasMore) : false;
     if (state.total && state.nextOffset >= state.total) state.hasMore = false;
     if (!incoming.length) state.hasMore = false;
@@ -758,7 +762,7 @@ function playlistCatalogHasPendingPages() {
 // The playlist-catalogue prefetch PRIORITY (not the full list): it only says who goes first; the set
 // always comes from the registry. The ordering is kept because preferring netease then Spotify is a
 // deliberate trade-off rather than a registry concern.
-var PLAYLIST_CATALOG_PREFETCH_PRIORITY = ['netease', 'spotify'];
+var PLAYLIST_CATALOG_PREFETCH_PRIORITY = ['netease', 'spotify', 'applemusic'];
 
 function requestNextPlaylistCatalogPage(reason) {
   var root = playlistCatalogSyncState;
@@ -796,7 +800,22 @@ function requestNextPlaylistCatalogPage(reason) {
 }
 async function refreshUserPlaylists(force) {
   if (typeof refreshBuiltInPlaylists === 'function') await refreshBuiltInPlaylists(!!force);
-  if (!loginStatus.loggedIn && !qqLoginStatus.loggedIn && !kugouLoginStatus.loggedIn && !qishuiLoginStatus.loggedIn && !spotifyLoginStatus.loggedIn) {
+  // Apple Music's session lives in the companion, not in a cookie the renderer
+  // can read. Probe it before deciding whether the Apple playlist tab exists;
+  // once logged in the status stays true, so this only hits the bridge until
+  // the first successful answer.
+  if (typeof refreshAppleMusicLoginStatus === 'function'
+      && !(typeof appleMusicLoginStatus !== 'undefined' && appleMusicLoginStatus.loggedIn)) {
+    // Probe the companion off the critical path. accountStatus may have to start
+    // WebView2 and answer auth-required after several seconds; awaiting it here
+    // delayed every left-panel open even when the user never linked Apple Music.
+    Promise.resolve().then(refreshAppleMusicLoginStatus).then(function (status) {
+      if (status && status.loggedIn && typeof refreshUserPlaylists === 'function') {
+        refreshUserPlaylists(true);
+      }
+    }).catch(function () { });
+  }
+  if (!loginStatus.loggedIn && !qqLoginStatus.loggedIn && !kugouLoginStatus.loggedIn && !qishuiLoginStatus.loggedIn && !spotifyLoginStatus.loggedIn && !(typeof appleMusicLoginStatus !== 'undefined' && appleMusicLoginStatus.loggedIn)) {
     resetPlaylistPanelRenderLimit();
     userPlaylists = withLocalLibraryPlaylist(builtInPlaylists);
     playlistCatalogRevision += 1;

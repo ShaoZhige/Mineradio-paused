@@ -45,7 +45,7 @@ function applyBuiltInPlaylistSnapshot(result, opts) {
     });
   } else {
     // 与 rebuildUserPlaylistsFromCatalog 保持一致：虚拟本地歌单排在目录最前（#462）。
-    var merged = builtInPlaylists.concat(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists);
+    var merged = builtInPlaylists.concat(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists, appleMusicPlaylists);
     userPlaylists = typeof withLocalLibraryPlaylist === 'function' ? withLocalLibraryPlaylist(merged) : merged;
     playlistCatalogRevision += 1;
   }

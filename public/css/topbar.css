@@ -876,6 +876,11 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home {
   color: var(--source-spotify)
 }
 
+.account-source-dot.applemusic {
+  background: var(--source-applemusic);
+  color: var(--source-applemusic)
+}
+
 .top-account-pill {
   position: relative;
   height: 44px;

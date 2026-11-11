@@ -367,6 +367,12 @@ body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs
   background: rgba(30, 215, 96, .085)
 }
 
+.tag-source.applemusic {
+  color: #ffe0e4;
+  border-color: rgba(250, 45, 72, .34);
+  background: rgba(250, 45, 72, .085)
+}
+
 .search-result.qq-source:hover {
   background: rgba(191, 214, 107, .052)
 }
@@ -381,6 +387,10 @@ body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs
 
 .search-result.spotify-source:hover {
   background: rgba(30, 215, 96, .052)
+}
+
+.search-result.applemusic-source:hover {
+  background: rgba(250, 45, 72, .052)
 }
 
 .search-result.netease-source:hover {

@@ -140,7 +140,7 @@ async function refreshLoginStatus(force) {
       syncLikeStatusForSongs(playQueue.concat(playlist || []));
     } else {
       neteasePlaylists = [];
-      userPlaylists = withLocalLibraryPlaylist((builtInPlaylists || []).concat(qqPlaylists || [], kugouPlaylists || [], qishuiPlaylists || [], spotifyPlaylists || []));
+      userPlaylists = withLocalLibraryPlaylist((builtInPlaylists || []).concat(qqPlaylists || [], kugouPlaylists || [], qishuiPlaylists || [], spotifyPlaylists || [], appleMusicPlaylists || []));
       playlistCatalogRevision += 1;
       myPodcastCollections = [];
       myPodcastItems = {};
@@ -517,6 +517,8 @@ async function refreshSpotifyLoginStatus() {
       if (prevLogged || spotifyLoginWasLoggedIn) showToast(spotifyLoginStatus.stale ? loginStatusText('lstatus_spotify_expired') : loginStatusText('lstatus_spotify_logged_out'));
       spotifyPlaylists = [];
       userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
+      // Apple Music is a separate session; clearing Spotify must not drop it.
+      // (The Apple logout path clears appleMusicPlaylists itself.)
       playlistCatalogRevision += 1;
       homeDiscoverState.loaded = false;
     } else if (!userPlaylists.some(function (pl) { return pl && pl.provider === 'spotify'; })) {

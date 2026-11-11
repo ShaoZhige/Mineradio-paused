@@ -85,7 +85,8 @@ function updateUserModalUi() {
     activeAccountProvider === 'qq' ? accountPanelText('logout_qq') :
     (activeAccountProvider === 'kugou' ? accountPanelText('logout_kugou') :
     (activeAccountProvider === 'qishui' ? accountPanelText('logout_clear_qishui') :
-    (activeAccountProvider === 'spotify' ? accountPanelText('logout_spotify') : accountPanelText('logout_netease'))));
+    (activeAccountProvider === 'spotify' ? accountPanelText('logout_spotify') :
+    (activeAccountProvider === 'applemusic' ? accountPanelText('logout_apple_music', '退出 Apple Music') : accountPanelText('logout_netease')))));
   if (hint) hint.textContent = dualAccountMode
     ? accountPanelText('account_switch_dual', '右上角已切换为双平台并排展示。')
     : accountPanelText('account_switch_hint', '可切换右上角展示的平台；“我两个都要”会并排放两个登录状态。');
@@ -167,6 +168,7 @@ function resetAllProviderRendererLoginState() {
   kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: accountPanelText('provider_kugou'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
   qishuiLoginStatus = { provider: 'qishui', loggedIn: false, configured: false, oauthConfigured: false, oauthMissing: [], preview: false, nickname: accountPanelText('provider_qishui'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match' };
   spotifyLoginStatus = { provider: 'spotify', loggedIn: false, configured: false, oauthConfigured: false, oauthMissing: [], preview: false, nickname: 'Spotify', userId: '', avatar: '', product: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match', tokenConfigured: false, tokenFileExists: false, credentialsFileExists: false, localConfigMissing: false };
+  appleMusicLoginStatus = { provider: 'applemusic', loggedIn: false, configured: false, nickname: 'Apple Music', avatar: '', storefront: '', error: '' };
   loginStatusChecked = true;
   loginStatusCheckFailed = false;
   neteasePlaylists = [];
@@ -174,6 +176,7 @@ function resetAllProviderRendererLoginState() {
   kugouPlaylists = [];
   qishuiPlaylists = [];
   spotifyPlaylists = [];
+  appleMusicPlaylists = [];
   userPlaylists = withLocalLibraryPlaylist(builtInPlaylists);
   myPodcastCollections = [];
   myPodcastItems = {};
@@ -239,6 +242,26 @@ async function logoutAllAccountsAndResetEasterEgg() {
 }
 
 async function logoutActiveAccount() {
+  if (activeAccountProvider === 'applemusic') {
+    try {
+      if (window.desktopWindow && typeof window.desktopWindow.appleMusicRequest === 'function') {
+        await window.desktopWindow.appleMusicRequest('logout', {});
+      }
+    } catch (e) { }
+    appleMusicLoginStatus = { provider: 'applemusic', loggedIn: false, configured: false, nickname: 'Apple Music', avatar: '', storefront: '', error: '' };
+    appleMusicPlaylists = [];
+    userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'applemusic'; });
+    playlistCatalogRevision += 1;
+    dualAccountMode = false;
+    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
+    activeAccountProvider = firstLoggedProvider();
+    renderUserBtn();
+    safeShelfRebuild('applemusic-logout');
+    if (hasAnyPlatformLogin()) updateUserModalUi();
+    else closeUserModal();
+    showToast(accountPanelText('logout_apple_music_cleared', '已退出 Apple Music'));
+    return;
+  }
   // Spotify 没有登录窗口，令牌同时存在于后端文件与主进程缓存，两处都要清，
   // 否则下一次状态查询会把旧资料读回来。
   if (activeAccountProvider === 'spotify') {

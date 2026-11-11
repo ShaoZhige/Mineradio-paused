@@ -11,13 +11,15 @@ var loginProviderClickSuppressed = false;
 var loginWorkflowEdgeRenderFrame = 0;
 var loginWorkflowEdgeRenderTimers = [];
 var SPOTIFY_DEVELOPER_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
-var SPOTIFY_REDIRECT_URI = 'http://127.0.0.1:43879/callback';
+var SPOTIFY_REDIRECT_URI = 'http://127.0.0.1:5588/login';
 var spotifySetupCallbackReady = false;
 var spotifySetupDiagnostics = null;
 var spotifySetupBusy = false;
 var spotifySetupAutoCheckKey = '';
 // 登录成功后的换源提醒，单次加载内只弹一次 / one-shot per page load.
 var spotifyLoginReminderShown = false;
+var appleMusicLoginStatus = { loggedIn: false, configured: false, nickname: '', avatarUrl: '', storefront: '', error: '' };
+var appleMusicLoginBusy = false;
 
 // 文案统一走 i18n：缺键返回键名（不返回空串），params 同时喂给词典与兜底模板。
 // Copy goes through i18n; a missing key returns the key itself rather than an empty string.
@@ -52,15 +54,17 @@ function normalizeLoginProviderKey(provider) {
   // spotify must be matched explicitly or it falls through to the netease default,
   // which silently disables every OAuth branch keyed on loginProvider === 'spotify'.
   if (provider === 'spotify') return 'spotify';
+  if (provider === 'applemusic') return 'applemusic';
   return provider === 'qq' ? 'qq' : (provider === 'kugou' ? 'kugou' : (provider === 'qishui' ? 'qishui' : 'netease'));
 }
 function loginProviderSupportsCookieMode(provider) {
   provider = normalizeLoginProviderKey(provider);
-  return provider !== 'spotify' && provider !== 'qishui';
+  return provider !== 'spotify' && provider !== 'qishui' && provider !== 'applemusic';
 }
 function loginProviderOfficialModeText(provider) {
   provider = normalizeLoginProviderKey(provider);
   if (provider === 'spotify') return { title: 'OAuth', sub: loginText('login_popup_spotify_window') };
+  if (provider === 'applemusic') return { title: 'AM', sub: loginText('lg_official_window', '官方窗口') };
   if (provider === 'qishui') return { title: loginText('login_scan'), sub: loginText('login_douyin_official_auth') };
   if (provider === 'kugou') return { title: loginText('login_official_site'), sub: loginText('login_popup_kugou_window') };
   return { title: loginText('login_scan'), sub: loginText('login_popup_after_connect') };
@@ -232,6 +236,11 @@ function selectLoginProviderNode(provider) {
   setLoginProvider(provider, true);
   setLoginAuthDrawerOpen(hasLoginWorkflowConnection(provider) || loginWorkflowPendingProvider === provider);
   updateLoginProviderUi();
+  if (provider === 'applemusic' && !appleMusicLoginBusy) {
+    refreshAppleMusicLoginStatus().then(function () {
+      if (loginProvider === 'applemusic') updateLoginProviderUi();
+    });
+  }
 }
 function connectLoginProviderToMr(provider) {
   provider = normalizeLoginProviderKey(provider);
@@ -520,7 +529,7 @@ function connectLoginProvider(provider) {
 }
 function selectLoginMode(mode) {
   if (mode === 'cookie' && !loginProviderSupportsCookieMode(loginProvider)) {
-    showToast(loginProvider === 'qishui' ? loginText('login_qishui_scan_only') : loginText('login_spotify_oauth_note'));
+    showToast(loginProvider === 'qishui' ? loginText('login_qishui_scan_only') : (loginProvider === 'applemusic' ? loginText('login_apple_music_sign_in_required') : loginText('login_spotify_oauth_note')));
     return;
   }
   setManualCookieOpenForProvider(loginProvider, mode === 'cookie');
@@ -546,7 +555,7 @@ function connectLoginMode(mode) {
   }
   if (mode === 'cookie') {
     if (!loginProviderSupportsCookieMode(loginProvider)) {
-      showToast(loginProvider === 'qishui' ? loginText('login_qishui_scan_only') : loginText('login_spotify_oauth_note'));
+      showToast(loginProvider === 'qishui' ? loginText('login_qishui_scan_only') : (loginProvider === 'applemusic' ? loginText('login_apple_music_sign_in_required') : loginText('login_spotify_oauth_note')));
       return;
     }
     setManualCookieOpenForProvider(loginProvider, true);
@@ -656,6 +665,89 @@ function spotifyLoginStatusText(info) {
   var missing = info.oauthMissing && info.oauthMissing.length ? (loginText('login_missing_prefix') + info.oauthMissing.join(', ')) : '';
   return loginText('login_spotify_dashboard_hint') + missing;
 }
+function normalizeAppleMusicLoginStatus(info) {
+  info = info || {};
+  var data = info && info.data ? info.data : info;
+  var loggedIn = !!(info && info.loggedIn);
+  if (!loggedIn && data && (data.id || data.nickname || data.storefront)) loggedIn = true;
+  return {
+    provider: 'applemusic',
+    loggedIn: loggedIn,
+    configured: info.configured !== false,
+    nickname: String(data.nickname || ''),
+    avatarUrl: String(data.avatarUrl || ''),
+    storefront: String(data.storefront || ''),
+    error: String(info.error || ''),
+    updatedAt: Date.now(),
+  };
+}
+
+function appleMusicLoginStatusText(info) {
+  info = info || appleMusicLoginStatus || {};
+  if (info.loggedIn) return loginText('login_apple_music_connected', 'Apple Music 已连接') + (info.nickname ? (' · ' + info.nickname) : '');
+  if (info.error === 'auth-required') return loginText('login_apple_music_sign_in_required', '请先在 Apple Music 窗口内登录。');
+  if (info.error === 'runtime-unavailable') return loginText('login_apple_music_runtime_unavailable', 'Apple Music 组件未安装或未能启动。');
+  return loginText('login_apple_music_not_connected', '尚未连接 Apple Music');
+}
+
+async function refreshAppleMusicLoginStatus() {
+  var api = window.desktopWindow;
+  if (!api || typeof api.appleMusicRequest !== 'function') {
+    appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: false, error: 'runtime-unavailable' });
+    return appleMusicLoginStatus;
+  }
+  try {
+    var result = await api.appleMusicRequest('accountStatus', {});
+    if (result && result.ok === false && (result.error === 'auth-required' || result.error === 'storefront-unavailable')) {
+      appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: result.error });
+    } else if (result && result.ok === true) {
+      appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: true, configured: true, data: result.data || {} });
+    } else {
+      appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (result && result.error) || 'request-failed' });
+    }
+  } catch (e) {
+    appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: 'request-failed' });
+  }
+  return appleMusicLoginStatus;
+}
+
+async function openAppleMusicLogin() {
+  if (appleMusicLoginBusy) return;
+  var api = window.desktopWindow;
+  if (!api || typeof api.appleMusicRequest !== 'function') {
+    appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: false, error: 'runtime-unavailable' });
+    updateLoginProviderUi();
+    return;
+  }
+  appleMusicLoginBusy = true;
+  updateLoginProviderUi();
+  try {
+    await refreshAppleMusicLoginStatus();
+    if (!appleMusicLoginStatus.loggedIn) {
+      var shown = await api.appleMusicRequest('showWindow', {});
+      if (!shown || shown.ok === false) {
+        appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (shown && shown.error) || 'request-failed' });
+        return;
+      }
+      // The companion is the only owner of Apple's session. Poll the account
+      // until the page finishes signing in; the window is hidden again then.
+      for (var i = 0; i < 150; i += 1) {
+        await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+        var status = await refreshAppleMusicLoginStatus();
+        updateLoginProviderUi();
+        if (status.loggedIn) break;
+      }
+      if (appleMusicLoginStatus.loggedIn) {
+        try { await api.appleMusicRequest('hideWindow', {}); } catch (e) { }
+        try { if (typeof refreshUserPlaylists === 'function') await refreshUserPlaylists(true); } catch (e) { }
+      }
+    }
+  } finally {
+    appleMusicLoginBusy = false;
+    updateLoginProviderUi();
+  }
+}
+
 function parseSpotifyConfigInput(text) {
   text = String(text || '').trim();
   if (!text) return {};
@@ -815,7 +907,9 @@ function renderSpotifySetupWizard() {
   if (saveButton) saveButton.disabled = spotifySetupBusy || spotifyConfigBusy || spotifyOAuthBusy;
   if (callbackButton) callbackButton.disabled = !configReady || spotifySetupBusy || spotifyOAuthBusy;
   if (authButton) {
-    authButton.disabled = !configReady || (!spotifySetupCallbackReady && !loggedIn) || spotifySetupBusy || spotifyOAuthBusy;
+    // 内置客户端不需要用户先跑回调检测；按钮始终可用，检测保留为诊断步骤。
+    // The bundled client needs no callback preflight; keep the check as diagnostics only.
+    authButton.disabled = !configReady || spotifySetupBusy || spotifyOAuthBusy;
     authButton.textContent = spotifyOAuthBusy ? loginText('login_wait_browser_auth') : (loggedIn ? loginText('login_reauthorize_spotify') : loginText('login_open_browser_auth'));
   }
   if (diagnoseButton) diagnoseButton.disabled = !loggedIn || spotifySetupBusy || spotifyOAuthBusy;
@@ -970,22 +1064,63 @@ function updateLoginProviderUi() {
   var qishuiSearchReady = qishuiPublicSearchReady();
   var qishuiBusy = !!(qishuiTokenBusy || qishuiOAuthBusy);
   var isSpotify = loginProvider === 'spotify';
+  var isAppleMusic = loginProvider === 'applemusic';
   var spotifyBtn = document.getElementById('login-provider-spotify');
+  var appleMusicBtn = document.getElementById('login-provider-applemusic');
   var loginDrawer = document.getElementById('login-auth-drawer');
   var loginModalPanel = document.querySelector('#login-modal .dual-login-modal');
   var spotifyWizard = document.getElementById('spotify-setup-wizard');
   var canOpenSpotifyOAuth = !!(window.desktopWindow && typeof window.desktopWindow.openSpotifyMusicLogin === 'function');
+  var canOpenAppleMusic = !!(window.desktopWindow && typeof window.desktopWindow.appleMusicRequest === 'function');
   var spotifyBusy = !!(spotifyConfigBusy || spotifyOAuthBusy);
   if (loginDrawer) loginDrawer.classList.toggle('spotify-mode', isSpotify);
   if (loginModalPanel) loginModalPanel.classList.toggle('spotify-setup-open', isSpotify);
   if (spotifyWizard) spotifyWizard.setAttribute('aria-hidden', isSpotify ? 'false' : 'true');
   updateLoginNodeGraphUi();
+  if (isAppleMusic) {
+    if (neteaseBtn) neteaseBtn.classList.toggle('active', false);
+    if (qqBtn) qqBtn.classList.toggle('active', false);
+    if (kugouBtn) kugouBtn.classList.toggle('active', false);
+    if (qishuiBtn) qishuiBtn.classList.toggle('active', false);
+    if (spotifyBtn) spotifyBtn.classList.toggle('active', false);
+    if (appleMusicBtn) appleMusicBtn.classList.toggle('active', true);
+    if (title) title.textContent = loginText('login_apple_music_title', '登录 Apple Music');
+    if (desc) desc.innerHTML = loginText('login_apple_music_desc', '在官方 Apple Music 窗口中登录。会话由 Apple 保存，Mineradio 不接触你的密码。');
+    if (shell) {
+      shell.classList.add('web-login-preview');
+      shell.classList.remove('qq-preview', 'netease-preview');
+    }
+    if (qqPanel) qqPanel.classList.remove('show', 'spotify-guide-panel');
+    if (qqCookieToggle) qqCookieToggle.classList.remove('show');
+    if (qqCard) {
+      qqCard.style.display = '';
+      qqCard.disabled = appleMusicLoginBusy || !canOpenAppleMusic;
+      var amMark = qqCard.querySelector('b');
+      var amLabel = qqCard.querySelector('span');
+      if (amMark) amMark.textContent = 'AM';
+      if (amLabel) amLabel.textContent = appleMusicLoginBusy
+        ? loginText('login_apple_music_waiting', '等待 Apple Music 登录…')
+        : (appleMusicLoginStatus.loggedIn ? loginText('login_apple_music_reopen', '重新打开 Apple Music 窗口') : loginText('login_apple_music_open', '打开 Apple Music 登录窗口'));
+    }
+    if (st) {
+      st.className = 'preview';
+      st.textContent = appleMusicLoginStatusText();
+    }
+    if (refreshBtn) {
+      refreshBtn.disabled = appleMusicLoginBusy || !canOpenAppleMusic;
+      refreshBtn.textContent = appleMusicLoginBusy ? loginText('login_apple_music_waiting', '等待 Apple Music 登录…') : loginText('login_apple_music_connect', '连接 Apple Music');
+      refreshBtn.onclick = openAppleMusicLogin;
+    }
+    updateLoginNodeGraphUi();
+    return;
+  }
   if (isSpotify) {
     if (neteaseBtn) neteaseBtn.classList.toggle('active', false);
     if (qqBtn) qqBtn.classList.toggle('active', false);
     if (kugouBtn) kugouBtn.classList.toggle('active', false);
     if (qishuiBtn) qishuiBtn.classList.toggle('active', false);
     if (spotifyBtn) spotifyBtn.classList.toggle('active', true);
+    if (appleMusicBtn) appleMusicBtn.classList.toggle('active', false);
     if (title) title.textContent = loginText('login_connect_spotify');
     if (desc) desc.innerHTML = canOpenSpotifyOAuth
       ? loginText('login_spotify_client_id_hint')
@@ -1041,6 +1176,7 @@ function updateLoginProviderUi() {
   }
   if (qqPanel) qqPanel.classList.remove('spotify-guide-panel');
   if (spotifyBtn) spotifyBtn.classList.toggle('active', false);
+  if (appleMusicBtn) appleMusicBtn.classList.toggle('active', false);
   if (neteaseBtn) neteaseBtn.classList.toggle('active', loginProvider === 'netease');
   if (qqBtn) qqBtn.classList.toggle('active', isQQ);
   if (kugouBtn) kugouBtn.classList.toggle('active', isKugou);
@@ -1118,6 +1254,20 @@ async function refreshQr() {
     if (spotifyStatus) {
       spotifyStatus.textContent = spotifyLoginStatusText(spotifyInfo);
       spotifyStatus.className = 'preview';
+    }
+    return;
+  }
+  if (loginProvider === 'applemusic') {
+    qrKey = null;
+    var appleMusicImg = document.getElementById('qr-img');
+    if (appleMusicImg) appleMusicImg.src = '';
+    var appleMusicInfo = await refreshAppleMusicLoginStatus();
+    if (!isLoginRefreshCurrent(refreshProvider, refreshSeq)) return;
+    updateLoginProviderUi();
+    var appleMusicStatusEl = document.getElementById('qr-status');
+    if (appleMusicStatusEl) {
+      appleMusicStatusEl.textContent = appleMusicLoginStatusText(appleMusicInfo);
+      appleMusicStatusEl.className = 'preview';
     }
     return;
   }
@@ -1323,6 +1473,7 @@ function openProviderWebLogin() {
   if (loginProvider === 'kugou') return openKugouWebLogin();
   if (loginProvider === 'qishui') return openQishuiWebLogin();
   if (loginProvider === 'spotify') return openSpotifyWebLogin();
+  if (loginProvider === 'applemusic') return openAppleMusicLogin();
   return openNeteaseWebLogin();
 }
 async function openSpotifyWebLogin() {
