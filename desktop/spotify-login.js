@@ -4,7 +4,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const DEFAULT_PARTITION = 'persist:mineradio-spotify-login';
-const DEFAULT_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 function createSpotifyLogin({
   shell,
@@ -130,8 +130,8 @@ function createSpotifyLogin({
         missing: config.missing || [],
         redirectUri: config.redirectUri,
         message: !config.clientIdValid
-          ? 'Client ID 格式不正确，请重新复制。'
-          : '请先保存 Spotify Client ID。',
+          ? 'Spotify Client ID 格式不正确，请检查高级设置中的覆盖值。'
+          : 'Spotify 内置客户端配置不可用，请检查回调地址。',
       };
     }
     let callbackServer = null;
@@ -157,7 +157,7 @@ function createSpotifyLogin({
         redirectUri: config.redirectUri,
         callbackReady: false,
         message: code === 'SPOTIFY_CALLBACK_PORT_BUSY'
-          ? '本机 43879 端口被其他程序占用，请关闭占用程序后重试。'
+          ? '本机 ' + (new URL(config.redirectUri).port || '80') + ' 端口被其他程序占用，请关闭占用程序后重试。'
           : '本机回调检测失败：' + code,
       };
     } finally {
@@ -174,7 +174,7 @@ function createSpotifyLogin({
         error: 'SPOTIFY_OAUTH_NOT_CONFIGURED',
         missing: config.missing,
         redirectUri: config.redirectUri,
-        message: 'Spotify 登录需要先配置 SPOTIFY_CLIENT_ID，并在 Spotify Developer Dashboard 登记本地回调地址 ' + config.redirectUri,
+        message: 'Spotify 登录配置不可用。请确认回调地址是 ' + config.redirectUri + '，或清除高级设置里的 Client ID 覆盖。',
       };
     }
 
@@ -270,7 +270,7 @@ function createSpotifyLogin({
           error: e.code || e.message || 'SPOTIFY_CALLBACK_SERVER_FAILED',
           redirectUri: config.redirectUri,
           message: (e.code || e.message) === 'SPOTIFY_CALLBACK_PORT_BUSY'
-            ? 'Spotify 本地回调端口被占用，请关闭占用 43879 端口的程序后重试。'
+            ? 'Spotify 本地回调端口被占用，请关闭占用该端口的程序后重试。'
             : 'Spotify 本地回调端口启动失败：' + (e.message || e.code || ''),
         });
         return;
@@ -282,7 +282,7 @@ function createSpotifyLogin({
           provider: 'spotify',
           error: 'SPOTIFY_OAUTH_TIMEOUT',
           redirectUri: config.redirectUri,
-          message: '三分钟内没有收到 Spotify 回调。请确认 Dashboard 回调地址完全一致、App 所有者为 Premium，且当前账号已加入 Users Management。',
+          message: '十分钟内没有收到 Spotify 回调。请确认浏览器已完成授权，且本机回调地址没有被其他程序占用。',
         });
       }, SPOTIFY_OAUTH_TIMEOUT_MS);
 

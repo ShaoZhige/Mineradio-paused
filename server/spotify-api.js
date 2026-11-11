@@ -18,7 +18,14 @@ const SPOTIFY_API_BASE = (process.env.SPOTIFY_API_BASE || 'https://api.spotify.c
 const DEFAULT_SPOTIFY_MARKET = String(process.env.MINERADIO_SPOTIFY_MARKET || process.env.SPOTIFY_MARKET || 'US').trim().toUpperCase();
 const DEFAULT_SPOTIFY_CONFIG_FILE = path.join(PROJECT_ROOT, '.spotify-credentials.json');
 const DEFAULT_SPOTIFY_TOKEN_FILE = path.join(PROJECT_ROOT, '.spotify-token.json');
-const DEFAULT_SPOTIFY_REDIRECT_URI = 'http://127.0.0.1:43879/callback';
+// Folia 使用的公开桌面客户端：内置 Client ID + PKCE，安装后即可一键授权，不再要求用户
+// 先去 Spotify Developer Dashboard 建应用、填回调、加测试账号。用户仍可用配置文件或环境变量
+// 覆盖成自己的 Client ID；覆盖后回调地址也必须与那个应用登记的一致。
+// Folia's public desktop client: a built-in Client ID with PKCE, so a fresh install can authorize
+// in one click instead of asking for a dashboard app, redirect URI and test users. A user-supplied
+// Client ID (file/env) still wins, and then its registered redirect URI must be used.
+const DEFAULT_SPOTIFY_CLIENT_ID = '65b708073fc0480ea92a077233ca87bd';
+const DEFAULT_SPOTIFY_REDIRECT_URI = 'http://127.0.0.1:5588/login';
 const DEFAULT_SPOTIFY_SCOPES = [
   'user-read-private',
   'playlist-read-private',
@@ -56,7 +63,7 @@ function inspectSpotifyRedirectUri(value) {
     const loopback = host === '127.0.0.1' || host === '[::1]' || host === '::1';
     const pathName = (parsed.pathname || '/').replace(/\/+$/, '') || '/';
     return {
-      ok: parsed.protocol === 'http:' && loopback && !!parsed.port && pathName === '/callback' && !parsed.username && !parsed.password,
+      ok: parsed.protocol === 'http:' && loopback && !!parsed.port && (pathName === '/callback' || pathName === '/login') && !parsed.username && !parsed.password,
       value: parsed.toString(),
       protocol: parsed.protocol,
       host,
@@ -147,16 +154,11 @@ function getSpotifyConfigFile() {
 
 function saveSpotifyConfig(input) {
   input = input && typeof input === 'object' ? input : {};
-  const clientId = normalizeText(input.clientId || input.client_id || input.id);
+  // Empty means "use the built-in desktop client"; only a non-empty malformed id is rejected.
+  const clientId = normalizeText(input.clientId || input.client_id || input.id) || DEFAULT_SPOTIFY_CLIENT_ID;
   const redirectUri = normalizeText(input.redirectUri || input.redirect_uri || input.callbackUrl || input.callback_url) || DEFAULT_SPOTIFY_REDIRECT_URI;
   const scopes = normalizeScopes(input.scopes || input.scope);
   const market = normalizeText(input.market || input.country || DEFAULT_SPOTIFY_MARKET || 'US').toUpperCase();
-  if (!clientId) {
-    const err = new Error('SPOTIFY_CLIENT_ID_REQUIRED');
-    err.code = 'SPOTIFY_CLIENT_ID_REQUIRED';
-    err.missing = ['SPOTIFY_CLIENT_ID'];
-    throw err;
-  }
   if (!spotifyClientIdLooksValid(clientId)) {
     const err = new Error('SPOTIFY_CLIENT_ID_INVALID');
     err.code = 'SPOTIFY_CLIENT_ID_INVALID';
@@ -287,11 +289,24 @@ function getSpotifyOAuthConfig() {
   const envClientSecret = firstEnv(['SPOTIFY_CLIENT_SECRET', 'MINERADIO_SPOTIFY_CLIENT_SECRET']);
   const envRedirectUri = firstEnv(['SPOTIFY_REDIRECT_URI', 'MINERADIO_SPOTIFY_REDIRECT_URI']);
   const envScopes = normalizeScopes(firstEnv(['SPOTIFY_SCOPES', 'SPOTIFY_SCOPE', 'MINERADIO_SPOTIFY_SCOPES']));
-  const clientId = envClientId || fileConfig.clientId;
+  // Older Mineradio builds stored the user's own Client ID together with the old
+  // 43879/callback. A later save can pair that custom Client ID with the new
+  // bundled 5588/login redirect, which Spotify rejects with
+  // "redirect_uri: Not matching configuration". That combination cannot be the
+  // user's intended app config, so fall back to the bundled Folia client and its
+  // matching redirect. A custom Client ID with its own explicit redirect (for
+  // example 43879/callback) is still honored, and env overrides always win.
+  const fileClientId = fileConfig.clientId;
+  const fileRedirectUri = fileConfig.redirectUri;
+  const staleCustomClient = !!fileClientId
+    && fileClientId !== DEFAULT_SPOTIFY_CLIENT_ID
+    && (!fileRedirectUri || fileRedirectUri === DEFAULT_SPOTIFY_REDIRECT_URI);
+  const clientId = envClientId || (staleCustomClient ? DEFAULT_SPOTIFY_CLIENT_ID : fileClientId) || DEFAULT_SPOTIFY_CLIENT_ID;
   // Desktop PKCE must not depend on a secret stored in the packaged app or user JSON.
   // A client secret is accepted only from a backend-controlled environment for optional client-credentials requests.
   const clientSecret = envClientSecret;
-  const redirectUri = envRedirectUri || fileConfig.redirectUri || DEFAULT_SPOTIFY_REDIRECT_URI;
+  const redirectUri = envRedirectUri
+    || (staleCustomClient ? DEFAULT_SPOTIFY_REDIRECT_URI : (fileRedirectUri || DEFAULT_SPOTIFY_REDIRECT_URI));
   // Mineradio owns the OAuth flow, so always include the scopes required by
   // the currently exposed account actions. Existing tokens still need a fresh
   // authorization before these newly requested scopes become effective.
@@ -300,12 +315,15 @@ function getSpotifyOAuthConfig() {
   const market = (firstEnv(['SPOTIFY_MARKET', 'MINERADIO_SPOTIFY_MARKET']) || fileConfig.market || DEFAULT_SPOTIFY_MARKET || 'US').toUpperCase();
   const missing = [];
   if (!clientId) missing.push('SPOTIFY_CLIENT_ID');
+  else if (!spotifyClientIdLooksValid(clientId)) missing.push('SPOTIFY_CLIENT_ID');
   const clientIdValid = spotifyClientIdLooksValid(clientId);
   const redirectCheck = inspectSpotifyRedirectUri(redirectUri);
+  if (!redirectCheck.ok) missing.push('SPOTIFY_REDIRECT_URI');
   return {
     provider: 'spotify',
     configured: missing.length === 0 && clientIdValid && redirectCheck.ok,
     clientId,
+    clientIdBundled: !envClientId && (!fileClientId || staleCustomClient),
     clientSecret,
     redirectUri,
     clientIdValid,
@@ -315,7 +333,10 @@ function getSpotifyOAuthConfig() {
     scope: scopes.join(' '),
     market,
     credentialsFile: fileConfig.file,
-    configSource: envClientId || envClientSecret || envRedirectUri || envScopes.length ? 'env' : (fileConfig.source || (redirectUri === DEFAULT_SPOTIFY_REDIRECT_URI ? 'default' : '')),
+    configSource: envClientId || envClientSecret || envRedirectUri || envScopes.length
+      ? 'env'
+      : (staleCustomClient ? 'bundled-fallback' : (fileConfig.source || 'bundled')),
+    ignoredCustomClient: staleCustomClient,
     missing,
   };
 }
@@ -328,12 +349,12 @@ function getSpotifyConfig() {
   const clientCredentialsConfigured = !!(oauth.clientId && oauth.clientSecret);
   const oauthConfigured = !!(oauth.clientId && oauth.clientIdValid && oauth.redirectUri && oauth.redirectValid);
   const tokenConfigured = !!(token.accessToken || token.refreshToken);
-  const localConfigMissing = !tokenConfigured && !oauth.clientId && !credentialsFileExists;
-  const spotifyConfigMessage = clientCredentialsConfigured || tokenConfigured
-    ? 'Spotify Web API 已接入；播放仍会按匹配源自动换源。'
-    : (localConfigMissing
-      ? 'Spotify 未连接：请先粘贴一次 Client ID 保存配置，再打开官方 OAuth 授权。'
-      : 'Spotify 已保存 Client ID，可直接打开官方 OAuth 授权；桌面端使用 PKCE，不保存 Client Secret。');
+  const localConfigMissing = false;
+  const spotifyConfigMessage = oauth.ignoredCustomClient
+    ? '检测到旧的自定义 Client ID 与内置回调不匹配，已临时使用内置客户端；可直接打开官方授权。'
+    : (clientCredentialsConfigured || tokenConfigured
+      ? 'Spotify Web API 已接入；播放仍会按匹配源自动换源。'
+      : 'Spotify 已内置桌面客户端，可直接打开官方授权；桌面端使用 PKCE，不保存 Client Secret。');
   const missing = [];
   if (!oauth.clientId) missing.push('SPOTIFY_CLIENT_ID');
   const clientCredentialsMissing = [];
@@ -364,6 +385,7 @@ function getSpotifyConfig() {
     credentialsFileExists,
     localConfigMissing,
     configSource: oauth.configSource,
+    ignoredCustomClient: !!oauth.ignoredCustomClient,
     missing,
     playbackMode: 'recommend-match',
     capabilities: {
