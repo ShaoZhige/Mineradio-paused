@@ -7801,6 +7801,10 @@ async function checkLargePlaylistVirtualizationGuard() {
     PLAYLIST_DETAIL_ROW_STEP: detailRowStep,
     playlistPanelKey: (provider, id) => provider + ':' + id,
     playlistDetailText: playlistDetailTextStub,
+    // 歌单搜索的过滤词与匹配函数在 01-playlist-panel-shell.js，切片从 02 开头取不到，
+    // 这里给一份等价实现：切片里只用它比对歌单名。
+    playlistSearchQuery: '',
+    panelSearchHit: (text, query) => !query || String(text == null ? '' : text).toLowerCase().indexOf(query) >= 0,
     window: { innerHeight: 900 },
     Math,
     Number
@@ -7837,6 +7841,18 @@ async function checkLargePlaylistVirtualizationGuard() {
   const switched = catalogSandbox.playlistPanelBuildVirtualEntries();
   if (switched.entries.length !== 3 || switched.entries.some(entry => entry.pl.provider !== 'qq') || switched.activeProvider !== 'qq') {
     fail(`switching provider must rebuild the catalog entries: ${JSON.stringify({ entries: switched.entries.length, active: switched.activeProvider })}`);
+  }
+  // 搜索必须真的过滤台账，而且过滤词要进缓存 key —— 少了那一条，改词后拿回来的
+  // 还是上一次的 entries，界面上表现为「输入框在动、列表不动」。
+  catalogSandbox.playlistSearchQuery = 'qq 1';
+  const searched = catalogSandbox.playlistPanelBuildVirtualEntries();
+  if (searched.entries.length === switched.entries.length
+    || !searched.entries.every(entry => /qq 1/i.test(entry.pl.name))) {
+    fail(`playlist search must filter the ledger by name: ${JSON.stringify({ before: switched.entries.length, after: searched.entries.length })}`);
+  }
+  catalogSandbox.playlistSearchQuery = '';
+  if (catalogSandbox.playlistPanelBuildVirtualEntries().entries.length !== switched.entries.length) {
+    fail('clearing the search must restore the full catalog ledger');
   }
 
   const hydrateStart = loaderText.indexOf('function playlistQueueSource');

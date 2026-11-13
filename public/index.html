@@ -1303,6 +1303,16 @@
       <!-- 三个页签的工具条统一放在滚动区外面：列表只负责滚行，行到顶会被滚动框的直边裁断，
            不会再从工具条的圆角或玻璃底下钻出来。显隐跟着页签走。 -->
       <div id="playlist-panel-tools">
+        <!-- 两个页签各一个过滤框：队列搜歌名/歌手/专辑，歌单搜歌单名。
+             放在工具条上面单独一行 —— 302px 面板里再往那一排塞输入框，长语言必换行。 -->
+        <div id="queue-search" class="panel-search">
+          <input id="queue-search-input" type="search" autocomplete="off" spellcheck="false"
+            data-queue-search="1" oninput="setQueueSearch(this.value, this)"
+            placeholder="搜索队列" data-i18n-placeholder="pl_search_queue"
+            aria-label="搜索队列" data-i18n="pl_search_queue" data-i18n-attr="aria-label">
+          <button class="panel-search-clear" type="button" onclick="setQueueSearch('')"
+            title="清除" aria-label="清除" data-i18n-title="btn_clear" data-i18n="btn_clear" data-i18n-attr="aria-label">×</button>
+        </div>
         <div id="queue-toolbar" class="queue-toolbar">
           <div id="play-mode-chip" class="queue-chip" data-i18n="play_mode_loop">顺序循环</div>
           <div style="display:flex;gap:6px">
@@ -1313,6 +1323,14 @@
             <button id="queue-multiselect-btn" class="fx-mini-btn ghost" onclick="playlistMultiToggle('queue')"
               style="height:26px;padding:0 10px;font-size:11px" data-i18n="ms_select">多选</button>
           </div>
+        </div>
+        <div id="pl-search" class="panel-search" style="display:none">
+          <input id="pl-search-input" type="search" autocomplete="off" spellcheck="false"
+            oninput="setPlaylistSearch(this.value, this)"
+            placeholder="搜索歌单" data-i18n-placeholder="pl_search_playlists"
+            aria-label="搜索歌单" data-i18n="pl_search_playlists" data-i18n-attr="aria-label">
+          <button class="panel-search-clear" type="button" onclick="setPlaylistSearch('')"
+            title="清除" aria-label="清除" data-i18n-title="btn_clear" data-i18n="btn_clear" data-i18n-attr="aria-label">×</button>
         </div>
         <div id="pl-toolbar" class="queue-toolbar" style="display:none">
           <div class="queue-chip" data-i18n="fx_mixable_all">内置歌单可混合全部平台</div>
@@ -1505,6 +1523,12 @@
           </div>
           <button class="fx-mini-btn ghost" onclick="closeMiniQueue()" title="关闭"
             style="height:26px;padding:0 9px;font-size:13px" data-i18n-title="btn_close">×</button>
+        </div>
+        <div class="mini-queue-search">
+          <input id="mini-queue-search-input" type="search" autocomplete="off" spellcheck="false"
+            data-queue-search="1" oninput="setQueueSearch(this.value, this)"
+            placeholder="搜索队列" data-i18n-placeholder="pl_search_queue"
+            aria-label="搜索队列" data-i18n="pl_search_queue" data-i18n-attr="aria-label">
         </div>
         <div id="mini-queue-list" class="mini-queue-list"></div>
       </div>

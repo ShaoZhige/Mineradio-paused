@@ -274,6 +274,11 @@ function switchPlaylistTab(tab, opts) {
   Object.keys(toolbars).forEach(function (key) {
     if (toolbars[key]) toolbars[key].style.display = key === tab ? '' : 'none';
   });
+  // 搜索行和工具条一样挂在滚动区外面，不会跟着 pane 的 display 一起切，得自己收。
+  var queueSearchRow = document.getElementById('queue-search');
+  if (queueSearchRow) queueSearchRow.style.display = tab === 'queue' ? '' : 'none';
+  var plSearchRow = document.getElementById('pl-search');
+  if (plSearchRow) plSearchRow.style.display = tab === 'playlists' ? '' : 'none';
   // 平台切换器只属于「我的歌单」页签：它挂在 sticky 区里，不会被上面那几行 display 一起切掉，
   // 所以离开这个页签时要自己收起来。
   // The provider switcher belongs to the playlists tab; it sits in the sticky block, which the
@@ -324,16 +329,34 @@ function renderMiniQueuePanel(opts) {
   if (!$list || !$count) return;
   var total = playQueue.length;
   var expectedTotal = queueHydrationExpectedTotal();
-  $count.textContent = total ? ((expectedTotal > total ? (total + '/' + expectedTotal) : total) + playlistPanelText('dash_track_count_suffix') + (currentIdx >= 0 ? playlistPanelText('pshell_now_playing') + (currentIdx + 1) : '')) : playlistPanelText('home_0_tracks');
+  var indexMap = queueSearchIndices();
+  var shown = indexMap ? indexMap.length : total;
+  if (total && indexMap) {
+    // 搜索时写成「匹配 / 总数」，与 hydration 的「已载入 / 总数」是同一读法。
+    $count.textContent = shown + '/' + total + playlistPanelText('dash_track_count_suffix');
+  } else {
+    $count.textContent = total ? ((expectedTotal > total ? (total + '/' + expectedTotal) : total) + playlistPanelText('dash_track_count_suffix') + (currentIdx >= 0 ? playlistPanelText('pshell_now_playing') + (currentIdx + 1) : '')) : playlistPanelText('home_0_tracks');
+  }
   if (!miniQueueOpen && !opts.animate && !opts.scrollCurrent) return;
   if (!total) {
     $list.innerHTML = '<div class="mini-queue-empty">' + escHtml(playlistPanelText('queue_empty', '队列为空，先搜索或打开歌单')) + '</div>';
     return;
   }
-  var windowInfo = queuePanelVirtualWindow($list, $list, total, true, opts.scrollCurrent ? currentIdx : -1);
-  var visibleQueue = playQueue.slice(windowInfo.start, windowInfo.end);
-  $list.innerHTML = queueVirtualSpacerHtml(windowInfo.top) + visibleQueue.map(function (song, localIndex) {
-    var i = windowInfo.start + localIndex;
+  if (!shown) {
+    $list.innerHTML = '<div class="mini-queue-empty">' + escHtml(playlistPanelText('pl_search_no_match', '没有匹配的歌曲')) + '</div>';
+    return;
+  }
+  var scrollIndex = -1;
+  if (opts.scrollCurrent && currentIdx >= 0) {
+    scrollIndex = indexMap ? indexMap.indexOf(currentIdx) : currentIdx;
+  }
+  var windowInfo = queuePanelVirtualWindow($list, $list, shown, true, scrollIndex);
+  var visibleSongs = [];
+  for (var vi = windowInfo.start; vi < windowInfo.end; vi++) {
+    visibleSongs.push(playQueue[indexMap ? indexMap[vi] : vi]);
+  }
+  $list.innerHTML = queueVirtualSpacerHtml(windowInfo.top) + visibleSongs.map(function (song, localIndex) {
+    var i = indexMap ? indexMap[windowInfo.start + localIndex] : windowInfo.start + localIndex;
     var thumb = songCoverSrc(song, 60);
     var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div class="mini-queue-cover"></div>';
     return '<div class="mini-queue-item' + (i === currentIdx ? ' now' : '') + '" data-queue-index="' + i + '" onclick="if(window.__mineradioSuppressReorderClick)return;playQueueAt(' + i + ')">' +
@@ -342,7 +365,7 @@ function renderMiniQueuePanel(opts) {
       '<button class="mini-queue-remove mini-queue-next" onclick="event.stopPropagation();queueIndexNext(' + i + ')" title="' + escHtml(playlistPanelText('next_play', '下一首播放')) + playlistPanelText('pshell_down_button') +
       '<button class="mini-queue-remove" onclick="event.stopPropagation();removeFromQueue(' + i + ')" title="' + escHtml(playlistPanelText('remove', '移除')) + '">×</button>' +
       '</div>';
-  }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + queueHydrationFooterHtml(true);
+  }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + (indexMap ? '' : queueHydrationFooterHtml(true));
   if (opts.animate || opts.scrollCurrent) {
     requestAnimationFrame(function () {
       if (opts.animate) animateListItems($list, '.mini-queue-item', { x: 0, y: 6, stagger: 0.01, duration: 0.20, limit: 16 });
@@ -509,6 +532,78 @@ else if (typeof window.__mineradioDefer === 'function') window.__mineradioDefer(
 bindLongPressPanelReorder();
 if (typeof bindModalBackdropClose === 'function') bindModalBackdropClose();
 else if (typeof window.__mineradioDefer === 'function') window.__mineradioDefer(function () { bindModalBackdropClose(); });
+// ---- 面板搜索 -------------------------------------------------------------
+// 队列有两处入口（左栏「当前队列」与底部迷你队列），看的是同一个 playQueue，所以共用
+// 同一个过滤词；各搜各的只会让人以为两个队列的内容不一样。
+// 过滤只作用在「显示」上：列表里取的仍是 playQueue 的真实下标，最终写回
+// data-queue-index 的也是真实下标，播放 / 删除 / 拖动排序全部照旧。
+var queueSearchQuery = '';
+var playlistSearchQuery = '';
+
+function normalizePanelSearch(value) {
+  return String(value == null ? '' : value).trim().toLowerCase();
+}
+
+function panelSearchHit(text, query) {
+  if (!query) return true;
+  return String(text == null ? '' : text).toLowerCase().indexOf(query) >= 0;
+}
+
+// 返回 null 表示不过滤 —— 调用方据此走原来的整份渲染路径。
+function queueSearchIndices() {
+  if (!queueSearchQuery) return null;
+  var out = [];
+  for (var i = 0; i < playQueue.length; i++) {
+    var song = playQueue[i];
+    if (panelSearchHit(song && song.name, queueSearchQuery)
+      || panelSearchHit(song && song.artist, queueSearchQuery)
+      || panelSearchHit(song && song.album, queueSearchQuery)) out.push(i);
+  }
+  return out;
+}
+
+function togglePanelSearchClearState(id, hasValue) {
+  var box = document.getElementById(id);
+  if (box) box.classList.toggle('has-value', !!hasValue);
+}
+
+// 左栏与迷你弹层是两个输入框、一个状态：回填时跳过正在输入的那个，否则光标会跳。
+function syncQueueSearchInputs(sourceEl, rawValue) {
+  var nodes = document.querySelectorAll('[data-queue-search]');
+  for (var i = 0; i < nodes.length; i++) {
+    if (nodes[i] === sourceEl) continue;
+    if (nodes[i].value !== rawValue) nodes[i].value = rawValue;
+  }
+  togglePanelSearchClearState('queue-search', rawValue.trim());
+}
+
+function setQueueSearch(value, sourceEl) {
+  var raw = String(value == null ? '' : value);
+  var next = normalizePanelSearch(raw);
+  syncQueueSearchInputs(sourceEl, raw);
+  if (next === queueSearchQuery) return;
+  queueSearchQuery = next;
+  var scroller = playlistPanelScrollEl();
+  if (scroller) scroller.scrollTop = 0;
+  // 行数变了，上一帧排的虚拟窗口已经作废，别让 rAF 里的旧窗口把新列表盖回去。
+  queuePanelVirtualState.raf = 0;
+  renderQueuePanel({ animate: false, scrollCurrent: false });
+  renderMiniQueuePanel({ animate: false, scrollCurrent: false });
+}
+
+function setPlaylistSearch(value, sourceEl) {
+  var raw = String(value == null ? '' : value);
+  var next = normalizePanelSearch(raw);
+  var input = document.getElementById('pl-search-input');
+  if (input && input !== sourceEl && input.value !== raw) input.value = raw;
+  togglePanelSearchClearState('pl-search', raw.trim());
+  if (next === playlistSearchQuery) return;
+  playlistSearchQuery = next;
+  var scroller = playlistPanelScrollEl();
+  if (scroller) scroller.scrollTop = 0;
+  if (typeof renderUserPlaylistsList === 'function') renderUserPlaylistsList({ animate: false });
+}
+
 function renderQueuePanel(opts) {
   opts = opts || {};
   var $ql = document.getElementById('queue-list');
@@ -520,16 +615,30 @@ function renderQueuePanel(opts) {
     if (panel && (panel.classList.contains('show') || panel.classList.contains('peek')) && queueViewTab === 'queue') switchPlaylistTab('playlists', { save: false });
     return;
   }
-  var total = playQueue.length;
+  var indexMap = queueSearchIndices();
+  var total = indexMap ? indexMap.length : playQueue.length;
+  if (!total) {
+    $ql.innerHTML = '<div class="queue-empty">' + escHtml(playlistPanelText('pl_search_no_match', '没有匹配的歌曲')) + '</div>';
+    renderMiniQueuePanel({ animate: false, scrollCurrent: false });
+    return;
+  }
   var panelScroller = playlistPanelScrollEl();
-  var windowInfo = queuePanelVirtualWindow($ql, panelScroller, total, false, opts.scrollCurrent ? currentIdx : -1);
-  var visibleQueue = playQueue.slice(windowInfo.start, windowInfo.end);
+  // scrollCurrent 传的是「第几行」；过滤后当前曲目在列表里的位置要重新换算。
+  var scrollIndex = -1;
+  if (opts.scrollCurrent && currentIdx >= 0) {
+    scrollIndex = indexMap ? indexMap.indexOf(currentIdx) : currentIdx;
+  }
+  var windowInfo = queuePanelVirtualWindow($ql, panelScroller, total, false, scrollIndex);
+  var visibleSongs = [];
+  for (var vi = windowInfo.start; vi < windowInfo.end; vi++) {
+    visibleSongs.push(playQueue[indexMap ? indexMap[vi] : vi]);
+  }
   // 多选态下每行前面插一个勾选框；勾选态由下标决定，虚拟滚动的行重建后仍能对上。
   // In multi-select a checkbox is prefixed to each row; its state comes from the row index, so a
   // rebuilt (virtualised) row still shows the right tick.
   var msQueueActive = typeof playlistMultiActiveFor === 'function' && playlistMultiActiveFor('queue');
-  $ql.innerHTML = queueVirtualSpacerHtml(windowInfo.top) + visibleQueue.map(function (song, localIndex) {
-    var i = windowInfo.start + localIndex;
+  $ql.innerHTML = queueVirtualSpacerHtml(windowInfo.top) + visibleSongs.map(function (song, localIndex) {
+    var i = indexMap ? indexMap[windowInfo.start + localIndex] : windowInfo.start + localIndex;
     var thumb = songCoverSrc(song, 60);
     var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:38px;height:38px;border-radius:6px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
     var msCheck = msQueueActive && typeof playlistMultiCheckboxHtml === 'function' ? playlistMultiCheckboxHtml(i) : '';
@@ -544,7 +653,7 @@ function renderQueuePanel(opts) {
       '<button onclick="event.stopPropagation();removeFromQueue(' + i + ')" title="' + escHtml(playlistPanelText('remove', '移除')) + '">×</button>' +
       '</div>' +
       '</div>';
-  }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + queueHydrationFooterHtml(false);
+  }).join('') + queueVirtualSpacerHtml(windowInfo.bottom) + (indexMap ? '' : queueHydrationFooterHtml(false));
   if (opts.animate && seq === queueRenderSeq) animateVisiblePanelList($ql, '.queue-item', playlistPanelScrollEl(), '.queue-item.now');
   renderMiniQueuePanel({ scrollCurrent: opts.scrollCurrent !== false && miniQueueOpen });
 }

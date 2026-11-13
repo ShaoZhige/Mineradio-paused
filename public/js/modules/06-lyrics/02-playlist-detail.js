@@ -774,11 +774,19 @@ function playlistPanelBuildVirtualEntries() {
   ].join('|');
   if (playlistPanelVirtualCache.revision === playlistCatalogRevision &&
       playlistPanelVirtualCache.detailKey === playlistPanelDetailState.key &&
-      playlistPanelVirtualCache.detailSig === detailSig) return playlistPanelVirtualCache;
+      playlistPanelVirtualCache.detailSig === detailSig &&
+      playlistPanelVirtualCache.searchQuery === playlistSearchQuery) return playlistPanelVirtualCache;
   var buckets = playlistPanelProviderBuckets();
   var available = playlistPanelAvailableProviders(buckets);
   var activeProvider = resolvePlaylistPanelActiveProvider(buckets, available);
   var items = buckets[activeProvider] || [];
+  // 搜索只过滤卡片名单，不动平台桶与切换器：一条都没匹配上时，用户还得能换平台去看。
+  // 匹配的是歌单名（卡片上写的那一行），不逐张去拉歌单曲目。
+  if (playlistSearchQuery) {
+    items = items.filter(function (entry) {
+      return panelSearchHit(entry && entry.pl && entry.pl.name, playlistSearchQuery);
+    });
+  }
   // 平台切换器已经表明当前看的是哪个平台，列表里不再需要分组标题，条目台账从
   // 「标题 + 卡片」简化为只有卡片（详情仍插在它自己那张卡片后面）。
   // The switcher already names the provider, so no group header enters the ledger anymore.
@@ -796,6 +804,7 @@ function playlistPanelBuildVirtualEntries() {
     revision: playlistCatalogRevision,
     detailKey: playlistPanelDetailState.key,
     detailSig: detailSig,
+    searchQuery: playlistSearchQuery,
     entries: entries,
     offsets: offsets,
     totalHeight: offsets[offsets.length - 1] || 0,
@@ -989,6 +998,11 @@ function renderUserPlaylistsList(opts) {
   }
   var cache = playlistPanelBuildVirtualEntries();
   renderPlaylistProviderTabs(cache);
+  if (playlistSearchQuery && !cache.entries.length) {
+    // 搜索无结果：切换器留着，用户可以直接换平台再看；不要把「没匹配」说成「未找到歌单」。
+    $pl.innerHTML = playlistDetailText('pl_search_no_playlist_html');
+    return;
+  }
   var listRect = $pl.getBoundingClientRect();
   var scrollerRect = scroller && scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : { top: 0 };
   var visibleTop = scroller ? Math.max(0, scrollerRect.top - listRect.top) : 0;
@@ -1042,7 +1056,9 @@ function renderUserPlaylistsList(opts) {
     schedulePlaylistPanelVirtualRender();
   }
   bindPlaylistPanelDetailScroller();
-  if (typeof requestNextPlaylistCatalogPage === 'function' && end >= cache.entries.length - 8) requestNextPlaylistCatalogPage('panel-near-end');
+  // 搜索只筛已加载的那些：这时候再按「滚到列表末尾」去拉下一页，会把所有平台的歌单
+  // 一路拉完，只为给一个过滤结果凑数。
+  if (!playlistSearchQuery && typeof requestNextPlaylistCatalogPage === 'function' && end >= cache.entries.length - 8) requestNextPlaylistCatalogPage('panel-near-end');
   if (opts.animate && seq === playlistRenderSeq) animateVisiblePanelList($pl, '.pl-card', playlistPanelScrollEl());
 }
 // 播客的平台切换器和歌单是同一套胶囊行：列出所有已登录的平台，一次只渲染一个。
