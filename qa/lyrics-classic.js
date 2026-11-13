@@ -163,7 +163,9 @@ function assert(condition, message) {
     // incoming node inherits the previous pose. This is the regression that
     // produced the sideways jump and the double-image stutter at every switch.
     await evaluate("lyricsLines=[{t:0.6,duration:2.0,text:text,words:words,charCount:text.length,source:'yrc-word'},{t:2.8,duration:2.0,text:'第二行测试文字',words:[{text:'第二',t:2.8,d:0.5,c0:0,c1:2},{text:'行测',t:3.3,d:0.5,c0:2,c1:4},{text:'试文',t:3.8,d:0.5,c0:4,c1:6},{text:'字',t:4.3,d:0.5,c0:6,c1:7}],charCount:7,source:'yrc-word'}]; window.__foliaNow=1.2; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'two-lines'");
-    await sleep(120);
+    // 入场动画会临时覆盖 inline translate（0.18s），必须等它跑完再读 computed，
+    // 否则 pre 采到的是动画中间值，和切行时冻结的 inline 值对不上，断言会偶发失败。
+    await sleep(280);
     const pre = await evaluate("(function(){var l=document.querySelector('#folia-classic-lyrics .folia-classic-line.is-in');var cs=l?getComputedStyle(l):null;return {cam:cs?(parseFloat(cs.translate)||0):0,rotate:cs?cs.rotate:'',left:l?l.offsetLeft:-1,top:l?l.offsetTop:-1};})()");
     await evaluate("window.__foliaNow=3.2; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'switch'");
     await sleep(150);
@@ -184,6 +186,16 @@ function assert(condition, message) {
     await sleep(220);
     const ghosts = await evaluate("document.querySelectorAll('#folia-classic-lyrics .folia-classic-line.is-out').length");
     assert(ghosts === 0, 'outgoing line was not removed after the fade');
+
+    // 行级（LRC）歌词：下一行在 20 秒后（句后是间奏），逐字点亮必须按演唱时长收束，
+    // 不能跟着间隔一路拖到 18 秒——那正是「歌词跟不上嘴」的来源。
+    await evaluate("lyricsLines=[{t:0,duration:20,text:'晚风穿过城市灯火慢慢亮起'},{t:20,duration:4,text:'下一句歌词'}]; window.__foliaNow=1.0; window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'lrc-gap'");
+    await sleep(150);
+    const lrcSpan = await evaluate("(function(){var w=window.__mineradioFoliaWords?window.__mineradioFoliaWords():[];return {count:w.length,first:w.length?w[0].start:-1,last:w.length?w[w.length-1].end:-1};})()");
+    console.log('lrc-span:', JSON.stringify(lrcSpan));
+    assert(lrcSpan.count > 1, 'LRC line did not split into words');
+    assert(lrcSpan.first >= 0 && lrcSpan.first < 0.2, 'LRC first word must start at the line start: ' + lrcSpan.first);
+    assert(lrcSpan.last > 3.8 && lrcSpan.last < 5.4, 'LRC long-gap line must be clamped to the sung estimate, got ' + lrcSpan.last);
 
     await evaluate("fx.lyricStyle='default'; if(typeof updateLyricStyleControls==='function')updateLyricStyleControls(); window.__mineradioFoliaTick && window.__mineradioFoliaTick(); 'off'");
     await sleep(600);

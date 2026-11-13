@@ -101,8 +101,32 @@
     };
   }
 
+  // 一行歌词实际只唱一小段，但 LRC 里「下一行的时间」还含着句尾气口甚至整段间奏。
+  // 直接把它当演唱时长铺开，字就会一路慢慢亮：唱到第 6 个字时画面才亮到第 3 个，
+  // 也就是「跟不上嘴」。这里按实测吐字速度（0.34s/汉字、0.35 权重的拉丁字母）
+  // 估一个演唱时长，只在间隔明显超出它时才收束；间隔≈演唱时长的正常行不动。
+  var SUNG_SEC_PER_CHAR = 0.34;
+  var SUNG_SEC_PER_LATIN = 0.35;
+  var SUNG_TAIL_SEC = 0.9;
+  function sungSpanSeconds(text) {
+    var raw = String(text || '');
+    var weight = 0;
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw.charAt(i);
+      if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(ch)) weight += 1;
+      else if (/[A-Za-z0-9]/.test(ch)) weight += SUNG_SEC_PER_LATIN;
+    }
+    return weight > 0 ? weight * SUNG_SEC_PER_CHAR + SUNG_TAIL_SEC : 0;
+  }
+
+  // 「On My Love......」「He~he...he~he……」这类行本来就靠拖音把时间占满，
+  // 收束会把它们剪成正常语速，反而让字跑在前面。带省略号/波浪号/长破折号的一律不动。
+  function isSustainedVocalLine(text) {
+    return /[~\uFF5E\u2026]|\.{3,}|[\u2014\u2015-]{3,}/.test(String(text || ''));
+  }
+
   // Folia 对 LRC 行的收尾不是直接用下一行时间：如果中间隔了很久，会把这一行
-  // 按阅读时长截断，剩下的空档交给间奏。否则长间奏会把整行歌词拖成慢动作。
+  // 按演唱时长截断，剩下的空档交给间奏。否则长间奏会把整行歌词拖成慢动作。
   function lineSpanEnd(line, nextLine) {
     var start = Math.max(0, Number(line && line.t) || 0);
     var nextT = nextLine && Number(nextLine.t) > start ? Number(nextLine.t) : 0;
@@ -110,11 +134,10 @@
       ? nextT - start
       : Math.max(0.6, Number(line && line.duration) || 5);
     var hasWords = Array.isArray(line && line.words) && line.words.length > 0;
-    var reading = String(line && line.text || '').length * 0.5;
-    // The reading-time clamp only applies to line-synced lyrics.  Word-timed
-    // (YRC) lines already carry real word windows and must not be shortened.
-    if (!hasWords && nextT && duration > reading + 2 && duration > 5) {
-      duration = Math.min(duration, reading + 2);
+    var sung = sungSpanSeconds(line && line.text);
+    // 收束只作用于行级（LRC）歌词：逐词时间轴（YRC）已经带着真实词窗，不能动。
+    if (!hasWords && nextT && sung > 0 && !isSustainedVocalLine(line && line.text) && duration > sung + 0.3) {
+      duration = sung;
     }
     var end = start + Math.max(0.5, Math.min(duration, 12));
     if (hasWords) {

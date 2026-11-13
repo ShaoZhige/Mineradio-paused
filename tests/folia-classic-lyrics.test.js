@@ -64,7 +64,11 @@ test('没有逐词时间轴时按 Folia 的逐字权重铺开，再聚合到词'
   assert.match(MODULE, /function spreadUnits/);
   assert.match(MODULE, /sub\.weight \* perWeight/);
   assert.match(MODULE, /Math\.max\(rawDuration, 0\.05\)/);
-  assert.match(MODULE, /reading \+ 2/);
+  // 行级歌词按实测吐字速度收束，不能直接吃「到下一行」的间隔，否则句后带气口/间奏
+  // 的行会把逐字点亮一路拖慢，看起来就是「跟不上嘴」。
+  assert.match(MODULE, /function sungSpanSeconds/);
+  assert.match(MODULE, /SUNG_SEC_PER_CHAR/);
+  assert.doesNotMatch(MODULE, /reading \+ 2/);
   assert.match(MODULE, /function buildWords\(line, nextLine\)/);
   assert.match(MODULE, /buildWords\(line, nextLine\)/);
   assert.match(MODULE, /maxStart - minStart < 0\.05/);
