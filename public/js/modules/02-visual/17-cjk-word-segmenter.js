@@ -77,6 +77,12 @@
 
   function ensureLoaded() {
     if (state.ready || state.loading || state.failed) return;
+    // 非浏览器环境（单测的 vm 沙箱）没有 fetch，别让它抛在渲染循环里。
+    if (typeof fetch !== 'function') {
+      state.failed = true;
+      console.warn('[CJK] fetch is unavailable; falling back to Intl.Segmenter');
+      return;
+    }
     state.loading = true;
     var request;
     if (typeof DecompressionStream === 'function') {
@@ -216,10 +222,99 @@
     return out;
   }
 
+  // ---- 歌词分词统一入口 ---------------------------------------------------
+  //
+  // 流光（16）和商籁（18）必须拿到同一套词边界：两边的版面、镜头锚点、逐字
+  // 时间窗都是按「词」算的，只要一边走词典、另一边走 Intl.Segmenter，切样式
+  // 时同一行歌词就会断在不同位置，画面跟着跳。规则只在这里维护一次：
+  //   1. 词典就绪 → 用词典；未就绪 → Intl.Segmenter；再不行逐字兜底。
+  //   2. 两条路径都过同一个 normalizeUnits()：空格与标点吸附到前一个词、
+  //      「的 / 了 / 在」这类虚词并回前一个词、相邻两个非虚词单字合成一个词。
+  // 词典是同步 DFA，就绪后同样的输入永远给同样的输出，seek 到任何位置结果都不变；
+  // 就绪那一刻由调用方各重建一次，之后不再变化。
+  var CJK_SINGLE = /^[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]$/;
+  var WORD_STOP = '的了着过们吗呢吧啊呀哦嗯在是不没就都也又还很太最更我你他她它这那哪谁什么怎和与或而但却把被给让对从向为以于之其个些点上下中里外来到会能要想说看听有无一二三四五六七八九十啦嘛喔诶唉嘿哈';
+  var SPACE_ONLY_RE = /^\s+$/;
+  var PUNCT_ONLY_RE = /^[\p{P}\p{S}]+$/u;
+
+  function isWordStop(token) {
+    return token.length === 1 && WORD_STOP.indexOf(token) >= 0;
+  }
+
+  function normalizeUnits(parts) {
+    var units = [];
+    for (var i = 0; i < parts.length; i++) {
+      var token = parts[i];
+      if (!token) continue;
+      if (SPACE_ONLY_RE.test(token)) {
+        // Keep a single visible space attached to the previous unit.
+        if (units.length) units[units.length - 1] += ' ';
+        continue;
+      }
+      if (PUNCT_ONLY_RE.test(token)) {
+        if (units.length) units[units.length - 1] += token; else units.push(token);
+        continue;
+      }
+      var prev = units.length ? units[units.length - 1] : '';
+      if (prev && CJK_SINGLE.test(token) && isWordStop(token)
+        && CJK_SINGLE.test(prev.charAt(prev.length - 1))) {
+        units[units.length - 1] += token;
+        continue;
+      }
+      if (CJK_SINGLE.test(token) && i + 1 < parts.length
+        && CJK_SINGLE.test(parts[i + 1]) && !isWordStop(token) && !isWordStop(parts[i + 1])) {
+        units.push(token + parts[++i]);
+        continue;
+      }
+      units.push(token);
+    }
+    var out = [];
+    for (var u = 0; u < units.length; u++) {
+      var trimmed = units[u].trim();
+      if (trimmed) out.push(trimmed);
+    }
+    return out;
+  }
+
+  function segmentWithIntl(raw) {
+    var parts = [];
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      try {
+        var seg = new Intl.Segmenter(undefined, { granularity: 'word' });
+        Array.from(seg.segment(raw)).forEach(function (part) {
+          if (part.segment) parts.push(part.segment);
+        });
+      } catch (err) { parts = []; }
+    }
+    if (!parts.length) {
+      var re = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|[A-Za-z0-9][A-Za-z0-9''’\-]*|[^\s]/g;
+      var match;
+      while ((match = re.exec(raw))) parts.push(match[0]);
+    }
+    return parts;
+  }
+
+  // 歌词分词唯一入口：两个全屏歌词样式都调它。
+  function splitWords(text) {
+    var raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    if (!raw) return [];
+    var parts = null;
+    if (state.ready) {
+      parts = segment(raw);
+      if (!parts.length) parts = null;
+    } else {
+      ensureLoaded();
+    }
+    if (!parts) parts = segmentWithIntl(raw);
+    return normalizeUnits(parts);
+  }
+
   global.cjkWordSegmenter = {
     ensureLoaded: ensureLoaded,
     onReady: onReady,
     segment: segment,
+    splitWords: splitWords,
+    normalizeUnits: normalizeUnits,
     isReady: function () { return state.ready; },
     hasFailed: function () { return state.failed; }
   };

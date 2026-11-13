@@ -155,7 +155,8 @@ function normalizeSavedLyricMotionStyle(style) {
   return /^(glass|smooth|float|quick|shine|glitch)$/.test(style) ? style : 'float';
 }
 function normalizeSavedLyricStyle(style) {
-  return String(style || 'default') === 'classic' ? 'classic' : 'default';
+  style = String(style || 'default');
+  return style === 'classic' || style === 'sonnet' ? style : 'default';
 }
 function readSavedLyricLayoutCriticalFallback(raw, err) {
   raw = plainCurrentFxAutosavePayload(raw);

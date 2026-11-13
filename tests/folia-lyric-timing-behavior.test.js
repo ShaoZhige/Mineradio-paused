@@ -10,9 +10,10 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const MODULE = path.join(__dirname, '..', 'public', 'js', 'modules', '02-visual', '16-folia-classic-lyrics.js');
+const SEGMENTER = path.join(__dirname, '..', 'public', 'js', 'modules', '02-visual', '17-cjk-word-segmenter.js');
 
 function loadFolia() {
-  const window = { __MINERADIO_TEST__: true, cjkWordSegmenter: null, setTimeout, clearTimeout };
+  const window = { __MINERADIO_TEST__: true, setTimeout, clearTimeout };
   const document = {
     readyState: 'complete',
     visibilityState: 'hidden',
@@ -33,11 +34,15 @@ function loadFolia() {
     Math,
     Date,
     isFinite,
+    fx: { lyricStyle: 'default' },
     requestAnimationFrame: () => 0,
     setTimeout,
     clearTimeout,
   };
   vm.createContext(context);
+  // 分词的唯一实现在 17 号模块里，流光只委托它。沙箱没有 fetch，词典停在
+  // 未就绪态，走 Intl.Segmenter + 同一套归一化——正是启动头几百毫秒的路径。
+  vm.runInContext(fs.readFileSync(SEGMENTER, 'utf8'), context, { filename: SEGMENTER });
   vm.runInContext(fs.readFileSync(MODULE, 'utf8'), context, { filename: MODULE });
   return window.__mineradioFoliaBuildWords;
 }
@@ -91,6 +96,14 @@ test('identical word starts are spread across the line span', () => {
   assert.ok(words[0].start >= 10 && words[0].end > words[0].start, 'first word should start inside the line');
   assert.ok(words[1].start >= words[0].end || Math.abs(words[1].start - words[0].end) < 0.2, 'second word should follow the first');
   assert.ok(words[1].end <= 12, 'last word must end inside the line span');
+});
+
+// 首词起点必须真的落在行首：曾经用 !firstAt[w] 判断「还没赋值」，
+// 整行从 0 秒开始时 0 是 falsy，第一个词会晚一个字才亮。
+test('line starting at zero lights the first word from the line start', () => {
+  const words = buildWords({ t: 0, text: '晚风穿过', duration: 4 }, { t: 4 });
+  assert.deepEqual(Array.from(words, (w) => w.text), ['晚风', '穿过']);
+  close(words[0].start, 0, 'first word start');
 });
 
 test('LRC long gap is clamped by reading time', () => {

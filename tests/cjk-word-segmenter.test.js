@@ -17,6 +17,7 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const DICT_PATH = path.join(ROOT, 'public/vendor/jieba-dict.txt');
 const SEGMENTER = read('public/js/modules/02-visual/17-cjk-word-segmenter.js');
 const CLASSIC = read('public/js/modules/02-visual/16-folia-classic-lyrics.js');
+const SONNET = read('public/js/modules/02-visual/18-folia-sonnet-lyrics.js');
 const LOADER = read('public/js/index-loader.js');
 const NOTICE = read('NOTICE.md');
 
@@ -46,15 +47,23 @@ test('分词器使用 DAG + 最大概率路径，并同步解析词典', () => {
   assert.match(SEGMENTER, /function mergeKnownSingleRuns\(/);
 });
 
-test('词典在经典歌词模块之前加载，并被 16 模块调用', () => {
+test('词典先于两个歌词样式加载，且两边共用同一个分词入口', () => {
   const segIdx = LOADER.indexOf('02-visual/17-cjk-word-segmenter.js');
   const classicIdx = LOADER.indexOf('02-visual/16-folia-classic-lyrics.js');
-  assert.ok(segIdx >= 0 && classicIdx >= 0, 'loader entries missing');
+  const sonnetIdx = LOADER.indexOf('02-visual/18-folia-sonnet-lyrics.js');
+  assert.ok(segIdx >= 0 && classicIdx >= 0 && sonnetIdx >= 0, 'loader entries missing');
   assert.ok(segIdx < classicIdx, 'segmenter must load before the classic lyric module');
-  assert.match(CLASSIC, /cjkWordSegmenter\.isReady\(\)/);
-  assert.match(CLASSIC, /cjkWordSegmenter\.segment\(text\)/);
-  assert.match(CLASSIC, /cjkWordSegmenter\.ensureLoaded\(\)/);
+  assert.ok(segIdx < sonnetIdx, 'segmenter must load before the sonnet lyric module');
+  // 分词规则只维护在 17：两个样式都只调 splitWords()，谁也不许再自己切一遍，
+  // 否则同一行歌词在两种样式里会断在不同位置。
+  assert.match(CLASSIC, /cjkWordSegmenter\.splitWords\(text\)/);
   assert.match(CLASSIC, /cjkWordSegmenter\.onReady\(/);
+  assert.match(SONNET, /cjkWordSegmenter\.splitWords\(text\)/);
+  assert.match(SONNET, /cjkWordSegmenter\.onReady\(/);
+  assert.doesNotMatch(CLASSIC, /new Intl\.Segmenter\(/);
+  assert.doesNotMatch(SONNET, /new Intl\.Segmenter\(/);
+  assert.match(SEGMENTER, /function splitWords\(/);
+  assert.match(SEGMENTER, /function normalizeUnits\(/);
 });
 
 test('第三方声明注明 jieba 词典来源', () => {

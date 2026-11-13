@@ -90,6 +90,7 @@
     'js/modules/02-visual/15-ripples-cover-depth.js',
     'js/modules/02-visual/17-cjk-word-segmenter.js',
     'js/modules/02-visual/16-folia-classic-lyrics.js',
+    'js/modules/02-visual/18-folia-sonnet-lyrics.js',
     'sonic-topography-preset.js',
     'sonic-workshop-preset.js',
     'highway-drive-preset.js',

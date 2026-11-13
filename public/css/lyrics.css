@@ -390,3 +390,153 @@
   /* 光圈保留静态可见，但不再每圈跑 2.4s 的缩放/透明度循环。 */
   .folia-word-ring { animation: none; opacity: .55; scale: 1 }
 }
+
+/* ── 商籁 Sonnet（clean-room 歌词 PV） ──────────────────────────────────────
+   全屏海报式分镜：一层 Canvas2D 线稿垫底、一层相机容器承载四级字号文字、
+   四角非对称印刷角标。所有关键姿态由模块每帧写 inline style，
+   因此本机 prefers-reduced-motion 恒真时不会出现「样式在但不动画」。 */
+#folia-sonnet-lyrics {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .32s ease;
+  user-select: none;
+  --fs-ink: #eaf3ff;
+  --fs-hi: #fff;
+  --fs-secondary: #a9d4ff;
+  --fs-accent: #7fc4ff;
+  --fs-glow: 1;
+  --fs-glitch: 0;
+  color: var(--fs-ink)
+}
+#folia-sonnet-lyrics.show { opacity: 1 }
+
+.fs-mg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .85 }
+
+/* 屏幕空间的取景框：相机在里面平移/放大，超出的字被裁掉。
+   底部渐隐固定在屏幕上（不跟着相机走），避免被推下来的字压在播放控制条上。 */
+.fs-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 92%)
+}
+.fs-camera {
+  position: absolute;
+  inset: 0;
+  /* 相机以「左上角为原点」写 pivot：transform 里先 translate(-focus) 再 scale，
+     把当前唱到的字钉在视口中心。用 50% 50% 会额外平移一次，跟随就会偏。 */
+  transform-origin: 0 0;
+  will-change: transform
+}
+.fs-shot { position: absolute; inset: 0; will-change: opacity, filter }
+
+.fs-word {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, -50%) rotate(var(--fs-rest-rotate, 0deg));
+  white-space: nowrap;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: .02em;
+  color: var(--fs-ink);
+  will-change: transform
+}
+.fs-word[data-role="hero"] {
+  font-weight: 900;
+  color: var(--fs-hi);
+  text-shadow: 0 0 calc(18px * var(--fs-glow)) var(--fs-accent),
+    -2px 0 rgba(0, 255, 255, .42), 2px 0 rgba(255, 0, 68, .38)
+}
+.fs-word[data-role="semi-hero"] {
+  font-weight: 800;
+  color: var(--fs-secondary);
+  text-shadow: -1px 0 rgba(0, 255, 255, .32), 1px 0 rgba(255, 0, 68, .28)
+}
+.fs-word[data-role="support"] { font-weight: 500; opacity: .92 }
+.fs-word[data-role="decoration"] {
+  z-index: 0;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--fs-secondary);
+  font-weight: 300;
+  opacity: .16
+}
+.fs-word.is-vertical { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: .08em }
+/* 空心装饰字是 hero 的回声，必须和 hero 一起逐字入场；不能强制成常亮，
+   否则会出现「装饰大字先于本体出现」的错序。 */
+
+.fs-glyph { display: inline-block; will-change: transform, opacity }
+.fs-word.is-waiting .fs-glyph { filter: blur(2px) }
+.fs-word.is-entering .fs-glyph {
+  text-shadow: -3px 0 rgba(0, 255, 255, .65), 3px 0 rgba(255, 0, 68, .55)
+}
+.fs-word.is-entering[data-role="hero"] .fs-glyph {
+  text-shadow: -5px 0 rgba(0, 255, 255, .75), 5px 0 rgba(255, 0, 68, .65),
+    0 0 calc(22px * var(--fs-glow)) var(--fs-accent)
+}
+.fs-word.is-settled .fs-glyph {
+  text-shadow: -1px 0 rgba(0, 255, 255, .18), 1px 0 rgba(255, 0, 68, .16)
+}
+
+/* 四角非对称印刷角标 —— 商籁最廉价也最不可替代的识别符 */
+.fs-frame { position: absolute; inset: 0 }
+.fs-corner { position: absolute; display: block }
+.fs-corner-tl {
+  top: 4.5%; left: 3.6%; width: 62px; height: 16px;
+  border-top: 4px solid var(--fs-hi); border-left: 4px solid var(--fs-hi)
+}
+.fs-corner-tl::after {
+  content: ''; position: absolute; left: 0; top: 12px;
+  width: 2px; height: 34px; background: var(--fs-secondary); opacity: .8
+}
+.fs-corner-tr { top: 4.5%; right: 3.6%; width: 26px; height: 26px }
+.fs-corner-tr::before, .fs-corner-tr::after {
+  content: ''; position: absolute; background: var(--fs-secondary); opacity: .75
+}
+.fs-corner-tr::before { left: 0; top: 12px; width: 26px; height: 2px }
+.fs-corner-tr::after { left: 12px; top: 0; width: 2px; height: 26px }
+.fs-corner-bl {
+  bottom: 5.5%; left: 4.2%; width: 14px; height: 14px;
+  border: 2px solid var(--fs-secondary); transform: rotate(45deg); opacity: .8
+}
+.fs-corner-br {
+  bottom: 5%; right: 4%; width: 44px; height: 44px;
+  border-right: 4px solid var(--fs-hi); border-bottom: 4px solid var(--fs-hi)
+}
+.fs-corner-br::after {
+  content: ''; position: absolute; right: 8px; bottom: 4px;
+  width: 20px; height: 2px; background: var(--fs-accent); opacity: .85
+}
+.fs-star { position: absolute; right: 8.5%; bottom: 6.5%; font-size: 14px; color: var(--fs-hi); opacity: .7 }
+
+.fs-meta { position: absolute; inset: 0; pointer-events: none }
+.fs-meta-side {
+  position: absolute; left: 2.2%; bottom: 8%;
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 11px; letter-spacing: .38em; opacity: .34; color: var(--fs-secondary)
+}
+.fs-meta-note {
+  position: absolute; right: 4%; top: 8%;
+  font-size: 10px; letter-spacing: .28em; opacity: .30
+}
+
+/* mono-glitch 转场：横向切片感由 --fs-glitch 驱动，不依赖 CSS 循环动画 */
+#folia-sonnet-lyrics[data-transition="mono-glitch"] .fs-shot {
+  clip-path: inset(0 0 0 0);
+  transform: translateX(calc(var(--fs-glitch) * 6px))
+}
+#folia-sonnet-lyrics[data-transition="mono-glitch"] .fs-word[data-role="hero"] .fs-glyph {
+  text-shadow: calc(var(--fs-glitch) * -8px) 0 rgba(0, 255, 255, .7),
+    calc(var(--fs-glitch) * 8px) 0 rgba(255, 0, 68, .6)
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 关键状态全由 JS 每帧写 inline style，这里不需要任何循环动画；
+     只保留一次性的覆盖层淡入淡出，避免系统设置把整层静音。 */
+  #folia-sonnet-lyrics .fs-word,
+  #folia-sonnet-lyrics .fs-glyph { animation: none }
+}

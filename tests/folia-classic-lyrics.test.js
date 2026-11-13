@@ -57,9 +57,10 @@ test('流光模块按逐字时间轴推进，并隐藏 WebGL 歌词组', () => {
 
 test('没有逐词时间轴时按 Folia 的逐字权重铺开，再聚合到词', () => {
   assert.match(MODULE, /function segmentFallbackWords/);
-  assert.match(MODULE, /Intl\.Segmenter/);
-  assert.match(MODULE, /granularity: 'word'/);
-  assert.match(MODULE, /CJK_SINGLE/);
+  // 分词实现只有一份（17-cjk-word-segmenter），流光只委托，不再自己跑 Segmenter。
+  // 商籁调的是同一个入口，两个样式才会把同一行歌词断在同一处。
+  assert.match(MODULE, /cjkWordSegmenter\.splitWords\(text\)/);
+  assert.doesNotMatch(MODULE, /new Intl\.Segmenter\(/);
   assert.match(MODULE, /function spreadUnits/);
   assert.match(MODULE, /sub\.weight \* perWeight/);
   assert.match(MODULE, /Math\.max\(rawDuration, 0\.05\)/);
