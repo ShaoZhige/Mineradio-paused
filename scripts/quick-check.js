@@ -78,6 +78,32 @@ function supportedLangs() {
     : [];
 }
 
+// 平台清单会随新平台接入不断变长：守卫只断言既有平台仍在，不钉死整条字面量。
+// 把 concat 参数或 provider 顺序整串写死，接入 Apple Music 这类新平台时就会误报成回归。
+// Provider lists grow as new platforms land; guards assert established providers are still
+// present instead of pinning the whole literal, which breaks on every addition.
+function sourceListItems(text, pattern) {
+  const match = pattern.exec(text);
+  return match
+    ? match[1].split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+    : [];
+}
+
+const BASE_PLAYLIST_PROVIDERS = ['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'];
+const BASE_PLAYLIST_MERGES = ['neteasePlaylists', 'qqPlaylists', 'kugouPlaylists', 'qishuiPlaylists', 'spotifyPlaylists'];
+
+function playlistProviderOrder(text) {
+  return sourceListItems(text, /PLAYLIST_PROVIDER_ORDER = \[([^\]]*)\]/);
+}
+
+function mergedPlaylistSources(text) {
+  return sourceListItems(text, /builtInPlaylists\.concat\(([^)]*)\)/);
+}
+
+function hasAllItems(list, required) {
+  return required.every((item) => list.indexOf(item) >= 0);
+}
+
 // 各语言的自称（简体中文 / 繁體中文（台灣）…），顺序与 SUPPORTED_LANGS 一致。
 // 安装器首屏的下拉列表必须和它逐项对齐 —— 两边各写一份清单迟早会漏掉新语言。
 // The endonyms, ordered like SUPPORTED_LANGS. The installer's first-page dropdown has to match
@@ -2327,14 +2353,15 @@ function checkQishuiProviderGuard() {
   if (!/\/api\/qishui\/user\/playlists/.test(serverText) || !/\/api\/qishui\/playlist\/tracks/.test(serverText)) {
     fail('server.js must route Qishui user playlists and playlist track detail endpoints');
   }
-  if (!/qishuiPlaylists/.test(coreStoreText) || !/if \(provider === 'qishui'\) return '\/api\/qishui\/user\/playlists'/.test(playlistShellText) || !/builtInPlaylists\.concat\(neteasePlaylists, qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists\)/.test(playlistShellText)) {
+  const mergedSources = mergedPlaylistSources(playlistShellText);
+  if (!/qishuiPlaylists/.test(coreStoreText) || !/if \(provider === 'qishui'\) return '\/api\/qishui\/user\/playlists'/.test(playlistShellText) || !hasAllItems(mergedSources, BASE_PLAYLIST_MERGES)) {
     fail('playlist panel refresh must merge Qishui playlists with the other providers');
   }
   // 平台切换器取代分组标题后，原来的 pl_qishui_playlist 词条不再被引用（已删除）。
   // 这里改为检查更直接的证据：汽水必须出现在切换器的平台顺序表里，否则它在面板里根本没有入口。
   // With the group headings gone that copy key no longer exists; assert the stronger fact instead —
   // qishui must appear in the switcher's provider order, or it has no entry in the panel at all.
-  if (!/normalizePlaylistProvider/.test(playlistDetailText) || !/\/api\/qishui\/playlist\/tracks/.test(playlistDetailText) || !/qishui:' \+ id/.test(playlistDetailText) || !/PLAYLIST_PROVIDER_ORDER = \['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'\]/.test(playlistDetailText)) {
+  if (!/normalizePlaylistProvider/.test(playlistDetailText) || !/\/api\/qishui\/playlist\/tracks/.test(playlistDetailText) || !/qishui:' \+ id/.test(playlistDetailText) || !hasAllItems(playlistProviderOrder(playlistDetailText), BASE_PLAYLIST_PROVIDERS)) {
     fail('playlist panel detail must open and play Qishui playlists via the Qishui endpoint');
   }
   requireLocaleKeys('pl_page_prev', 'pl_page_next');
@@ -2518,7 +2545,11 @@ async function checkSpotifyProviderGuard() {
     fail('server.js must route Spotify logout, user playlists, and playlist track detail endpoints');
   }
   const desktopSpotify = desktopMainText + '\n' + desktopSpotifyText;
-  if (!/SPOTIFY_LOGIN_PARTITION/.test(desktopSpotify) || !/openSpotifyMusicLoginWindow/.test(desktopSpotify) || !/verifySpotifyOAuthCallbackEndpoint/.test(desktopSpotify) || !/spotify-music-open-login/.test(desktopMainText) || !/spotify-music-verify-setup/.test(desktopMainText) || !desktopSpotify.includes('shell.openExternal(authUrl)') || !/SPOTIFY_OAUTH_TIMEOUT_MS/.test(desktopSpotify) || !/SPOTIFY_TOKEN_FILE/.test(desktopMainText) || !(spotifyText + desktopSpotify).includes('127.0.0.1:43879/callback')) {
+  // 内置客户端把默认回调从 43879/callback 换成 5588/login；旧自定义 Client ID 的
+  // 43879/callback 仍按兼容路径处理，守卫只需确认默认回调是 loopback 且校验函数还在。
+  // The bundled client moved the default callback to 5588/login; stale custom-client
+  // redirects to 43879/callback stay a compatibility path, not the pinned default.
+  if (!/SPOTIFY_LOGIN_PARTITION/.test(desktopSpotify) || !/openSpotifyMusicLoginWindow/.test(desktopSpotify) || !/verifySpotifyOAuthCallbackEndpoint/.test(desktopSpotify) || !/spotify-music-open-login/.test(desktopMainText) || !/spotify-music-verify-setup/.test(desktopMainText) || !desktopSpotify.includes('shell.openExternal(authUrl)') || !/SPOTIFY_OAUTH_TIMEOUT_MS/.test(desktopSpotify) || !/SPOTIFY_TOKEN_FILE/.test(desktopMainText) || !(spotifyText + desktopSpotify).includes('127.0.0.1:5588/login')) {
     fail('desktop main must provide system-browser PKCE, a verified loopback callback, bounded timeout, and userData token storage');
   }
   if (!/openSpotifyMusicLogin/.test(desktopPreloadText) || !/verifySpotifyMusicSetup/.test(desktopPreloadText) || !/clearSpotifyMusicLogin/.test(desktopPreloadText)) {
@@ -2542,7 +2573,7 @@ async function checkSpotifyProviderGuard() {
   if (!/loginRefreshRequestSeq/.test(loginFlowText) || !/isLoginRefreshCurrent/.test(loginFlowText)) {
     fail('login modal provider switching must guard stale async status and QR writes');
   }
-  if (!/\/api\/spotify\/user\/playlists/.test(playlistShellText) || !/spotifyPlaylists/.test(playlistShellText) || !/\/api\/spotify\/playlist\/tracks/.test(playlistDetailText) || !/spotify:' \+ id/.test(playlistDetailText) || !/PLAYLIST_PROVIDER_ORDER = \['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'\]/.test(playlistDetailText)) {
+  if (!/\/api\/spotify\/user\/playlists/.test(playlistShellText) || !/spotifyPlaylists/.test(playlistShellText) || !/\/api\/spotify\/playlist\/tracks/.test(playlistDetailText) || !/spotify:' \+ id/.test(playlistDetailText) || !hasAllItems(playlistProviderOrder(playlistDetailText), BASE_PLAYLIST_PROVIDERS)) {
     fail('playlist panel must merge and open Spotify playlists');
   }
   if (!/spotifyErrorDetails/.test(spotifyText) || !/playlistPanelNoticeHtml/.test(playlistDetailText) || !/playlistCardPriority/.test(playlistDetailText) || !/spotify-liked/.test(playlistDetailText) || !/prioritizePlaylistGroupItems/.test(playlistDetailText) || !/showToast\(r && \(r\.message \|\| r\.error\) \|\| podcastPlaylistLoadersText\('pod_empty'\)\)/.test(playlistLoadText)) {
@@ -4773,13 +4804,16 @@ function checkProviderRegistryGuard() {
     'preferred: providerRegistryKeysWith("preferred"),' +
     'all: providerRegistryKeys()' +
     '};', probe);
+  // Apple Music 接入后：登录/主搜索/源切换/全集都多一项，自动换源与默认源刻意不含它。
+  // With Apple Music wired in, login/search/switcher/all each gain one key, while directFallback
+  // and preferred deliberately do not — the companion never yields a direct playable URL.
   const expectedSets = {
-    login: 'netease,qq,kugou,qishui,spotify',
-    mainSearch: 'netease,qq,kugou,qishui',
-    sourceSwitcher: 'netease,qq,kugou,qishui,spotify',
+    login: 'netease,qq,kugou,qishui,spotify,applemusic',
+    mainSearch: 'netease,qq,kugou,qishui,applemusic',
+    sourceSwitcher: 'netease,qq,kugou,qishui,spotify,applemusic',
     directFallback: 'netease,qq,kugou',
     preferred: 'netease,qq,kugou,qishui,spotify',
-    all: 'netease,qq,kugou,qishui,spotify'
+    all: 'netease,qq,kugou,qishui,spotify,applemusic'
   };
   Object.keys(expectedSets).forEach(function (capability) {
     const got = (probe.sets[capability] || []).join(',');
@@ -4806,6 +4840,14 @@ function checkProviderRegistryGuard() {
     fail('spotify must be selectable as a preferred source: users who play Spotify through the launched '
       + 'client need their tracks matched to Spotify first');
   }
+  // Apple Music 只能经外部 companion 播放，拿不到直接地址：既不能自动换过去，也不该成为默认源。
+  // Apple Music plays through the external companion, never a direct URL: keep it out of both
+  // auto-fallback and the preferred-source list.
+  ['directFallback', 'preferred'].forEach(function (capability) {
+    if ((probe.sets[capability] || []).indexOf('applemusic') >= 0) {
+      fail('applemusic must not be in "' + capability + '": the companion has no direct playable URL');
+    }
+  });
 
   // 3) 每个消费方都必须**从注册表派生**。逐处点名能力位，而不是只检查"文件里提到过注册表"：
   //    只检查提到过的话，把某处改回字面量、而文件别处仍引用注册表，判据照样绿。
@@ -4841,7 +4883,7 @@ function checkProviderRegistryGuard() {
   const PRIORITY_LITERAL_ALLOWLIST = [
     {
       file: 'public/js/modules/06-lyrics/01-playlist-panel-shell.js',
-      literal: "['netease', 'spotify']",
+      literal: "['netease', 'spotify', 'applemusic']",
       // ⚠️ 必须点名**该处**的补全语句，不能只检查"文件里提到过注册表"：该文件别处还有别的注册表调用，
       //    只检查"提到过"的话，把这一处的补全删掉判据照样绿（反向验证抓到的就是这个）。
       //    所以这里存的是那句补全本身，比对时去掉空白以便不受缩进影响。
@@ -4852,11 +4894,13 @@ function checkProviderRegistryGuard() {
       completion: "var order = PLAYLIST_CATALOG_PREFETCH_PRIORITY.slice();"
         + "providerRegistryKeysWith('login').forEach(function (provider) {"
         + "if (order.indexOf(provider) < 0) order.push(provider);});",
-      reason: 'playlist catalogue prefetch priority (netease first, then Spotify); the set is completed '
-        + 'from the registry right below and the resulting order is unchanged'
+      reason: 'playlist catalogue prefetch priority (netease, Spotify, then Apple Music); the set is '
+        + 'completed from the registry right below and the resulting order is unchanged'
     }
   ];
-  const PLATFORM_LIST_RE = /\[\s*'(?:netease|qq|kugou|qishui|spotify)'(?:\s*,\s*'(?:netease|qq|kugou|qishui|spotify)')+\s*\]/;
+  // 新平台名也要进正则，否则含 applemusic 的字面量会整段绕过这条判据。
+  // Every registered platform name belongs here, or a literal mentioning a newer one slips through.
+  const PLATFORM_LIST_RE = /\[\s*'(?:netease|qq|kugou|qishui|spotify|applemusic)'(?:\s*,\s*'(?:netease|qq|kugou|qishui|spotify|applemusic)')+\s*\]/;
   const offenders = [];
   const scanFile = function (file) {
     const text = fs.readFileSync(file, 'utf8');
