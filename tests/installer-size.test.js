@@ -41,3 +41,26 @@ test('afterPack 去掉 WebGPU 编译器并精简 Chromium 语言包', () => {
   assert.match(AFTER_PACK, /en-US\.pak/);
   assert.match(AFTER_PACK, /zh-CN\.pak/);
 });
+
+test('打包清单剔除只服务浏览器或其它架构的死重', () => {
+  const files = PKG.build.files;
+  [
+    // 安装包只出 win32-x64，另外两种架构的 HID 预编译件谁也用不到。
+    '!node_modules/node-hid/prebuilds/HID-win32-arm64*/**',
+    '!node_modules/node-hid/prebuilds/HID-win32-ia32*/**',
+    // 下面几个包里 Node 侧走的是 lib/ 或 dist/node/，浏览器构建是纯体积。
+    '!node_modules/pngjs/browser.js',
+    '!node_modules/pngjs/coverage/**',
+    '!node_modules/node-forge/dist/**',
+    '!node_modules/source-map/dist/**',
+    '!node_modules/axios/dist/esm/**',
+    '!node_modules/axios/dist/browser/**',
+    '!node_modules/**/*.h'
+  ].forEach((rule) => assert.ok(files.includes(rule), 'packaging trim rule missing: ' + rule));
+  assert.ok(files.includes('!node_modules/axios/dist/axios.js'), 'axios browser bundle must stay out');
+  // 运行时只读 build/icon.ico（窗口与托盘图标）；安装器位图、NSIS 脚本、构建日志
+  // 由 buildResources / extraFiles 单独取用，打进 app.asar 纯属白背体积。
+  assert.ok(files.includes('build/icon.ico'), 'window icon must stay packaged');
+  assert.ok(!files.includes('build/**/*'), 'installer-only build assets must not be packed');
+  assert.equal(PKG.build.asarUnpack[0], 'build/icon.ico');
+});
