@@ -20,7 +20,7 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器：搜索播放、歌�
 | 蓝奏云（备用） | 需要提取码 `9izq` | [前往下载](https://wwars.lanzouq.com/b014xlh7gb) |
 | GitHub Releases | 版本说明、源码与安装包 | [查看 Releases](https://github.com/ShaoZhige/Mineradio-paused/releases) |
 
-当前版本：**2.8.1**。安装时只需要下载并运行 `Mineradio-<版本>-Setup.exe`；`.blockmap`、`latest.yml`、`win-unpacked` 都不是正式安装包。
+当前版本：**3.0.0**。安装时只需要下载并运行 `Mineradio-<版本>-Setup.exe`；`.blockmap`、`latest.yml`、`win-unpacked` 都不是正式安装包。
 
 ## 安装被拦截怎么办
 
