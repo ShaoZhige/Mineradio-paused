@@ -6,6 +6,8 @@
 >
 > 仍在使用上游原版的用户，建议迁移到本维护版以获得持续修复。
 
+**许可证**：整体 **GPL-3.0**；其中「流光」「商籁」两个歌词样式模块源自 **AGPL-3.0** 的 [Folia](https://github.com/chthollyphile/folia-major)，按 GPL-3.0 第 13 条组合分发，详见[版权与授权](#版权与授权)。
+
 ![Mineradio 首页](./docs/assets/readme/home.png)
 
 Mineradio 是一款 Windows 桌面沉浸式音乐播放器：搜索播放、歌词舞台、粒子视觉、3D 歌单架与完整桌面模式组合成一个接近现场感的私人音乐空间。
@@ -174,5 +176,7 @@ Mineradio 由 XxHuberrr 主要设计与打造。emily 作为早期视觉底层�
 Copyright (C) 2026 XxHuberrr 及 Mineradio-paused 贡献者。
 
 本项目采用 **GPL-3.0** 授权（与上游一致），详见 [LICENSE](./LICENSE)。上游原作者的全部版权与署名均予保留；本仓库新增与修改部分的版权归相应贡献者所有。
+
+**例外：两个歌词样式模块按 AGPL-3.0 提供。** 「流光」（`public/js/modules/02-visual/16-folia-classic-lyrics.js`）与「商籁」（`public/js/modules/02-visual/18-folia-sonnet-lyrics.js`）参考了 [Folia](https://github.com/chthollyphile/folia-major)（`chthollyphile/folia-major`，**AGPL-3.0**）的视觉语言、镜头模型与时序参数，由本项目用 DOM + Canvas2D 独立重写，不含上游源码、着色器、字体或资源。这两个文件按 AGPL-3.0 提供，其余部分仍为 GPL-3.0，依据 **GPL-3.0 第 13 条**组合分发；AGPL-3.0 全文见 [docs/licenses/AGPL-3.0.txt](./docs/licenses/AGPL-3.0.txt)，移植范围与改动见 [docs/THIRD_PARTY_PORTS.md](./docs/THIRD_PARTY_PORTS.md)。
 
 MR Logo、Mineradio 名称、界面视觉设计与原创视觉表达归上游原作者所有；第三方依赖与服务分别遵循其各自授权与条款。

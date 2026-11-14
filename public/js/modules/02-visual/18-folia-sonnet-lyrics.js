@@ -1,9 +1,13 @@
-// 商籁（Sonnet）歌词样式 —— Mineradio clean-room 实现。
+// 商籁（Sonnet）歌词样式 —— 参考 Folia 重写为 Mineradio 实现。
 //
-// 上游 Folia 的 sonnet 是 PixiJS 驱动的日式 MG 歌词 PV：整段歌词按杂志海报式
-// 构图铺满全屏、四级字号、逐字带物理感入场、镜头按种子切换、段落之间硬切转场。
-// 这里只复刻它的视觉语言，用纯 DOM 文字层 + 一层 Canvas2D 线稿实现，
-// 不引入 Pixi / WebGL / 打包器，也不复制任何上游源码、着色器或资源。
+// 来源：chthollyphile/folia-major（AGPL-3.0）。上游的 sonnet 是 PixiJS 驱动的
+// 日式 MG 歌词 PV：整段歌词按杂志海报式构图铺满全屏、四级字号、逐字带物理感
+// 入场、镜头按种子切换、段落之间硬切转场。这里复刻它的视觉语言、镜头模型与
+// 时序参数，用纯 DOM 文字层 + 一层 Canvas2D 线稿实现，不引入 Pixi / WebGL /
+// 打包器，也不含任何上游源码原文、着色器或资源文件。
+//
+// 授权：本文件按 AGPL-3.0 提供（见 NOTICE.md 与 docs/THIRD_PARTY_PORTS.md）；
+// Mineradio 其余部分仍为 GPL-3.0，依 GPL-3.0 第 13 条与本文件组合分发。
 //
 // 两条硬约束（和上游一致，也是「拖进度条不花屏」的关键）：
 //   1. 所有随机都由 hash(seed + 索引 + 用途) 派生，绝不调用运行时随机数生成器；

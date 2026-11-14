@@ -1,7 +1,14 @@
-// Folia-classic lyric style, implemented independently for Mineradio.
-// Clean-room: no Folia code, shaders, fonts or assets were copied; the visual
-// behaviour (a loose per-word line, randomised poses, a sung word blooming and
-// drifting after it passes) was reproduced from watching the effect.
+// Folia-classic lyric style, reimplemented for Mineradio.
+//
+// Origin: chthollyphile/folia-major, AGPL-3.0.  The visual language (a loose
+// per-word line, randomised poses per line, the sung word blooming and drifting
+// after it passes) and the per-word timing profile follow the upstream effect.
+// This is our own implementation: no Folia source file, shader, font or asset is
+// copied, and it runs on Mineradio's DOM text layer instead of PixiJS.
+//
+// License: this file is offered under AGPL-3.0 — see NOTICE.md and
+// docs/THIRD_PARTY_PORTS.md.  The rest of Mineradio stays GPL-3.0 and is combined
+// with this file under GPL-3.0 section 13.
 //
 // The regular stage lyrics are WebGL meshes. While this style is selected we
 // hide `stageLyrics.group` and draw the line as DOM text above the canvas,

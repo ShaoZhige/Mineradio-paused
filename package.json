@@ -76,6 +76,7 @@
       "LICENSE",
       "NOTICE.md",
       "docs/THIRD_PARTY_PORTS.md",
+      "docs/licenses/AGPL-3.0.txt",
       "package.json",
       "!desktop/wallpaper-preload.js",
       "!public/wallpaper.html",

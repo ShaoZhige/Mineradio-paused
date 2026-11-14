@@ -2,6 +2,19 @@
 
 Mineradio 使用了以下第三方项目或服务。各项目版权归其原作者所有。
 
+> **Copyleft 提示 / Copyleft notice**
+>
+> Mineradio 整体按 **GPL-3.0** 分发，但其中两个歌词样式模块源自 **AGPL-3.0** 项目
+> [Folia](https://github.com/chthollyphile/folia-major)，这两个文件按 AGPL-3.0 提供，
+> 依 **GPL-3.0 第 13 条**与其余部分组合。AGPL-3.0 全文见
+> [`docs/licenses/AGPL-3.0.txt`](docs/licenses/AGPL-3.0.txt)，移植细节见
+> [`docs/THIRD_PARTY_PORTS.md`](docs/THIRD_PARTY_PORTS.md)。
+>
+> Mineradio is distributed under **GPL-3.0**, except that two lyric-style modules
+> derived from the **AGPL-3.0** project Folia are offered under AGPL-3.0 and are
+> combined with the rest under GPL-3.0 section 13. Full AGPL-3.0 text:
+> [`docs/licenses/AGPL-3.0.txt`](docs/licenses/AGPL-3.0.txt).
+
 ## Third-party Libraries
 
 - Electron
@@ -18,6 +31,8 @@ Mineradio 使用了以下第三方项目或服务。各项目版权归其原作�
 - Wallpaper Engine local-library detection and import UX: independently adapted from the approach used by [ww085213/Mineradio-LX-Music](https://github.com/ww085213/Mineradio-LX-Music) at commit `a5ef80a219709080700be5b1d00f1ea71a5a2576` (GPL-3.0). Mineradio only indexes local `project.json` metadata; it does not execute imported Web/Application projects or replace the user's existing background-media settings.
 - Full-desktop main-window mode and home-dashboard information hierarchy: initially adapted from [ww085213/Mineradio-LX-Music](https://github.com/ww085213/Mineradio-LX-Music) at commit `82826df814c32853d99697c0ee60f749a2fcad79`, with the homepage refreshed against `812e2dc2e18bbc263e61dbd0206cb765e003d6e9` (GPL-3.0). Mineradio keeps its own provider, queue, playlist, listening-history, WorkerW validation, DPI, lifecycle, and cleanup implementations; see `docs/THIRD_PARTY_PORTS.md` in the corresponding source distribution.
 - Qishui Passport Web QR authentication bridge: focused port from [Wx2yZx/Mineradio-Qishui-QR-Login](https://github.com/Wx2yZx/Mineradio-Qishui-QR-Login) at commit `aaadaab7d011714f94fbe45b382ba8dcc7cf17b9` (declared `GPL-3.0-only`). Only the official QR create/poll, security-signing host, session persistence, and second-verification path are integrated; Mineradio keeps its own catalogue, playlist, entitlement, and playback adapters. The bundled ByteDance/Qishui web security runtime resources remain the property of their respective rights holders and are used only to interoperate with the user's own official account session.
+
+- Folia lyric-stage styles (「流光」 / 「商籁」): reimplemented for Mineradio's DOM + Canvas2D renderer from [chthollyphile/folia-major](https://github.com/chthollyphile/folia-major) (reference snapshot `main` @ package.json `0.7.27`, upstream head `77d52a3168ab2608174d2e5ad6d51b7bc8befd11`), which is licensed **AGPL-3.0**. The visual language, the camera model (pivot tracking the sung word segment, pure `f(now)` sampling instead of springs) and the timing constants follow upstream. No upstream source file, shader, font or binary asset is copied, PixiJS/WebGL is not used, and the AGPL source tree is not redistributed here. The two derived files are `public/js/modules/02-visual/16-folia-classic-lyrics.js` and `public/js/modules/02-visual/18-folia-sonnet-lyrics.js`; they are offered under AGPL-3.0, and GPL-3.0 section 13 permits combining them with the rest of Mineradio.
 
 ## Third-party Services
 

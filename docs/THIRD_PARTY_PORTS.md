@@ -175,3 +175,37 @@ What was changed from the PR when porting:
 - The panel copy is wired through the four-language dictionary instead of hardcoded
   Chinese, and the popover sits in the titlebar rather than inside the DIY console, whose
   workspace rebuild would delete an injected panel.
+
+## Folia lyric stage styles (「流光」 / 「商籁」)
+
+- Upstream: `chthollyphile/folia-major`
+- Reference snapshot: `main`, package.json `0.7.27` (studied 2026-11-11); upstream
+  head was `77d52a3168ab2608174d2e5ad6d51b7bc8befd11` when this notice was written
+- Declared license: **`AGPL-3.0`**
+- Port dates: 2026-11-11 (流光 / classic), 2026-11-13 (商籁 / sonnet)
+
+Folia renders its lyric stage with PixiJS and WebGL. Mineradio reproduces two of its
+styles as self-contained classic scripts drawn with DOM text plus one Canvas2D layer,
+so they survive the zero-build `index-loader.js` pipeline and stay cheap on low-end
+machines:
+
+- `public/js/modules/02-visual/16-folia-classic-lyrics.js` — 「流光」: per-word layout,
+  randomised per-line camera poses, the sung word blooming and drifting after it passes.
+- `public/js/modules/02-visual/18-folia-sonnet-lyrics.js` — 「商籁」: measured
+  measure→pack layout, four-tier type roles, word-segment camera pivot, hard cuts
+  between shots.
+
+What is derived from upstream: the visual language, the camera model (the pivot follows
+the sung word segment, every frame is a pure `f(now)` sample with no spring or lerp, so
+seeking is deterministic), and the timing constants (tracking factor, breathing amplitude
+and its post-reveal delay, softmax sigma over word segments).
+
+What is not taken: no upstream source file, shader, font or binary asset is copied,
+PixiJS/WebGL is not used, and the AGPL source tree is kept out of this repository
+(`folia源代码/` is ignored) and is not redistributed with Mineradio.
+
+Licensing: the two files above are offered under **AGPL-3.0**. Mineradio as a whole
+remains GPL-3.0; GPL-3.0 section 13 permits linking or combining a GPL-3.0 work with an
+AGPL-3.0 work, with the AGPL section 13 network-source obligation applying to the
+combination. The full AGPL-3.0 text ships as `docs/licenses/AGPL-3.0.txt` and is included
+in the packaged app.
