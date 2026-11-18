@@ -263,11 +263,71 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             return { ok: false, error: status === 401 || status === 403 ? 'auth-required' : 'storefront-unavailable' };
         }
         if (request.operation === 'accountStatus') {
-            // `me/account` identifies everyone as "me"; never reuse one account's snapshot for another.
+            // 名字的唯一权威来源就是社交档案：Apple 自己的账号菜单也只用
+            // `userSocialProfile.userSocialProfileDescriptor.name`，没有档案时它同样什么都不显示。
+            // 头像则来自账号资源的 `avatarArtwork`；拿不到时退回页面里那个真实渲染出来的头像 img
+            // （`[data-testid="account-menu-avatar"]`，登录后才有）。
+            // The only authoritative name is the social profile — Apple's own account menu renders
+            // `userSocialProfile.userSocialProfileDescriptor.name` and shows nothing without one.
+            // The avatar comes from the account resource's `avatarArtwork`, with the rendered
+            // account-menu avatar in the page as the fallback.
+            const debug = { sources: {} };
+            const cleanUrl = value => {
+                if (typeof value !== 'string' || !value || value.length > 2048) return '';
+                const sized = value.replace(/\{w\}x\{h\}/g, '256x256').replace(/\{w\}/g, '256').replace(/\{h\}/g, '256');
+                try {
+                    const url = new URL(sized);
+                    return url.protocol === 'https:' && !url.username && !url.password ? url.href : '';
+                } catch { return ''; }
+            };
+            const text = value => (typeof value === 'string' ? value.trim().slice(0, 256) : '');
+
             const profile = await call('v1/me/social-profile');
             const item = profile?.data?.data?.[0];
+            debug.sources.socialProfile = Number(profile?.status) || 0;
             let identity = typeof item?.id === 'string' && item.id && item.id.length <= 512 ? item.id : '';
-            const nickname = typeof item?.attributes?.name === 'string' ? item.attributes.name.slice(0, 256) : '';
+            let nickname = text(item?.attributes?.name) || text(item?.attributes?.displayName);
+            let avatarUrl = cleanUrl(item?.attributes?.artwork?.url);
+            let source = nickname || avatarUrl ? 'social-profile' : '';
+
+            if (!avatarUrl) {
+                // `/v1/me/account` 是"资源映射"形态：data[0].id 指向 resources.accounts 里的那条。
+                // 这个端点只用来补头像，出错绝不能让整次 accountStatus 失败（那会让 UI 判成未登录）。
+                // The account endpoint answers with a resource map: data[0].id indexes
+                // resources.accounts. It only fills in the avatar, so a failure here must never fail
+                // the whole accountStatus — the UI would read that as "not signed in".
+                try {
+                    const account = await call('v1/me/account');
+                    const body = (account && account.data) || {};
+                    debug.sources.account = Number(account && account.status) || 0;
+                    const first = body && body.data && body.data[0];
+                    const resolved = first && first.id && body.resources && body.resources.accounts
+                        ? body.resources.accounts[first.id] : null;
+                    const attrs = (resolved && resolved.attributes) || (first && first.attributes) || {};
+                    debug.accountKeys = Object.keys(attrs).slice(0, 24);
+                    const art = cleanUrl(attrs.avatarArtwork && attrs.avatarArtwork.url)
+                        || cleanUrl(attrs.artwork && attrs.artwork.url) || cleanUrl(attrs.imageUrl);
+                    if (art) { avatarUrl = art; source = source || 'account'; }
+                } catch { debug.sources.account = -1; }
+            }
+
+            if (!avatarUrl || !nickname) {
+                // 页面里真实渲染出来的账号头像：登录后是 <img>（未登录整块不渲染）。
+                // The avatar the page itself renders: an <img> once signed in, absent otherwise.
+                const img = document.querySelector('[data-testid="account-menu-avatar"]');
+                const src = cleanUrl(img && (img.getAttribute('src') || img.src));
+                debug.sources.pageAvatar = src ? 1 : 0;
+                if (!avatarUrl && src) { avatarUrl = src; source = source || 'page'; }
+                if (!nickname) {
+                    // 可读名常常是"账号菜单"这类界面文字，只在不像界面文字时才当成名字。
+                    // The trigger's accessible name is usually a UI label; only use it when it is not.
+                    const trigger = document.querySelector('[data-testid="account-menu-trigger"]');
+                    const label = text(trigger && trigger.getAttribute('aria-label'));
+                    const looksLikeLabel = !label || label.length > 40 || /(菜单|账户|帐号|资料|menu|account|profile)/i.test(label);
+                    if (!looksLikeLabel) { nickname = label; source = source || 'page'; }
+                }
+            }
+
             if (!identity) {
                 // An account may have no social profile. The music user token identifies it just as
                 // well: it stays in this page, and only its SHA-256 leaves, as the profile id's does.
@@ -278,13 +338,7 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             const bytes = new TextEncoder().encode('folia-apple-music:' + identity);
             const digest = await crypto.subtle.digest('SHA-256', bytes);
             const id = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-            // Only forward an HTTPS artwork URL; profile data and credentials stay in the page.
-            const artwork = item?.attributes?.artwork?.url;
-            let avatarUrl = '';
-            if (typeof artwork === 'string' && artwork.length <= 2048) {
-                try { const url = new URL(artwork); if (url.protocol === 'https:' && !url.username && !url.password) avatarUrl = artwork; } catch { /* Missing artwork is normal. */ }
-            }
-            return { ok: true, data: { id, nickname, storefront: store, avatarUrl } };
+            return { ok: true, data: { id, nickname, storefront: store, avatarUrl, profileSource: source, debug } };
         }
         const p = request.params;
         // Cross-storefront metadata is an optional cn-only lookup; never change the playback storefront.

@@ -710,7 +710,11 @@ function normalizeAppleMusicLoginStatus(info) {
     loggedIn: loggedIn,
     configured: info.configured !== false,
     nickname: String(data.nickname || ''),
-    avatarUrl: String(data.avatarUrl || ''),
+    // 用户面板读的是 `avatar`（providerAvatarSrc），登录弹窗读的是 `avatarUrl`：
+    // 同一个对象两种键，写全才不会出现"名字有了头像还是占位图标"。
+    // The account panel reads `avatar`, the login modal reads `avatarUrl`; write both.
+    avatar: String(data.avatarUrl || data.avatar || ''),
+    avatarUrl: String(data.avatarUrl || data.avatar || ''),
     storefront: String(data.storefront || ''),
     error: String(info.error || ''),
     updatedAt: Date.now(),
@@ -758,24 +762,27 @@ async function openAppleMusicLogin() {
   updateLoginProviderUi();
   try {
     await refreshAppleMusicLoginStatus();
-    if (!appleMusicLoginStatus.loggedIn) {
-      var shown = await api.appleMusicRequest('showWindow', {});
-      if (!shown || shown.ok === false) {
-        appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (shown && shown.error) || 'request-failed' });
-        return;
-      }
-      // The companion is the only owner of Apple's session. Poll the account
-      // until the page finishes signing in; the window is hidden again then.
-      for (var i = 0; i < 150; i += 1) {
-        await new Promise(function (resolve) { setTimeout(resolve, 2000); });
-        var status = await refreshAppleMusicLoginStatus();
-        updateLoginProviderUi();
-        if (status.loggedIn) break;
-      }
-      if (appleMusicLoginStatus.loggedIn) {
-        try { await api.appleMusicRequest('hideWindow', {}); } catch (e) { }
-        try { if (typeof refreshUserPlaylists === 'function') await refreshUserPlaylists(true); } catch (e) { }
-      }
+    // 窗口永远要能打开。以前这里只在"未登录"时才 showWindow，结果账号一但连着（窗口被藏起来）
+    // 按钮就彻底失效 —— 表现就是"登录窗口拉不起来"，而按文案它本该是"重新打开"。
+    // The window must always open: showing it only when signed out made the button a no-op once an
+    // account was connected, which is exactly the "the login window won't come up" symptom.
+    var shown = await api.appleMusicRequest('showWindow', {});
+    if (!shown || shown.ok === false) {
+      appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (shown && shown.error) || 'request-failed' });
+      return;
+    }
+    if (appleMusicLoginStatus.loggedIn) return;
+    // The companion is the only owner of Apple's session. Poll the account
+    // until the page finishes signing in; the window is hidden again then.
+    for (var i = 0; i < 150; i += 1) {
+      await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+      var status = await refreshAppleMusicLoginStatus();
+      updateLoginProviderUi();
+      if (status.loggedIn) break;
+    }
+    if (appleMusicLoginStatus.loggedIn) {
+      try { await api.appleMusicRequest('hideWindow', {}); } catch (e) { }
+      try { if (typeof refreshUserPlaylists === 'function') await refreshUserPlaylists(true); } catch (e) { }
     }
   } finally {
     appleMusicLoginBusy = false;
