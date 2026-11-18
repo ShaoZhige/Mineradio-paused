@@ -189,16 +189,34 @@ function toggleStartupFastSkip() {
   applyStartupAutoplayUi();
   showToast(startupFastSkipPreference ? preferencesUiModesText('fast_skip_on') : preferencesUiModesText('fast_skip_off'));
 }
-function applySpotifyLaunchClientUi() {
-  var btn = document.getElementById('t-spotifyLaunchClient');
-  var enabled = !!(window.SpotifyLaunchClient && window.SpotifyLaunchClient.isEnabled());
-  if (btn) btn.classList.toggle('on', enabled);
+// Spotify 的两个开关都由 window.SpotifyRemote 持有（它才是真正执行这两件事的模块）。
+// 界面只负责点亮状态与写偏好，不去复制一份布尔值 —— 两份状态一定会分叉。
+function spotifyRemotePrefsSnapshot() {
+  return (typeof window !== 'undefined' && window.SpotifyRemote && window.SpotifyRemote.prefs)
+    ? window.SpotifyRemote.prefs()
+    : null;
 }
-function toggleSpotifyLaunchClient() {
-  if (typeof window.SpotifyLaunchClient === 'undefined' || !window.SpotifyLaunchClient) return;
-  var next = !window.SpotifyLaunchClient.isEnabled();
-  window.SpotifyLaunchClient.setEnabled(next);
-  applySpotifyLaunchClientUi();
+function applySpotifyRemotePrefsUi() {
+  var prefs = spotifyRemotePrefsSnapshot();
+  var switchBtn = document.getElementById('t-spotifySwitchSource');
+  var launchBtn = document.getElementById('t-spotifyRemoteLaunch');
+  if (switchBtn) switchBtn.classList.toggle('on', !!(prefs && prefs.switchSource));
+  if (launchBtn) launchBtn.classList.toggle('on', !!(prefs && prefs.launch));
+}
+function toggleSpotifySwitchSource() {
+  var prefs = spotifyRemotePrefsSnapshot();
+  if (!prefs || typeof window.SpotifyRemote.setPref !== 'function') return;
+  var next = !prefs.switchSource;
+  window.SpotifyRemote.setPref('switchSource', next);
+  applySpotifyRemotePrefsUi();
+  showToast(next ? preferencesUiModesText('settings_spotify_switch_source_on') : preferencesUiModesText('settings_spotify_switch_source_off'));
+}
+function toggleSpotifyRemoteLaunch() {
+  var prefs = spotifyRemotePrefsSnapshot();
+  if (!prefs || typeof window.SpotifyRemote.setPref !== 'function') return;
+  var next = !prefs.launch;
+  window.SpotifyRemote.setPref('launch', next);
+  applySpotifyRemotePrefsUi();
   showToast(next ? preferencesUiModesText('settings_spotify_launch_on') : preferencesUiModesText('settings_spotify_launch_off'));
 }
 // 默认源选择器：选项由 provider 注册表派生（preferred 能力），**不写死平台清单** ——

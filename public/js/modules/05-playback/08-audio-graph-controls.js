@@ -660,6 +660,12 @@ function setVolume(value, silent) {
   if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive() && typeof externalAppleMusicRequest === 'function') {
     void externalAppleMusicRequest('setVolume', { volume: next });
   }
+  // 远程模式下这条音量是给官方客户端的；本地 <audio> 只是静音时钟，改它不影响听感。
+  // 客户端的控制整体封在 PillagerSpotify 部件里，只能走 window.SpotifyRemote 这个出口。
+  // Under remote takeover this volume belongs to the official client, not the silent clock.
+  if (typeof window !== 'undefined' && window.SpotifyRemote && typeof window.SpotifyRemote.forwardVolume === 'function') {
+    window.SpotifyRemote.forwardVolume(next);
+  }
   updateVolumeUi();
   if (!silent) showToast(audioGraphControlsText('gesture_volume') + Math.round(next * 100) + '%');
   if (window.haloSync) window.haloSync.onVolume(next);

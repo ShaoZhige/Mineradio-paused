@@ -2359,7 +2359,57 @@ body.login-guide-active #login-guide-canvas {
   margin-top: 9px
 }
 
-.spotify-setup-card-actions button {
+/* 授权地址兜底行：浏览器没抢到前台时的唯一出路，所以它必须能看、能点、能复制。
+   The authorize-URL fallback: the only way through when the browser never surfaces, so it
+   has to be readable, clickable and copyable. */
+.spotify-setup-auth-url {
+  margin-top: 9px;
+  padding: 8px 9px;
+  border: 1px solid rgba(30, 215, 96, .13);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, .14)
+}
+
+.spotify-setup-auth-url[hidden] {
+  display: none
+}
+
+.spotify-setup-auth-url p {
+  margin: 0 0 6px;
+  color: rgba(255, 255, 255, .46);
+  font-size: 10.5px;
+  line-height: 1.5
+}
+
+.spotify-setup-auth-url code {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(30, 215, 96, .13);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .20);
+  color: rgba(226, 255, 235, .78);
+  font: 10.5px/1.3 Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer
+}
+
+.spotify-setup-auth-url-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px
+}
+
+/* 兜底行里的按钮和卡片里的按钮是同一档操作，样式必须走同一套规则，
+   否则会退回浏览器默认的白底按钮，在深色弹窗里非常突兀。
+   The fallback buttons are the same class of action as the card buttons, so they share the
+   same rules; without this they fall back to the browser's white default button. */
+.spotify-setup-card-actions button,
+.spotify-setup-auth-url-actions button {
   min-height: 29px;
   padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, .09);
@@ -2371,23 +2421,31 @@ body.login-guide-active #login-guide-canvas {
   transition: border-color .18s ease, background .18s ease, color .18s ease, transform .18s ease
 }
 
-.spotify-setup-card-actions button:hover:not(:disabled) {
+.spotify-setup-card-actions button:hover:not(:disabled),
+.spotify-setup-auth-url-actions button:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, .20);
   color: #fff;
   transform: translateY(-1px)
 }
 
-.spotify-setup-card-actions button.primary {
+.spotify-setup-card-actions button.primary,
+.spotify-setup-auth-url-actions button.primary {
   border-color: rgba(30, 215, 96, .30);
   background: rgba(30, 215, 96, .10);
   color: rgba(232, 255, 239, .88)
+}
+
+.spotify-setup-auth-url-actions button.primary:hover:not(:disabled) {
+  border-color: rgba(30, 215, 96, .50);
+  background: rgba(30, 215, 96, .16)
 }
 
 .spotify-setup-card-actions button.wide {
   min-width: 150px
 }
 
-.spotify-setup-card-actions button:disabled {
+.spotify-setup-card-actions button:disabled,
+.spotify-setup-auth-url-actions button:disabled {
   opacity: .40;
   cursor: not-allowed
 }
@@ -2508,6 +2566,13 @@ body.login-guide-active #login-guide-canvas {
 .spotify-setup-overall.fail {
   border-color: rgba(255, 103, 117, .22);
   color: rgba(255, 190, 196, .82)
+}
+
+/* 限流是"等一下"，既不是成功也不是失败，所以单独一档琥珀色。
+   Throttling is a "wait", neither success nor failure, so it gets its own amber tone. */
+.spotify-setup-overall.wait {
+  border-color: rgba(255, 196, 92, .26);
+  color: rgba(255, 226, 176, .86)
 }
 
 @media (max-width: 780px) {

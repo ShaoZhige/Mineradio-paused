@@ -1296,12 +1296,33 @@ async function playQueueAt(idx, opts) {
         console.warn('[PreferredSource]', e && (e.message || e));
       }
     }
-    // Spotify 源点播时唤起本机客户端（换源兜底仍由既有逻辑处理）。
+    // Spotify 源：优先交给本机客户端（远程播放），客户端不在时保留原来的换源行为。
     // 跳过音质切换/换源重试等内部转场，避免重复唤起。
-    // Launch the local Spotify client for a Spotify-sourced track; skip internal
-    // transitions (quality switch / fallback retry) so we don't re-launch repeatedly.
-    if (song && song.provider === 'spotify' && !opts.qualitySwitch && !opts.fallbackDepth && typeof window !== 'undefined' && window.SpotifyLaunchClient) {
-      window.SpotifyLaunchClient.maybeLaunch(song);
+    // Spotify tracks: hand them to the local client when the CDP channel is up; otherwise
+    // keep the original switch_source behaviour. Skip internal transitions to avoid re-launching.
+    if (song && song.provider !== 'spotify' && typeof window !== 'undefined' && window.SpotifyRemote) {
+      window.SpotifyRemote.deactivate();
+    }
+    if (song && song.provider === 'spotify' && !opts.qualitySwitch && !opts.fallbackDepth && typeof window !== 'undefined') {
+      // 接管要等客户端真的切到这——句柄是异步的，切不过去就返回 false 让下面的换源继续跑。
+      // The handover is async: it resolves false when the client cannot switch, so the
+      // original switch_source path below still runs instead of a silent dead end.
+      var remoteTakenOver = false;
+      if (window.SpotifyRemote) {
+        try {
+          remoteTakenOver = !!(await window.SpotifyRemote.handleTrackStart(song));
+        } catch (remoteErr) {
+          console.warn('[SpotifyRemote]', remoteErr && (remoteErr.message || remoteErr));
+          remoteTakenOver = false;
+        }
+      }
+      if (token !== trackSwitchToken) return false;
+      // 「SP 换源其他」关掉时给这一首上锁：客户端没接管就如实停下，绝不偷偷换成别家平台。
+      // With "switch to another source" off, a Spotify track that the client cannot take over must
+      // stop with an honest notice instead of silently playing another platform's version.
+      if (!remoteTakenOver && window.SpotifyRemote && !window.SpotifyRemote.allowSourceFallback()) {
+        song.spotifyHoldSource = true;
+      }
     }
     var sameAlbumCoverSwitch = albumGaplessSameAlbumCover(previousSongForTransition, song);
     var earlyLyricFetchStarted = false;
@@ -1463,10 +1484,19 @@ async function playQueueAt(idx, opts) {
         } else if (isQishuiPlayback) {
           data = await apiJson('/api/qishui/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || '') + qqPlaybackEvidenceQuery(song) + qualityParam, { timeoutMs: 15000 });
         } else if (isSpotifyPlayback) {
-          data = await apiJson('/api/spotify/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || song.spotifyId || '') +
-            '&spotifyId=' + encodeURIComponent(song.spotifyId || '') +
-            '&uri=' + encodeURIComponent(song.spotifyUri || song.uri || '') +
-            qualityParam, { timeoutMs: 9000 });
+          // 远程接管时给一段等长静音当播放时钟：audio 的一切事件照常，
+          // 换源/跳歌链路根本不会被触发（下面还有一道显式守卫）。
+          // Under remote takeover the audio element gets a silent clock of the same
+          // duration, so no URL is missing and the fallback chain stays untouched.
+          if (typeof window !== 'undefined' && window.SpotifyRemote && window.SpotifyRemote.isActive()) {
+            data = window.SpotifyRemote.playbackData(song);
+            song.spotifyRemote = true;
+          } else {
+            data = await apiJson('/api/spotify/song/url?id=' + encodeURIComponent(song.id || song.providerSongId || song.spotifyId || '') +
+              '&spotifyId=' + encodeURIComponent(song.spotifyId || '') +
+              '&uri=' + encodeURIComponent(song.spotifyUri || song.uri || '') +
+              qualityParam, { timeoutMs: 9000 });
+          }
         } else {
           data = await apiJson('/api/song/url?id=' + encodeURIComponent(song.id || '') + neteasePlaybackMatchQuery(song) + qualityParam, { timeoutMs: 14000 });
         }
@@ -1549,7 +1579,8 @@ async function playQueueAt(idx, opts) {
         bindQishuiSignatureAuthorizeButton(null);
       }
       markPlayPhase('audio-element');
-      var proxyAudioUrl = opts.preloadedProxyAudioUrl || '/api/audio?url=' + encodeURIComponent(data.url);
+      var proxyAudioUrl = opts.preloadedProxyAudioUrl
+        || (data && data.directUrl ? data.url : '/api/audio?url=' + encodeURIComponent(data.url));
       if (albumGaplessHandoff) {
         audioFadeSerial++;
         clearAudioFadeTimers();
@@ -1680,7 +1711,15 @@ async function playQueueAt(idx, opts) {
             scheduleQueueBeatPrefetch(idx, 2600);
           } else {
             // 后台延迟分析, 避免新歌刚开始播放时抢占解码和渲染资源
-            scheduleBeatAnalysis(bmKey || song.id, proxyAudioUrl, bmTok, song);
+            // 远程模式下 audio.src 是本地静音 blob：既没有频谱可分析，服务端也 fetch 不到
+            // blob: 地址。跳过离线锁拍，视觉交给时间轴。
+            // Under remote takeover the source is a silent local blob: nothing to analyse,
+            // and the server cannot fetch a blob: URL. Visuals stay timeline-driven.
+            if (song && song.spotifyRemote) {
+              console.warn('[PlaybackVisualPrep] spotify remote: beat analysis skipped');
+            } else {
+              scheduleBeatAnalysis(bmKey || song.id, proxyAudioUrl, bmTok, song);
+            }
           }
         }
       } catch (visualErr) {

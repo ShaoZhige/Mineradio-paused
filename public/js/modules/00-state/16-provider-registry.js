@@ -129,21 +129,22 @@ var PROVIDER_REGISTRY_ROWS = [
     // preferred: true —— 可以被指定为默认源。这与 directFallback 的语义不同：
     //   · directFallback 要求"能直接拿到可播放地址"，Spotify 做不到 → 必须为 false
     //     （否则自动换源会换到一个同样播不了的源上，得接着再换一次）。
-    //   · preferred 只是"把谁排到查找顺序最前"。开了「播放 Spotify 源唤起客户端」的
-    //     Premium 用户，本来就是靠本机客户端播 Spotify 曲目，把他们常听的歌优先匹配成
-    //     Spotify 版本正是想要的。
+    //   · preferred 只是"把谁排到查找顺序最前"。开着「后台开启 SP」的用户，本来就是靠本机
+    //     客户端播 Spotify 曲目，把他们常听的歌优先匹配成 Spotify 版本正是想要的。
     //     ⚠️ 代价要说明白：未装客户端或非 Premium 时，这会让每首歌先在 Spotify 匹配一次、
-    //        播不了再自动换源到别家 —— 比不指定要多一次搜索与一次客户端唤起尝试。
+    //        播不了再自动换源到别家 —— 比不指定要多一次搜索与一次客户端启动尝试。
+    //        关掉「SP 换源其他」后这次换源不会发生，那首歌会停在那里等客户端。
     //        这是用户的显式选择，不是默认行为（默认是网易云）。
     // preferred: true — selectable as the preferred source, which is a different question from
     // directFallback. directFallback requires "can hand back a playable URL", which Spotify cannot,
     // so it must stay false (auto-fallback would otherwise land on an equally unplayable source and
-    // have to switch again). preferred only decides who goes first in the lookup order: a Premium
-    // user with the "launch the Spotify client" setting plays Spotify tracks natively anyway, so
+    // have to switch again). preferred only decides who goes first in the lookup order: a user with
+    // "start Spotify in the background" on plays Spotify tracks natively anyway, so
     // matching their songs to the Spotify version first is exactly what they want.
     // ⚠️ The trade-off is real and worth stating: without the client, or on Free, this makes every
     //    track search Spotify once and then auto-switch away — one extra search and one extra client
-    //    launch attempt versus not setting it. It is an explicit user choice, not a default.
+    //    launch attempt versus not setting it. With "switch to another source" off that switch never
+    //    happens and the track just waits for the client. It is an explicit user choice, not a default.
     caps: { login: true, mainSearch: false, sourceSwitcher: true, directFallback: false, preferred: true }
   },
   {

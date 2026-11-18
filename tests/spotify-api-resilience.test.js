@@ -44,6 +44,11 @@ async function run() {
   const tokenFile = path.join(root, '.spotify-token.json');
   process.env.SPOTIFY_CONFIG_FILE = configFile;
   process.env.SPOTIFY_TOKEN_FILE = tokenFile;
+  // 这个文件测的是 Web API 那条路（429 冷却、退避、强刷令牌），把 pathfinder 通道关掉，
+  // 否则每个用例都会先撞一次 pathfinder 再退回，桩的调用次数对不上。
+  // This file exercises the Web API path (429 cooldown, backoff, token refresh). Pin the channel
+  // to /v1 so the partner attempt does not add calls the stubs do not expect.
+  process.env.MINERADIO_SPOTIFY_CHANNEL = 'web-api';
   const validClientId = '0123456789abcdef0123456789abcdef';
   process.env.SPOTIFY_CLIENT_ID = validClientId;
   delete process.env.SPOTIFY_CLIENT_SECRET;
@@ -121,6 +126,84 @@ async function run() {
       return { body: { tracks: { items: [] } } };
     }, () => runtime.spotifyGet('/search', { q: 'test', type: 'track' }, { preferUser: true }));
     assert.strictEqual(rateCalls, 2, 'short Retry-After must be honored with one bounded retry');
+
+    // 长 Retry-After 的情形：开冷却，之后的调用一次网络都不发，登录态也不许被 429 判成登出。
+    // A long Retry-After opens a cooldown: no further network calls, and a 429 must never be
+    // reported as a lost login.
+    runtime.resetSpotifyRuntimeStateForTests();
+    spotify.saveSpotifyOAuthToken({ access_token: 'quota-access', expires_in: 3600, newAuthorization: true });
+    let quotaCalls = 0;
+    await withHttpsMock(() => {
+      quotaCalls += 1;
+      return { statusCode: 429, headers: { 'retry-after': '45' }, body: { error: { status: 429, message: 'API rate limit exceeded' } } };
+    }, async () => {
+      await assert.rejects(
+        runtime.spotifyUserGet('/me', {}),
+        error => error && Number(error.statusCode) === 429
+      );
+      assert.strictEqual(quotaCalls, 1, 'the first call must reach Spotify and observe the 429');
+      const cooldown = runtime.spotifyRateLimitSnapshot();
+      assert.strictEqual(cooldown.rateLimited, true, 'a 429 must open a cooldown window');
+      assert.ok(cooldown.retryAfterSeconds >= 40, 'the cooldown must respect Retry-After');
+
+      await assert.rejects(
+        runtime.spotifyUserGet('/me', {}),
+        error => error && error.code === 'SPOTIFY_RATE_LIMITED'
+      );
+      assert.strictEqual(quotaCalls, 1, 'calls during the cooldown must not touch the network');
+
+      const status = await spotify.handleSpotifyStatus();
+      assert.strictEqual(status.loggedIn, true, 'a rate limit is not a logout: the stored token still counts');
+      assert.strictEqual(status.rateLimited, true);
+      assert.ok(status.retryAfterSeconds > 0);
+      assert.strictEqual(quotaCalls, 1, 'status must stay offline during the cooldown');
+
+      const diagnostics = await spotify.handleSpotifySetupDiagnostics();
+      assert.strictEqual(diagnostics.rateLimited, true);
+      assert.strictEqual(diagnostics.ready, false);
+      assert.strictEqual(quotaCalls, 1, 'diagnostics must not fire upstream calls during the cooldown');
+
+      const playlists = await spotify.handleSpotifyUserPlaylists({ limit: 10 });
+      assert.strictEqual(playlists.rateLimited, true);
+      assert.strictEqual(quotaCalls, 1, 'playlist sync must not fire upstream calls during the cooldown');
+
+      // 每两分钟撞一次墙的永动循环：冷却一结束就探，一探又 429，界面永远停在限流上。
+      // 连续 429 必须指数退避，否则用户等再久也等不到恢复。
+      // The 2-minute treadmill: the cooldown ends, one probe hits 429 again, forever. Consecutive
+      // 429s must back off exponentially or waiting never converges.
+      const firstCooldown = runtime.spotifyRateLimitSnapshot();
+      await assert.rejects(
+        runtime.spotifyUserGet('/me', {}, { ignoreRateLimit: true }),
+        error => error && Number(error.statusCode) === 429
+      );
+      const secondCooldown = runtime.spotifyRateLimitSnapshot();
+      assert.ok(
+        secondCooldown.retryAfterSeconds >= firstCooldown.retryAfterSeconds * 2 - 2,
+        'consecutive 429s must double the cooldown (got ' + firstCooldown.retryAfterSeconds + 's then ' + secondCooldown.retryAfterSeconds + 's)'
+      );
+    });
+
+    // 状态接口不能把 /v1/me 当状态探测：有缓存时必须零网络，登录态必须来自本地令牌。
+    // 这条是 Folia 的做法（login_status 读本地会话、账号十分钟一读），也是共享配额不再被
+    // 每分钟烧一次的前提。
+    // Status must not use /v1/me as a probe: with a warm cache it is zero-network and the sign-in
+    // state comes from the stored token, which is how Folia's login_status behaves.
+    runtime.resetSpotifyRuntimeStateForTests();
+    spotify.saveSpotifyOAuthToken({ access_token: 'status-access', expires_in: 3600, newAuthorization: true });
+    let statusCalls = 0;
+    await withHttpsMock(() => {
+      statusCalls += 1;
+      return { body: { id: 'spotify-user', display_name: 'Alice', product: 'premium' } };
+    }, async () => {
+      await runtime.getSpotifyProfile({ force: true });
+      assert.strictEqual(statusCalls, 1);
+      for (let round = 0; round < 3; round += 1) {
+        const status = await spotify.handleSpotifyStatus();
+        assert.strictEqual(status.loggedIn, true, 'a stored token counts as signed in');
+        assert.strictEqual(status.nickname, 'Alice');
+      }
+      assert.strictEqual(statusCalls, 1, 'status must serve the cached profile instead of polling /v1/me');
+    });
 
     runtime.resetSpotifyRuntimeStateForTests();
     spotify.saveSpotifyOAuthToken({ access_token: 'transient-access', expires_in: 3600, newAuthorization: true });

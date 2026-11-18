@@ -161,7 +161,12 @@
     'js/modules/08-account/01-login-modal-utils.js',
     'js/modules/08-account/02-login-status.js',
     'js/modules/08-account/03-login-modal-flows.js',
-    'js/modules/08-account/spotify-launch-client.js',
+    // Spotify 客户端控制部件（PillagerSpotify）要排在播放引擎（05-playback）之前：
+    // 它构造后把唯一的出口挂到 window.SpotifyRemote 上，而 13-playback-start-audio
+    // 运行时会直接读它。整个部件只有一个顶层声明，其余全部封在闭包里。
+    // （旧的"深链接唤起客户端"模块已整体删除：它靠 window.open 投 spotify: 深链接，
+    //   在带调试端口的客户端上每次页面加载只生效一次，已被注入桥取代。）
+    'js/modules/08-account/pillager-spotify.js',
     'js/modules/08-account/04-user-modal-logout.js',
     'js/modules/08-account/05-startup-login-guide.js',
     'js/modules/09-idle-toast-libraries.js',

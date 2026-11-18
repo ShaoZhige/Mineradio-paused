@@ -369,7 +369,8 @@ function fxConsoleLayout() {
         // ⚠️ This toggle was never registered (missed when it was added), so the residual sweep kept
         //    filing it under "other settings": positionally wrong, no error, and only visible if you
         //    actually open the group. Registered here.
-        fxConsoleItem('t-spotifyLaunchClient', consoleWorkspaceText('settings_spotify_launch_title'), 'Spotify 唤起 客户端 换源 launch client')
+        fxConsoleItem('t-spotifySwitchSource', consoleWorkspaceText('settings_spotify_switch_source_title'), 'Spotify 换源 其他平台 客户端 接管 fallback'),
+        fxConsoleItem('t-spotifyRemoteLaunch', consoleWorkspaceText('settings_spotify_launch_title'), 'Spotify 后台 开启 客户端 launch client')
       ] },
       { key: 'output', title: consoleWorkspaceText('fx_cat_output'), hint: consoleWorkspaceText('fx_output_hint'), items: [
         fxConsoleItem('audio-output-panel', consoleWorkspaceText('fx_output_device'), '声卡 耳机 扬声器 路由', false)

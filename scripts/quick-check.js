@@ -2555,15 +2555,259 @@ async function checkSpotifyProviderGuard() {
   if (!/openSpotifyMusicLogin/.test(desktopPreloadText) || !/verifySpotifyMusicSetup/.test(desktopPreloadText) || !/clearSpotifyMusicLogin/.test(desktopPreloadText)) {
     fail('desktop preload must expose Spotify login, callback verification, and clear-login IPC bridges');
   }
+  // 授权地址必须能回到界面：浏览器被默认浏览器吞掉或没抢到前台时，那一行链接是唯一出路。
+  // The authorize URL must reach the UI: when the browser never surfaces, that link is the only
+  // way for the user to finish the flow.
+  if (!/onSpotifyOAuthUrl/.test(desktopPreloadText) || !/openSpotifyAuthUrl/.test(desktopPreloadText) || !/spotify-music-open-auth-url/.test(desktopMainText) || !/spotify-music-oauth-url/.test(desktopSpotify) || !/spotify-setup-auth-url/.test(indexText)) {
+    fail('Spotify authorize URL must be published to the renderer and reopenable from the setup card');
+  }
+  // 兜底行的按钮必须跟卡片按钮共用同一套规则，否则会退回浏览器默认的白底按钮。
+  // The fallback row's buttons must share the card button rules, or they fall back to the
+  // browser's white default button inside a dark modal.
+  if (!/\.spotify-setup-card-actions button,\s*\.spotify-setup-auth-url-actions button/.test(cssText)) {
+    fail('Spotify authorize-URL fallback buttons must reuse the setup-card button styling');
+  }
   if (!/login-provider-spotify/.test(indexText) || !/user-provider-spotify/.test(indexText) || !/account-add-spotify/.test(indexText) || !/account-source-dot\.spotify/.test(cssText) || !/account-provider-chip\.spotify/.test(cssText)) {
     fail('Spotify login and account tabs must be visible in the UI');
   }
   if (!/spotifyLoginStatus/.test(coreStoreText) || !/spotifyPlaylists/.test(coreStoreText) || !/refreshSpotifyLoginStatus/.test(loginStatusText) || !/openSpotifyWebLogin/.test(loginFlowText) || !/clearSpotifyMusicLogin/.test(userModalText)) {
     fail('frontend account state must include Spotify status, OAuth flow, playlists, and logout');
   }
+  // 429 不是登出。限流必须走冷却：状态接口带 rateLimited/retryAfterSeconds，前端不得因为
+  // 限流清空歌单或弹「已登出」，否则用户会被推去反复重新授权，而重新授权解不了限流。
+  // A 429 is not a logout. Throttling must cool down: status carries rateLimited /
+  // retryAfterSeconds, and the front end must not wipe playlists or toast "logged out".
+  if (!/spotifyRateLimitSnapshot/.test(spotifyText) || !/rateLimited: !!rateLimit\.rateLimited/.test(spotifyText) || !/if \(!spotifyLoginStatus\.rateLimited\)/.test(loginStatusText) || !/scheduleSpotifyRateLimitRetry/.test(loginFlowText)) {
+    fail('Spotify 429 must open a cooldown and must not be reported as a lost login');
+  }
+  // 固定 120 秒上限会让"冷却结束→探一次→又 429"无限循环。连续 429 必须指数退避到半小时，
+  // 卡片角标也必须显示"限流等待中"而不是"进行中"，否则看着就是卡死。
+  // A flat cap turns into a treadmill; consecutive 429s must back off exponentially, and the step
+  // badge must say "rate limited" instead of "in progress" or it reads as a frozen spinner.
+  if (!/SPOTIFY_RATE_LIMIT_MAX_COOLDOWN_MS = 30 \* 60 \* 1000/.test(spotifyText) || !/Math\.pow\(2, strikes - 1\)/.test(spotifyText) || !/login_spotify_rate_limited_short/.test(loginFlowText)) {
+    fail('Spotify rate limiting must back off exponentially and label the step as rate limited');
+  }
+  // 状态接口不得把 /v1/me 当探测手段（Folia 的 login_status 也是零网络读本地会话）。
+  // 共享 Client ID 下这条路径从第一个请求就 429，每次都等它等于每分钟烧一次配额。
+  // Status must not use /v1/me as a probe: under the shared client id that path answers 429 from
+  // the very first request, so awaiting it burns the quota on every poll.
+  if (!/refreshSpotifyProfileInBackground/.test(spotifyText) || !/SPOTIFY_PROFILE_CACHE_TTL_MS = 10 \* 60 \* 1000/.test(spotifyText) || !/cacheStale && !rateLimit\.rateLimited/.test(spotifyText)) {
+    fail('Spotify status must serve the cached profile and refresh it in the background, never await /v1/me');
+  }
   if (!/tokenFileExists/.test(spotifyText) || !/credentialsFileExists/.test(spotifyText) || !/localConfigMissing/.test(spotifyText) || !/fs\.existsSync/.test(spotifyText)) {
     fail('Spotify status must distinguish configured paths from real local token/credential files');
   }
+  // 第二条通道：读数据必须走 pathfinder / spclient（Spotify 自家客户端的路），
+  // 而不是 public Web API —— 共享 Client ID 下那条路从第一个请求就 429，再怎么退避也治不好。
+  // The second channel: reads go through pathfinder / spclient, the services Spotify's own
+  // clients use, not the public Web API that 429s from the first request under the bundled id.
+  const partnerPath = path.join(appRoot, 'server', 'spotify-partner.js');
+  if (!fs.existsSync(partnerPath)) fail('server/spotify-partner.js must exist as the pathfinder/spclient channel');
+  const partnerText = fs.readFileSync(partnerPath, 'utf8');
+  if (!/api-partner\.spotify\.com\/pathfinder\/v2\/query/.test(partnerText) || !/spclient\.wg\.spotify\.com/.test(partnerText)
+    || !/persistedQuery/.test(partnerText) || !/sha256Hash/.test(partnerText)) {
+    fail('the Spotify partner channel must use the persisted-query endpoint and spclient');
+  }
+  for (const query of ['profileAttributes', 'libraryV3', 'fetchLibraryTracks', 'fetchPlaylist', 'getAlbum', 'searchTracks', 'areEntitiesInLibrary']) {
+    if (!new RegExp(query + ": '[0-9a-f]{64}'").test(partnerText)) fail('the Spotify partner channel is missing the ' + query + ' query hash');
+  }
+  // 通道的客户端身份必须像浏览器：自造 UA 配裸 https.request，Spotify 网关会按"脚本流量"
+  // 限流（429 + 十几秒 Retry-After），跟账号配额无关 —— 同一个令牌在 spclient 的歌词接口上
+  // 完全正常。所以 pathfinder 必须走 fetch（undici）并带浏览器 UA。
+  // The channel must present itself like a browser: a made-up UA over a bare https.request is
+  // throttled as script traffic (429 with a ten-something second Retry-After) regardless of the
+  // account quota, while the same token works on spclient's lyrics endpoint.
+  if (!/async function partnerRequestJson/.test(spotifyText) || !/requestJson: partnerRequestJson/.test(spotifyText)) {
+    fail('the Spotify partner channel must issue its requests through fetch, not a bare https.request');
+  }
+  if (!/Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64\) AppleWebKit\/537\.36/.test(partnerText) || /'User-Agent'\s*:\s*'Mineradio\//.test(partnerText)) {
+    fail('the Spotify partner channel must present a browser User-Agent');
+  }
+  if (!/createSpotifyPartner/.test(spotifyText) || !/withSpotifyPartner/.test(spotifyText) || !/SPOTIFY_PARTNER_RETIRED/.test(spotifyText)) {
+    fail('spotify-api.js must route through the partner channel and fall back when a query is retired');
+  }
+  if (!/function spotifyRateLimitGate\(\)/.test(spotifyText) || !/if \(spotifyPartnerUsable\(\)\) return \{ rateLimited: false/.test(spotifyText)) {
+    fail('the Web API cooldown must not gate the partner channel');
+  }
+  // 自检与歌单读取必须先把 pathfinder 摆在前面，否则一次 429 就把四步全锁死。
+  // Diagnostics and playlist reads must try pathfinder first, or a single 429 locks all four steps.
+  if (!/withSpotifyPartner\(\s*'diagnostics\.library'/.test(spotifyText) || !/withSpotifyPartner\(\s*'diagnostics\.playlists'/.test(spotifyText) || !/withSpotifyPartner\('playlists'/.test(spotifyText)) {
+    fail('Spotify diagnostics and playlist listing must go through the partner channel first');
+  }
+  // 远程播放：客户端出声，MR 只镜像时间轴。换源/跳歌必须在远程曲目上短路，
+  // 否则"客户端已经放了、MR 却把这首跳掉"的老毛病会回来。
+  // Remote playback: never switch source or skip a track that the official client owns.
+  const cdpPath = path.join(appRoot, 'server', 'spotify-cdp.js');
+  if (!fs.existsSync(cdpPath)) fail('server/spotify-cdp.js must exist as the local client state bridge');
+  const cdpText = fs.readFileSync(cdpPath, 'utf8');
+  // 控制客户端的那一半整体收在 PillagerSpotify 部件里，只有一个顶层声明。
+  // The client-control half lives inside the PillagerSpotify component, one top-level declaration.
+  const remoteText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '08-account', 'pillager-spotify.js'), 'utf8');
+  const loaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
+  if (!/Runtime\.evaluate/.test(cdpText) || /api\.spotify\.com\/v1/.test(cdpText)) {
+    fail('the Spotify CDP bridge must read the local page through Runtime.evaluate, not the Web API');
+  }
+  if (!/--remote-debugging-port=/.test(fs.readFileSync(path.join(appRoot, 'desktop', 'spotify-client-probe.js'), 'utf8'))) {
+    fail('Mineradio must be able to launch the Spotify client with its debug port');
+  }
+  if (!/\/api\/spotify\/client\/state/.test(serverText) || !/\/api\/spotify\/client\/command/.test(serverText) || !/\/api\/spotify\/client\/launch/.test(serverText)) {
+    fail('server.js must expose the Spotify client state, command and launch routes');
+  }
+  if (!/playback-progressbar/.test(cdpText) || !/getOwnPropertyDescriptor\(HTMLInputElement\.prototype/.test(cdpText)) {
+    fail('the CDP bridge must read and drive the progress range input');
+  }
+  if (!/silent WAV|spotifyRemoteSilentWavUrl/.test(remoteText) || !/clearInterval/.test(remoteText)) {
+    fail('the remote playback clock must use a silent WAV and clean up its polling timer');
+  }
+  if (!/08-account\/pillager-spotify\.js/.test(loaderText)) {
+    fail('pillager-spotify.js (the PillagerSpotify component) must be registered in index-loader.js');
+  }
+  if (!/song\.spotifyRemote\) return true/.test(fallbackText) || !/SpotifyRemote\.playbackData\(song\)/.test(playbackText)) {
+    fail('Spotify remote tracks must bypass source fallback and use the remote playback data');
+  }
+  if (!/data\.directUrl \? data\.url/.test(playbackText)) {
+    fail('the silent clock blob must bypass the /api/audio proxy');
+  }
+  // 点播必须走"搜索 + 点结果行"。退回 spotify: 协议只有**每次页面加载后的第一次**会成功，
+  // 也就是第二首开始全部静默失败 —— 这条守卫就是防止有人为了省事把它改回去。
+  // Point-play must drive the search UI; spotify: navigation works only once per page load.
+  if (!/function pickRowExpression/.test(cdpText) || !/Input\.insertText/.test(cdpText) || !/Input\.dispatchMouseEvent/.test(cdpText)) {
+    fail('the CDP bridge must play a track by typing into search and clicking a result row');
+  }
+  if (/location\.assign\(/.test(cdpText)) {
+    fail('never play a track by navigating to a spotify: URI — only the first navigation per page load works');
+  }
+  if (!/SPOTIFY_CDP_PLAY_UNCONFIRMED/.test(cdpText) || !/function trackMatches/.test(cdpText)) {
+    fail('point-play must confirm the client really switched before reporting success');
+  }
+  if (!/\/api\/spotify\/client\/play-track/.test(serverText) || !/spotifyCdp\.playTrack\(/.test(serverText)) {
+    fail('server.js must expose /api/spotify/client/play-track backed by spotifyCdp.playTrack');
+  }
+  if (!/spotifyRemoteRequestTrack/.test(remoteText) || !/client\/play-track/.test(remoteText)) {
+    fail('the renderer must ask the client to switch tracks through play-track');
+  }
+  if (!/spotifyRemoteSwitchingUntil/.test(remoteText)) {
+    fail('the silent clock must freeze while the client is switching, or it mirrors the previous track');
+  }
+  if (!/await window\.SpotifyRemote\.handleTrackStart\(song\)/.test(playbackText)) {
+    fail('the remote handover must be awaited so a failed switch still falls back to switch_source');
+  }
+  // 点播的主路径是注入桥（PlayerAPI.play({uri})），DOM 搜索只是兜底。
+  // 2026-11-18 在本机 1.3.9 实测：注入桥切歌 0.4s 且可重复；DOM 搜索 4~7s 且可能点错版本。
+  // 桥只活在渲染进程里，绝不写客户端文件 —— 一旦有人改成改 xpui.spa，这条会拦住。
+  const bridgePath = path.join(appRoot, 'server', 'spotify-cdp-bridge.js');
+  if (!fs.existsSync(bridgePath)) fail('server/spotify-cdp-bridge.js must exist as the injected PlayerAPI bridge');
+  const bridgeText = fs.readFileSync(bridgePath, 'utf8');
+  if (!/require\('\.\/spotify-cdp-bridge'\)/.test(cdpText) || !/BRIDGE_SOURCE/.test(cdpText)) {
+    fail('the CDP bridge must require and inject spotify-cdp-bridge.js');
+  }
+  if (!/Symbol\.for\("PlayerAPI"\)/.test(bridgeText) || !/\.resolve\(/.test(bridgeText)) {
+    fail('the injected bridge must resolve PlayerAPI through the DI registry');
+  }
+  if (!/memoizedProps/.test(bridgeText) || !/props\.registry/.test(bridgeText)) {
+    fail('the DI registry lives in React fiber memoizedProps.registry — the bridge must read it there');
+  }
+  if (!/callBridge\('play'/.test(cdpText) || !/playTrackViaUri/.test(cdpText)) {
+    fail('point-play must prefer PlayerAPI.play({uri}) over driving the search UI');
+  }
+  if (!/readStateViaApi/.test(cdpText) || !/positionAsOfTimestamp/.test(bridgeText)) {
+    fail('state must come from PlayerAPI._state (positionAsOfTimestamp), not the DOM progress bar');
+  }
+  if (!/function trackIsTarget/.test(cdpText) || !/want === actual/.test(cdpText)) {
+    fail('track confirmation must compare the spotify URI, not just the title');
+  }
+  if (/writeFileSync|fs\.writeFile|appendFileSync/.test(bridgeText)) {
+    fail('the injected bridge must stay runtime-only — never modify the Spotify client files');
+  }
+  if (!/wantUri === actualUri/.test(remoteText)) {
+    fail('the renderer must compare spotify URIs when deciding whether the client already plays the song');
+  }
+  // 时间轴校准：只允许在"MR 前端 + Spotify 源 + 客户端接管中"这一种状态下跑。
+  // 源一旦不是 Spotify（自动换源到别家 / 用户切走），必须整段停 —— 拿别的平台的进度
+  // 去校这个静音时钟，会把歌词和动画一起带偏，而且没有任何报错。
+  // Calibration is only valid while a Spotify track is mirrored from the client; any other source
+  // must disable it entirely, silently wrong otherwise.
+  if (!/function spotifyRemoteCalibrationBlocker/.test(remoteText)
+    || !/spotifyRemoteSongProvider\(song\) !== 'spotify'/.test(remoteText)) {
+    fail('timeline calibration must be gated on the current song being a Spotify source');
+  }
+  if (!/if \(spotifyRemoteSwitching\(\)\) return 'switching';/.test(remoteText)
+    || !/Date\.now\(\) < spotifyRemoteUserSeekUntil\) return 'user-seek'/.test(remoteText)) {
+    fail('calibration must skip while the client is switching tracks or the user just seeked');
+  }
+  if (!/client\/state\?force=1/.test(remoteText)) {
+    fail('calibration must read a fresh client state (?force=1) instead of the cached mirror');
+  }
+  if (!/spotifyRemoteStopCalibration\(\)/.test(remoteText) || !/function spotifyRemoteDeactivate/.test(remoteText)) {
+    fail('the calibration timer must be stopped when the remote takeover ends');
+  }
+  if (!/setInterval\([\s\S]{0,220}spotifyRemoteCalibrate\('timer'\)/.test(remoteText)) {
+    fail('calibration must run on its own slow timer, separate from the 1s mirror poll');
+  }
+  // 客户端状态检测：换歌 / 意外停止 / 通道断开都要反映到 MR，不能让它空转。
+  if (!/function spotifyRemoteNoteState/.test(remoteText) || !/function spotifyRemoteNoteChannelMiss/.test(remoteText)) {
+    fail('the remote module must watch client state changes (track switch, stop, channel loss)');
+  }
+  if (!/spotify_client_followed/.test(remoteText) || !/spotify_client_foreign/.test(remoteText)
+    || !/spotify_client_disconnected/.test(remoteText) || !/spotify_client_need_restart/.test(remoteText)
+    || !/spotify_client_not_installed/.test(remoteText)) {
+    fail('client state changes must surface as user-visible notices, not silent divergence '
+      + '(including "already running without the debug port" and "client not installed")');
+  }
+  // 两个开关取代了旧的深链接唤起：删掉的东西不许留残骸，否则下一个人会以为它还在生效。
+  if (/SpotifyLaunchClient/.test(remoteText) || /window\.open\('spotify:track:/.test(remoteText)) {
+    fail('the deep-link launch mechanism is gone — the renderer must not reference it any more');
+  }
+  if (!/if \(!spotifyRemotePrefs\.launch\) return Promise\.resolve\(false\)/.test(remoteText)) {
+    fail('"start Spotify in the background" off must stop the renderer from launching the client');
+  }
+  if (!/spotifyHoldSource/.test(fallbackText)) {
+    fail('"switch to another source" off must block the fallback instead of trading the track away');
+  }
+  // 每个模块是独立的 <script>，顶层 var/function 全挂在同一个全局上 —— 同名会被后加载的那个
+  // **无声覆盖**。本轮就踩过：preferences 模块里的取偏好函数与远程模块里的同名对象撞车，
+  // 结果点开关直接 TypeError，而所有静态守卫都绿。这类 bug 只有真去点才暴露，所以在这里钉住。
+  // 现在整个控制部件只有一个顶层声明 PillagerSpotify()，其余全在闭包里 —— 这条守卫就守这个
+  // 结构：谁再往里加顶层 var/function，撞名风险立刻回来，直接拦下。
+  // Modules share one global scope (each is its own <script>), so duplicate top-level names
+  // silently overwrite each other — hit this round with a helper/object name clash that turned the
+  // settings toggle into a TypeError while every static guard stayed green. The component therefore
+  // keeps exactly one top-level declaration; anything else escalates the risk again.
+  const remoteTopLevel = (remoteText.replace(/\/\*[\s\S]*?\*\//g, '').match(/^(?:var|let|const|function)\s+[A-Za-z_$][\w$]*/gm) || [])
+    .map(line => line.replace(/^(?:var|let|const|function)\s+/, ''));
+  if (remoteTopLevel.length !== 1 || remoteTopLevel[0] !== 'PillagerSpotify') {
+    fail('the Spotify control component must stay a single top-level declaration named '
+      + 'PillagerSpotify(), everything else inside its closure; found: '
+      + (remoteTopLevel.join(', ') || '(none)'));
+  }
+  if (!/window\.SpotifyRemote = PillagerSpotify\(\)/.test(remoteText)) {
+    fail('the component must publish itself as window.SpotifyRemote = PillagerSpotify()');
+  }
+  const moduleRoot = path.join(appRoot, 'public', 'js', 'modules');
+  const moduleFiles = [];
+  (function walkModules(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkModules(full);
+      else if (entry.name.endsWith('.js')) moduleFiles.push(full);
+    }
+  })(moduleRoot);
+  const remoteModulePath = path.join(moduleRoot, '08-account', 'pillager-spotify.js');
+  const nameClashes = [];
+  for (const file of moduleFiles) {
+    if (file === remoteModulePath) continue;
+    const code = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const name of remoteTopLevel) {
+      if (new RegExp('^(?:var|let|const|function)\\s+' + name + '\\b', 'm').test(code)) {
+        nameClashes.push(name + ' @ ' + path.relative(appRoot, file));
+      }
+    }
+  }
+  if (nameClashes.length) {
+    fail('pillager-spotify.js declares names another module also declares; the shared global scope means '
+      + 'one silently overwrites the other: ' + nameClashes.slice(0, 6).join(', '));
+  }
+
   if (!/localConfigMissing/.test(loginStatusText) || !/tokenFileExists/.test(loginStatusText) || !/credentialsFileExists/.test(loginStatusText) || !/submitSpotifyConfigLogin/.test(loginFlowText) || !/saveSpotifySetupClientId/.test(loginFlowText) || !/\/api\/spotify\/config/.test(loginFlowText)) {
     fail('Spotify frontend status must surface missing local OAuth config/token and provide validated Client ID save + OAuth flow');
   }
@@ -5016,9 +5260,23 @@ function checkProviderRegistryGuard() {
     fail('the preferred-source wrapper must be registered in the console layout, or the residual sweep '
       + 'files it under "other settings" (wrong place, no error)');
   }
-  if (!/fxConsoleItem\('t-spotifyLaunchClient'/.test(consoleText)) {
-    fail('t-spotifyLaunchClient must be registered too — it was missed when added and has been sitting in '
-      + '"other settings" since');
+  // Spotify 只剩两个开关，而且两个都必须登记：没登记会被残留扫描收进「其他设置」，
+  // 界面上只是位置不对、不报错。旧的 t-spotifyLaunchClient（深链接唤起）已整体删除。
+  // Only two Spotify toggles remain, and both must be registered or the residual sweep files them
+  // under "other settings" with no error. The old deep-link toggle is gone for good.
+  for (const id of ['t-spotifySwitchSource', 't-spotifyRemoteLaunch']) {
+    if (!new RegExp("fxConsoleItem\\('" + id + "'").test(consoleText)) {
+      fail(id + ' must be registered in the console layout, or the residual sweep files it under '
+        + '"other settings" (wrong place, no error)');
+    }
+    if (!new RegExp('id="' + id + '"').test(indexText)) {
+      fail('index.html must still contain #' + id);
+    }
+  }
+  const spotifyLoaderText = fs.readFileSync(path.join(appRoot, 'public', 'js', 'index-loader.js'), 'utf8');
+  if (/SpotifyLaunchClient|spotify-launch-client\.js|toggleSpotifyLaunchClient/.test(indexText + consoleText + spotifyLoaderText)) {
+    fail('the deep-link launch client was deleted — its markup, console entry and loader registration '
+      + 'must be gone too, not left half wired');
   }
   if (!/var blockSelector = '\.fx-select-row,/.test(consoleText)) {
     fail('the block selector must include .fx-select-row, or the wrapped control is treated as an unowned '

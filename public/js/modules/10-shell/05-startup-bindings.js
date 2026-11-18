@@ -19,7 +19,7 @@ applyUserCapsuleAutoHideState();
 applyFxFabAutoHideState();
 initializeDesktopCloseBehavior();
 applyStartupAutoplayUi();
-applySpotifyLaunchClientUi();
+applySpotifyRemotePrefsUi();
 applyPreferredSourceUi();
 applyControlsAutoHidePreference();
 applyDesktopLyricsState(false);

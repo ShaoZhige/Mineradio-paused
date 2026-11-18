@@ -1124,9 +1124,15 @@
               title="播放时优先到指定平台找同名歌曲，找不到就继续按顺序试其它平台" data-i18n-title="settings_preferred_source_sub"></select>
           </div>
           <div class="fx-section-label">Spotify</div>
+          <!-- 只有两个开关，对应两条真实存在的路径：
+               · SP 换源其他 —— 客户端接管不了时换到别的平台（关掉 = 只认客户端）
+               · 后台开启 SP —— 通道不在时由 MR 在后台把客户端带调试端口拉起来
+               旧的「播放 Spotify 源唤起客户端（深链接 window.open）」已删除。 -->
           <div class="fx-toggle-grid">
-            <div class="fx-toggle" id="t-spotifyLaunchClient" onclick="toggleSpotifyLaunchClient()" title="播放 Spotify 源的歌曲时自动唤起本机 Spotify 客户端进行原生播放；未开启或客户端未安装时，会自动换源到同首歌的其他可用源" data-i18n-title="settings_spotify_launch_sub">
-              <span data-i18n="settings_spotify_launch_title">播放 Spotify 源唤起客户端</span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-spotifySwitchSource" onclick="toggleSpotifySwitchSource()" title="本机客户端接管不了这首（未安装、未登录、切不过去）时，自动换成其他平台的同首歌；关掉后只认官方客户端，播不了就停下" data-i18n-title="settings_spotify_switch_source_sub">
+              <span data-i18n="settings_spotify_switch_source_title">SP 换源其他</span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-spotifyRemoteLaunch" onclick="toggleSpotifyRemoteLaunch()" title="播放 Spotify 源的歌曲时，在后台用调试端口启动本机客户端并让它播放这一首；关掉后不会自行打开客户端" data-i18n-title="settings_spotify_launch_sub">
+              <span data-i18n="settings_spotify_launch_title">后台开启 SP</span><span class="dot"></span></div>
           </div>
           <div class="fx-section-label" data-i18n="fx_output">输出接口</div>
           <div class="audio-output-section" id="audio-output-panel">
@@ -1835,6 +1841,16 @@
                   <div class="spotify-setup-card-actions">
                     <button id="spotify-setup-authorize" class="primary wide" type="button" onclick="openSpotifyWebLogin()"
                       data-i18n="login_spotify_setup_authorize">打开浏览器授权</button>
+                  </div>
+                  <div id="spotify-setup-auth-url" class="spotify-setup-auth-url" hidden>
+                    <p data-i18n="login_spotify_auth_url_hint">浏览器没有弹出？复制下面的地址到浏览器打开，或点“重新打开浏览器”。</p>
+                    <code id="spotify-setup-auth-url-text" onclick="copySpotifySetupAuthUrl()"></code>
+                    <div class="spotify-setup-auth-url-actions">
+                      <button type="button" id="spotify-setup-copy-auth-url" class="primary" onclick="copySpotifySetupAuthUrl()"
+                        data-i18n="login_spotify_auth_url_copy">复制链接</button>
+                      <button type="button" id="spotify-setup-reopen-authorize" onclick="reopenSpotifySetupAuth()"
+                        data-i18n="login_spotify_auth_url_reopen">重新打开浏览器</button>
+                    </div>
                   </div>
                 </div>
                 <div class="spotify-setup-card-state" data-spotify-step-state="3"></div>

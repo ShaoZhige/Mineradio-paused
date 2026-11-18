@@ -115,6 +115,19 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   openSpotifyMusicLogin: () => ipcRenderer.invoke('spotify-music-open-login'),
   verifySpotifyMusicSetup: () => ipcRenderer.invoke('spotify-music-verify-setup'),
   clearSpotifyMusicLogin: () => ipcRenderer.invoke('spotify-music-clear-login'),
+  // 主进程把「这一次授权该去的地址」推回来。浏览器没被拉到前台时，界面靠它给用户一条
+  // 可点、可复制的出路，否则只剩一句"请去官方页面授权"却没有地址。
+  // The main process pushes the URL this attempt is waiting on; it is the only way out when
+  // the browser never comes to the front.
+  onSpotifyOAuthUrl: (handler) => {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, url) => {
+      try { handler(String(url || '')); } catch (_) {}
+    };
+    ipcRenderer.on('spotify-music-oauth-url', listener);
+    return () => ipcRenderer.removeListener('spotify-music-oauth-url', listener);
+  },
+  openSpotifyAuthUrl: (url) => ipcRenderer.invoke('spotify-music-open-auth-url', String(url || '')),
   appleMusicRequest: (operation, params) => ipcRenderer.invoke('apple-music-request', String(operation || ''), params || {}),
   clearQishuiMusicLogin: () => ipcRenderer.invoke('qishui-music-clear-login'),
   openUpdatePage: (url) => ipcRenderer.invoke('mineradio-open-update-page', String(url || '')),

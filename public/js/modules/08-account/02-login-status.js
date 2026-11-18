@@ -514,14 +514,20 @@ async function refreshSpotifyLoginStatus() {
     spotifyLoginStatus = normalizeSpotifyLoginStatus(info);
     auditProviderVipState('spotify', spotifyLoginStatus);
     if (!spotifyLoginStatus.loggedIn) {
-      if (prevLogged || spotifyLoginWasLoggedIn) showToast(spotifyLoginStatus.stale ? loginStatusText('lstatus_spotify_expired') : loginStatusText('lstatus_spotify_logged_out'));
-      spotifyPlaylists = [];
-      userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
-      // Apple Music is a separate session; clearing Spotify must not drop it.
-      // (The Apple logout path clears appleMusicPlaylists itself.)
-      playlistCatalogRevision += 1;
-      homeDiscoverState.loaded = false;
-    } else if (!userPlaylists.some(function (pl) { return pl && pl.provider === 'spotify'; })) {
+      // 限流不是登出：这时候清歌单、弹"已登出"只会推着人去重新授权，而重新授权并不会
+      // 解除限流。列表保持原样，等下一次状态查询自己恢复。
+      // Throttling is not a logout: wiping playlists and toasting "logged out" only pushes the
+      // user into re-authorizing, which does not clear a rate limit. Keep the lists as they are.
+      if (!spotifyLoginStatus.rateLimited) {
+        if (prevLogged || spotifyLoginWasLoggedIn) showToast(spotifyLoginStatus.stale ? loginStatusText('lstatus_spotify_expired') : loginStatusText('lstatus_spotify_logged_out'));
+        spotifyPlaylists = [];
+        userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
+        // Apple Music is a separate session; clearing Spotify must not drop it.
+        // (The Apple logout path clears appleMusicPlaylists itself.)
+        playlistCatalogRevision += 1;
+        homeDiscoverState.loaded = false;
+      }
+    } else if (!spotifyLoginStatus.rateLimited && !userPlaylists.some(function (pl) { return pl && pl.provider === 'spotify'; })) {
       homeDiscoverState.loaded = false;
       homeDiscoverState.loggedIn = true;
       refreshUserPlaylists(true);

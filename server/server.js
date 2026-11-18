@@ -66,6 +66,15 @@ const { fileURLToPath } = require('url');
 // Credential encryption: safeStorage is injected into credential-crypto by main.js before
 // requiring server.js. In plain-Node test envs (no safeStorage) it falls back to plaintext.
 const credentialCrypto = require('../desktop/credential-crypto');
+// 只读本机的媒体会话与发一条媒体键：验证"能不能遥控运行中的官方客户端"。
+// Reads the machine's media sessions and sends one media key: measures whether the running
+// official client can be driven from here at all.
+const spotifyClientProbe = require('../desktop/spotify-client-probe');
+// 官方客户端的本地 CDP 通道：毫秒级进度、播放态、曲目、音量与定向控制。
+// 没带 --remote-debugging-port 启动时 readState() 会返回 unavailable，上层自行降级。
+// Local CDP channel to the official client: millisecond position, playback state, track,
+// volume and targeted controls. Reports unavailable when the client was launched without the flag.
+const spotifyCdp = require('./spotify-cdp').createSpotifyCdp();
 // 走代理而不是直接 require('./dj-analyzer')：解码与频谱计算要放进 utilityProcess，
 // 否则整首歌的 O(n) 计算会占住主进程事件循环，分析期间所有 IPC 一起变慢。
 // 代理在没有 utilityProcess 的环境（纯 Node 测试）会自动退回进程内调用。
@@ -5359,6 +5368,142 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[AppleMusicPlaylistTracks]', err && (err.code || err.message || err));
       sendJSON(res, { provider: 'applemusic', configured: !!appleMusicRequester, error: 'request-failed', songs: [] }, 502);
+    }
+    return;
+  }
+
+  // ── 官方客户端探针（本地 SMTC / 媒体键，不联网、不消耗 Spotify 配额）──────────────
+  // 先量清楚"系统媒体会话里能读到什么、媒体键能不能控制它"，再决定要不要把 Spotify 接成
+  // 远程播放源。这三个端点只用于验证，不参与任何播放逻辑。
+  // Local probe: what the system media session exposes, and whether a media key reaches the
+  // client. Verification only — no playback path depends on it.
+  if (pn === '/api/spotify/client/probe') {
+    try {
+      const sessions = await spotifyClientProbe.readMediaSessions();
+      let windowInfo = null;
+      try {
+        windowInfo = await spotifyClientProbe.inspectClientWindow();
+      } catch (windowErr) {
+        windowInfo = { error: String((windowErr && windowErr.message) || windowErr).slice(0, 200) };
+      }
+      sendJSON(res, {
+        ok: true,
+        spotify: sessions.filter(session => session.isSpotify),
+        sessions: sessions.length,
+        allSessions: sessions,
+        window: windowInfo,
+      });
+    } catch (err) {
+      console.error('[SpotifyClientProbe]', err && err.message);
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 400) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/launch') {
+    try {
+      sendJSON(res, await spotifyClientProbe.launchClientWithDebugPort(url.searchParams.get('port')));
+    } catch (err) {
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 300) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/state') {
+    try {
+      sendJSON(res, await spotifyCdp.readState(url.searchParams.get('force') === '1'));
+    } catch (err) {
+      sendJSON(res, { ok: false, available: false, error: String((err && err.message) || err).slice(0, 300) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/cdp-status') {
+    sendJSON(res, spotifyCdp.status());
+    return;
+  }
+
+  if (pn === '/api/spotify/client/command') {
+    const allowed = ['Play', 'Pause', 'TogglePlay', 'NextSong', 'PreviousSong', 'Seek', 'SetVolume'];
+    const name = String(url.searchParams.get('name') || '');
+    if (allowed.indexOf(name) < 0) {
+      sendJSON(res, { ok: false, error: 'unsupported command' });
+      return;
+    }
+    const payload = {};
+    if (url.searchParams.has('position')) payload.position = Number(url.searchParams.get('position')) || 0;
+    if (url.searchParams.has('level')) payload.level = Number(url.searchParams.get('level')) || 0;
+    try {
+      sendJSON(res, await spotifyCdp.command(name, payload));
+    } catch (err) {
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 300) });
+    }
+    return;
+  }
+
+  // 点播：走"搜索 + 点结果行"，不碰 spotify: 协议（见 server/spotify-cdp.js 顶部说明）。
+  // 只在 MR 要放的曲目和客户端当前曲目不是同一首时才会被调用。
+  if (pn === '/api/spotify/client/play-track') {
+    const title = String(url.searchParams.get('title') || '').trim();
+    const uri = String(url.searchParams.get('uri') || '').trim();
+    // 有 URI 就够精确点播了；标题只是搜索兜底时才必要。
+    if (!title && !uri) {
+      sendJSON(res, { ok: false, error: 'SPOTIFY_CDP_NO_TITLE' }, 400);
+      return;
+    }
+    try {
+      const result = await spotifyCdp.playTrack({
+        title,
+        artist: String(url.searchParams.get('artist') || '').trim(),
+        uri,
+      });
+      sendJSON(res, result);
+    } catch (err) {
+      console.error('[SpotifyClientPlayTrack]', err && err.message);
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 300) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/player') {
+    try {
+      sendJSON(res, await spotifyClientProbe.readPlayerState());
+    } catch (err) {
+      console.error('[SpotifyClientPlayer]', err && err.message);
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 400) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/uia') {
+    try {
+      const limit = Number(url.searchParams.get('limit') || 0) || 0;
+      const raw = url.searchParams.get('raw') === '1';
+      sendJSON(res, await spotifyClientProbe.readWindowTree(limit, raw));
+    } catch (err) {
+      console.error('[SpotifyClientUia]', err && err.message);
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 400) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/media-key') {
+    try {
+      const key = String(url.searchParams.get('key') || 'playpause').toLowerCase();
+      const result = await spotifyClientProbe.sendMediaKey(key);
+      sendJSON(res, { ok: true, key, result });
+    } catch (err) {
+      console.error('[SpotifyClientMediaKey]', err && err.message);
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 400) });
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/client/minimize') {
+    try {
+      sendJSON(res, { ok: true, result: await spotifyClientProbe.minimizeClientWindow() });
+    } catch (err) {
+      sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 400) });
     }
     return;
   }

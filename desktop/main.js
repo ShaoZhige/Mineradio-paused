@@ -4441,6 +4441,32 @@ ipcMain.handle('spotify-music-verify-setup', async () => {
   return spotifyLogin.verifyCallbackEndpoint();
 });
 
+// 重新打开一次已经在等的那条授权地址。浏览器没被拉起来、或者被其它窗口挡住时，
+// 用户唯一的补救手段 —— 因此渲染层必须能把主进程生成的地址原样递回来。
+// Re-open the authorize URL this flow is already waiting on. When the browser never surfaces
+// (or hides behind this window) this is the only recovery path, so the renderer has to be
+// able to hand the main-process URL back verbatim.
+ipcMain.handle('spotify-music-open-auth-url', async (event, value) => {
+  try {
+    if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+    const target = String(value || '').trim();
+    if (!target || target.length > 4096) return { ok: false, error: 'INVALID_SPOTIFY_AUTH_URL' };
+    const parsed = new URL(target);
+    // 只放行 Spotify 的授权端点：这条通道不接受任意 URL，否则等于把 openExternal 交给渲染层。
+    // 主机判断留到 *.spotify.com，是因为 SPOTIFY_ACCOUNTS_BASE 允许被环境变量改成自建镜像。
+    // Allow only Spotify's authorize endpoint; otherwise this channel hands openExternal to the
+    // renderer wholesale. The host check allows *.spotify.com because SPOTIFY_ACCOUNTS_BASE can
+    // be overridden to a mirror by env var.
+    if (parsed.protocol !== 'https:' || !/(^|\.)spotify\.com$/i.test(parsed.hostname) || !/^\/authorize\/?$/.test(parsed.pathname)) {
+      return { ok: false, error: 'INVALID_SPOTIFY_AUTH_URL' };
+    }
+    await shell.openExternal(parsed.href);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'OPEN_SPOTIFY_AUTH_URL_FAILED' };
+  }
+});
+
 ipcMain.handle('spotify-music-clear-login', async () => {
   return clearSpotifyToken();
 });

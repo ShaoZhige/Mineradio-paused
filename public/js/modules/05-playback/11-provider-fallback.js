@@ -921,6 +921,17 @@ async function skipFailedQueueItem(idx, token, message, opts) {
 }
 async function tryAutoPlaybackFallback(song, data, idx, token, opts) {
   opts = opts || {};
+  // 🔴 Spotify 远程接管：声音在官方客户端里，本地 <audio> 只是等长静音时钟。
+  // 这时 data.url 缺失或静音加载失败都**绝不能**换源、跳歌 —— 那会把正在播放的
+  // 客户端甩掉，UI 还停在另一首歌上。返回 true 表示"这一首已经由客户端负责"。
+  // Remote takeover: never switch sources or skip the track; the client is already playing it.
+  if (song && song.spotifyRemote) return true;
+  // 「SP 换源其他」关着：这首 Spotify 曲目只认官方客户端。客户端没接管就**不换源**，
+  // 返回 null 让上层弹出"不可播放"的如实提示（用户可以自己手动换），
+  // 而不是偷偷换成别家平台的同名版本 —— 那与用户"只想听 SP"的意图相反。
+  // With "switch to another source" off, a Spotify track the client could not take over must not
+  // be traded for another platform's version; null lets the caller show the honest notice.
+  if (song && song.spotifyHoldSource) return null;
   if (opts.fallbackDepth > 0) {
     if (opts.fallbackOriginalSong && opts.fallbackCandidateSong) {
       restoreSourceFallbackQueueItem(idx, opts.fallbackOriginalSong, opts.fallbackCandidateSong, token);

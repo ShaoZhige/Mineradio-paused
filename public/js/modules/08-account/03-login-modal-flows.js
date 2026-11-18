@@ -16,6 +16,14 @@ var spotifySetupCallbackReady = false;
 var spotifySetupDiagnostics = null;
 var spotifySetupBusy = false;
 var spotifySetupAutoCheckKey = '';
+// 限流后的自动重试只排一次；冷却没解除前不再连环试探，否则永远出不来。
+// One scheduled retry per cooldown: retrying in a loop only keeps the throttle alive.
+var spotifyRateLimitRetryTimer = 0;
+// 主进程生成的那条授权地址（含 state/PKCE），只用于这一次授权。浏览器没被拉到前台时，
+// 界面靠它给用户一条可复制、可重开的出路。
+// The authorize URL (with state/PKCE) for the attempt in flight, so the UI can offer a link
+// when the browser never comes to the front.
+var spotifySetupAuthUrl = '';
 // 登录成功后的换源提醒，单次加载内只弹一次 / one-shot per page load.
 var spotifyLoginReminderShown = false;
 var appleMusicLoginStatus = { loggedIn: false, configured: false, nickname: '', avatarUrl: '', storefront: '', error: '' };
@@ -551,6 +559,12 @@ function connectLoginMode(mode) {
     setManualCookieOpenForProvider('spotify', false);
     updateLoginProviderUi();
     scheduleSpotifySetupAutoCheck();
+    // 这里刻意不自动拉浏览器：授权必须由用户点 ③ 卡片上的按钮发起，
+    // 否则向导会在用户还没看完「需要哪些权限」时就把人甩到浏览器里。
+    // The browser is deliberately NOT opened here: authorization must be started by the
+    // button on card ③, otherwise the wizard throws people into the browser before they
+    // have read what the flow is going to ask for.
+    ensureSpotifyStatusFresh();
     return;
   }
   if (mode === 'cookie') {
@@ -631,6 +645,7 @@ function resumeLoginModalAfterGate() {
   bindLoginWorkflowPointerEvents();
   setLoginAuthDrawerOpen(false);
   updateLoginProviderUi();
+  ensureSpotifyStatusFresh();
   scheduleLoginWorkflowEdges('open');
 }
 function closeLoginModal() {
@@ -642,7 +657,27 @@ function setLoginProvider(provider, silent) {
   loginProvider = normalizeLoginProviderKey(provider);
   loginRefreshRequestSeq += 1;
   updateLoginProviderUi();
+  ensureSpotifyStatusFresh();
   if (!silent && document.getElementById('login-modal').classList.contains('show')) refreshQr();
+}
+
+// 启动期的 /api/spotify/status 如果失败过一次，之后不会立刻重试（定时器是 45 秒）。
+// 那段时间里四步向导会全停在「第一步 进行中」，授权按钮是灰的 —— 用户看到的就是
+// "让我去登录，但按钮点不动"。打开 Spotify 面板时补一次查询，代价是一个本地请求。
+// The startup status call can fail once and is not retried until the 45s timer, which pins the
+// wizard on step 1 with a greyed-out authorize button. Re-ask when the Spotify panel opens.
+function ensureSpotifyStatusFresh(done) {
+  if (loginProvider !== 'spotify') return;
+  if (spotifyLoginStatus && spotifyLoginStatus.oauthConfigured) {
+    if (typeof done === 'function') done();
+    return;
+  }
+  refreshSpotifyLoginStatus().then(function () {
+    if (loginProvider !== 'spotify') return;
+    updateLoginProviderUi();
+    renderSpotifySetupWizard();
+    if (typeof done === 'function') done();
+  }).catch(function () { });
 }
 function qishuiPublicSearchReady() {
   return !!(qishuiLoginStatus && (qishuiLoginStatus.searchReady || qishuiLoginStatus.publicCatalog));
@@ -825,9 +860,22 @@ function spotifySetupCurrentStep() {
   var configReady = !!(spotifyLoginStatus && spotifyLoginStatus.oauthConfigured);
   var loggedIn = !!(spotifyLoginStatus && spotifyLoginStatus.loggedIn);
   if (!configReady) return 1;
-  if (!spotifySetupCallbackReady && !loggedIn) return 2;
+  // 回调检测不再当门禁。它只是一次"端口有没有被别人占"的排查，内置客户端根本不需要登记回调；
+  // 把它设成前置条件的结果是：配置已就绪，但「授权登录」卡片被锁成灰的（opacity .52），
+  // 用户看到的正是"让我去登录，可按钮点不动"。
+  // Callback probing is diagnostics, not a gate. With the bundled client there is nothing to
+  // register, so requiring a manual probe first only greys out the authorize card.
   if (!loggedIn) return 3;
   return 4;
+}
+
+// 「回调检测」这一步的完成态：真的探测过，或者服务端已确认回调地址合法。
+// 后者让刚打开向导、还没手动点过检测的用户也能看到这一步是绿的。
+// Step 2 counts as done once the server confirms the redirect URI, not only after a manual probe.
+function spotifySetupCallbackStepDone() {
+  if (spotifySetupCallbackReady) return true;
+  if (spotifyLoginStatus && spotifyLoginStatus.loggedIn) return true;
+  return !!(spotifyLoginStatus && spotifyLoginStatus.redirectValid);
 }
 
 function setSpotifySetupOverall(message, kind) {
@@ -835,6 +883,39 @@ function setSpotifySetupOverall(message, kind) {
   if (!node) return;
   node.textContent = message || loginText('login_spotify_auto_detect_hint');
   node.className = 'spotify-setup-overall' + (kind ? (' ' + kind) : '');
+}
+
+// 授权地址只在主进程里存在。不把它显示出来，用户在"没跳浏览器"时连手动粘贴的机会都没有。
+// The authorize URL only exists in the main process. Without surfacing it, a user whose browser
+// never opened has nothing to paste anywhere.
+function setSpotifySetupAuthUrl(url) {
+  spotifySetupAuthUrl = String(url || '');
+  var row = document.getElementById('spotify-setup-auth-url');
+  var text = document.getElementById('spotify-setup-auth-url-text');
+  if (!row || !text) return;
+  if (!spotifySetupAuthUrl) {
+    row.hidden = true;
+    text.textContent = '';
+    text.removeAttribute('title');
+    return;
+  }
+  text.textContent = spotifySetupAuthUrl;
+  text.title = spotifySetupAuthUrl;
+  row.hidden = false;
+}
+
+function copySpotifySetupAuthUrl() {
+  if (!spotifySetupAuthUrl) return;
+  var clipboard = navigator.clipboard;
+  if (!clipboard || typeof clipboard.writeText !== 'function') {
+    showToast(loginText('login_copy_callback_failed'));
+    return;
+  }
+  clipboard.writeText(spotifySetupAuthUrl).then(function () {
+    showToast(loginText('login_spotify_auth_url_copied'));
+  }, function () {
+    showToast(loginText('login_copy_callback_failed'));
+  });
 }
 
 function spotifySetupEscapeHtml(value) {
@@ -868,10 +949,13 @@ function renderSpotifySetupWizard() {
   var configReady = !!(spotifyLoginStatus && spotifyLoginStatus.oauthConfigured);
   var loggedIn = !!(spotifyLoginStatus && spotifyLoginStatus.loggedIn);
   var diagnosticsReady = !!(spotifySetupDiagnostics && spotifySetupDiagnostics.ready);
+  // 限流不是"正在检测"，卡片角标要说实话，否则界面看起来就是卡死在进行中。
+  // Throttled is not "checking": the badge must say so, otherwise it reads as a frozen spinner.
+  var rateLimitedNow = !!(spotifySetupDiagnostics && spotifySetupDiagnostics.rateLimited);
   var currentStep = spotifySetupCurrentStep();
   var completed = {
     1: configReady,
-    2: spotifySetupCallbackReady || loggedIn,
+    2: spotifySetupCallbackStepDone(),
     3: loggedIn,
     4: diagnosticsReady
   };
@@ -889,7 +973,13 @@ function renderSpotifySetupWizard() {
       progress.classList.toggle('complete', !!completed[step]);
       progress.classList.toggle('current', step === currentStep && !completed[step]);
     }
-    if (state) state.textContent = completed[step] ? loginText('login_passed') : (locked ? loginText('login_wait_previous_step') : (spotifySetupBusy ? loginText('login_checking') : loginText('login_in_progress')));
+    if (state) {
+      if (completed[step]) state.textContent = loginText('login_passed');
+      else if (locked) state.textContent = loginText('login_wait_previous_step');
+      else if (spotifySetupBusy) state.textContent = loginText('login_checking');
+      else if (rateLimitedNow && step === 4) state.textContent = loginText('login_spotify_rate_limited_short');
+      else state.textContent = loginText('login_in_progress');
+    }
   });
   var input = document.getElementById('spotify-setup-client-id');
   if (input && !input.value && spotifyLoginStatus && spotifyLoginStatus.clientId) input.value = spotifyLoginStatus.clientId;
@@ -1004,6 +1094,16 @@ async function runSpotifySetupDiagnostics(force) {
     var spotifySetupDiagnosticsResult = await apiJson('/api/spotify/setup/diagnostics?t=' + Date.now(), { timeoutMs: 45000 });
     spotifySetupDiagnostics = spotifySetupDiagnosticsResult;
     var ready = !!(spotifySetupDiagnostics && spotifySetupDiagnostics.ready);
+    if (spotifySetupDiagnostics && spotifySetupDiagnostics.rateLimited) {
+      // 限流不是失败：后端一个上游请求都没发（冷却中），这里也说清楚是"等一等"，
+      // 并排一次重试，而不是让用户以为哪里配错了。
+      // Throttling is not a failure: the backend sent zero upstream calls during the cooldown.
+      // Say "wait", schedule one retry, and stop implying the setup is wrong.
+      var waitSeconds = Number(spotifySetupDiagnostics.retryAfterSeconds) || 30;
+      setSpotifySetupOverall(spotifyRateLimitWaitText(waitSeconds), 'wait');
+      scheduleSpotifyRateLimitRetry(waitSeconds);
+      return spotifySetupDiagnostics;
+    }
     setSpotifySetupOverall(spotifySetupDiagnostics && spotifySetupDiagnostics.message || (ready ? loginText('login_spotify_all_apis_ok') : loginText('login_some_apis_failed')), ready ? 'success' : 'fail');
     return spotifySetupDiagnostics;
   } catch (error) {
@@ -1014,6 +1114,41 @@ async function runSpotifySetupDiagnostics(force) {
     spotifySetupBusy = false;
     renderSpotifySetupWizard();
   }
+}
+
+// 长退避（最长半小时）时"约 1800 秒后"没人愿意读，超过一分半就换算成分钟。
+// Long backoffs (up to 30 min) read badly as "1800 seconds"; switch to minutes past ~90s.
+function spotifyRateLimitWaitText(seconds, kind) {
+  var total = Math.max(1, Math.round(Number(seconds) || 30));
+  var minutes = Math.max(1, Math.round(total / 60));
+  if (kind === 'authorized') {
+    return total >= 90
+      ? loginText('login_spotify_authorized_rate_limited_min', undefined, { minutes: minutes })
+      : loginText('login_spotify_authorized_rate_limited', undefined, { seconds: total });
+  }
+  return total >= 90
+    ? loginText('login_spotify_rate_limited_wait_min', undefined, { minutes: minutes })
+    : loginText('login_spotify_rate_limited_wait', undefined, { seconds: total });
+}
+
+// 限流解除后自动接上一次检查。只排一次，且只在这一轮确实还在限流时排。
+// 延迟跟着后端的退避窗口走（最长半小时），再加一点抖动，避免几个入口同时撞上去。
+// Reschedule exactly one check after the cooldown; the delay follows the backend's backoff
+// window (up to 30 min) plus jitter so several callers do not stampede at the same millisecond.
+function scheduleSpotifyRateLimitRetry(seconds) {
+  if (spotifyRateLimitRetryTimer) clearTimeout(spotifyRateLimitRetryTimer);
+  var baseMs = Math.max(5000, Math.min(1800000, (Number(seconds) || 30) * 1000));
+  var delayMs = baseMs + 1000 + Math.floor(Math.random() * 4000);
+  spotifyRateLimitRetryTimer = setTimeout(function () {
+    spotifyRateLimitRetryTimer = 0;
+    if (loginProvider !== 'spotify') return;
+    refreshSpotifyLoginStatus().then(function (info) {
+      if (loginProvider !== 'spotify') return;
+      updateLoginProviderUi();
+      renderSpotifySetupWizard();
+      if (info && info.loggedIn && !info.rateLimited) runSpotifySetupDiagnostics(true);
+    }).catch(function () { });
+  }, delayMs);
 }
 
 function scheduleSpotifySetupAutoCheck() {
@@ -1476,6 +1611,28 @@ function openProviderWebLogin() {
   if (loginProvider === 'applemusic') return openAppleMusicLogin();
   return openNeteaseWebLogin();
 }
+async function reopenSpotifySetupAuth() {
+  var api = window.desktopWindow;
+  if (!api || typeof api.openSpotifyAuthUrl !== 'function') {
+    showToast(loginText('login_spotify_no_bridge'));
+    return;
+  }
+  // 还在等回调时，地址依然有效，直接重开同一条即可（不会打断 state，也不用重新走流程）。
+  // 上一次已经落定时地址作废，必须重走一遍才能拿到新的 state。
+  // While the callback is still pending the URL is valid, so re-open the same one. Once the
+  // attempt has settled that URL is dead and only a fresh flow can produce a usable one.
+  if (!spotifyOAuthBusy || !spotifySetupAuthUrl) {
+    return openSpotifyWebLogin();
+  }
+  try {
+    var result = await api.openSpotifyAuthUrl(spotifySetupAuthUrl);
+    if (!result || !result.ok) throw new Error((result && result.error) || 'SPOTIFY_AUTH_URL_OPEN_FAILED');
+    setSpotifySetupOverall(loginText('login_spotify_browser_opened'));
+  } catch (error) {
+    showToast(loginText('login_spotify_open_browser_failed'));
+  }
+}
+
 async function openSpotifyWebLogin() {
   if (spotifyOAuthBusy) return;
   var api = window.desktopWindow;
@@ -1483,6 +1640,7 @@ async function openSpotifyWebLogin() {
     setSpotifySetupOverall(loginText('login_spotify_no_bridge'), 'fail');
     return;
   }
+  setSpotifySetupAuthUrl('');
   if (!spotifyLoginStatus.oauthConfigured && !spotifyLoginStatus.tokenConfigured) {
     var latestStatus = await refreshSpotifyLoginStatus();
     if (!latestStatus.oauthConfigured && !latestStatus.tokenConfigured) {
@@ -1501,6 +1659,10 @@ async function openSpotifyWebLogin() {
   var failText = '';
   try {
     var result = await api.openSpotifyMusicLogin();
+    // 主进程在拉起浏览器前会先推一份地址；这里再兜一次，防止推送早于监听注册。
+    // The main process pushes the URL before launching the browser; take it from the result as
+    // a fallback in case that push landed before the listener was registered.
+    if (result && result.authUrl) setSpotifySetupAuthUrl(result.authUrl);
     if (!result || !result.ok) {
       if (result && result.error === 'SPOTIFY_OAUTH_NOT_CONFIGURED') {
         throw new Error(backendText(result, 'backend_spotify_client_id_required', loginText('login_spotify_client_id_required')) + (result.redirectUri ? (loginText('login_callback_uri_infix') + result.redirectUri) : ''));
@@ -1509,6 +1671,17 @@ async function openSpotifyWebLogin() {
     }
     setSpotifySetupOverall(loginText('login_spotify_verifying'));
     var info = await refreshSpotifyLoginStatus();
+    // 授权已经换到 token 了，只是 Spotify 那边在限流。这时候再去拉歌单、跑自检
+    // 只会继续吃 429，所以只留一条"等 N 秒"，并排一次自动重试。
+    // The token is already stored; Spotify is merely throttling. Pulling playlists and running
+    // diagnostics now would only eat more 429s, so just wait and schedule one retry.
+    if (info && info.rateLimited) {
+      var waitSeconds = Number(info.retryAfterSeconds) || 30;
+      setSpotifySetupAuthUrl('');
+      setSpotifySetupOverall(spotifyRateLimitWaitText(waitSeconds, 'authorized'), 'wait');
+      scheduleSpotifyRateLimitRetry(waitSeconds);
+      return;
+    }
     if (!info || !info.loggedIn) {
       // 授权本身已经完成、token 也落盘时，失败的是 Spotify 侧的接口校验（最典型的是
       // App 所有者没有 Premium，服务端对一切请求回 403）。这种情况必须明确说"授权已完成"，
@@ -1526,6 +1699,9 @@ async function openSpotifyWebLogin() {
     renderUserBtn();
     await refreshUserPlaylists(true);
     loadHomeDiscover(true);
+    // 授权已经完成，这条地址连同它的 state 一起作废，留着只会让人以为还能点。
+    // Authorization is done and the URL dies with its state; keeping it around only invites clicks.
+    setSpotifySetupAuthUrl('');
     spotifyOAuthBusy = false;
     updateLoginProviderUi();
     await runSpotifySetupDiagnostics(true);
@@ -1828,6 +2004,16 @@ async function checkQr() {
     }
   } catch (e) { console.warn(e); }
 }
+
+// 主进程只在授权开始时才知道那条地址，所以这里把推送接住并渲染到卡片 03 的兜底行。
+// The main process only knows the URL once an attempt starts, so subscribe to that push and
+// render it into card 03's fallback row.
+(function bindSpotifySetupAuthUrlBridge() {
+  if (typeof window === 'undefined') return;
+  var api = window.desktopWindow;
+  if (!api || typeof api.onSpotifyOAuthUrl !== 'function') return;
+  api.onSpotifyOAuthUrl(function (url) { setSpotifySetupAuthUrl(url); });
+})();
 
 // 登录弹窗是常驻浮层：语言切换后必须重绘，否则标题、说明和按钮会停在旧语言。
 // 只在弹窗可见时重绘，避免在用户没打开弹窗时白跑一遍渲染。
