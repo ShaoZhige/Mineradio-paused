@@ -1153,7 +1153,7 @@ body.login-guide-active #login-guide-canvas {
   display: grid;
   width: max-content;
   max-width: 100%;
-  grid-template-columns: 248px 168px;
+  grid-template-columns: 296px 168px;
   grid-template-areas: "providers hub";
   gap: 112px;
   align-items: center;
@@ -1343,6 +1343,18 @@ body.login-guide-active #login-guide-canvas {
 
 .login-node-providers.login-platform-tabs button .provider-logo {
   grid-row: auto
+}
+
+/* 名称必须自己撑满所在列：button 上的 justify-items: start 会把 grid 子项退化成
+   max-content，于是「Apple Music」这种长名直接越过 1fr 轨道，压住右边的等级徽章和
+   开关。b 上已有 overflow / text-overflow，缺的只是宽度约束。
+   The name has to fill its own track: justify-items: start turns grid items into
+   max-content boxes, so a long label such as "Apple Music" steps over the 1fr track
+   and covers the tier badge and the switch to its right. b already carries the
+   ellipsis rules — it only lacked a width constraint. */
+.login-node-providers.login-platform-tabs button b {
+  justify-self: stretch;
+  width: 100%
 }
 
 .login-node-providers.login-platform-tabs button small {
