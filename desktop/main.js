@@ -2750,16 +2750,38 @@ function loginEasterEggLockedResult() {
   };
 }
 
-async function initializeLoginEasterEggGate() {
-  const status = await loginEasterEggGate.initialize(() => clearAllProviderLoginState('startup-gate'));
-  if (status.resetPerformed) {
-    console.log('[LoginEasterEgg] first-run login credentials reset', {
-      gateVersion: LOGIN_EASTER_EGG_GATE_VERSION,
-      ok: status.resetComplete,
-      error: status.error || '',
-    });
+// 登录彩蛋是**唯一**会删凭据的启动路径，所以它每次进程只跑一次，且只在开机流程里跑：
+// ensureLocalServerStarted() 还会被渲染进程崩溃恢复重入（见 recoverMainWindowAfterRendererGone），
+// 如果那时再初始化一次，状态文件刚好丢了就会把用户刚登录的账号删掉 —— 那是过界。
+// 退出流程（before-quit / quit.js）不碰凭据，登录流程（各 provider 的 open-login）只在自己
+// forceReauth 时清**该平台**的会话，都不经过这里。
+// The gate is the only startup path that deletes credentials, so it runs exactly once per
+// process and only in the boot sequence: ensureLocalServerStarted() is re-entered by renderer
+// crash recovery, and initializing again there would wipe a freshly completed login whenever the
+// state file happens to be missing. Quit paths never touch credentials, and per-provider login
+// flows only clear their own session when forceReauth is requested.
+let loginEasterEggGateStartupPromise = null;
+function initializeLoginEasterEggGate() {
+  if (!loginEasterEggGateStartupPromise) {
+    loginEasterEggGateStartupPromise = loginEasterEggGate
+      .initialize(() => clearAllProviderLoginState('startup-gate'))
+      .then((status) => {
+        if (status && status.resetPerformed) {
+          console.log('[LoginEasterEgg] first-run login credentials reset', {
+            gateVersion: LOGIN_EASTER_EGG_GATE_VERSION,
+            ok: status.resetComplete,
+            error: status.error || '',
+          });
+        }
+        return status;
+      })
+      .catch((error) => {
+        // initialize() 自己会吞异常；走到这里说明连状态都读不了，绝不能因此再清一遍凭据。
+        console.warn('[LoginEasterEgg] gate initialization failed:', (error && error.message) || error);
+        return loginEasterEggGate.publicStatus();
+      });
   }
-  return status;
+  return loginEasterEggGateStartupPromise;
 }
 
 async function clearAllProviderLoginState(reason) {
