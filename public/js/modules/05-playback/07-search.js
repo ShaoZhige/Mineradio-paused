@@ -35,6 +35,10 @@ var SEARCH_HISTORY_MODES = ['song'].concat(providerRegistryKeysWith('mainSearch'
 var MUSIC_SEARCH_INITIAL_VISIBLE = 18;
 var MUSIC_SEARCH_APPEND_BATCH = 14;
 var MUSIC_SEARCH_MAX_RESULTS = 180;
+// 单个平台的搜索上限：结果已经按平台逐个出，慢的那个不该把整页永远挂在"搜索中"。
+// Per-provider ceiling: results now paint per platform, so a slow one must not leave the page
+// stuck in "searching" forever.
+var SEARCH_PROVIDER_TIMEOUT_MS = 12000;
 // 搜索结果行的虚拟化参数。行高先用 CSS 推出的 61px 兜底（padding 10×2 + 封图 40 + 下边框 1），
 // 首次渲染后会用相邻两行的 offsetTop 差实测校正 —— 标题和 meta 都是单行省略号，
 // 换行不会发生，所以定高模型成立。
@@ -82,6 +86,20 @@ function syncSearchAreaResultState() {
   var hasIntent = !!($input && String($input.value || '').trim()) || searchMode === 'podcast';
   searchArea.classList.toggle('has-results', hasVisibleResults && hasIntent);
 }
+// 搜索进行中：空首页的平台页签靠这个类保持可见（见 search.css 的同名规则）。
+// In-flight marker: keeps the tab bar on the empty home (see the matching rule in search.css).
+function setSearchBusy(on) {
+  var searchArea = document.getElementById('search-area');
+  if (searchArea) searchArea.classList.toggle('search-busy', !!on);
+}
+// 用户动过搜索区之后，页签不再因为"没有结果"被收走：空查询点一下页签、把输入框清空，
+// 都不该让整条页签消失（旧行为就是这样，点完就再也切不回来）。
+// Once the user has worked the search area, the bar stops disappearing just because there are no
+// results: an empty query plus a tab click used to hide it for good.
+function markSearchTabsTouched() {
+  var searchArea = document.getElementById('search-area');
+  if (searchArea) searchArea.classList.add('search-tabs-touched');
+}
 if (window.MutationObserver && $results) {
   new MutationObserver(syncSearchAreaResultState).observe($results, { childList: true, attributes: true, attributeFilter: ['class'] });
 }
@@ -116,6 +134,7 @@ function clearSearchResults() {
   podcastResults = [];
   podcastPrograms = [];
   podcastCurrentRadio = null;
+  setSearchBusy(false);
   $results.innerHTML = '';
   $results.classList.remove('show', 'search-history-surface');
 }
@@ -259,7 +278,17 @@ function setSearchMode(mode) {
   // an empty page. Spotify results still merge into the "All" tab when the provider registry
   // exposes mainSearch for it.
   mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq' || mode === 'kugou' || mode === 'qishui') ? mode : 'song';
-  if (searchMode === mode) return;
+  markSearchTabsTouched();
+  if (searchMode === mode) {
+    // 再点一次当前页签 = 重新搜一遍。搜索偶尔会卡在"没反应"的状态，用户的第一反应
+    // 就是把这个按钮再按一下；以前这里直接 return，等于按了没反应。
+    // Clicking the already-selected tab re-runs the query: that is what users do when a search
+    // looks stuck, and this used to `return` silently.
+    var again = $input ? $input.value.trim() : '';
+    if (again) doSearch(again);
+    else if (!renderSearchHistory() && searchMode === 'podcast') loadPodcastHot();
+    return;
+  }
   searchMode = mode;
   updateSearchModeTabs();
   clearSearchResults();
@@ -435,6 +464,7 @@ $input.addEventListener('input', function () {
 $input.addEventListener('focus', function () {
   var searchArea = document.getElementById('search-area');
   if (searchArea) setPeek(searchArea, true, 'search');
+  markSearchTabsTouched();
   if (!$input.value.trim()) {
     if (!renderSearchHistory() && searchMode === 'podcast') loadPodcastHot();
   } else if ($results.children.length > 0) {
@@ -1089,7 +1119,7 @@ function mergeUniqueSearchSongPools(existing, incoming) {
   (incoming || []).forEach(push);
   return out;
 }
-async function fetchMusicSearchResults(q, mode, previousPages) {
+async function fetchMusicSearchResults(q, mode, previousPages, onPartial) {
   searchProviderNotice = '';
   var providers = activeSearchProvidersForMode(mode);
   if (!providers.length) {
@@ -1105,53 +1135,74 @@ async function fetchMusicSearchResults(q, mode, previousPages) {
   var fetchProviders = providers.filter(function (provider) {
     return !previousPages || !previousPages[provider] || previousPages[provider].hasMore;
   });
-  var result = await Promise.allSettled(fetchProviders.map(function (provider) {
-    var previous = previousPages && previousPages[provider];
-    var offset = previous ? Math.max(0, Number(previous.nextOffset) || 0) : 0;
-    var limit = pageLimitByProvider[provider] || 12;
-    return apiJson(searchProviderUrl(provider, q, limit, offset)).then(function (value) {
-      return { provider: provider, offset: offset, requestedLimit: limit, value: value || {} };
-    });
-  }));
   var songsByProvider = { netease: [], qq: [], kugou: [], qishui: [], spotify: [], applemusic: [] };
-  fetchProviders.forEach(function (provider, index) {
-    var entry = result[index];
-    if (!entry || entry.status !== 'fulfilled') {
-      console.warn(controlSourceProviderTitle(provider) + ' search failed:', entry && entry.reason);
+  function mergedSongs() {
+    return mergeSongSearchResults(
+      songsByProvider.netease,
+      songsByProvider.qq,
+      songsByProvider.kugou,
+      songsByProvider.qishui,
+      songsByProvider.spotify,
+      songsByProvider.applemusic,
+      MUSIC_SEARCH_MAX_RESULTS,
+      q
+    );
+  }
+  function ingest(entry) {
+    var provider = entry.provider;
+    if (entry.error) {
+      console.warn(controlSourceProviderTitle(provider) + ' search failed:', entry.error);
       providerPages[provider] = Object.assign({}, providerPages[provider] || {}, { hasMore: false, failed: true });
       return;
     }
-    var response = entry.value || {};
-    var value = response.value || {};
-    var songs = Array.isArray(value.songs) ? value.songs : [];
-    var offset = response.offset;
-    var requestedLimit = response.requestedLimit;
-    var nextOffset = Number(value.nextOffset);
+    var body = entry.body || {};
+    var songs = Array.isArray(body.songs) ? body.songs : [];
+    var offset = entry.offset;
+    var requestedLimit = entry.requestedLimit;
+    var nextOffset = Number(body.nextOffset);
     if (!isFinite(nextOffset) || nextOffset <= offset) nextOffset = offset + songs.length;
-    var hasMore = value.hasMore === true;
-    if (value.hasMore == null) hasMore = songs.length >= requestedLimit;
+    var hasMore = body.hasMore === true;
+    if (body.hasMore == null) hasMore = songs.length >= requestedLimit;
     if (!songs.length || nextOffset <= offset) hasMore = false;
     providerPages[provider] = {
       offset: offset,
-      limit: Number(value.limit) || requestedLimit,
+      limit: Number(body.limit) || requestedLimit,
       nextOffset: nextOffset,
       hasMore: hasMore,
-      total: Number(value.total) || 0,
+      total: Number(body.total) || 0,
       failed: false
     };
     songsByProvider[provider] = songs;
-    if (value.message && !songs.length && !searchProviderNotice) searchProviderNotice = value.message;
+    if (body.message && !songs.length && !searchProviderNotice) searchProviderNotice = body.message;
+  }
+  // 各平台各自结算、各自上报：「全部」不再等最后一个慢平台才出第一条结果。
+  // 同一个平台超时就按失败处理，整页也就不会永远停在"搜索中"。
+  // Every provider settles and reports on its own, so "All" paints the first answer instead of
+  // waiting for the slowest platform; a provider that times out is simply marked failed.
+  var tasks = fetchProviders.map(function (provider) {
+    var previous = previousPages && previousPages[provider];
+    var offset = previous ? Math.max(0, Number(previous.nextOffset) || 0) : 0;
+    var limit = pageLimitByProvider[provider] || 12;
+    return apiJson(searchProviderUrl(provider, q, limit, offset), { timeoutMs: SEARCH_PROVIDER_TIMEOUT_MS })
+      .then(function (value) {
+        return { provider: provider, offset: offset, requestedLimit: limit, body: value || {} };
+      }, function (error) {
+        return { provider: provider, offset: offset, requestedLimit: limit, error: error };
+      })
+      .then(function (entry) {
+        ingest(entry);
+        if (typeof onPartial === 'function') {
+          try {
+            onPartial({ songs: mergedSongs(), providerPages: providerPages, hasMore: searchProviderPagesHaveMore(providerPages) });
+          } catch (err) {
+            console.warn('[SearchPartial]', err);
+          }
+        }
+        return entry;
+      });
   });
-  var songs = mergeSongSearchResults(
-    songsByProvider.netease,
-    songsByProvider.qq,
-    songsByProvider.kugou,
-    songsByProvider.qishui,
-    songsByProvider.spotify,
-    songsByProvider.applemusic,
-    MUSIC_SEARCH_MAX_RESULTS,
-    q
-  );
+  await Promise.all(tasks);
+  var songs = mergedSongs();
   return { songs: songs, providerPages: providerPages, hasMore: searchProviderPagesHaveMore(providerPages) };
 }
 function searchSongResultHtml(s, i) {
@@ -1398,9 +1449,36 @@ async function doSearch(q, opts) {
   var requestSeq = ++searchRequestSeq;
   disconnectSearchLoadMoreObserver();
   setSearchHistorySurface(false);
+  var mode = searchMode;
+  // 先立刻给个"在搜"的画面：以前这里直接清空等结果，切页签之后区块是空的，
+  // 页签也跟着消失，用户除了干等没有别的动作可做。
+  // Paint the "searching" state immediately: this used to clear the panel and wait, leaving an
+  // empty block and a vanished tab bar with nothing to click.
+  setSearchBusy(true);
+  if ($results) {
+    $results.innerHTML = searchPanelText('search_searching_quote_prefix_html') + escHtml(q) + searchQuoteClose() + '…</div>';
+    $results.classList.add('show');
+  }
+  var painted = 0;
   try {
-    var mode = searchMode;
-    var searchData = await fetchMusicSearchResults(q, mode);
+    var searchData = await fetchMusicSearchResults(q, mode, null, function (partial) {
+      if (requestSeq !== searchRequestSeq || searchMode !== mode || $input.value.trim() !== q) return;
+      if (!partial.songs.length) return;
+      // 用户已经在翻结果了就不再重建列表：那会把滚动位置拽回顶部、动画重放一遍。
+      // Once the user has scrolled, stop rebuilding: it would snap the list back to the top.
+      if (painted && $results.scrollTop > 0) return;
+      painted = partial.songs.length;
+      var partialKey = searchResultKey(q, mode);
+      searchLastResultQuery = partialKey;
+      pendingSearchProviderPages = {
+        key: partialKey,
+        query: q,
+        mode: mode,
+        providerPages: partial.providerPages || {},
+        hasMore: !!partial.hasMore
+      };
+      renderSongSearchResults(partial.songs);
+    });
     var songs = searchData && Array.isArray(searchData.songs) ? searchData.songs : [];
     if (requestSeq !== searchRequestSeq || searchMode !== mode || $input.value.trim() !== q) return;
     if (!songs.length) {
@@ -1420,7 +1498,17 @@ async function doSearch(q, opts) {
       providerPages: searchData.providerPages || {},
       hasMore: !!searchData.hasMore
     };
-    renderSongSearchResults(songs);
+    if (painted && songs.length <= painted) {
+      // 收尾时没有新平台加入：保留已经画好的那批，只把分页状态补上。
+      // Nothing new arrived by the end, so keep what is already on screen and just update paging.
+      playlist = songs;
+      searchMusicRenderState.songs = songs;
+      searchMusicRenderState.providerPages = searchData.providerPages || {};
+      searchMusicRenderState.remoteHasMore = !!searchData.hasMore && songs.length < MUSIC_SEARCH_MAX_RESULTS;
+      refreshSearchLoadMoreSentinel();
+    } else {
+      renderSongSearchResults(songs);
+    }
     if (opts.autoPlayFirst) playSearchResult(0);
   } catch (err) {
     console.error('Search:', err);
@@ -1431,6 +1519,10 @@ async function doSearch(q, opts) {
       $results.innerHTML = searchPanelText('search_failed_html');
       $results.classList.add('show');
     }
+  } finally {
+    // 只有最后一个请求能关掉忙碌态：被后来者顶掉的请求不许把页签收回去。
+    // Only the latest request may clear the busy flag; a superseded one must not hide the tabs.
+    if (requestSeq === searchRequestSeq) setSearchBusy(false);
   }
 }
 

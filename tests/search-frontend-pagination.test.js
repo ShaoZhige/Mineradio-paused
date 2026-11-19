@@ -214,9 +214,11 @@ test('search pagination carries provider offsets and ignores stale sessions', ()
   assert.match(sandbox.url('qq', '晴天', 12, 24), /limit=12&offset=24$/);
   assert.match(sandbox.url('spotify', 'Muse', 10, 30), /limit=10&offset=30$/);
 
-  assert.match(searchSource, /fetchMusicSearchResults\(q, mode, previousPages\)/);
-  assert.match(searchSource, /value\.nextOffset/);
-  assert.match(searchSource, /value\.hasMore/);
+  // 断言"翻页把已有分页状态带回去"这件事本身；不要匹配函数声明，签名一改就误报。
+  // Assert the call site, not the declaration: matching the signature breaks on any new parameter.
+  assert.match(searchSource, /await fetchMusicSearchResults\(q, mode, searchMusicRenderState\.providerPages\)/);
+  assert.match(searchSource, /var nextOffset = Number\(body\.nextOffset\)/);
+  assert.match(searchSource, /var hasMore = body\.hasMore === true/);
   assert.match(searchSource, /new IntersectionObserver/);
   assert.match(searchSource, /MUSIC_SEARCH_INITIAL_VISIBLE\s*=\s*18/);
   assert.match(searchSource, /loadNextMusicSearchPage\(expectedKey\)/);

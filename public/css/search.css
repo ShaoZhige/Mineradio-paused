@@ -124,7 +124,13 @@
   box-shadow: inset 0 0 0 1px rgba(0, 245, 212, .22), 0 8px 24px rgba(0, 245, 212, .055)
 }
 
-body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs {
+/* 空首页只在"有结果"时显示平台页签，但这三种情况必须留着：
+   · .search-busy —— 搜索进行中（点页签会先清空结果，藏了就既看不到进度也切不回来）
+   · .search-tabs-touched —— 用户已经动过这块界面（焦点进过输入框，或点过任意页签）。
+     空查询点一下页签、或把输入框清空，都不该让整条页签消失。
+   Once the user has worked in the search area, the bar stays — otherwise clicking a platform tab
+   with an empty query (or clearing the box) makes the whole bar vanish with no way back. */
+body.empty-home-active.diy-mode #search-area:not(.has-results):not(.search-busy):not(.search-tabs-touched) #search-mode-tabs {
   display: none
 }
 

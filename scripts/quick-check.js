@@ -3380,7 +3380,9 @@ function checkSearchGlassEntranceGuard() {
     /function searchProviderCanSearch\(provider\)/.test(searchText) &&
     /function activeSearchProvidersForMode\(mode\)\s*\{[\s\S]{0,260}MUSIC_SEARCH_PROVIDER_ORDER\.filter\(searchProviderCanSearch\)/.test(searchText) &&
     /function searchProviderLoginNotice\(mode\)/.test(searchText) &&
-    /Promise\.allSettled\(fetchProviders\.map\(function\s*\(provider\)/.test(searchText) &&
+    // 各平台必须各自发请求、各自结算：曾经用 allSettled 一次性等全部，慢的那个会把整页挂住。
+    // Each provider has to be asked and to settle on its own; allSettled waited for the slowest one.
+    /fetchProviders\.map\(function \(provider\)[\s\S]{0,420}apiJson\(searchProviderUrl\(provider, q, limit, offset\)/.test(searchText) &&
     /function loadNextMusicSearchPage\(expectedKey\)/.test(searchText) &&
     /new IntersectionObserver/.test(searchText) &&
     /mergeSongSearchResults\(neteaseSongs,\s*qqSongs,\s*kugouSongs,\s*qishuiSongs,\s*spotifySongs/.test(searchText);
