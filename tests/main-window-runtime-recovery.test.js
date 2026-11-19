@@ -51,8 +51,13 @@ function testWallpaperEngineElevationBroker() {
     /CreateProcessW\(/,
     /Wallpaper Engine child is not medium integrity/,
     /async _spawnControlViaDesktopShell/,
-    /const elevated = this\.useDesktopShellBroker && await this\._hostIsElevated\(\)/,
-    /if \(elevated\)\s*\{\s*return this\._spawnControlViaDesktopShell\(executable, args\)/,
+    // 提权判定多了 skipBroker 短路：引擎本体是从 _launchEngineBody 显式走 broker 的，
+    // broker 失败后的 detached 兜底不该再去问一次提权状态、把同一段失败再跑一遍。
+    /const elevated = options\.skipBroker !== true\s*&& this\.useDesktopShellBroker\s*&& await this\._hostIsElevated\(\)/,
+    /if \(elevated\) \{[\s\S]{0,400}?return this\._spawnControlViaDesktopShell\(executable, args, \{ log: false \}\)/,
+    // 引擎本体必须由 broker 以空参数创建（父进程 = explorer），detached 只作兜底。
+    /_spawnControlViaDesktopShell\(executable, \[\], \{ log: false \}\)/,
+    /_spawnControl\(executable, \[\], \{ keepAlive: true, log: false, skipBroker: true \}\)/,
   ].forEach(pattern => assert.match(
     runtimeText,
     pattern,

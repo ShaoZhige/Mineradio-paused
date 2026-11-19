@@ -4418,12 +4418,16 @@ class WallpaperEngineRuntime {
   }
 
   async _spawnControl(executable, args, options = {}) {
-    this._logControlCommand(args);
+    if (options.log !== false) this._logControlCommand(args);
     const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : null;
-    const elevated = this.useDesktopShellBroker && await this._hostIsElevated();
+    const elevated = options.skipBroker !== true
+      && this.useDesktopShellBroker
+      && await this._hostIsElevated();
     if (isCurrent && !isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
     if (elevated) {
-      return this._spawnControlViaDesktopShell(executable, args);
+      // 命令已经在这一层落过盘，broker 里再记一次只会让日志里每条命令都出现两遍。
+      // The command is already logged here; logging again inside the broker duplicates every line.
+      return this._spawnControlViaDesktopShell(executable, args, { log: false });
     }
     return new Promise((resolve, reject) => {
       let child;
@@ -4479,6 +4483,41 @@ class WallpaperEngineRuntime {
     });
   }
 
+  // 拉起引擎本体（不是控制命令）—— 唯一一处会真的创建一个常驻 wallpaper64.exe 的调用。
+  //
+  // 必须让 explorer 当它的父进程，而不是 MR：
+  //   * 只要挂在 MR 的进程树上，MR 正常退出、崩溃、被强杀、被安装器结束，整棵树都会被
+  //     Windows 带走，桌面上正在放的那张壁纸跟着消失（实测表现为桌面回落成 WE 的
+  //     474x265 备份图，看着像"变回默认桌面"）。detached 只是在"我们自己退出"这一种
+  //     情况下管用，对强杀/崩溃/作业对象无效。
+  //   * 用 PROC_THREAD_ATTRIBUTE_PARENT_PROCESS 把父进程设成桌面 shell 之后，WE 从出生
+  //     就不在 MR 的树里，也不在任何由 MR 继承出去的作业对象里 —— 它的生死与 MR 无关。
+  // 复用现成的 desktop-shell broker（与提权场景同一条路径，参数为空即为"启动引擎本体"）。
+  // 失败时退回 detached spawn：宁可保留原来的解绑语义，也不能因为 PowerShell 不可用而让
+  // 壁纸完全打不开。
+  //
+  // Launch the engine body itself, parented by the desktop shell instead of us. Anything on our
+  // process tree dies with us — on a normal quit, a crash, or a forced kill — taking the user's
+  // desktop wallpaper with it (observed as the desktop falling back to WE's 474x265 backup).
+  // `detached` only covers a clean self-exit; it does nothing for crashes or job objects.
+  // Reuses the existing desktop-shell broker (same path as the elevated case; empty arguments
+  // mean "start the engine"). Falls back to a detached spawn when the broker is unavailable.
+  async _launchEngineBody(executable) {
+    this._logControlCommand([]);
+    if (this.platform === 'win32' && this.useDesktopShellBroker) {
+      try {
+        await this._spawnControlViaDesktopShell(executable, [], { log: false });
+        return;
+      } catch (error) {
+        console.warn('[Wallpaper Engine] explorer-parent engine launch failed, '
+          + 'falling back to a detached spawn:',
+          String(error && (error.code || error.message) || error || '').slice(0, 300));
+      }
+    }    // skipBroker：broker 刚刚才失败过，重试它会再失败一次，白等一次 PowerShell 冷启动。
+    // skipBroker: the broker just failed, so retrying it would fail again after another cold start.
+    await this._spawnControl(executable, [], { keepAlive: true, log: false, skipBroker: true });
+  }
+
   async _hostIsElevated() {
     if (this.hostElevationCache !== null) return this.hostElevationCache;
     try {
@@ -4490,7 +4529,7 @@ class WallpaperEngineRuntime {
   }
 
   async _spawnControlViaDesktopShell(executable, args, options = {}) {
-    this._logControlCommand(args);
+    if (options.log !== false) this._logControlCommand(args);
     const commandLine = wallpaperControlCommandLine(executable, args);
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -4726,9 +4765,12 @@ class WallpaperEngineRuntime {
         // even when its Steam launcher wants to show crash-recovery/browse UI.
         // No -control command is sent until the process and IPC channel are
         // independently confirmed ready below.
-        // keepAlive: 这是唯一一处"拉起引擎本体"，需要与 MR 解绑。
-        // keepAlive: the only call that starts the engine itself, so it must outlive us.
-        await this._spawnControl(requested, [], { keepAlive: true });
+        // keepAlive：这是唯一一处"拉起引擎本体"，必须让它脱离 MR 的进程树。_launchEngineBody
+        // 会优先用 desktop-shell broker 把父进程设成 explorer（detached 挡不住强杀/崩溃）。
+        // keepAlive: the only call that starts the engine itself, and it must leave our process
+        // tree. _launchEngineBody prefers the desktop-shell broker (detached cannot survive a
+        // crash or a forced kill).
+        await this._launchEngineBody(requested);
         const running = await this._waitForEngineProcess(requested, deadline);
         effectiveExecutable = running.executable;
         effectiveState = running.state;
@@ -4963,6 +5005,21 @@ class WallpaperEngineRuntime {
     }
   }
 
+  // 引擎进程已经消失（崩溃、被用户手动退出、Steam 更新覆盖）时，"关窗"永远不可能被确认：
+  // 控制命令发不出去，HWND 校验也找不到进程。此时继续走一遍校验/枚举只是在注定失败的路径上
+  // 多等一轮，最后还把"引擎没了"记成"关窗失败"，让退出去重试、让日志里多一条假故障。
+  // 探测失败**不能**当成"引擎已退出"：那会把一次真实的关窗失败记成成功并把窗口留在桌面上。
+  // Once the engine process is gone, a close can never be confirmed: no control command can be
+  // delivered and HWND validation has no process to match. Continuing costs a doomed round and
+  // records "the engine vanished" as "close failed", which feeds the quit retry and the error log.
+  // A failed probe must never be read as "gone" — that would turn a real failure into a success
+  // and leave the window on screen.
+  async _engineProcessIsGone(executable) {
+    const state = await this._probeEngineProcess(executable);
+    if (!state || state.ok !== true) return false;
+    return state.running !== true || state.matching !== true;
+  }
+
   async _closeSession(session) {
     if (!session) return false;
     if (!session.executable || !session.locationTitle) {
@@ -4987,6 +5044,7 @@ class WallpaperEngineRuntime {
         return false;
       }
       let closeRequested = false;
+      let engineGone = false;
       const sourceId = String(session.windowSourceId || session.sourceId || '');
       let windowClosed = false;
       // 两个 catch 以前都是空的，关窗失败的原因被整个丢掉，上层只能看到 stopped:false。
@@ -5003,8 +5061,22 @@ class WallpaperEngineRuntime {
         closeRequested = true;
       } catch (error) {
         closeNotes.push('we-control:' + String(error && (error.code || error.message) || error || ''));
+        // 命令失败有两种完全不同的含义：引擎还在但拒了命令（真故障），或者引擎已经不在
+        // （窗口随之消失）。只有先问一次进程状态，才知道该不该继续往下试。
+        // A failed command means either a live engine refusing it (a real fault) or an engine
+        // that no longer exists. Only a process probe can tell them apart.
+        engineGone = await this._engineProcessIsGone(session.executable);
       }
-      if (sourceId) {
+      if (engineGone) {
+        // 不报错、不重试：窗口只可能存在于引擎进程里，进程没了窗口就是没了。本地清理照做，
+        // 下次需要时 _ensureEngineReady 会重新拉起引擎。
+        // No error, no retry: the window can only live inside that process. Local cleanup still
+        // runs, and the next activation relaunches the engine through _ensureEngineReady.
+        closeNotes.length = 0;
+        windowClosed = true;
+        console.log('[Wallpaper Engine] engine process already gone, session treated as closed:',
+          session.locationTitle);
+      } else if (sourceId) {
         try {
           const fallback = await this._controlSessionWindow('close', session, sourceId);
           windowClosed = !!(fallback && (fallback.closed === true || fallback.missing === true));

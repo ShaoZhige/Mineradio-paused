@@ -3580,9 +3580,13 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
         || 'WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED';
       // 嵌入 / 对齐阶段失败以前只回给渲染进程一个错误码，原生侧的真实原因（关窗超时、
       // 标题或进程校验不通过、控制器根本起不来）在用户机器上完全看不到，只能靠猜。
+      // 已被新请求替代的不算失败，理由同下面 start 分支。
       // Embed/align failures used to surface as a bare code, leaving the real native cause
       // (close timeout, title/process validation, controller spawn failure) invisible.
-      writeStartupErrorLog('Wallpaper Engine embed', embedCode, embeddingError);
+      // Superseded runs are not failures; see the start branch below for the reasoning.
+      if (embedCode !== 'WALLPAPER_ENGINE_START_SUPERSEDED' && !(embeddingError && embeddingError.superseded === true)) {
+        writeStartupErrorLog('Wallpaper Engine embed', embedCode, embeddingError);
+      }
       return {
         ok: false,
         error: embedCode,
@@ -3634,10 +3638,23 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
       clearWallpaperEngineCaptureGrant();
     }
     const startCode = error.code || error.message || 'WALLPAPER_ENGINE_SCENE_START_FAILED';
-    // 原生会话在嵌入之前失败（启动、探测、pointer relay 初始化…）同样只回一个错误码，
-    // 落一份日志，避免这类失败在用户机器上没有任何痕迹。
-    // Pre-embed native failures are equally opaque; persist them so they leave a trace.
-    writeStartupErrorLog('Wallpaper Engine start', startCode, error);
+    // 「被新请求替代」不是失败：用户连点、宿主尺寸变化重启、切歌都会直接产生这个码，每一次
+    // 都由新请求自己收尾。以前它照样写进 startup-error.log 并回给界面，结果是日志里全是假
+    // 故障（实测一次开启就 4 条），真问题反而被埋掉。这里只跳过落盘，返回值保持不变 ——
+    // 渲染层靠这个码判定"这次启动已作废"，不能改成 ok。
+    // "Superseded by a newer request" is not a failure: rapid clicks, host-bounds restarts and
+    // track changes all produce it, and the newer request finishes the work. It used to be logged
+    // as an error (four entries for a single activation), burying real faults. Skip only the
+    // persisted log; keep the return value — the renderer relies on that code to know this start
+    // was abandoned, so it must not become ok.
+    const superseded = startCode === 'WALLPAPER_ENGINE_START_SUPERSEDED'
+      || (error && error.superseded === true);
+    if (!superseded) {
+      // 原生会话在嵌入之前失败（启动、探测、pointer relay 初始化…）同样只回一个错误码，
+      // 落一份日志，避免这类失败在用户机器上没有任何痕迹。
+      // Pre-embed native failures are equally opaque; persist them so they leave a trace.
+      writeStartupErrorLog('Wallpaper Engine start', startCode, error);
+    }
     return {
       ok: false,
       error: startCode,

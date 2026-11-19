@@ -1800,15 +1800,25 @@ async function main() {
     assert(runtimeSourceText.includes('closeResult.closeWaitMs = closeWait.ElapsedMilliseconds'), 'native close must report how long it actually waited');
     assert(runtimeSourceText.includes('closeResult.closed = !IsWindow(hWnd)'), 'native close must report observed window disappearance');
     // 冷启动必须用**空参数**拉起引擎本体（不带任何 -control 指令，播放是后续单独发的），
-    // 并且必须与本进程解绑：引擎同时在托管用户自己的桌面壁纸，一旦被当作子进程带走，
+    // 并且必须脱离本进程的进程树：引擎同时在托管用户自己的桌面壁纸，一旦被当作子进程带走，
     // 关闭 MR 就等于关掉桌面壁纸（实测桌面回落到 WE 那张 474x265 的低分辨率备份）。
-    // 两件事都要钉住：参数为空 + detached。
-    // Cold start must launch the engine with **empty arguments** (no -control command; playback
-    // is sent separately) and must detach it from us: this engine also hosts the user's own
-    // desktop wallpaper, so as a bound child it would die with Mineradio and take the desktop
-    // down with it. Pin both halves — empty argv and detached.
-    assert(runtimeSourceText.includes('await this._spawnControl(requested, [], { keepAlive: true });'),
-      'cold startup must launch the signed Wallpaper Engine executable directly with empty arguments, detached');
+    // 2026-11-19 起「脱离」的方式从 detached spawn 换成 desktop-shell broker（父进程 = explorer）：
+    // detached 只管得住"我们自己正常退出"，崩溃、强杀、安装器结束进程时整棵树仍然一起消失，
+    // 而用户报告的正是这种情况。detached spawn 降级为 broker 不可用时的兜底。
+    // Cold start must launch the engine with **empty arguments** and outside our process tree.
+    // Since 2026-11-19 that is done by the desktop-shell broker (parent = explorer): `detached`
+    // only covers a clean self-exit, while crashes and forced kills still take the whole tree
+    // down — which is exactly what users hit. A detached spawn remains the fallback.
+    assert(runtimeSourceText.includes('await this._launchEngineBody(requested);'),
+      'cold startup must go through _launchEngineBody (explorer-parented engine body)');
+    const engineBodyBlock = runtimeSourceText.slice(
+      runtimeSourceText.indexOf('async _launchEngineBody('),
+      runtimeSourceText.indexOf('async _hostIsElevated(')
+    );
+    assert(engineBodyBlock.includes('_spawnControlViaDesktopShell(executable, [], { log: false })'),
+      'the engine body must be created by the explorer-parent broker with empty arguments');
+    assert(engineBodyBlock.includes("{ keepAlive: true, log: false, skipBroker: true }"),
+      'a detached spawn must remain as the fallback when the broker is unavailable');
     assert(runtimeSourceText.includes('detached: options.keepAlive === true'),
       'only the engine launch may detach; control commands must stay bound to this process');
     assert(runtimeSourceText.includes("if (typeof child.unref === 'function') child.unref();"),
