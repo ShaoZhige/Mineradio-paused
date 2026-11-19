@@ -178,12 +178,19 @@ async function handleAppleMusicPlaylists(requester, limit, offset) {
   };
 }
 
+// 🔴 歌单曲目必须用 `tracks` 这个名字：左栏详情与队列续页（06-lyrics/02-playlist-detail.js
+// 的 loadMorePlaylistPanelDetailTracks、03-podcast-playlist-loaders.js 的 loadPlaylistIntoQueueById）
+// 读的都是 `r.tracks`，和网易云/QQ/酷狗/汽水/Spotify 一致。这里曾经叫 `songs`，
+// 于是歌单卡片有名字有封面、点进去永远一首都没有。
+// Playlist tracks must be keyed `tracks`: both the left-panel detail view and the queue hydration
+// read `r.tracks`, like every other provider. This endpoint once answered `songs`, so playlist
+// cards had a name and a cover while the opened list was always empty.
 async function handleAppleMusicPlaylistTracks(requester, playlistId, limit, offset) {
   playlistId = String(playlistId || '');
   // Library playlist IDs are opaque strings (usually p.<id>); reject control
   // characters before forwarding them to the companion request validator.
   if (!playlistId || playlistId.length > 256 || !/^[A-Za-z0-9._-]+$/.test(playlistId)) {
-    return { provider: 'applemusic', configured: !!requester, songs: [], error: 'invalid-playlist' };
+    return { provider: 'applemusic', configured: !!requester, tracks: [], error: 'invalid-playlist' };
   }
   limit = Math.max(1, Math.min(100, Number(limit) || 25));
   offset = Math.max(0, Number(offset) || 0);
@@ -191,7 +198,7 @@ async function handleAppleMusicPlaylistTracks(requester, playlistId, limit, offs
     return {
       provider: 'applemusic',
       configured: false,
-      songs: [],
+      tracks: [],
       error: 'APPLE_MUSIC_RUNTIME_UNAVAILABLE',
       message: 'Apple Music 组件尚未就绪。',
     };
@@ -202,18 +209,21 @@ async function handleAppleMusicPlaylistTracks(requester, playlistId, limit, offs
     return {
       provider: 'applemusic',
       configured: true,
-      songs: [],
+      tracks: [],
       error,
       message: error === 'auth-required' ? '请先在 Apple Music 中登录。' : 'Apple Music 歌单加载失败，请稍后再试。',
     };
   }
   const data = (result && result.data) || {};
   const items = Array.isArray(data.items) ? data.items : [];
-  const songs = items.map((item, index) => mapAppleMusicSong(item, index, '')).filter(Boolean);
+  const tracks = items.map((item, index) => mapAppleMusicSong(item, index, '')).filter(Boolean);
   return {
     provider: 'applemusic',
     configured: true,
-    songs,
+    // 歌单归属由调用方的卡片自带（名称、封面、曲目数），这里只补曲目与翻页信息。
+    // The card already carries the playlist identity; this page only adds tracks and paging.
+    playlist: { id: playlistId, provider: 'applemusic', source: 'applemusic', type: 'applemusic' },
+    tracks,
     offset,
     limit,
     nextOffset: Number.isFinite(data.nextOffset) ? data.nextOffset : offset + items.length,

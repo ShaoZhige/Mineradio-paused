@@ -63,3 +63,26 @@ test('playlist catalogue and global store acknowledge Apple Music', () => {
   assert.match(CORE, /\bappleMusicPlaylists\s*=\s*\[\]/);
   assert.match(DETAIL, /PLAYLIST_PROVIDER_ORDER[\s\S]*?'applemusic'/);
 });
+
+test('queue hydration reads an Apple Music playlist id as Apple Music, not NetEase', () => {
+  // 左栏「播放全部」把卡片 id 交给队列续页（`applemusic:<id>`）。少一个前缀分支，
+  // 它会被当成网易云歌单去查，队列永远是空的。
+  // "Play all" hands the card id (`applemusic:<id>`) to the queue loader. Without its own branch
+  // the id is read as a NetEase playlist and the queue stays empty.
+  const LOADERS = fs.readFileSync(path.join(ROOT, 'public', 'js', 'modules', '06-lyrics', '03-podcast-playlist-loaders.js'), 'utf8');
+  const sandbox = { Object, String, Number, Array, Math };
+  vm.createContext(sandbox);
+  vm.runInContext(
+    slice(LOADERS, 'function playlistQueueSource', 'function playlistQueuePageUrl')
+      + '\nthis.resolve = playlistQueueSource; this.pageSize = playlistQueuePageSize;',
+    sandbox,
+    { filename: 'playlist-queue-source.js' }
+  );
+  const source = sandbox.resolve('applemusic:p.abc123');
+  assert.equal(source.provider, 'applemusic');
+  assert.equal(source.id, 'p.abc123');
+  assert.equal(source.requestId, 'applemusic:p.abc123');
+  // 服务端与伴生进程的上限都是 100：一页多要只会被裁掉。
+  // The server and the companion both cap a page at 100.
+  assert.ok(sandbox.pageSize('applemusic', false) <= 100, 'Apple Music pages must stay within the 100 cap');
+});

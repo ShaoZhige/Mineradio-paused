@@ -393,7 +393,12 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             options = { limit: p.limit, offset: p.offset, extend: 'tags' };
         } else if (request.operation === 'playlistTracks' || request.operation === 'playlistTrackCount') {
             path = 'v1/me/library/playlists/' + encodeURIComponent(p.playlistId) + '/tracks';
-            options = request.operation === 'playlistTrackCount' ? { limit: 1 } : { limit: p.limit, offset: p.offset };
+            // 曲目是库内资源，catalog 关系里才有可播放的数字 catalog id（playSong 只收数字）。
+            // Library songs only expose a playable numeric catalog id through this relationship;
+            // playSong rejects anything else.
+            options = request.operation === 'playlistTrackCount'
+                ? { limit: 1 }
+                : { limit: p.limit, offset: p.offset, include: 'catalog' };
         } else {
             path = base + '/songs/' + encodeURIComponent(p.songId) + '/syllable-lyrics';
         }
@@ -469,7 +474,16 @@ function requestExpression(request) {
 }
 
 // A timed-out playback can still produce sound later. Recover the document before accepting more work.
-function createRequestDispatcher(getContents, timeoutMs = 20000, getGeneration = () => 0, recoverPlayback = async () => false) {
+// 只读请求超时不能立刻换文档：用户正在 Apple Music 窗口里填 Apple ID，重载会把表单连同已填内容一起
+// 冲掉 —— 表现就是"登录到一半窗口跳回首页，永远登不上"。连续超时到第 3 次才认定页面真的卡死。
+// Read-only timeouts must not replace the document right away: reloading wipes the Apple ID form the
+// user is filling in, which looks like "the window jumps back to the home page mid sign-in". Only a
+// third consecutive timeout means the page is actually wedged.
+// 窗口可见时用户就在页面里打字，连"三次"也不该赌：那时只报超时，不换文档。
+// While the window is visible the user is typing in that page, so even the third strike must not bet
+// on a reload: report the timeout and leave the document alone.
+const READ_TIMEOUT_STRIKES = 3;
+function createRequestDispatcher(getContents, timeoutMs = 20000, getGeneration = () => 0, recoverPlayback = async () => false, canRecoverReads = () => true) {
     let scope;
     let recovery = null;
     return async message => {
@@ -486,7 +500,7 @@ function createRequestDispatcher(getContents, timeoutMs = 20000, getGeneration =
         }
         const generation = getGeneration();
         if (!scope || scope.contents !== contents || scope.generation !== generation) {
-            scope = { contents, generation, running: 0, chain: Promise.resolve(), invalid: false, preparing: false, pausing: false, playRevision: 0 };
+            scope = { contents, generation, running: 0, chain: Promise.resolve(), invalid: false, preparing: false, pausing: false, playRevision: 0, readTimeouts: 0 };
         }
         const current = scope;
         if (current.invalid) return { ok: false, error: 'not-ready' };
@@ -528,9 +542,13 @@ function createRequestDispatcher(getContents, timeoutMs = 20000, getGeneration =
         clearTimeout(timer);
         if (result.error === 'timeout') {
             expired = true;
-            if (!current.invalid && getGeneration() === generation && getContents() === contents && !contents.isDestroyed()) {
+            // 只读命令不会"稍后出声"，也不该为它换掉用户正在填写的文档：先记一次，连续到第 3 次才恢复。
+            // A read cannot sound later, and must not cost the user the document they are typing into.
+            if (!playback) current.readTimeouts += 1;
+            if ((playback || (current.readTimeouts >= READ_TIMEOUT_STRIKES && canRecoverReads()))
+                && !current.invalid && getGeneration() === generation && getContents() === contents && !contents.isDestroyed()) {
                 current.invalid = true;
-                console.warn('[AppleMusic] Page request timed out; replacing its document', { operation: request.operation });
+                console.warn('[AppleMusic] Page request timed out; replacing its document', { operation: request.operation, readTimeouts: current.readTimeouts });
                 // Never release the old queue merely on timeout: navigation must first stop its player.
                 recovery = Promise.resolve().then(() => {
                     // Logout may have taken ownership of the document before this microtask runs.
@@ -544,6 +562,7 @@ function createRequestDispatcher(getContents, timeoutMs = 20000, getGeneration =
             }
             return result;
         }
+        if (!playback) current.readTimeouts = 0;
         // An append might have reached Apple before navigation: do not invite the client's startup retry.
         if (current.invalid || getGeneration() !== generation || getContents() !== contents || contents.isDestroyed()) {
             return { ok: false, error: request.operation === 'addPlaylistTracks' ? 'request-failed' : 'not-ready' };

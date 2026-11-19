@@ -117,6 +117,9 @@ function playlistQueueSource(id) {
   if (raw.indexOf('kugou:') === 0) return { provider: 'kugou', id: raw.slice(6), requestId: raw };
   if (raw.indexOf('qishui:') === 0) return { provider: 'qishui', id: raw.slice(7), requestId: raw };
   if (raw.indexOf('spotify:') === 0) return { provider: 'spotify', id: raw.slice(8), requestId: raw };
+  // 少了这一条，苹果歌单会被当成网易云去查，整单播放永远是空队列。
+  // Without this branch an Apple Music playlist is read as NetEase and plays nothing.
+  if (raw.indexOf('applemusic:') === 0) return { provider: 'applemusic', id: raw.slice(11), requestId: raw };
   return { provider: 'netease', id: raw, requestId: raw };
 }
 function playlistQueuePageSize(provider, initial) {
@@ -124,6 +127,9 @@ function playlistQueuePageSize(provider, initial) {
   if (provider === 'kugou' || provider === 'qishui') return 50;
   if (provider === 'spotify') return 100;
   if (provider === 'qq') return 96;
+  // 苹果接口上限 100：默认的 160 会被服务端裁掉，每页实际只回来 100，白记一次偏移。
+  // Apple caps a page at 100; the default 160 would be clipped server-side on every page.
+  if (provider === 'applemusic') return 100;
   return PLAYLIST_QUEUE_BACKGROUND_BATCH_SIZE;
 }
 function playlistQueuePageUrl(source, offset, limit) {
