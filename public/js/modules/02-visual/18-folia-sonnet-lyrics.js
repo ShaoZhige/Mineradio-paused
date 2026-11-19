@@ -93,6 +93,7 @@
   var root = null;
   var mgCanvas = null;
   var mgCtx = null;
+  var layoutNode = null;
   var cameraNode = null;
   var shotNode = null;
   var activeShotIndex = -1;
@@ -106,6 +107,7 @@
   var lastTrackToken = null;
   var trackSwitchQuietUntil = 0;
   var lastPaletteKey = '';
+  var lastLayoutKey = '';
   var lastMgDraw = 0;
   var viewW = 1280;
   var viewH = 720;
@@ -832,19 +834,21 @@
         + '  <i class="fs-corner fs-corner-bl"></i><i class="fs-corner fs-corner-br"></i>'
         + '  <b class="fs-star">✦</b>'
         + '</div>'
-        + '<div class="fs-viewport"><div class="fs-camera"><div class="fs-shot"></div></div></div>'
+        + '<div class="fs-viewport"><div class="fs-layout"><div class="fs-camera"><div class="fs-shot"></div></div></div></div>'
         + '<div class="fs-meta"><span class="fs-meta-side">[ MINERADIO ] SONNET</span>'
         + '<span class="fs-meta-note">KINETIC TYPOGRAPHY / PV</span></div>';
       host.appendChild(root);
     }
     mgCanvas = root.querySelector('.fs-mg');
     mgCtx = mgCanvas && mgCanvas.getContext ? mgCanvas.getContext('2d') : null;
+    layoutNode = root.querySelector('.fs-layout');
     cameraNode = root.querySelector('.fs-camera');
     shotNode = root.querySelector('.fs-shot');
     activeShotIndex = -1;
     glyphs = [];
     wordNodes = [];
     lastPaletteKey = '';
+    lastLayoutKey = '';
     measureView();
   }
 
@@ -859,6 +863,40 @@
       mgCanvas.style.height = viewH + 'px';
       if (mgCtx) mgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+  }
+
+  // 位置 / 角度跟默认（WebGL）样式同号，滑杆方向才不会在两个样式之间翻转：
+  // 默认样式把偏移加在相机基向量上 —— +Y 向上、rotateX(+θ) 让歌词上边缘朝观察者；
+  // CSS 的 y 轴朝下、rotateX(+θ) 让上边缘朝里，所以这两项取反，x 与 rotateY 保持原样。
+  // Same sign convention as the WebGL style (see 16-folia-classic-lyrics.js): +Y is up and
+  // +tiltX tips the top edge toward the viewer, so CSS translation-Y and rotateX are negated.
+  function layoutFrame(settings) {
+    var config = settings || {};
+    var stageScale = clamp(isFinite(config.lyricScale) ? Number(config.lyricScale) : 1, 0.35, 1.65);
+    var offsetX = clamp(isFinite(config.lyricOffsetX) ? Number(config.lyricOffsetX) : 0, -4, 4) * 6;
+    var offsetY = -clamp(isFinite(config.lyricOffsetY) ? Number(config.lyricOffsetY) : 0, -2.4, 2.7) * 6;
+    var tiltX = -clamp(isFinite(config.lyricTiltX) ? Number(config.lyricTiltX) : 0, -84, 84);
+    var tiltY = clamp(isFinite(config.lyricTiltY) ? Number(config.lyricTiltY) : 0, -84, 84);
+    return {
+      stageScale: stageScale,
+      offsetX: offsetX,
+      offsetY: offsetY,
+      tiltX: tiltX,
+      tiltY: tiltY,
+      transform: 'translate3d(' + offsetX.toFixed(2) + 'vw, ' + offsetY.toFixed(2) + 'vh, 0)'
+        + ' perspective(1200px) rotateX(' + tiltX.toFixed(2) + 'deg) rotateY(' + tiltY.toFixed(2) + 'deg)'
+        + ' scale(' + stageScale.toFixed(3) + ')'
+    };
+  }
+
+  // 只包住「相机 + 文字」这一层：四角角标、线稿和底部渐隐都留在原地，
+  // 调位置/角度不该把海报边框推出屏幕。写在 layout 层也避开每帧被相机覆盖的 transform。
+  function applyLayoutFrame() {
+    if (!layoutNode) return;
+    var frame = layoutFrame(typeof fx !== 'undefined' ? fx : null);
+    if (frame.transform === lastLayoutKey) return;
+    lastLayoutKey = frame.transform;
+    layoutNode.style.transform = frame.transform;
   }
 
   function palette() {
@@ -1134,6 +1172,8 @@
       }
       ensureRoot();
       hideStageWebglLyrics(true);
+      // 位置/角度随时可调（间奏也生效），所以放在分支之前。
+      applyLayoutFrame();
       var trackToken = typeof trackSwitchToken !== 'undefined' ? trackSwitchToken : 0;
       if (trackToken !== lastTrackToken) {
         lastTrackToken = trackToken;
@@ -1241,7 +1281,7 @@
       buildUnits: buildUnits, compileProgram: compileProgram, findShotIndex: findShotIndex,
       assignRoles: assignRoles, layoutUnits: layoutUnits,
       measureUnit: measureUnit, textEmAdvance: textEmAdvance,
-      unitFontSize: unitFontSize, buildTracking: buildTracking,
+      unitFontSize: unitFontSize, buildTracking: buildTracking, layoutFrame: layoutFrame,
       segmentFocusAt: segmentFocusAt, focusAtTime: focusAtTime,
       resolveCameraFocus: resolveCameraFocus,
       cameraFrame: cameraFrame, transitionFrame: transitionFrame,

@@ -575,6 +575,32 @@
     return Math.max(min, Math.min(max, n));
   }
 
+  // 位置 / 角度必须和默认（WebGL）样式**同号**，否则同一个滑杆在两个样式里方向相反：
+  // 默认样式把偏移加在相机基向量上 —— +Y 向上、rotateX(+θ) 让歌词上边缘朝观察者；
+  // 落到 CSS 上两处都要取反（CSS 的 y 轴朝下、rotateX(+θ) 让上边缘朝里）。
+  // x 位移与 rotateY 的符号两边本来就一致，不要跟着一起翻。
+  // Keep the sign convention of the WebGL style: +Y is up, +tiltX brings the top edge
+  // toward the viewer. CSS flips exactly those two (y grows downward, rotateX(+) tips
+  // the top away); X translation and rotateY already agree.
+  function layoutFrame(settings) {
+    var config = settings || {};
+    var stageScale = clampNumber(config.lyricScale, 1, 0.35, 1.65);
+    var offsetX = clampNumber(config.lyricOffsetX, 0, -4, 4) * 6;
+    var offsetY = -clampNumber(config.lyricOffsetY, 0, -2.4, 2.7) * 6;
+    var tiltX = -clampNumber(config.lyricTiltX, 0, -84, 84);
+    var tiltY = clampNumber(config.lyricTiltY, 0, -84, 84);
+    return {
+      stageScale: stageScale,
+      offsetX: offsetX,
+      offsetY: offsetY,
+      tiltX: tiltX,
+      tiltY: tiltY,
+      transform: 'translate3d(' + offsetX.toFixed(2) + 'vw, ' + offsetY.toFixed(2) + 'vh, 0)'
+        + ' perspective(1200px) rotateX(' + tiltX.toFixed(2) + 'deg) rotateY(' + tiltY.toFixed(2) + 'deg)'
+        + ' scale(' + stageScale.toFixed(3) + ')'
+    };
+  }
+
   // Pull the live DIY layout/animation settings into the overlay so the classic
   // style obeys the same position, size, angle and motion controls as the WebGL lyrics.
   function applyVisualSettings() {
@@ -582,11 +608,7 @@
     var motion = (typeof fx !== 'undefined' && fx && fx.lyricMotionStyle) ? String(fx.lyricMotionStyle) : 'float';
     if (motion !== 'float' && motion !== 'smooth' && motion !== 'glass' && motion !== 'shine' && motion !== 'glitch') motion = 'float';
 
-    var stageScale = clampNumber(fx && fx.lyricScale, 1, 0.35, 1.65);
-    var offsetX = clampNumber(fx && fx.lyricOffsetX, 0, -4, 4) * 6;
-    var offsetY = clampNumber(fx && fx.lyricOffsetY, 0, -2.4, 2.7) * 6;
-    var tiltX = clampNumber(fx && fx.lyricTiltX, 0, -84, 84);
-    var tiltY = clampNumber(fx && fx.lyricTiltY, 0, -84, 84);
+    var layout = layoutFrame(typeof fx !== 'undefined' ? fx : null);
     var softness = clampNumber(fx && fx.lyricMotionSoftness, 0.72, 0, 1);
     var letterSpacing = clampNumber(fx && fx.lyricLetterSpacing, 0, -4, 12);
 
@@ -594,15 +616,12 @@
     // root transform (and the live line's letter-spacing) on every animation
     // frame forces a style/layout pass for nothing, which is part of the
     // general jank while the glow is animating.
-    var key = [motion, stageScale.toFixed(3), offsetX.toFixed(2), offsetY.toFixed(2),
-      tiltX.toFixed(2), tiltY.toFixed(2), softness.toFixed(3), letterSpacing.toFixed(2)].join('|');
+    var key = [motion, layout.transform, softness.toFixed(3), letterSpacing.toFixed(2)].join('|');
     if (key === lastSettingsKey) return;
     lastSettingsKey = key;
 
     root.dataset.motion = motion;
-    root.style.transform = 'translate3d(' + offsetX.toFixed(2) + 'vw, ' + offsetY.toFixed(2) + 'vh, 0)'
-      + ' perspective(1200px) rotateX(' + tiltX.toFixed(2) + 'deg) rotateY(' + tiltY.toFixed(2) + 'deg)'
-      + ' scale(' + stageScale.toFixed(3) + ')';
+    root.style.transform = layout.transform;
     root.style.setProperty('--folia-soft', (0.55 + softness * 1.1).toFixed(3));
     if (lineNode) lineNode.style.letterSpacing = letterSpacing.toFixed(2) + 'px';
   }
@@ -789,7 +808,10 @@
   // QA hook: hidden Electron windows throttle requestAnimationFrame, so tests
   // can advance one frame synchronously after changing style or playback time.
   window.__mineradioFoliaTick = tick;
-  if (window.__MINERADIO_TEST__) window.__mineradioFoliaBuildWords = buildWords;
+  if (window.__MINERADIO_TEST__) {
+    window.__mineradioFoliaBuildWords = buildWords;
+    window.__mineradioFoliaLayoutFrame = layoutFrame;
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { requestAnimationFrame(frame); }, { once: true });

@@ -425,6 +425,14 @@
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 92%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 92%)
 }
+/* 位置/角度层：只包相机与文字，角标、线稿、底部渐隐都留在外面，
+   所以调「垂直位置」「上下角度」时海报边框不会被推出屏幕。
+   transform-origin 保持默认的 50% 50% —— 折叠与旋转要绕画面中心。 */
+.fs-layout {
+  position: absolute;
+  inset: 0;
+  will-change: transform
+}
 .fs-camera {
   position: absolute;
   inset: 0;
