@@ -163,6 +163,7 @@ function armLogoutAllAccountsResetConfirmation() {
 }
 
 function resetAllProviderRendererLoginState() {
+  forgetAllCachedProviderLoginStatus();
   loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: accountPanelText('vip_none') };
   qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: accountPanelText('login_qq', 'QQ 音乐'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false };
   kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: accountPanelText('provider_kugou'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
@@ -241,8 +242,40 @@ async function logoutAllAccountsAndResetEasterEgg() {
   }
 }
 
-async function logoutActiveAccount() {
-  if (activeAccountProvider === 'applemusic') {
+// 各平台的登出步骤不一样（清令牌的通道不同），收尾却是同一套：清掉该平台留在界面上的
+// 残留、重建歌架、再把「当前展示的账号」指到还活着的那个。收尾抽成一份，登录弹窗的
+// 平台节点按钮与账号面板的「退出登录」才能共用同一条路径。
+// Each platform signs out differently (different token channels) but finishes identically:
+// drop its UI leftovers, rebuild the shelf, then point the displayed account at a live one.
+function finishProviderLogout(provider, toastText) {
+  // 显示缓存必须跟着登出一起消失，否则下次启动会拿它把已退出的账号又画成"已连接"。
+  // The display cache has to die with the logout, or the next launch paints the signed-out
+  // account as connected again.
+  forgetCachedProviderLoginStatus(provider);
+  playlistCatalogRevision += 1;
+  dualAccountMode = false;
+  if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
+  activeAccountProvider = firstLoggedProvider();
+  renderUserBtn();
+  // 酷狗与 QQ 这条路径原先漏了歌架重建：退出后歌单架上还留着它们的条目，
+  // 点进去才发现会话已经没了。收尾统一后这个漏洞一并补上。
+  // Kugou and QQ used to skip the shelf rebuild here: their entries stayed on the shelf after
+  // signing out and only failed once opened. The shared tail fixes that gap too.
+  safeShelfRebuild(provider + '-logout');
+  if (hasAnyPlatformLogin()) updateUserModalUi();
+  else closeUserModal();
+  if (toastText) showToast(toastText);
+}
+async function logoutProviderAccount(provider) {
+  // 先按注册表校验，再归一化：normalizeAccountProviderKey 会把认不出来的名字折回 netease，
+  // 直接拿它当入口会静默退掉网易云。大小写先拉平，免得 'appleMusic' 被当成未知平台。
+  // Validate against the registry before normalizing: normalizeAccountProviderKey folds unknown
+  // names back to netease, so using it as the entry point could sign out the wrong platform.
+  provider = String(provider || '').toLowerCase();
+  if (ACCOUNT_PROVIDER_KEYS.indexOf(provider) < 0) return false;
+  provider = normalizeAccountProviderKey(provider);
+  if (!hasPlatformLogin(provider)) return false;
+  if (provider === 'applemusic') {
     try {
       if (window.desktopWindow && typeof window.desktopWindow.appleMusicRequest === 'function') {
         await window.desktopWindow.appleMusicRequest('logout', {});
@@ -251,20 +284,12 @@ async function logoutActiveAccount() {
     appleMusicLoginStatus = { provider: 'applemusic', loggedIn: false, configured: false, nickname: 'Apple Music', avatar: '', storefront: '', error: '' };
     appleMusicPlaylists = [];
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'applemusic'; });
-    playlistCatalogRevision += 1;
-    dualAccountMode = false;
-    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
-    activeAccountProvider = firstLoggedProvider();
-    renderUserBtn();
-    safeShelfRebuild('applemusic-logout');
-    if (hasAnyPlatformLogin()) updateUserModalUi();
-    else closeUserModal();
-    showToast(accountPanelText('logout_apple_music_cleared', '已退出 Apple Music'));
-    return;
+    finishProviderLogout('applemusic', accountPanelText('logout_apple_music_cleared', '已退出 Apple Music'));
+    return true;
   }
   // Spotify 没有登录窗口，令牌同时存在于后端文件与主进程缓存，两处都要清，
   // 否则下一次状态查询会把旧资料读回来。
-  if (activeAccountProvider === 'spotify') {
+  if (provider === 'spotify') {
     // 走 IPC 即可：它删令牌文件并清主进程缓存，与 /api/spotify/logout 等价，
     // 但不必为一次本地文件操作发 HTTP 请求。
     try {
@@ -275,18 +300,10 @@ async function logoutActiveAccount() {
     spotifyLoginStatus = { provider: 'spotify', loggedIn: false, configured: false, oauthConfigured: false, oauthMissing: [], preview: false, nickname: 'Spotify', userId: '', avatar: '', product: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match', tokenConfigured: false, tokenFileExists: false, credentialsFileExists: false, localConfigMissing: false };
     spotifyPlaylists = [];
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
-    playlistCatalogRevision += 1;
-    dualAccountMode = false;
-    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
-    activeAccountProvider = firstLoggedProvider();
-    renderUserBtn();
-    safeShelfRebuild('spotify-logout');
-    if (hasAnyPlatformLogin()) updateUserModalUi();
-    else closeUserModal();
-    showToast(accountPanelText('logout_spotify_cleared'));
-    return;
+    finishProviderLogout('spotify', accountPanelText('logout_spotify_cleared'));
+    return true;
   }
-  if (activeAccountProvider === 'qishui') {
+  if (provider === 'qishui') {
     try { await apiJson('/api/qishui/logout'); } catch (e) { }
     try {
       if (window.desktopWindow && typeof window.desktopWindow.clearQishuiMusicLogin === 'function') {
@@ -296,18 +313,10 @@ async function logoutActiveAccount() {
     qishuiLoginStatus = { provider: 'qishui', loggedIn: false, configured: false, oauthConfigured: false, oauthMissing: [], preview: false, nickname: accountPanelText('provider_qishui'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false, playbackMode: 'recommend-match' };
     qishuiPlaylists = [];
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'qishui'; });
-    playlistCatalogRevision += 1;
-    dualAccountMode = false;
-    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
-    activeAccountProvider = firstLoggedProvider();
-    renderUserBtn();
-    safeShelfRebuild('qishui-logout');
-    if (hasAnyPlatformLogin()) updateUserModalUi();
-    else closeUserModal();
-    showToast(accountPanelText('logout_qishui_cleared'));
-    return;
+    finishProviderLogout('qishui', accountPanelText('logout_qishui_cleared'));
+    return true;
   }
-  if (activeAccountProvider === 'kugou') {
+  if (provider === 'kugou') {
     try { await apiJson('/api/kugou/logout'); } catch (e) { }
     try {
       if (window.desktopWindow && typeof window.desktopWindow.clearKugouMusicLogin === 'function') {
@@ -317,17 +326,10 @@ async function logoutActiveAccount() {
     kugouLoginStatus = { provider: 'kugou', loggedIn: false, preview: false, nickname: accountPanelText('provider_kugou'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, playbackKeyReady: false };
     kugouPlaylists = [];
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'kugou'; });
-    playlistCatalogRevision += 1;
-    dualAccountMode = false;
-    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
-    activeAccountProvider = firstLoggedProvider();
-    renderUserBtn();
-    if (hasAnyPlatformLogin()) updateUserModalUi();
-    else closeUserModal();
-    showToast(accountPanelText('logout_kugou_done'));
-    return;
+    finishProviderLogout('kugou', accountPanelText('logout_kugou_done'));
+    return true;
   }
-  if (activeAccountProvider === 'qq') {
+  if (provider === 'qq') {
     try { await apiJson('/api/qq/logout'); } catch (e) { }
     try {
       if (window.desktopWindow && typeof window.desktopWindow.clearQQMusicLogin === 'function') {
@@ -338,17 +340,18 @@ async function logoutActiveAccount() {
     qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: accountPanelText('login_qq', 'QQ 音乐'), userId: '', avatar: '', vipType: 0, vipLevel: 'none', isVip: false, isSvip: false };
     qqPlaylists = [];
     userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'qq'; });
-    playlistCatalogRevision += 1;
-    dualAccountMode = false;
-    if (typeof resetHomeDiscoverAfterLogout === 'function') resetHomeDiscoverAfterLogout('logout-provider');
-    activeAccountProvider = firstLoggedProvider();
-    renderUserBtn();
-    if (hasAnyPlatformLogin()) updateUserModalUi();
-    else closeUserModal();
-    showToast(accountPanelText('logout_qq_done'));
-    return;
+    finishProviderLogout('qq', accountPanelText('logout_qq_done'));
+    return true;
   }
-  doLogout();
+  if (provider !== 'netease') return false;
+  await doLogout();
+  return true;
+}
+// 账号面板上的「退出登录」退的是当前展示的平台；登录弹窗里每个平台节点各退自己那个。
+// The account panel's button signs out the displayed provider; each login-node button signs out
+// its own.
+async function logoutActiveAccount() {
+  return logoutProviderAccount(activeAccountProvider);
 }
 async function doLogout() {
   await apiJson('/api/logout');

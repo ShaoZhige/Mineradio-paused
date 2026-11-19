@@ -51,9 +51,17 @@ test('loaded 标记按「是否还有平台登录」决定，不留半拉状态'
 });
 
 test('每一条退出路径都调用重置函数', () => {
-  const calls = LOGOUT_SOURCE.match(/resetHomeDiscoverAfterLogout\(/g) || [];
-  // doLogout + qq / kugou / qishui / spotify 四个分支 + 全部退出。
-  assert.ok(calls.length >= 6, '退出路径漏了重置：只有 ' + calls.length + ' 处调用');
+  // 收尾已抽成 finishProviderLogout：平台分支只清自己那点东西，首页重置集中在收尾里。
+  // 判据因此是「每个分支都走统一收尾」+「收尾里确实调了重置」，而不是数
+  // resetHomeDiscoverAfterLogout 的出现次数 —— 计数会随任何一次抽函数重构失效。
+  // The tail is now one shared function, so the check is "every branch goes through it" plus
+  // "it calls the reset", not a call count that any refactor invalidates.
+  const branches = LOGOUT_SOURCE.match(/finishProviderLogout\('[a-z]+',/g) || [];
+  // applemusic / spotify / qishui / kugou / qq 五个平台分支。
+  assert.ok(branches.length >= 5, '有平台分支没走统一收尾：只有 ' + branches.length + ' 处');
+  assert.match(functionSource(LOGOUT_SOURCE, 'finishProviderLogout'), /resetHomeDiscoverAfterLogout\(/);
+  assert.match(functionSource(LOGOUT_SOURCE, 'doLogout'), /resetHomeDiscoverAfterLogout\(/);
+  assert.match(functionSource(LOGOUT_SOURCE, 'resetAllProviderRendererLoginState'), /resetHomeDiscoverAfterLogout\(/);
 });
 
 test('旧版「只清 homeDiscoverState」的写法不许回潮', () => {

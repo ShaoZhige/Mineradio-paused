@@ -320,6 +320,90 @@ function readAudioInputBridgePreference() {
   }
 }
 
+// ── 登录态显示缓存：只服务首帧，不参与任何播放/接口决策 ─────────────────────
+// Spotify 与 Apple Music 的会话都不在渲染进程里：一个要等 /api/spotify/status 的 HTTP 往返，
+// 一个要等 WebView2 宿主冷启动（实测 12~25 秒）。所以进播放器的第一帧它们只能是「未登录」，
+// 过几秒才跳成「已连接」——用户看到的就是"这俩平台一开始没状态"。
+// 这里把上一次**确认过**的登录态存进 localStorage：启动时先照它渲染，真实查询回来后自然覆盖。
+//
+// 🔴 缓存只负责显示。`hasPlatformLogin()` 之类的判断会读到它，但那是给 UI 用的；任何真正的
+//    接口调用失败都会把状态改回未登录。缓存过期（7 天）或登出时立刻删掉，绝不当凭据用。
+// 🔴 A display-only cache. It feeds the first paint and nothing else: no credentials are stored
+//    (tokens and cookies stay in the main process), it expires after 7 days, and logout wipes it.
+var PROVIDER_LOGIN_CACHE_KEY = 'mineradio-provider-login-cache-v1';
+var PROVIDER_LOGIN_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 白名单而不是全量拷贝：状态对象里带着 VIP 判定、播放能力、令牌文件是否存在这类派生字段，
+// 存下来再回填会让 UI 拿着过期结论去渲染会员标识。
+// An allow-list, not a shallow copy: the status objects carry derived fields (VIP verdicts,
+// playback capabilities) that must not be rehydrated from a stale snapshot.
+var PROVIDER_LOGIN_CACHE_FIELDS = ['loggedIn', 'configured', 'nickname', 'avatar', 'avatarUrl', 'userId', 'accountId', 'product', 'storefront'];
+
+function readProviderLoginCacheTable() {
+  try {
+    var parsed = JSON.parse(localStorage.getItem(PROVIDER_LOGIN_CACHE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+function writeProviderLoginCacheTable(table) {
+  try {
+    localStorage.setItem(PROVIDER_LOGIN_CACHE_KEY, JSON.stringify(table || {}));
+  } catch (e) { }
+}
+function readCachedProviderLoginStatus(provider) {
+  if (!provider) return null;
+  var entry = readProviderLoginCacheTable()[provider];
+  if (!entry || typeof entry !== 'object' || !entry.loggedIn) return null;
+  var savedAt = Number(entry.savedAt || 0);
+  // 没有时间戳的条目一律当作过期：宁可少显示一次，也别让一份来历不明的状态长期顶着。
+  // An entry without a timestamp counts as expired — better one cold frame than a stale truth.
+  if (!savedAt || Date.now() - savedAt > PROVIDER_LOGIN_CACHE_TTL_MS) return null;
+  var out = { fromCache: true, cachedAt: savedAt };
+  PROVIDER_LOGIN_CACHE_FIELDS.forEach(function (field) {
+    if (entry[field] !== undefined && entry[field] !== null) out[field] = entry[field];
+  });
+  return out;
+}
+// 把缓存叠到默认状态上。命中时打 fromCache，刷新函数据此判断「这是上次的状态，别当成刚确认的」。
+// Merge the cache over the defaults; `fromCache` is what tells the refresh functions that this is a
+// remembered state rather than a fresh confirmation.
+function hydrateCachedLoginStatus(provider, base) {
+  var cached = readCachedProviderLoginStatus(provider);
+  if (!cached) return base;
+  return Object.assign({}, base || {}, cached);
+}
+function rememberProviderLoginStatus(provider, status) {
+  if (!provider || !status) return;
+  var table = readProviderLoginCacheTable();
+  if (!status.loggedIn) {
+    // 只剩"没登录"就没必要留着：下一次启动照样是未登录，缓存只会多一条噪音。
+    if (table[provider]) {
+      delete table[provider];
+      writeProviderLoginCacheTable(table);
+    }
+    return;
+  }
+  var entry = { loggedIn: true, savedAt: Date.now() };
+  PROVIDER_LOGIN_CACHE_FIELDS.forEach(function (field) {
+    if (status[field] !== undefined && status[field] !== null && status[field] !== '') entry[field] = status[field];
+  });
+  table[provider] = entry;
+  writeProviderLoginCacheTable(table);
+}
+function forgetCachedProviderLoginStatus(provider) {
+  if (!provider) return;
+  var table = readProviderLoginCacheTable();
+  if (!table[provider]) return;
+  delete table[provider];
+  writeProviderLoginCacheTable(table);
+}
+function forgetAllCachedProviderLoginStatus() {
+  try {
+    localStorage.removeItem(PROVIDER_LOGIN_CACHE_KEY);
+  } catch (e) { }
+}
+
 // ── 赋值：这些 var 从 00-core-stores 搬过来，位置必须仍在它之后（常量在这里才就位）。
 // Assignments moved out of 00-core-stores; they still have to sit after it for the STORE_KEY
 // constants to be defined.
@@ -339,6 +423,12 @@ var playbackQuality = getProviderPlaybackQuality('netease');
 var audioOutputDeviceId = readAudioOutputDevicePreference();
 var audioOutputMirrorDeviceIds = readAudioOutputMirrorPreference();
 var audioInputBridgeState = readAudioInputBridgePreference();
+// Spotify 的状态变量在 00-core-stores 里已经初始化成"未登录"，这里把上次确认过的登录态叠上去，
+// 让首帧就能画出已连接。Apple Music 的状态变量在 08-account/01（比本文件晚加载），由那边自己 hydrate。
+// Spotify's store is initialised to "signed out" in 00-core-stores; overlay the last confirmed
+// state so the first frame already renders it as connected. Apple Music's store lives in
+// 08-account/01 (loaded later) and hydrates itself there.
+spotifyLoginStatus = hydrateCachedLoginStatus('spotify', spotifyLoginStatus);
 // 字体注册会往 document 里插 <style>，启动时跑一次就够，且不参与任何模块期的状态推导。
 // 放到 boot 阶段：它调用的 registerCustomLyricFont 属于 07-fx，此刻还没加载。
 // Font registration injects a <style> and takes part in nothing that other modules read at load

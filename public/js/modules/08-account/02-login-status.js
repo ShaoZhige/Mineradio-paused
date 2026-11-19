@@ -510,8 +510,14 @@ function normalizeSpotifyLoginStatus(info) {
 async function refreshSpotifyLoginStatus() {
   try {
     var info = await apiJson('/api/spotify/status?t=' + Date.now());
-    var prevLogged = !!spotifyLoginStatus.loggedIn;
+    // 启动那一下的状态可能是从 localStorage 顶上来的，那只是"上次看过"，不是刚刚确认的。
+    // 把它当成"之前已登录"会让这一次查询失败时弹一句"已登出"，而用户根本没登出过。
+    // A state restored from localStorage is a memory, not a confirmation. Treating it as "was
+    // signed in" makes this very first check toast "signed out" for a user who never signed out.
+    var restoredFromCache = !!spotifyLoginStatus.fromCache;
+    var prevLogged = !!spotifyLoginStatus.loggedIn && !restoredFromCache;
     spotifyLoginStatus = normalizeSpotifyLoginStatus(info);
+    rememberProviderLoginStatus('spotify', spotifyLoginStatus);
     auditProviderVipState('spotify', spotifyLoginStatus);
     if (!spotifyLoginStatus.loggedIn) {
       // 限流不是登出：这时候清歌单、弹"已登出"只会推着人去重新授权，而重新授权并不会
@@ -519,13 +525,21 @@ async function refreshSpotifyLoginStatus() {
       // Throttling is not a logout: wiping playlists and toasting "logged out" only pushes the
       // user into re-authorizing, which does not clear a rate limit. Keep the lists as they are.
       if (!spotifyLoginStatus.rateLimited) {
-        if (prevLogged || spotifyLoginWasLoggedIn) showToast(spotifyLoginStatus.stale ? loginStatusText('lstatus_spotify_expired') : loginStatusText('lstatus_spotify_logged_out'));
-        spotifyPlaylists = [];
-        userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
-        // Apple Music is a separate session; clearing Spotify must not drop it.
-        // (The Apple logout path clears appleMusicPlaylists itself.)
-        playlistCatalogRevision += 1;
-        homeDiscoverState.loaded = false;
+        // 只有"之前确实登录过"才需要收拾残局。这个函数现在每 45 秒跑一次（定时器本轮才真正
+        // 启动），无条件清空会让一直没登录的用户每 45 秒看见歌单目录重刷一次。
+        // Only clean up when there was a session to lose. This now runs every 45 s (the timer was
+        // finally wired up this round); clearing unconditionally made the shelf re-render every
+        // 45 s for users who never signed in at all.
+        var hadSession = prevLogged || spotifyLoginWasLoggedIn;
+        if (hadSession) {
+          showToast(spotifyLoginStatus.stale ? loginStatusText('lstatus_spotify_expired') : loginStatusText('lstatus_spotify_logged_out'));
+          spotifyPlaylists = [];
+          userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'spotify'; });
+          // Apple Music is a separate session; clearing Spotify must not drop it.
+          // (The Apple logout path clears appleMusicPlaylists itself.)
+          playlistCatalogRevision += 1;
+          homeDiscoverState.loaded = false;
+        }
       }
     } else if (!spotifyLoginStatus.rateLimited && !userPlaylists.some(function (pl) { return pl && pl.provider === 'spotify'; })) {
       homeDiscoverState.loaded = false;
@@ -539,6 +553,15 @@ async function refreshSpotifyLoginStatus() {
     return spotifyLoginStatus;
   } catch (e) {
     console.warn('Spotify login status failed:', e);
+    // 启动早期的请求可能撞上本地 server 还没就绪。这时候把刚恢复出来的登录态抹成未登录，
+    // 界面就会先显示"已连接"再跳成"未连接"，比不显示更糟。保持原样，等 45 秒后的那一轮。
+    // The startup request can race a server that is not listening yet. Flattening a restored state
+    // to signed-out here makes the UI flash connected→disconnected, which is worse than not
+    // showing at all. Keep what we have and let the next poll settle it.
+    if (spotifyLoginStatus.fromCache) {
+      renderUserBtn();
+      return spotifyLoginStatus;
+    }
     spotifyLoginStatus = normalizeSpotifyLoginStatus(null);
     renderUserBtn();
     return spotifyLoginStatus;

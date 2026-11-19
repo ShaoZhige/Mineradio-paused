@@ -20,6 +20,14 @@ function renderer() {
     localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) },
     document: { getElementById: () => null },
     PROVIDER_VIP_AUDIT_STORE_KEY: 'audit',
+    // 登录态的显示缓存来自 00b-local-readers（本测试只加载 01/02）：桩成"没有缓存"，
+    // 这样 Apple 的初始状态就是文件里写的默认值，和加缓存之前一致。
+    // The display cache lives in 00b, which this test does not load; stub it as "no cache" so
+    // Apple's initial state stays the literal default, exactly as before the cache existed.
+    hydrateCachedLoginStatus: (provider, base) => base,
+    rememberProviderLoginStatus: () => { },
+    forgetCachedProviderLoginStatus: () => { },
+    forgetAllCachedProviderLoginStatus: () => { },
     apiJson: async () => { throw new Error('network unavailable'); },
     showToast: value => notices.push(value),
     escHtml: String,

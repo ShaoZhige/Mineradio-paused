@@ -8,6 +8,9 @@ var loginWorkflowPendingProvider = '';
 var loginWorkflowVerifiedSession = {};
 var loginProviderPointer = null;
 var loginProviderClickSuppressed = false;
+// 正在退出的平台：按钮要显示忙碌，且不许连点两次（第二次请求会拿到已经没了的会话）。
+// The platform being signed out: its button shows the busy state and refuses a second click.
+var loginProviderSignOutBusyProvider = '';
 var loginWorkflowEdgeRenderFrame = 0;
 var loginWorkflowEdgeRenderTimers = [];
 var SPOTIFY_DEVELOPER_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
@@ -26,7 +29,13 @@ var spotifyRateLimitRetryTimer = 0;
 var spotifySetupAuthUrl = '';
 // 登录成功后的换源提醒，单次加载内只弹一次 / one-shot per page load.
 var spotifyLoginReminderShown = false;
-var appleMusicLoginStatus = { loggedIn: false, configured: false, nickname: '', avatarUrl: '', storefront: '', error: '' };
+// appleMusicLoginStatus 由 08-account/01 持有（它在本模块之前加载，并在那里用显示缓存 hydrate）。
+// 这里再写一次 var 会把它重新初始化成"未登录"，把刚恢复出来的登录态当场抹掉 —— classic script
+// 的顶层声明共享同一个 window，后加载者静默覆盖前者，症状就是"Apple Music 一开始没有登录状态"。
+// appleMusicLoginStatus is owned by 08-account/01, which loads before this module and hydrates it
+// from the display cache. Declaring it again here re-initialises it to "signed out" and wipes the
+// restored state on the spot — classic scripts share one window, and the later declaration wins
+// silently. That is exactly the "Apple Music has no state at first paint" symptom.
 var appleMusicLoginBusy = false;
 
 // 文案统一走 i18n：缺键返回键名（不返回空串），params 同时喂给词典与兜底模板。
@@ -359,6 +368,12 @@ function updateLoginProviderCapsuleStatus(provider, btn) {
   handle.setAttribute('title', 'Drag to sort');
   handle.setAttribute('aria-label', 'Drag to sort');
   var logo = btn.querySelector('.provider-logo');
+  // 多出退出列之后名称列更窄，"Apple Music" 这类长名会显示省略号；
+  // title 让被截断的那半截仍然读得到。
+  // The name track got narrower once the sign-out column arrived, so long labels ellipsize;
+  // the title keeps the cut-off half readable.
+  var nameEl = btn.querySelector('b');
+  if (nameEl) nameEl.title = (meta && meta.label) || provider;
   if (logo) {
     if (st.loggedIn) {
       logo.classList.add('has-avatar');
@@ -407,6 +422,59 @@ function updateLoginProviderCapsuleStatus(provider, btn) {
   var level = providerVipLevel(provider, st);
   badge.textContent = label;
   badge.className = 'login-provider-state-badge ' + (st.loggedIn ? (level === 'none' ? 'normal' : level) : 'hidden');
+  // 每个节点各带一个只退自己的按钮：以前只能退"当前展示的平台"，
+  // 想退另一个得先去账号面板切换，而登录弹窗里根本没有切换的入口。
+  // Each node owns a sign-out button for its own platform: the account panel only ever signed out
+  // the displayed provider, and the login modal had no way to switch that.
+  var signOut = btn.querySelector('.login-provider-logout');
+  if (!signOut) {
+    signOut = document.createElement('span');
+    signOut.className = 'login-provider-logout';
+    signOut.setAttribute('role', 'button');
+    signOut.setAttribute('tabindex', '0');
+    btn.appendChild(signOut);
+  }
+  signOut.setAttribute('data-login-provider-signout', provider);
+  signOut.textContent = loginText('login_provider_sign_out', '退出');
+  signOut.title = loginText('login_provider_sign_out_title', '退出 {provider} 登录', { provider: (meta && meta.label) || provider });
+  signOut.setAttribute('aria-label', signOut.title);
+  signOut.classList.toggle('hidden', !st.loggedIn);
+  signOut.classList.toggle('busy', loginProviderSignOutBusyProvider === provider);
+  signOut.setAttribute('aria-disabled', loginProviderSignOutBusyProvider === provider ? 'true' : 'false');
+  if (!signOut.__loginProviderSignOutBound) {
+    signOut.__loginProviderSignOutBound = true;
+    signOut.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    signOut.addEventListener('click', function (e) {
+      handleLoginProviderSignOut(e, signOut.getAttribute('data-login-provider-signout') || provider);
+    });
+    signOut.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      handleLoginProviderSignOut(e, signOut.getAttribute('data-login-provider-signout') || provider);
+    });
+  }
+}
+function handleLoginProviderSignOut(e, provider) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  provider = normalizeLoginProviderKey(provider);
+  if (loginProviderSignOutBusyProvider) return;
+  if (!hasPlatformLogin(provider)) return;
+  loginProviderSignOutBusyProvider = provider;
+  updateLoginProviderUi();
+  Promise.resolve()
+    .then(function () { return logoutProviderAccount(provider); })
+    .catch(function (error) { console.warn('Provider sign-out failed:', error); })
+    .then(function () {
+      loginProviderSignOutBusyProvider = '';
+      // 退掉的正好是当前选中的平台时，抽屉里那块登录界面已经没有意义了；
+      // 其它平台退出不影响正在看的这个。
+      // If the signed-out platform is the one on screen, its drawer no longer means anything.
+      setLoginAuthDrawerOpen(hasLoginWorkflowConnection(loginProvider) || loginWorkflowPendingProvider === loginProvider);
+      updateLoginProviderUi();
+      scheduleLoginWorkflowEdges('provider-sign-out');
+    });
 }
 function bindLoginWorkflowPointerEvents() {
   var graph = document.getElementById('login-node-graph');
@@ -725,6 +793,7 @@ function appleMusicLoginStatusText(info) {
   info = info || appleMusicLoginStatus || {};
   if (info.loggedIn) return loginText('login_apple_music_connected', 'Apple Music 已连接') + (info.nickname ? (' · ' + info.nickname) : '');
   if (info.error === 'auth-required') return loginText('login_apple_music_sign_in_required', '请先在 Apple Music 窗口内登录。');
+  if (info.error === 'window-unavailable') return loginText('login_apple_music_window_failed', 'Apple Music 窗口打不开，请稍后重试。');
   if (info.error === 'runtime-unavailable') return loginText('login_apple_music_runtime_unavailable', 'Apple Music 组件未安装或未能启动。');
   return loginText('login_apple_music_not_connected', '尚未连接 Apple Music');
 }
@@ -738,16 +807,46 @@ async function refreshAppleMusicLoginStatus() {
   try {
     var result = await api.appleMusicRequest('accountStatus', {});
     if (result && result.ok === false && (result.error === 'auth-required' || result.error === 'storefront-unavailable')) {
+      // 只有这两种回包才等于"Apple 说没人登录"。companion 起不来、请求超时都只是我们这边没答上，
+      // 那时清缓存会把用户真实存在的登录态抹掉，下次还要重登一遍。
+      // Only these two replies mean "nobody is signed in". A companion that failed to start or a
+      // timed-out request is our side not answering; wiping the cache then throws away a real
+      // session and forces a fresh sign-in.
       appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: result.error });
+      forgetCachedProviderLoginStatus('applemusic');
     } else if (result && result.ok === true) {
       appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: true, configured: true, data: result.data || {} });
+      rememberProviderLoginStatus('applemusic', appleMusicLoginStatus);
+    } else if (appleMusicLoginStatus.fromCache) {
+      // 我们这边没答上来（宿主未就绪 / 请求失败）：保留上次的状态，别让首帧跳一下。
+      // Our side did not answer (host not ready, request failed): keep what we had.
+      return appleMusicLoginStatus;
     } else {
       appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (result && result.error) || 'request-failed' });
     }
   } catch (e) {
+    if (appleMusicLoginStatus.fromCache) return appleMusicLoginStatus;
     appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: 'request-failed' });
   }
   return appleMusicLoginStatus;
+}
+
+// 窗口先开，状态后查。
+// 冷启动的宿主（WebView2）要先加载 music.apple.com 才能在页面里执行 accountStatus，实测第一次
+// 要 12~25 秒。以前它排在 showWindow 前面，用户点完「连接」要干等半分钟才看到窗口，看起来就是
+// "登录窗口拉不起来"；再加上宿主加载页面失败会整个退出，第二次点击还要重新拉一次宿主。
+// Open the window first and read the status afterwards: the first accountStatus of a cold host has
+// to wait for music.apple.com to load (measured 12–25 s), and running it before showWindow made the
+// button look dead. A host that fails to load its page exits as well, so open-window gets one retry.
+async function openAppleMusicWindow() {
+  var api = window.desktopWindow;
+  if (!api || typeof api.appleMusicRequest !== 'function') return null;
+  var shown = await api.appleMusicRequest('showWindow', {});
+  if (shown && shown.ok !== false) return shown;
+  // 宿主已在 navigation-failed 时退出，下一次请求会重新拉起它；替用户补这一次重试。
+  // The host exits on navigation-failed; the client spawns a new one on the next request.
+  await new Promise(function (resolve) { setTimeout(resolve, 1500); });
+  return await api.appleMusicRequest('showWindow', {});
 }
 
 async function openAppleMusicLogin() {
@@ -761,20 +860,34 @@ async function openAppleMusicLogin() {
   appleMusicLoginBusy = true;
   updateLoginProviderUi();
   try {
-    await refreshAppleMusicLoginStatus();
     // 窗口永远要能打开。以前这里只在"未登录"时才 showWindow，结果账号一但连着（窗口被藏起来）
     // 按钮就彻底失效 —— 表现就是"登录窗口拉不起来"，而按文案它本该是"重新打开"。
     // The window must always open: showing it only when signed out made the button a no-op once an
     // account was connected, which is exactly the "the login window won't come up" symptom.
-    var shown = await api.appleMusicRequest('showWindow', {});
+    var shown = await openAppleMusicWindow();
     if (!shown || shown.ok === false) {
-      appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (shown && shown.error) || 'request-failed' });
+      appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: 'window-unavailable' });
+      showToast(loginText('login_apple_music_window_failed', 'Apple Music 窗口打不开，请稍后重试。'));
       return;
     }
-    if (appleMusicLoginStatus.loggedIn) return;
+    // 窗口里就是 music.apple.com，账户会话也只在那个页面里建立；点「登录」这一步只能由用户完成。
+    // The window is music.apple.com itself and the Apple session lives in that page, so the user has
+    // to press 登录 inside the window; the app can only poll for the account.
+    if (!appleMusicLoginStatus.loggedIn) showToast(loginText('login_apple_music_sign_in_required', '请先在 Apple Music 窗口内登录。'));
+    await refreshAppleMusicLoginStatus();
+    updateLoginProviderUi();
+    // 只有"这一次真的问到了已登录"才收工。缓存顶上来的已登录不算：宿主可能还没答上来，
+    // 直接 return 会让轮询根本不启动，用户在窗口里登完也看不到状态变化。
+    // Only a state confirmed by this very call ends the flow. A cached "signed in" does not: the
+    // host may not have answered yet, and returning here would never start the sign-in poll.
+    if (appleMusicLoginStatus.loggedIn && !appleMusicLoginStatus.fromCache) return;
     // The companion is the only owner of Apple's session. Poll the account
     // until the page finishes signing in; the window is hidden again then.
-    for (var i = 0; i < 150; i += 1) {
+    // 按时间而不是次数收尾：单次 accountStatus 可能被页面拖到 20 秒以上，按次数算会把按钮锁死一小时。
+    // Bound by wall clock, not iterations: one accountStatus can take 20+ s, and 150 of those would
+    // keep the button disabled for an hour.
+    var pollDeadline = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < pollDeadline) {
       await new Promise(function (resolve) { setTimeout(resolve, 2000); });
       var status = await refreshAppleMusicLoginStatus();
       updateLoginProviderUi();
@@ -1039,6 +1152,11 @@ async function saveSpotifySetupClientId() {
     });
     if (!info || info.ok === false || info.error) throw new Error(backendText(info, null, loginText('login_client_id_save_failed')));
     spotifyLoginStatus = normalizeSpotifyLoginStatus(info);
+    // 这条路径不经过 refreshSpotifyLoginStatus，缓存要在这里单独更新，否则"刚授权完"的状态
+    // 只活在当前进程里，下次启动又要等一次网络往返。
+    // This path bypasses refreshSpotifyLoginStatus, so the display cache is updated here; otherwise
+    // a session established right now would not survive to the next launch.
+    rememberProviderLoginStatus('spotify', spotifyLoginStatus);
     spotifySetupCallbackReady = false;
     spotifySetupDiagnostics = null;
     setSpotifySetupOverall(loginText('login_client_id_format_ok'), 'success');
@@ -1227,7 +1345,16 @@ function updateLoginProviderUi() {
     if (spotifyBtn) spotifyBtn.classList.toggle('active', false);
     if (appleMusicBtn) appleMusicBtn.classList.toggle('active', true);
     if (title) title.textContent = loginText('login_apple_music_title', '登录 Apple Music');
-    if (desc) desc.innerHTML = loginText('login_apple_music_desc', '在官方 Apple Music 窗口中登录。会话由 Apple 保存，Mineradio 不接触你的密码。');
+    if (desc) {
+      // 苹果对部分账号停用了密码登录，网页端同样报「密码错误」——不是我们的窗口有问题。
+      // 这行小字是给用户的自助指引，省得反复重试密码。
+      // Apple disabled password sign-in for some accounts and the web page fails identically;
+      // the hint points those users at the verification code instead of endless retries.
+      desc.innerHTML = loginText('login_apple_music_desc', '在官方 Apple Music 窗口中登录。会话由 Apple 保存，Mineradio 不接触你的密码。')
+        + '<span class="login-am-signin-hint">'
+        + loginText('login_apple_music_password_hint', '密码登录对部分账号已被 Apple 停用：若提示密码错误，请改用手机号验证码登录。')
+        + '</span>';
+    }
     if (shell) {
       shell.classList.add('web-login-preview');
       shell.classList.remove('qq-preview', 'netease-preview');

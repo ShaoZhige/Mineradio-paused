@@ -106,6 +106,10 @@ function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_L
         let currentUrl = 'about:blank';
         let buffered = '';
         let sessionBusy = false;
+        // The sign-in window is the same page the user types Apple ID into, so while it is visible
+        // nothing here may take the document away from them: no storefront navigation, and no
+        // document recovery after read timeouts. Both resume once the window is hidden again.
+        let windowsVisible = false;
         // Account regions Apple sent the page away from in this run (from a mainland address every
         // other region lands on /cn). Moving there again would only reload the page, and stop what
         // it plays; MusicKit follows the account's region in place (companionStorefront.cjs).
@@ -196,7 +200,7 @@ function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_L
                 return result.ok ? result.data : { ok: false, error: result.error === 'not-ready' ? 'not-ready' : 'request-failed' };
             },
         };
-        const dispatch = createRequestDispatcher(() => contents, 20000, () => generation, recover);
+        const dispatch = createRequestDispatcher(() => contents, 20000, () => generation, recover, () => !windowsVisible);
         const visibility = createVisibilityPin(command, { limitMs: pinLimitMs });
 
         bridge.send = (message, callback) => {
@@ -206,9 +210,13 @@ function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_L
             void (async () => {
                 let result;
                 if (sessionBusy) result = { ok: false, error: 'busy' };
-                else if (request.operation === 'showWindow') result = await command('show');
-                else if (request.operation === 'hideWindow') result = await command('hide');
-                else if (request.operation === 'logout') {
+                else if (request.operation === 'showWindow') {
+                    result = await command('show');
+                    if (result.ok) windowsVisible = true;
+                } else if (request.operation === 'hideWindow') {
+                    result = await command('hide');
+                    if (result.ok) windowsVisible = false;
+                } else if (request.operation === 'logout') {
                     sessionBusy = true;
                     visibility.end();
                     try {
@@ -225,7 +233,11 @@ function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_L
                 }
                 if (request.operation === 'accountStatus' && result.ok) {
                     const account = result.data?.storefront;
-                    const target = keptAway.has(account) ? null : storefrontTarget(currentUrl, account);
+                    // 窗口开着就是在登录：这一刻换页会把 Apple 的收尾页面和刚建立的会话一起扔掉，
+                    // 区域对齐推迟到窗口收起之后的那次 accountStatus。
+                    // A visible window means signing in: navigating now would throw away the tail of
+                    // Apple's flow, so the region alignment waits for a later, hidden-window check.
+                    const target = (windowsVisible || keptAway.has(account)) ? null : storefrontTarget(currentUrl, account);
                     if (target && !(await navigate(target))) result = { ok: false, error: 'not-ready' };
                     else if (target) {
                         const landed = pageStorefront(currentUrl);

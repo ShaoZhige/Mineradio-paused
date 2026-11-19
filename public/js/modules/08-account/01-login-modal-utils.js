@@ -1,4 +1,9 @@
-var appleMusicLoginStatus = { loggedIn: false, configured: false, nickname: '', avatarUrl: '', storefront: '', error: '' };
+// Apple Music 的会话在 companion（WebView2）里，冷启动读一次 accountStatus 要 12~25 秒，
+// 所以进播放器时它一开始只能显示"未连接"。这里先用上次确认过的登录态顶着，等后台补验回来再校正。
+// The Apple session lives in the companion, and a cold accountStatus takes 12–25 s, so on entry it
+// can only read as disconnected. Start from the last confirmed state and let the background probe
+// correct it.
+var appleMusicLoginStatus = hydrateCachedLoginStatus('applemusic', { loggedIn: false, configured: false, nickname: '', avatarUrl: '', storefront: '', error: '' });
 
 // 文案统一走 i18n：缺键返回键名（不返回空串），params 同时喂给词典与兜底模板。
 // Copy goes through i18n; a missing key returns the key itself rather than an empty string.

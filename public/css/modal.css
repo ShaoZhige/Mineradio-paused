@@ -1153,7 +1153,9 @@ body.login-guide-active #login-guide-canvas {
   display: grid;
   width: max-content;
   max-width: 100%;
-  grid-template-columns: 296px 168px;
+  /* 平台列 296px → 340px：退出按钮占掉一列之后，中文平台名已经贴到省略号，
+     「Apple Music」直接截成 "Apple Mu…"。整块图仍然在弹窗 720px 上限之内。 */
+  grid-template-columns: 340px 168px;
   grid-template-areas: "providers hub";
   gap: 112px;
   align-items: center;
@@ -1282,11 +1284,16 @@ body.login-guide-active #login-guide-canvas {
 .login-node-providers.login-platform-tabs button {
   height: auto;
   min-height: 46px;
-  grid-template-columns: 18px 35px minmax(0, 1fr) auto 56px;
+  /* 退出按钮是后加的一列（第 5 列），开关因此从第 5 列挪到第 6 列。
+     列距同时从 8px 收到 6px：340px 的列宽里要塞手柄、头像、名称、等级、
+     退出、开关六样东西，名称列必须留够 "Apple Music" 的宽度。
+     The sign-out button is a new fifth column, which pushes the switch to sixth. The column gap
+     drops from 8px to 6px so the name track still fits a label as long as "Apple Music". */
+  grid-template-columns: 18px 35px minmax(0, 1fr) auto auto 56px;
   grid-template-rows: auto;
   justify-items: start;
   align-content: center;
-  gap: 0 8px;
+  gap: 0 6px;
   padding: 7px 14px 7px 5px;
   border-radius: 13px;
   border-color: rgba(255, 255, 255, .050);
@@ -1440,6 +1447,13 @@ body.login-guide-active #login-guide-canvas {
 
 .login-provider-state-badge {
   grid-column: 4;
+  /* 三件右侧控件都钉在第 1 行：它们的显式列号是 4/5/6，但 DOM 追加顺序是
+     badge → 开关 → 退出，稀疏自动放置会发现「5 < 游标 6」而把退出甩到第二行。
+     显式 grid-row 才是让它们同处一行的可靠写法。
+     All three right-hand controls are pinned to row 1: their columns are 4/5/6 while the DOM
+     appends badge → switch → sign-out, so sparse auto-placement sees "5 < cursor 6" and drops
+     the sign-out onto a second row. */
+  grid-row: 1;
   justify-self: end;
   align-self: center;
   min-width: 34px;
@@ -1475,8 +1489,55 @@ body.login-guide-active #login-guide-canvas {
   display: none
 }
 
-.login-provider-external-switch {
+/* 每个平台节点自己的退出入口。整条节点是页签按钮（点哪儿都切过去），
+   所以这一小块必须自己吃掉 pointerdown，否则按下就变成了拖拽排序。 */
+.login-provider-logout {
   grid-column: 5;
+  grid-row: 1;
+  justify-self: end;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 25px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 138, 138, .30);
+  background: linear-gradient(135deg, rgba(255, 96, 96, .15), rgba(255, 96, 96, .04));
+  color: rgba(255, 178, 178, .90);
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: .02em;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  pointer-events: auto;
+  transition: opacity .18s ease, border-color .20s ease, background .20s ease, color .20s ease, transform .20s ease
+}
+
+.login-provider-logout.hidden {
+  display: none
+}
+
+.login-provider-logout.busy {
+  opacity: .45;
+  cursor: progress;
+  pointer-events: none
+}
+
+.login-provider-logout:hover,
+.login-provider-logout:focus-visible {
+  border-color: rgba(255, 120, 120, .62);
+  background: linear-gradient(135deg, rgba(255, 96, 96, .30), rgba(255, 96, 96, .10));
+  color: #ffdcdc;
+  transform: translateY(-1px);
+  outline: none
+}
+
+.login-provider-external-switch {
+  grid-column: 6;
+  grid-row: 1;
   justify-self: end;
   align-self: center;
   position: relative;
@@ -1745,6 +1806,17 @@ body.login-guide-active #login-guide-canvas {
 .login-auth-copy .desc {
   margin: 0 0 8px;
   font-size: 11px
+}
+
+/* Apple Music：密码登录对部分账号已被 Apple 停用（网页端同样报错），这行是自助指引，
+   与登录逻辑无关，只负责劝用户改走手机号验证码。
+   Apple disabled password sign-in for some accounts; this is a static hint, not logic. */
+.login-auth-copy .desc .login-am-signin-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgba(244, 210, 138, .62)
 }
 
 .login-auth-copy #qr-status {
