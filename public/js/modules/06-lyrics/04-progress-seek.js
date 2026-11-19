@@ -152,12 +152,24 @@ function getPlaybackCurrentSeconds() {
   }
   return audio && isFinite(audio.currentTime) && audio.currentTime > 0 ? audio.currentTime : 0;
 }
+// 上一拍真正写进 DOM 的值。心跳是 5 次/秒，播放时百分比一直在动，但暂停、缓冲、
+// 或者一首歌播完之后这几条写入就全是重复的了 —— 重复写 textContent 会重建文本节点、
+// 让整行布局标脏，白白触发一轮排版。量化到 0.01% 再比对，肉眼无差。
+// Last values actually written to the DOM. The heartbeat runs at 5 Hz; while playing the
+// percentage really does move, but when paused, buffering or after the track ends every one of
+// these writes repeats the previous value — and rewriting textContent rebuilds the text node and
+// dirties the row's layout for nothing. Quantising to 0.01% first is visually identical.
+var progressVisualLastPercent = -1;
+var progressTimeLastText = '';
 function setProgressVisual(percent) {
   percent = clampRange(percent || 0, 0, 100);
+  var rounded = Math.round(percent * 100) / 100;
+  if (rounded === progressVisualLastPercent) return;
+  progressVisualLastPercent = rounded;
   var fill = document.getElementById('progress-fill');
   var thumb = document.getElementById('progress-thumb');
-  if (fill) fill.style.width = percent + '%';
-  if (thumb) thumb.style.left = percent + '%';
+  if (fill) fill.style.width = rounded + '%';
+  if (thumb) thumb.style.left = rounded + '%';
 }
 function updatePlaybackProgressUi() {
   if (isProgressDragPreviewActive() && progressDragState.previewDuration > 0) {
@@ -168,8 +180,11 @@ function updatePlaybackProgressUi() {
   var currentSec = getPlaybackCurrentSeconds();
   if (durationSec > 0 && currentSec > durationSec) currentSec = durationSec;
   setProgressVisual(durationSec > 0 ? (currentSec / durationSec * 100) : 0);
+  var timeText = formatProgramTime(currentSec) + ' / ' + (durationSec > 0 ? formatProgramTime(durationSec) : '0:00');
+  if (timeText === progressTimeLastText) return;
+  progressTimeLastText = timeText;
   var timeDisplay = document.getElementById('time-display');
-  if (timeDisplay) timeDisplay.textContent = formatProgramTime(currentSec) + ' / ' + (durationSec > 0 ? formatProgramTime(durationSec) : '0:00');
+  if (timeDisplay) timeDisplay.textContent = timeText;
 }
 
 function playbackTransitionHasAudibleNextDeck() {

@@ -61,6 +61,7 @@ const path = require('path');
 const crypto = require('crypto');
 const tls = require('tls');
 const { fileURLToPath } = require('url');
+const { serveStatic } = require('./static-assets');
 // 凭证加密层：safeStorage 由 main.js 在 require server.js 之前注入到 credential-crypto。
 // 在纯 Node 测试环境（没有 safeStorage）下自动降级为明文，凭证永远能读写。
 // Credential encryption: safeStorage is injected into credential-crypto by main.js before
@@ -469,19 +470,12 @@ function clearAllRuntimeLoginCredentials(reason) {
 }
 
 // ---------- 工具 ----------
-function serveStatic(res, filePath) {
-  const ext = path.extname(filePath);
-  fs.readFile(filePath, (err, data) => {
-    if (err) { res.writeHead(404); res.end('Not Found'); return; }
-    res.writeHead(200, {
-      'Content-Type': MIME[ext] || 'text/plain',
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-    });
-    res.end(data);
-  });
-}
+// 静态资源走条件请求（ETag + 304），实现与理由都在 server/static-assets.js。抽成独立模块才
+// 好在测试里直接跑，不必对着源码做字符串断言。以前这里是一刀切的 `no-store`，配上前端那个
+// `?v=<Date.now()>` 的缓存参数，等于每次启动都把 142 个前端文件（public/js 共 3.8 MB）当成
+// 全新资源重新读盘、传输、解析编译。
+// Static assets use conditional requests; implementation and rationale live in
+// server/static-assets.js, which is a separate module so tests can run it directly.
 function sendJSON(res, data, status) {
   res.writeHead(status || 200, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -7259,13 +7253,13 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 静态资源 ----------
   if (pn === '/favicon.ico') {
-    serveStatic(res, path.join(PROJECT_ROOT, 'build', 'icon.ico'));
+    serveStatic(req, res, path.join(PROJECT_ROOT, 'build', 'icon.ico'));
     return;
   }
 
   let filePath = pn === '/' ? '/index.html' : pn;
   filePath = path.join(PROJECT_ROOT, 'public', filePath);
-  serveStatic(res, filePath);
+  serveStatic(req, res, filePath);
 });
 
 server.listen(PORT, HOST, () => {

@@ -6,6 +6,16 @@
 // This module owns the child process lifecycle; the caller decides what a
 // "middle click" means for the current window state.
 
+// 采样周期 40ms 而不是 24ms：这个 PowerShell 循环只要桌面歌词窗口在就常驻，每拍唤醒一次线程。
+// 40ms 仍然远细于人手一次中键按下（正常 80~150ms），双击判定不会漏；常驻唤醒次数则少了四成。
+// `Start-Sleep` 的实际精度本来就受系统 15.6ms 计时器粒度影响，24ms 并不会更准。
+// Sampling every 40 ms instead of 24: this PowerShell loop lives as long as the desktop-lyrics
+// window exists and wakes a thread on every tick. 40 ms is still far finer than a real middle click
+// (normally 80-150 ms), so the double-click test never misses, while the idle wake-up count drops
+// by about 40%. `Start-Sleep` is quantised by the 15.6 ms system timer anyway, so 24 ms was never
+// actually more precise.
+const POLL_INTERVAL_MS = 40;
+
 const POLL_SCRIPT = `
 $ErrorActionPreference = "SilentlyContinue"
 Add-Type @"
@@ -23,7 +33,7 @@ while ($true) {
     [Console]::Out.Flush()
   }
   $prev = $down
-  Start-Sleep -Milliseconds 24
+  Start-Sleep -Milliseconds ${POLL_INTERVAL_MS}
 }
 `;
 

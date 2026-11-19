@@ -8,7 +8,14 @@ function createFrameGate(name, defaultFps) {
     runs: 0,
     skips: 0,
     lastDt: 0,
-    lastReason: ''
+    lastReason: '',
+    // 探针的计数键只跟名字有关，构造时算一次就够。主循环有 7 个门，原来每帧都要现拼
+    // `'frameGate.' + name + '.runs'/'.skipped'`，也就是每秒上千次没人用的字符串拼接。
+    // The probe's counter keys depend only on the name, so build them once here. The main loop
+    // has seven gates and used to concatenate these strings on every frame — thousands of
+    // allocations per second that nothing reads.
+    perfRunKey: 'frameGate.' + String(name || 'frame-gate') + '.runs',
+    perfSkipKey: 'frameGate.' + String(name || 'frame-gate') + '.skipped'
   };
 }
 
@@ -28,7 +35,7 @@ function consumeFrameGate(gate, now, dt, fps, force, reason) {
   if (gate.lastRunAt && now - gate.lastRunAt < minGap) {
     gate.skips += 1;
     if (window.__mineradioPerf && window.__mineradioPerf.count) {
-      window.__mineradioPerf.count('frameGate.' + gate.name + '.skipped');
+      window.__mineradioPerf.count(gate.perfSkipKey || ('frameGate.' + gate.name + '.skipped'));
     }
     return 0;
   }
@@ -42,7 +49,7 @@ function runFrameGate(gate, now, fallbackDt) {
   gate.lastDt = Math.min(stepDt, 0.18);
   gate.runs += 1;
   if (window.__mineradioPerf && window.__mineradioPerf.count) {
-    window.__mineradioPerf.count('frameGate.' + gate.name + '.runs');
+    window.__mineradioPerf.count(gate.perfRunKey || ('frameGate.' + gate.name + '.runs'));
   }
   return gate.lastDt;
 }

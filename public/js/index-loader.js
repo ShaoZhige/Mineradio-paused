@@ -31,7 +31,25 @@
 // loads, and quick-check's registration guard is what catches the omission.
 
 (function loadMineradioIndexModules() {
-  const moduleCacheBust = String(Date.now());
+  // 缓存参数。原来是 `String(Date.now())`：每次启动 142 个模块的 URL 全都不一样，等于宣告它们
+  // 都是全新资源 —— 浏览器副本用不上、V8 的编译缓存也用不上，于是每次开机都要把 3.8 MB 的
+  // 前端代码重新读盘、传输、解析编译。正确性其实不需要时间戳：服务端给静态文件发了 ETag，
+  // 文件一动 ETag 就变，开发时按 F5 照样拿到新内容。
+  // 需要强制绕过缓存时，在地址栏加 `?cacheBust=1`，这里会退回时间戳。
+  // Cache token. It used to be `String(Date.now())`, which gave all 142 modules a fresh URL on
+  // every launch — so neither the browser copy nor V8's compile cache could ever be reused, and the
+  // whole 3.8 MB front end was re-read, re-sent and re-compiled on each start. Correctness does not
+  // need a timestamp: the server sends an ETag for static files, so an edited file always changes
+  // it and a dev refresh still picks the change up. Append `?cacheBust=1` to force a full reload.
+  const moduleCacheBust = (function resolveModuleCacheBust() {
+    try {
+      const params = new URLSearchParams(String((window.location && window.location.search) || ''));
+      if (params.get('cacheBust') === '1') return String(Date.now());
+      return 'stable';
+    } catch (_) {
+      return 'stable';
+    }
+  })();
   const modulePaths = [
     'js/modules/00-state/13-i18n.js',
     'js/modules/00-state/14-i18n-switcher.js',
