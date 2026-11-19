@@ -1850,6 +1850,53 @@ async function buildSpotifyLikedPlaylistCard(profile) {
   }
 }
 
+// 一页卡片全是 0 才值得去补：只要有一张带数，说明这个通道本来就会给，缺的那几张可能是真空歌单。
+// Only a page where every card is zero is worth spending a call on: one non-zero card proves the
+// channel does report counts, so the remaining zeros are probably playlists that are really empty.
+function spotifyPlaylistCountsMissing(playlists) {
+  return Array.isArray(playlists) && playlists.length > 0
+    && playlists.every(pl => !(pl && Number(pl.trackCount) > 0));
+}
+
+// Web API 的曲目数按 id 贴回卡片（顺序可能因为文件夹展开而与 pathfinder 不同，只认 id）。
+// Match by id, not by position: folder flattening can reorder the two lists.
+function applySpotifyPlaylistTrackCounts(playlists, items) {
+  const counts = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const id = normalizeText(item && item.id);
+    const total = Number(item && item.tracks && item.tracks.total);
+    if (id && Number.isFinite(total) && total >= 0) counts.set(id, total);
+  });
+  let filled = 0;
+  (Array.isArray(playlists) ? playlists : []).forEach((pl) => {
+    if (!pl || !counts.has(pl.id)) return;
+    const next = counts.get(pl.id);
+    if (Number(pl.trackCount) === next) return;
+    pl.trackCount = next;
+    filled += 1;
+  });
+  return filled;
+}
+
+// pathfinder 的库列表若没带曲目数（整页都是 0），用一次 Web API 把卡片上的「N 首」补齐。
+// 只补一次、只补这一页：限流 / 未授权 / 超时都只是"这次补不上"，列表照旧返回 0 首，
+// 不会比现在更糟，也不会为了几行小字去翻完整库。
+// When the pathfinder library listing carries no track counts (a whole page of zeros), fill them
+// with one Web API call. Throttling or a missing scope just means "this time we could not", and
+// the rows still come back — a single call, never a per-playlist fan-out.
+async function fillMissingSpotifyPlaylistCounts(playlists, offset) {
+  if (!spotifyPlaylistCountsMissing(playlists)) return;
+  try {
+    const json = await spotifyUserGet('/me/playlists', {
+      limit: Math.min(50, Math.max(playlists.length, 20)),
+      offset: Math.max(0, Number(offset) || 0),
+    }, { timeoutMs: 8000, noRetry: true });
+    applySpotifyPlaylistTrackCounts(playlists, json && json.items);
+  } catch (_) {
+    // 补不上就算了：曲目数只是卡片上的一行小字，不该让整个列表失败。
+  }
+}
+
 async function handleSpotifyUserPlaylists(options) {
   options = options || {};
   // 冷却期内直接回一条"限流中"，不要走 handleSpotifyStatus + /me + /me/playlists 那一串：
@@ -1925,6 +1972,7 @@ async function handleSpotifyUserPlaylists(options) {
   } catch (err) {
     playlistError = spotifyErrorDetails(err);
   }
+  await fillMissingSpotifyPlaylistCounts(playlists, startOffset);
   const likedCard = await buildSpotifyLikedPlaylistCard(profile);
   const total = Math.max(playlists.length + startOffset, remoteTotal) + 1;
   const nextOffset = startOffset + playlists.length;
@@ -2487,5 +2535,7 @@ module.exports = {
     spotifyPartnerUsable,
     mapPartnerSong,
     mapPartnerPlaylist,
+    spotifyPlaylistCountsMissing,
+    applySpotifyPlaylistTrackCounts,
   },
 };

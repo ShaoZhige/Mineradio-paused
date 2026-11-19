@@ -412,6 +412,26 @@ function renderPlaylistPanelDetailRows() {
 function bindPlaylistPanelDetailScroller() {
   // 歌单详情与左栏共用 #playlist-panel 的单一滚动轴；行窗口由外层滚动位置驱动。
 }
+// 卡片上的「N 首」来自歌单目录那一页，而曲目页会带回这首歌单真正的总数。两边不一致时
+// 用后者纠正目录里的那一行：userPlaylists 引用的是同一个对象，紧接着的重绘就会显示正确值，
+// 架子和首页下次渲染也跟着对。
+// The card's track count comes from the catalog page; the track page reports the real total.
+// When they disagree, correct the catalog row — userPlaylists holds the same object, so the very
+// next render shows it, and the shelf/home tiles pick it up on their next pass.
+function syncPlaylistCatalogTrackCount(provider, pid, total) {
+  total = Number(total) || 0;
+  if (!(total > 0)) return false;
+  var list = typeof playlistCatalogProviderArray === 'function' ? playlistCatalogProviderArray(provider) : null;
+  if (!Array.isArray(list) || !list.length) return false;
+  var changed = false;
+  list.forEach(function (pl) {
+    if (!pl || String(pl.id || '') !== String(pid)) return;
+    if (Number(pl.trackCount) === total) return;
+    pl.trackCount = total;
+    changed = true;
+  });
+  return changed;
+}
 async function loadMorePlaylistPanelDetailTracks(reason) {
   var st = playlistPanelDetailState;
   if (!st.key || st.loadingMore || (reason !== 'initial' && !st.hasMore)) return false;
@@ -442,6 +462,9 @@ async function loadMorePlaylistPanelDetailTracks(reason) {
     st.error = (r && r.error) || '';
     st.message = (r && (r.message || r.warning)) || '';
     if (r && r.playlist) st.playlist = Object.assign({}, st.playlist || {}, r.playlist);
+    if (syncPlaylistCatalogTrackCount(provider, pid, responseTotal) && typeof scheduleShelfRebuild === 'function') {
+      scheduleShelfRebuild('playlist-track-count', true);
+    }
     if (reason === 'initial') {
       renderPlaylistPanelDetailState();
       scrollPlaylistPanelDetailIntoView(st.key);

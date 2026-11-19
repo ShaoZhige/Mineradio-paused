@@ -160,6 +160,31 @@ function songOf(track, beside) {
   };
 }
 
+// 曲目数在不同查询里挂在不同的地方：歌单页（fetchPlaylist）是 content.totalCount，
+// 但库列表（libraryV3）的持久化查询来自网页端"资料库"那一页 —— 那页本来就不显示曲目数，
+// 所以它很可能根本没求这个字段。全按 content.totalCount 读，库列表就会整页 0 首，
+// 而点进歌单（走 fetchPlaylist）曲目却是全的。
+// Track counts live in different places per query: the playlist page carries content.totalCount,
+// but the library list comes from the web player's own persisted query, which does not render
+// track counts there and may not request them at all.
+const PLAYLIST_TRACK_COUNT_PATHS = [
+  list => list.content && list.content.totalCount,
+  list => list.tracksV2 && list.tracksV2.totalCount,
+  list => list.tracks && list.tracks.totalCount,
+  list => list.totalCount,
+  list => list._content && list._content.totalCount,
+];
+function playlistTrackCount(list) {
+  if (!list || typeof list !== 'object') return 0;
+  for (const read of PLAYLIST_TRACK_COUNT_PATHS) {
+    let value = null;
+    try { value = read(list); } catch (_) { value = null; }
+    const count = Number(value);
+    if (Number.isFinite(count) && count > 0) return count;
+  }
+  return 0;
+}
+
 function playlistCard(list) {
   if (!list || typeof list !== 'object') return null;
   const id = idFromUri(list.uri, 'playlist');
@@ -174,7 +199,7 @@ function playlistCard(list) {
     description: plainText(list.description),
     ownerName: typeof owner.name === 'string' ? owner.name : '',
     ownerUsername: typeof owner.username === 'string' ? owner.username : '',
-    trackCount: Number(list.content && list.content.totalCount) || 0,
+    trackCount: playlistTrackCount(list),
     following: list.following === true,
     canEdit: !!(list.currentUserCapabilities && list.currentUserCapabilities.canEditItems),
   };
