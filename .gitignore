@@ -69,6 +69,12 @@ yarn-error.log*
 public/index.*.html
 !public/index.html
 
+# ⚠️ ztest/ 是一次性探针、冒烟脚本与截图的落地目录，本机专属；里面的 token-backup/
+#    还存着凭据副本，任何情况下都不许入库。
+# ztest/ holds throwaway probes, smoke scripts and screenshots. Its token-backup/ subdirectory
+# stores credential copies, so the whole directory must stay out of the repository.
+ztest/
+
 # Screenshots and transient verification artifacts
 .playwright-cli/
 output/
