@@ -114,6 +114,22 @@ async function main() {
     const web = snapshot.projects.find((item) => item.title.includes('Web Fixture'));
     const escape = snapshot.projects.find((item) => item.title === 'Escape Fixture');
     assert(video && video.playable && video.mediaType === 'video');
+    // 视频项目没有 PKGV，但引擎窗口能播 project.json；这条标记是「解码失败改走引擎」的依据。
+    // Video projects carry no PKGV but the engine window plays project.json, so this flag is
+    // what lets a failed decode fall back to the engine instead of the preview image.
+    assert.strictEqual(video.nativeVideoPlayable, true, 'a manifest-typed video project must be engine playable');
+    assert.strictEqual(web.nativeVideoPlayable, false, 'web projects must never be handed to the engine');
+    assert.strictEqual(escape.nativeVideoPlayable, false, 'a rejected media path must not be engine playable');
+    const realLibraryRoot = fs.realpathSync.native(libraryRoot);
+    const videoTarget = await instance.getNativeSceneTarget(video.id);
+    assert.strictEqual(videoTarget.nativeKind, 'video');
+    assert.strictEqual(videoTarget.scenePackage, '');
+    assert.strictEqual(videoTarget.projectFile, path.join(realLibraryRoot, 'video-project', 'project.json'));
+    await assert.rejects(
+      () => instance.getNativeSceneTarget(web.id),
+      /WALLPAPER_SCENE_NOT_FOUND/,
+      'a web project has no native target at all'
+    );
     assert(scene && !scene.playable && scene.enginePlayable && !scene.previewOnly && scene.hasPreview && scene.previewAnimated);
     assert.strictEqual(scene.propertyCount, 7);
     assert.strictEqual(scene.workshopId, '1234567890');
@@ -126,7 +142,6 @@ async function main() {
     assert(!JSON.stringify(snapshot.projects).includes(temp), 'renderer metadata must not expose absolute paths');
     assert.strictEqual(snapshot.enginePlayableCount, 2, 'valid .pkg and PKGV .pak Scene packages should be engine playable');
     const sceneTarget = await instance.getNativeSceneTarget(scene.id);
-    const realLibraryRoot = fs.realpathSync.native(libraryRoot);
     assert.strictEqual(sceneTarget.scenePackage, path.join(realLibraryRoot, 'scene-project', 'scene.pkg'));
     assert.strictEqual(sceneTarget.projectFile, path.join(realLibraryRoot, 'scene-project', 'project.json'));
     assert.deepStrictEqual(sceneTarget.muteProperties, {

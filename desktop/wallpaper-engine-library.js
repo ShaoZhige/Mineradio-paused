@@ -512,6 +512,14 @@ async function indexProject(projectRoot, source, scenePackageOverride = '') {
   const mediaType = VIDEO_MIME.has(mediaExt) ? 'video' : (IMAGE_MIME.has(mediaExt) ? 'image' : '');
   const safeProjectType = projectType || (mediaType ? mediaType : 'unknown');
   const enginePlayable = !!scenePackage;
+  // 视频项目没有 PKGV，但 Wallpaper Engine 自己的播放窗口照样能放它（实测
+  // `-control openWallpaper -file .../project.json` 对 mp4v 也能出画面）。内置 <video>
+  // 只认 H.264/VP9 一类编码，遇到 MPEG-4 Part 2、HEVC 就会解码失败退回预览——
+  // 这条标记让渲染层在解码失败时能改成交给本机引擎跑。
+  // Video projects have no PKGV, yet the engine's own window plays them fine (measured with
+  // an mp4v project). The built-in <video> only decodes H.264/VP9-class codecs, so this flag
+  // lets the renderer hand a failed decode over to the local engine instead of a preview.
+  const nativeVideoPlayable = !!media && mediaType === 'video' && declaredType === 'video';
   const previewOnly = !media && !enginePlayable;
   const propertyAnalysis = projectType === 'scene' ? analyzeSceneProperties(project) : {
     propertyCount: 0,
@@ -528,6 +536,7 @@ async function indexProject(projectRoot, source, scenePackageOverride = '') {
       mediaAnimated: mediaExt === '.gif',
       playable: !!media,
       enginePlayable,
+      nativeVideoPlayable,
       previewOnly,
       hasPreview: !!preview,
       previewAnimated: previewExt === '.gif',
@@ -807,17 +816,41 @@ class WallpaperEngineLibrary {
     if (!/^[a-f0-9]{24}$/.test(id)) throw new Error('WALLPAPER_SCENE_ID_INVALID');
     if (!this.snapshot && !this.scanPromise) await this.list({ force: false });
     const record = this.index.get(id);
-    if (!record || !record.scenePackage) throw new Error('WALLPAPER_SCENE_NOT_FOUND');
+    if (!record) throw new Error('WALLPAPER_SCENE_NOT_FOUND');
+    const manifest = await readProjectManifest(record.projectRoot);
+    if (!manifest) throw new Error('WALLPAPER_SCENE_MANIFEST_INVALID');
+    // Video 项目没有 PKGV，但引擎窗口能直接播 project.json。只有 project.json 明确写了
+    // type: "video" 且媒体文件仍在时才走这条路；web/application 项目依旧不交给引擎运行。
+    // Video projects carry no PKGV but the engine window plays project.json directly. Only
+    // when the manifest says type: "video" and the media file is still on disk; web and
+    // application projects are still never handed to the engine.
+    if (!record.scenePackage && String(manifest.value.type || '').trim().toLowerCase() === 'video') {
+      const media = await this.validatedRecordFile(record, 'media');
+      if (!media) throw new Error('WALLPAPER_SCENE_NOT_FOUND');
+      return {
+        id,
+        nativeKind: 'video',
+        projectFile: manifest.file,
+        scenePackage: '',
+        media,
+        properties: [],
+        muteProperties: {},
+        propertyCount: 0,
+        audioPropertyCount: 0,
+        mutedAudioPropertyCount: 0,
+      };
+    }
+    if (!record.scenePackage) throw new Error('WALLPAPER_SCENE_NOT_FOUND');
     const target = await resolveProjectFile(record.projectRoot, path.relative(record.projectRoot, record.scenePackage), SCENE_PACKAGE_EXTENSIONS);
     const scenePackage = await validateScenePackage(target);
     if (!scenePackage) throw new Error('WALLPAPER_SCENE_PACKAGE_INVALID');
-    const manifest = await readProjectManifest(record.projectRoot);
-    if (!manifest || String(manifest.value.type || '').trim().toLowerCase() !== 'scene') {
+    if (String(manifest.value.type || '').trim().toLowerCase() !== 'scene') {
       throw new Error('WALLPAPER_SCENE_MANIFEST_INVALID');
     }
     const propertyAnalysis = analyzeSceneProperties(manifest.value);
     return {
       id,
+      nativeKind: 'scene',
       projectFile: manifest.file,
       scenePackage,
       properties: propertyAnalysis.properties,

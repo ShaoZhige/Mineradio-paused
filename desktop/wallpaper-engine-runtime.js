@@ -5198,6 +5198,11 @@ class WallpaperEngineRuntime {
       }
       const projectFile = target && target.projectFile;
       const scenePackage = target && target.scenePackage;
+      // Video 项目没有场景包：引擎窗口按 project.json 直接播视频，所以这条路上只需要
+      // manifest 有效。Scene 仍然要求 PKGV 场景包，二者不能互相放宽。
+      // Video projects have no scene package: the engine window plays project.json directly,
+      // so only the manifest has to be valid. Scenes still require a PKGV package.
+      const nativeKind = target && target.nativeKind === 'video' ? 'video' : 'scene';
       const projectStat = projectFile && path.isAbsolute(projectFile) && path.extname(projectFile).toLowerCase() === '.json'
         ? await statFile(projectFile)
         : null;
@@ -5205,9 +5210,13 @@ class WallpaperEngineRuntime {
       const targetStat = scenePackage && path.isAbsolute(scenePackage) && (sceneExtension === '.pkg' || sceneExtension === '.pak')
         ? await statFile(scenePackage)
         : null;
-      if (!targetStat || !target || String(target.id || '').toLowerCase() !== session.id) {
+      const targetIdMatches = !!target && String(target.id || '').toLowerCase() === session.id;
+      if (nativeKind === 'video') {
+        if (!targetIdMatches || !projectStat) throw runtimeError('WALLPAPER_VIDEO_PROJECT_INVALID');
+      } else if (!targetStat || !targetIdMatches) {
         throw runtimeError('WALLPAPER_SCENE_PACKAGE_INVALID');
       }
+      session.nativeKind = nativeKind;
       if (generation !== this.generation || this.disposed) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
 
       startStage = 'ensure-engine-ready';

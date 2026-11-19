@@ -198,7 +198,7 @@ for (const scale of [1.02, 1.2, 1.3, 1.6]) {
 const applyBackgroundBlock = sourceBlock(
   rendererText,
   'function applyWallpaperEngineBackground(item, quiet) {',
-  'function activateWallpaperEngineItem(id) {'
+  'function activateWallpaperEngineItem(id, options) {'
 );
 assert.match(
   applyBackgroundBlock,
@@ -351,8 +351,8 @@ assert.match(
 );
 
 const retryBlock = sourceBlock(rendererText, 'function retryWallpaperEngineNativeRun() {', 'function deactivateWallpaperEngineBackground(quiet) {');
-assert.match(retryBlock, /if \(!item\.enginePlayable\)/, 'the retry handler must explain a project that cannot run natively');
-assert.match(retryBlock, /activateWallpaperEngineItem\(item\.id\)/, 'the retry handler must re-enter the normal activation path');
+assert.match(retryBlock, /if \(!item\.enginePlayable && !item\.nativeVideoPlayable\)/, 'the retry handler must explain a project that cannot run natively');
+assert.match(retryBlock, /activateWallpaperEngineItem\(item\.id, \{ forceEngine: true \}\)/, 'the retry handler must re-enter the activation path asking for the engine');
 assert.match(
   rendererText,
   /function retryWallpaperEngineNativeRun\(\)/,

@@ -75,6 +75,11 @@ var wallpaperEngineRuntimeError = '';
 // explicit activation and whenever the native scene actually comes up.
 var wallpaperEngineNativeAutoRetryTimer = 0;
 var wallpaperEngineNativeAutoRetryUsed = 0;
+// 视频壁纸的内置 <video> 解码失败后改交给 WE 引擎，只升级一次：引擎再失败就走项目预览，
+// 不能来回换播放器把界面拖进死循环。
+// A failed built-in <video> decode upgrades to the WE engine exactly once; if the engine
+// fails too we fall back to the project preview instead of ping-ponging between players.
+var wallpaperEngineMediaNativeFallbackUsed = 0;
 var WALLPAPER_ENGINE_NATIVE_AUTO_RETRY_DELAY_MS = 1200;
 var wallpaperEngineProjectDetailsId = '';
 var wallpaperEngineVisualSettingsTimer = 0;
@@ -345,6 +350,11 @@ function normalizeWallpaperEngineProject(item) {
     mediaAnimated: item.mediaAnimated === true,
     playable: item.playable === true && !!mediaType,
     enginePlayable: item.enginePlayable === true && projectType === 'scene',
+    // Video 项目没有 PKGV，但 Wallpaper Engine 自己的窗口能播它；内置 <video> 解不了的
+    // 编码（MPEG-4 Part 2 / HEVC 等）就靠这条标记改交给本机引擎。
+    // Video projects carry no PKGV but the engine window still plays them, so a built-in
+    // <video> decode failure can hand the wallpaper to the local engine instead of a preview.
+    nativeVideoPlayable: item.nativeVideoPlayable === true && mediaType === 'video',
     previewOnly: item.previewOnly === true || (item.playable !== true && item.enginePlayable !== true),
     hasPreview: item.hasPreview === true,
     previewAnimated: item.previewAnimated === true,
@@ -1785,6 +1795,23 @@ function wallpaperEngineLayerFailed(item, attemptedKind, token, failureError) {
       return;
     }
   }
+  if (attemptedKind === 'media' && item && item.nativeVideoPlayable && !wallpaperEngineMediaNativeFallbackUsed) {
+    // 内置 <video> 只有 H.264/VP9 一类解码器，MPEG-4 Part 2、HEVC 的壁纸会直接报
+    // MEDIA_ERR_SRC_NOT_SUPPORTED。这时别急着退回封面图：本机 WE 引擎的播放窗口能解
+    // 这些编码（实测 mp4v 项目出画面），改走原生窗口比一张 512×288 的预览有用。
+    // The built-in <video> only decodes H.264/VP9-class media; MPEG-4 Part 2 or HEVC
+    // projects fail with MEDIA_ERR_SRC_NOT_SUPPORTED. The local engine window does play
+    // them (measured with an mp4v project), so upgrade instead of dropping to the cover art.
+    wallpaperEngineMediaNativeFallbackUsed = 1;
+    wallpaperEngineSelection.kind = 'engine';
+    wallpaperEngineRuntimeError = '';
+    // 记下来：下次启动直接按引擎模式恢复，不必再让 <video> 失败一遍。
+    // Persist it so the next launch resumes in engine mode instead of failing again.
+    if (typeof saveWallpaperEngineSelection === 'function') saveWallpaperEngineSelection();
+    updateWallpaperEngineEntryUi(wallpaperEngineLibraryText('we_video_native_fallback'));
+    applyWallpaperEngineBackground(item, true);
+    return;
+  }
   if ((attemptedKind === 'media' || attemptedKind === 'engine') && item && item.hasPreview) {
     wallpaperEngineSelection.kind = 'preview';
     wallpaperEngineSelection.mediaType = 'image';
@@ -1808,7 +1835,8 @@ function applyWallpaperEngineBackground(item, quiet) {
     updateWallpaperEngineEntryUi(item ? '' : wallpaperEngineLibraryText('we_offline_showing_original'));
     return false;
   }
-  var kind = wallpaperEngineSelection.kind === 'engine' && item.enginePlayable
+  var nativeReady = item.enginePlayable || item.nativeVideoPlayable;
+  var kind = wallpaperEngineSelection.kind === 'engine' && nativeReady
     ? 'engine'
     : (wallpaperEngineSelection.kind === 'media' && item.playable ? 'media' : 'preview');
   if (kind === 'preview' && !item.hasPreview) {
@@ -1875,9 +1903,9 @@ function applyWallpaperEngineBackground(item, quiet) {
   return true;
 }
 
-function activateWallpaperEngineItem(id) {
+function activateWallpaperEngineItem(id, options) {
   var item = wallpaperEngineProjectById(id);
-  if (!item || (!item.playable && !item.enginePlayable && !item.hasPreview)) {
+  if (!item || (!item.playable && !item.enginePlayable && !item.nativeVideoPlayable && !item.hasPreview)) {
     showToast(wallpaperEngineLibraryText('we_no_safe_media'));
     return;
   }
@@ -1912,13 +1940,19 @@ function activateWallpaperEngineItem(id) {
   // An explicit activation (including the in-app retry entry) restores the auto-retry budget;
   // otherwise a manual retry that fails would get no automatic second attempt.
   wallpaperEngineNativeAutoRetryUsed = 0;
+  wallpaperEngineMediaNativeFallbackUsed = 0;
   cancelWallpaperEngineNativeAutoRetry();
+  // 重试入口要求直接走引擎：视频项目平时优先用内置 <video>（更快、无窗口），
+  // 只有用户点"重试"时才跳过它。
+  // The retry entry asks for the engine explicitly: video projects normally prefer the
+  // built-in <video> (faster, no extra window), so only a manual retry skips it.
+  var preferEngine = item.enginePlayable || (options && options.forceEngine === true && item.nativeVideoPlayable);
   wallpaperEngineSelection = normalizeWallpaperEngineSelection({
     active: true,
     id: item.id,
     title: item.title,
-    kind: item.enginePlayable ? 'engine' : (item.playable ? 'media' : 'preview'),
-    mediaType: item.enginePlayable ? 'video' : (item.playable ? item.mediaType : 'image'),
+    kind: preferEngine ? 'engine' : (item.playable ? 'media' : 'preview'),
+    mediaType: preferEngine ? 'video' : (item.playable ? item.mediaType : 'image'),
     mediaAnimated: item.mediaAnimated,
     projectType: item.projectType,
     hasPreview: item.hasPreview,
@@ -1952,20 +1986,21 @@ function retryWallpaperEngineNativeRun() {
     showToast(wallpaperEngineLibraryText('we_offline_reimport'));
     return;
   }
-  if (!item.enginePlayable) {
+  if (!item.enginePlayable && !item.nativeVideoPlayable) {
     showToast(item.playable
       ? wallpaperEngineLibraryText('we_direct_media')
       : wallpaperEngineLibraryText('we_no_pkgv'));
     return;
   }
   showToast(wallpaperEngineLibraryText('we_retrying_native'));
-  activateWallpaperEngineItem(item.id);
+  activateWallpaperEngineItem(item.id, { forceEngine: true });
 }
 
 function deactivateWallpaperEngineBackground(quiet) {
   cancelWallpaperEngineHostRecovery(true);
   cancelWallpaperEngineNativeAutoRetry();
   wallpaperEngineNativeAutoRetryUsed = 0;
+  wallpaperEngineMediaNativeFallbackUsed = 0;
   wallpaperEngineDesktopPreviewActive = false;
   wallpaperEngineDesktopPreviewUsesAsset = false;
   wallpaperEngineSelection.active = false;

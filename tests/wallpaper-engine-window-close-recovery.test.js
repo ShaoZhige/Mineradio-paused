@@ -410,7 +410,7 @@ assert(
   'the native ready path must return the auto-retry budget'
 );
 
-const activateSource = extractFunction(libraryText, 'function activateWallpaperEngineItem(id) {');
+const activateSource = extractFunction(libraryText, 'function activateWallpaperEngineItem(id, options) {');
 assert(
   activateSource.includes('wallpaperEngineNativeAutoRetryUsed = 0;')
   && activateSource.includes('cancelWallpaperEngineNativeAutoRetry();'),
