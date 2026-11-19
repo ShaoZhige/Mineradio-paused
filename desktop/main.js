@@ -16,6 +16,8 @@ const { createCacheSettingsManager } = require('./cache-settings');
 const { createAppMemoryManager } = require('./app-memory');
 const { createQuitController } = require('./quit');
 const desktopIcons = require('./desktop-icons');
+const { pruneStaleNativeTempScripts } = require('./native-temp-cleanup');
+const { appendLogLine } = require('./log-rotation');
 const { createMiddleClickPoller } = require('./global-middle-click-poller');
 const { createDesktopLyricsController } = require('./desktop-lyrics');
 const {
@@ -397,6 +399,22 @@ const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS.nativePath;
 fs.mkdirSync(NATIVE_HELPER_TEMP_PATH, { recursive: true });
 process.env.MINERADIO_NATIVE_TEMP_DIR = NATIVE_HELPER_TEMP_PATH;
 systemMemory.setNativeTempPath(NATIVE_HELPER_TEMP_PATH);
+// 图标层、Spotify 探针、内存工具都会写「每次唯一命名」的 .ps1，正常退出才删。被强杀或崩溃时
+// 那一步跑不到，文件会永久留在 native 临时区里越堆越多。这里启动时按「名字形状 + 年龄」清一遍，
+// 判定规则见 desktop/native-temp-cleanup.js。异步跑，不占启动关键路径。
+// The icon layer, Spotify probe and memory tools all write uniquely named .ps1 helpers that are
+// removed only on a clean exit; a forced kill or crash skips that and they pile up in the native
+// temp area. Prune them here by name shape plus age (see desktop/native-temp-cleanup.js), off the
+// startup critical path.
+setImmediate(() => {
+  try {
+    const pruned = pruneStaleNativeTempScripts(NATIVE_HELPER_TEMP_PATH);
+    if (pruned.removed.length) console.log('[NativeTemp] pruned stale helper scripts:', pruned.removed.length);
+    if (pruned.failed.length) console.warn('[NativeTemp] helper scripts remained:', pruned.failed.join(', '));
+  } catch (error) {
+    console.warn('[NativeTemp] prune failed:', error && error.message || error);
+  }
+});
 // 曲库监视到增删时通知渲染层刷新。渲染层本来就有拉取通道（mineradio-local-library-list），
 // 这里只发一个"变了"的信号，不重复推数据，两边不会各说各话。
 // The renderer already has a pull channel, so a change only sends a "something moved" signal rather
@@ -423,6 +441,9 @@ const wallpaperEngineRuntime = new WallpaperEngineRuntime({
   // problem like "why did the engine raise that dialog" no longer requires catching a control
   // process that lives a few dozen milliseconds.
   controlCommandLogPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-commands.log'),
+  // 每个启动阶段的耗时分布。加载慢到底慢在哪一段，只能靠这份数据，不能靠猜。
+  // Per-stage startup timings: "why is loading slow" needs this data, not guesswork.
+  startTimingLogPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-start-timing.log'),
   frameDeltaPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-window-frame.json'),
   // 引擎就绪与签名校验的结论都落在用户数据目录：这两件事每次启用都要重做，而它们的结论
   // 只取决于进程集合与文件指纹。跨启动复用后，启用前只剩一次 tasklist。
@@ -2547,7 +2568,9 @@ function writeStartupErrorLog(context, code, error) {
   ].join('\n');
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, payload, 'utf8');
+    // 走带轮转的写入：这份日志只增不减，长期会到几百 KB。上限与历史份数见 log-rotation.js。
+    // Rotating append: this log only ever grows and reaches hundreds of KB over time.
+    appendLogLine(file, payload);
   } catch (e) {
     console.warn('[StartupError] log write failed:', e.message);
   }
@@ -2850,6 +2873,16 @@ function getAdaptiveWindowMinimumSize(display) {
 function updateMainWindowMinimumSize(win) {
   if (!win || win.isDestroyed()) return;
   const minimum = getAdaptiveWindowMinimumSize(getWindowDisplay(win));
+  // move/resize 是光标级频率（拖动时每秒上百次），而 setMinimumSize 是同步原生调用：
+  // 每拍都发一遍等于把主进程消息循环排在拖拽路径上，手感的"发滞"有一部分就来自这里。
+  // 读回当前值判重即可 —— 谁中途改过（例如桌面模式复原）都会被下一次调正，不需要额外
+  // 的失效机制。
+  // move/resize fires at cursor rate (100+/s while dragging) and setMinimumSize is a
+  // synchronous native call, so firing it on every event puts the main process message loop in
+  // the drag path. Reading the current value back is enough: any other writer (e.g. the desktop
+  // mode restore) is corrected on the next pass without a separate invalidation channel.
+  const current = typeof win.getMinimumSize === 'function' ? win.getMinimumSize() : null;
+  if (Array.isArray(current) && current[0] === minimum.width && current[1] === minimum.height) return;
   win.setMinimumSize(minimum.width, minimum.height);
 }
 
@@ -3503,6 +3536,32 @@ ipcMain.handle('mineradio-wallpaper-engine-runtime-status', async (event, payloa
     return { ...probe, ...wallpaperEngineRuntime.getStatus(), pending: wallpaperEngineRuntime.pending != null };
   } catch (error) {
     return { ok: false, available: false, error: error.message || 'WALLPAPER_ENGINE_RUNTIME_PROBE_FAILED' };
+  }
+});
+
+// 用户在壁纸面板里挑壁纸的那几秒，正好够把引擎冷启（3.8~5.3 秒）和控制宿主预热做完。
+// 预热没有副作用：不建会话、不改状态，失败就静默，真正的启动照旧走完整路径。
+// The seconds spent browsing the wallpaper panel are enough to absorb the engine cold start
+// (3.8~5.3 s) and the control-host warmup. Warmup is side-effect free: no session, no state
+// change, silent on failure, and a real start still walks the whole path.
+ipcMain.handle('mineradio-wallpaper-engine-warmup', async (event, payload = {}) => {
+  try {
+    if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
+    // 主窗口被隐藏/最小化时不预热：那种状态下用户并没有在看壁纸面板。
+    // Skip when the host is hidden or minimized — nobody is looking at the panel then.
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || mainWindow.isMinimized()
+      || wallpaperEngineHostVisibilitySuspended) {
+      return { ok: false, error: 'WALLPAPER_ENGINE_HOST_HIDDEN' };
+    }
+    return await wallpaperEngineRuntime.warmUp({
+      // 面板已经打开了一会儿还没关，说明用户真的在挑：这时把引擎冷启也一起消化掉。
+      // The panel has been open long enough that the user is really picking, so absorb the cold
+      // bootstrap too.
+      engine: 'launch',
+      silentWindows: payload && payload.silentWindows !== false,
+    });
+  } catch (error) {
+    return { ok: false, error: String(error && (error.code || error.message) || 'WALLPAPER_ENGINE_WARMUP_FAILED') };
   }
 });
 

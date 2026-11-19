@@ -11,6 +11,7 @@ const {
   buildScenePropertyPayload,
 } = require('./wallpaper-engine-user-properties');
 const portablePaths = require('./portable-paths');
+const { appendLogLine } = require('./log-rotation');
 
 const SIGNER_PATTERN = /\bSkutta Software\b/i;
 const MIN_WIDTH = 64;
@@ -39,6 +40,13 @@ const ENGINE_READY_SUCCESS_COUNT = 2;
 const ENGINE_READY_CACHE_MS = 5 * 60 * 1000;
 // 跨启动的「引擎已就绪」结论只在进程集合不变时成立，换实例或超期就退回完整校验。
 const ENGINE_READY_DISK_CACHE_MS = 12 * 60 * 60 * 1000;
+// 刚成功发出的一次静音属性在这段时间内可以复用：属性命令是一条独立的 WE 控制进程
+// （约 1.2 秒），而 `confirmCaptureReady` 紧跟在启动的早期静音之后，窗口根本没重建，
+// 再发一次买不到任何东西。定时重发（MUTE_REASSERT_DELAYS_MS）走强制路径，不受影响。
+// A just-acknowledged mute may be reused inside this window: one property command costs a
+// whole WE control process (~1.2 s) and `confirmCaptureReady` lands right after the startup
+// mute on a window nothing has rebuilt. Scheduled re-assertions force a resend.
+const AUDIO_MUTE_REUSE_MS = 5000;
 const WINDOW_CONTROL_HOST_IDLE_MS = 120000;
 const WINDOW_CONTROL_HOST_START_TIMEOUT_MS = 8000;
 const WINDOW_CONTROL_HOST_COMMAND_TIMEOUT_MS = 20000;
@@ -803,6 +811,16 @@ public static class MineradioWeWindowControl {
     if (!String.Equals(WindowTitle(hWnd), expectedTitle ?? "", StringComparison.Ordinal)) throw new InvalidOperationException("Capture window title mismatch");
     uint processId = ValidateProcess(hWnd, expectedExecutable);
 
+    // 只回答"那个窗口还在不在"。关窗后要判断 WE 是否已经自己收掉了窗口，再决定
+    // 要不要补一次外部 WM_CLOSE：同一窗口收到第二个关闭请求会让 WE 在关窗流程里
+    // 重入，实测能把 wallpaper64.exe 打成 0xc0000374（堆损坏）。
+    // Answers only "is that window still there" so the caller can give Wallpaper Engine
+    // time to close on its own before sending a second, external WM_CLOSE: a second close
+    // request re-enters its teardown and has been observed to corrupt the heap (0xc0000374).
+    if (String.Equals(action, "exists", StringComparison.OrdinalIgnoreCase)) {
+      return new MineradioWeWindowResult { ok = true, missing = false };
+    }
+
     if (String.Equals(action, "close", StringComparison.OrdinalIgnoreCase)) {
       MineradioWeWindowResult closeResult = Snapshot(hWnd, processId);
       closeResult.closePosted = PostMessageW(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
@@ -847,22 +865,51 @@ public static class MineradioWeWindowControl {
       isolateResult.taskbarIsolated = IsolateFromShell(hWnd);
       return isolateResult;
     }
-    if (!String.Equals(action, "embed", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Unsupported window control action");
+    bool isFit = String.Equals(action, "fit", StringComparison.OrdinalIgnoreCase);
+    if (!isFit && !String.Equals(action, "embed", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Unsupported window control action");
     IntPtr hostHWnd = ParseRawHandle(hostWindowId);
     if (!IsWindow(hostHWnd)) throw new InvalidOperationException("Host window is missing");
     ValidateProcess(hostHWnd, hostExecutable);
     RECT hostRect;
     if (!GetWindowRect(hostHWnd, out hostRect)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    const int tolerance = 2;
+    if (isFit) {
+      // 直接在同一个 WE 窗口上摆位，不关窗重开：关一次就要重建整条渲染链，Scene 包越重
+      // 代价越大（4K HDR 素材重建一次就是几秒，还有把它打崩的风险）。这里只调位置和
+      // 尺寸，WE 自己收到 WM_SIZE 会跟着重新缩放内容。
+      // Reposition the existing engine window instead of closing and reopening it: every
+      // reopen rebuilds the whole render chain, which costs seconds and can crash the
+      // engine on heavy 4K HDR scenes. A plain move/resize is enough, WE rescales content
+      // on WM_SIZE.
+      int hostWidth = Math.Max(1, hostRect.Right - hostRect.Left);
+      int hostHeight = Math.Max(1, hostRect.Bottom - hostRect.Top);
+      const uint SWP_FIT_NOZORDER = 0x0004;
+      const uint SWP_FIT_NOACTIVATE = 0x0010;
+      const uint SWP_FIT_NOOWNERZORDER = 0x0200;
+      for (int attempt = 0; attempt < 3; attempt += 1) {
+        RECT current;
+        if (!GetWindowRect(hWnd, out current)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        bool alreadyAligned = Math.Abs(current.Left - hostRect.Left) <= tolerance
+          && Math.Abs(current.Top - hostRect.Top) <= tolerance
+          && Math.Abs(current.Right - hostRect.Right) <= tolerance
+          && Math.Abs(current.Bottom - hostRect.Bottom) <= tolerance;
+        if (alreadyAligned) break;
+        if (!SetWindowPos(hWnd, IntPtr.Zero, hostRect.Left, hostRect.Top, hostWidth, hostHeight,
+            SWP_FIT_NOZORDER | SWP_FIT_NOACTIVATE | SWP_FIT_NOOWNERZORDER)) {
+          throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        Thread.Sleep(60);
+      }
+    }
     RECT sourceRect;
     if (!GetWindowRect(hWnd, out sourceRect)) throw new Win32Exception(Marshal.GetLastWin32Error());
     bool rounded = ApplyCornerRegion(hWnd, sourceRect, hostCornerRadius);
-    const int tolerance = 2;
     bool aligned = !(Math.Abs(sourceRect.Left - hostRect.Left) > tolerance
       || Math.Abs(sourceRect.Top - hostRect.Top) > tolerance
       || Math.Abs(sourceRect.Right - hostRect.Right) > tolerance
       || Math.Abs(sourceRect.Bottom - hostRect.Bottom) > tolerance);
     MineradioWeWindowResult result = Snapshot(hWnd, processId);
-    result.moved = false;
+    result.moved = isFit;
     result.embedded = true;
     result.aligned = aligned;
     result.rounded = rounded;
@@ -1394,8 +1441,28 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   const uint DWM_TNP_OPACITY = 0x00000004;
   const uint DWM_TNP_VISIBLE = 0x00000008;
   const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x00000010;
+  const uint SWP_NOSIZE = 0x0001;
   const uint SWP_NOACTIVATE = 0x0010;
   const uint SWP_SHOWWINDOW = 0x0040;
+
+  // 空闲档只读两个窗口矩形（各一次 GetWindowRect），一个跨进程调用都不发；一旦宿主角
+  // 真的变了就切到 16ms（≈60Hz）跟手，停手 300ms 后再回落。原来是不管有没有变化都按
+  // 60ms 对两个窗口各发一次带尺寸的 SetWindowPos —— 跨进程同步调用，WE 渲染线程一忙就
+  // 把助手自己的消息循环堵住，拖动时表现为壁纸比窗口慢半拍。
+  // The idle cadence only samples two window rects and issues zero cross-process calls. A real
+  // host-rect change switches to 16ms (~60Hz) so dragging stays locked to the cursor, and 300ms
+  // of stillness falls back to idle. The old loop fired a sized SetWindowPos at both windows
+  // every 60ms regardless; those are synchronous cross-process calls, so a busy WE renderer
+  // thread stalled this helper's own message loop — which reads as "wallpaper lags the window".
+  const int FOLLOW_ACTIVE_INTERVAL_MS = 16;
+  const int FOLLOW_IDLE_INTERVAL_MS = 100;
+  const int FOLLOW_SETTLE_MS = 300;
+  // 层级每隔这么多拍强制重申一次：原来每 60ms 一次，空闲档 100ms × 3 ≈ 300ms，仍然比原来
+  // 便宜 5 倍，但没有把"桌面刷新后壁纸压到图标上面"的恢复时间拖到半秒。
+  // Re-assert z-order every N ticks. The old loop did it every 60ms; at the 100ms idle cadence,
+  // 3 ticks ≈ 300ms — still 5x cheaper, without stretching desktop-refresh recovery to half a
+  // second.
+  const int ZORDER_REASSERT_TICKS = 3;
   const int WM_NCHITTEST = 0x0084;
   const int HTTRANSPARENT = -1;
   const uint GA_ROOT = 2;
@@ -1475,6 +1542,16 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   int lastWidth = -1;
   int lastHeight = -1;
   int lastRadius = -1;
+  RECT lastHostRect = new RECT { Left = int.MinValue, Top = int.MinValue, Right = int.MinValue, Bottom = int.MinValue };
+  bool geometryApplied = false;
+  int lastThumbWidth = -1;
+  int lastThumbHeight = -1;
+  int lastThumbOpacity = -1;
+  int lastThumbPositionX = 0;
+  int lastThumbPositionY = 0;
+  int lastThumbScale = -1;
+  int ticksSinceReassert = 0;
+  int lastGeometryChangeTick = 0;
   int consecutiveFollowFailures = 0;
   IntPtr desktopIconHost = IntPtr.Zero;
   int visualOpacity = 255;
@@ -1523,7 +1600,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     BackColor = Color.Black;
     Text = "Mineradio WE DWM Surface";
     followTimer = new System.Windows.Forms.Timer();
-    followTimer.Interval = 60;
+    followTimer.Interval = FOLLOW_IDLE_INTERVAL_MS;
     followTimer.Tick += delegate {
       try { FollowHost(); }
       catch (Exception error) {
@@ -1583,7 +1660,9 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
                 try {
                   desktopIconLayeringEnabled = enabled;
                   if (!enabled) desktopIconHost = IntPtr.Zero;
-                  FollowHost();
+                  // 只换了层级目标，宿主角没动：必须强制走一遍，否则会被"没有变化"提前返回掉。
+                  // Only the layering target changed, so force the pass instead of being short-circuited.
+                  FollowHost(true);
                   applied = true;
                 } catch (Exception layeringError) {
                   // Never swallow this: without an ACK the caller waits, then keeps a broken
@@ -1744,7 +1823,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     if (result != 0 || thumbnail == IntPtr.Zero) {
       throw new InvalidOperationException("DwmRegisterThumbnail failed: 0x" + result.ToString("X8"));
     }
-    FollowHost();
+    FollowHost(true);
     // Keep the priming HWND a normal Shell capture target until WGC is already
     // live. Removing the taskbar tab earlier makes CreateForWindow reject it.
     try {
@@ -1755,7 +1834,20 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     } catch { }
   }
 
+  // 把跟随频率绑在"最近一次几何变化"上：拖动期间 16ms 跟手，停手 300ms 后回落到 100ms。
+  // Cadence follows the last real geometry change: 16ms while dragging, 100ms once still.
+  void ApplyFollowCadence(bool geometryChanged) {
+    if (geometryChanged) lastGeometryChangeTick = Environment.TickCount;
+    bool moving = unchecked(Environment.TickCount - lastGeometryChangeTick) < FOLLOW_SETTLE_MS;
+    int desiredInterval = moving ? FOLLOW_ACTIVE_INTERVAL_MS : FOLLOW_IDLE_INTERVAL_MS;
+    if (followTimer.Interval != desiredInterval) followTimer.Interval = desiredInterval;
+  }
+
   void FollowHost() {
+    FollowHost(false);
+  }
+
+  void FollowHost(bool force) {
     if (!IsWindow(hostWindow) || !IsWindow(sourceWindow)) {
       Close();
       return;
@@ -1767,7 +1859,27 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     if (!GetWindowRect(hostWindow, out hostRect)) throw new Win32Exception(Marshal.GetLastWin32Error());
     int width = Math.Max(1, hostRect.Right - hostRect.Left);
     int height = Math.Max(1, hostRect.Bottom - hostRect.Top);
-    int radius = ResolveCornerRadius(hostRect);
+    // 宿主角没动，它挂在哪个显示器上就不会变，圆角自然也不会变：省掉每拍的
+    // MonitorFromWindow + GetMonitorInfo。
+    // An unchanged host rect implies an unchanged monitor, so the corner radius cannot change:
+    // this skips MonitorFromWindow + GetMonitorInfo on every idle tick.
+    int radius = geometryApplied && RectMatches(hostRect, lastHostRect) ? lastRadius : ResolveCornerRadius(hostRect);
+
+    bool geometrySame = geometryApplied && radius == lastRadius && RectMatches(hostRect, lastHostRect);
+    bool thumbnailSame = thumbnail == IntPtr.Zero
+      || (width == lastThumbWidth && height == lastThumbHeight
+        && visualOpacity == lastThumbOpacity && visualScale == lastThumbScale
+        && visualPositionX == lastThumbPositionX && visualPositionY == lastThumbPositionY);
+
+    // 什么都没变：这一拍只花了两次 GetWindowRect，一个跨进程调用都没发。
+    // Nothing changed: this tick cost two GetWindowRect calls and zero cross-process calls.
+    bool reassertPass = ticksSinceReassert >= ZORDER_REASSERT_TICKS;
+    if (!force && geometrySame && thumbnailSame && !reassertPass) {
+      ticksSinceReassert += 1;
+      ApplyFollowCadence(false);
+      return;
+    }
+    ticksSinceReassert = 0;
 
     // There is deliberately no second native glass window. The single base
     // DWM surface is captured directly and cropped by Chromium only inside the
@@ -1787,29 +1899,50 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     if (iconHost != IntPtr.Zero && hostRoot != hostWindow && hostRoot != iconHost) iconHost = IntPtr.Zero;
     IntPtr hostLayer = hostRoot != IntPtr.Zero && hostRoot != hostWindow ? hostRoot : hostWindow;
     IntPtr surfaceInsertAfter = iconHost != IntPtr.Zero ? iconHost : hostLayer;
-    if (thumbnail != IntPtr.Zero) {
-      if (!SetWindowPos(Handle, surfaceInsertAfter, hostRect.Left, hostRect.Top, width, height,
-          SWP_NOACTIVATE | SWP_SHOWWINDOW)) throw new Win32Exception(Marshal.GetLastWin32Error());
-      if (!SetWindowPos(sourceWindow, Handle, hostRect.Left, hostRect.Top, width, height,
-          SWP_NOACTIVATE | SWP_SHOWWINDOW)) throw new Win32Exception(Marshal.GetLastWin32Error());
-    } else {
-      // Until WGC has primed the SVG sampler, show the real source above the
-      // empty DWM destination so startup never flashes a black base frame.
-      if (!SetWindowPos(sourceWindow, surfaceInsertAfter, hostRect.Left, hostRect.Top, width, height,
-          SWP_NOACTIVATE | SWP_SHOWWINDOW)) throw new Win32Exception(Marshal.GetLastWin32Error());
-      if (!SetWindowPos(Handle, sourceWindow, hostRect.Left, hostRect.Top, width, height,
-          SWP_NOACTIVATE | SWP_SHOWWINDOW)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    // 纯移动不传尺寸：让 WE 的 CEF 窗口重排一次是白花的工夫，拖动时每拍都重排就是手滞的
+    // 来源。只有尺寸真的变了才带 width/height（并重算圆角区域）。
+    // Pure moves omit the size: re-laying out the WE CEF window for an unchanged size is pure
+    // waste, and doing it once per drag tick is what reads as stutter. Only a real size change
+    // passes width/height (and recomputes the corner regions).
+    bool sizeChanged = width != lastWidth || height != lastHeight;
+    // 周期重申时读一次两个窗口的真实矩形：只有真的漂了才重设尺寸。否则每隔 500ms 让 CEF
+    // 重排一次，会把这轮优化换成一个新的、"一跳一跳"的周期性卡顿。
+    // A re-assert pass first reads both real rects and only resizes on real drift; otherwise the
+    // backstop itself would become a periodic CEF relayout, i.e. a brand new 2Hz hitch.
+    if (!sizeChanged && reassertPass) {
+      RECT actual;
+      sizeChanged = (GetWindowRect(sourceWindow, out actual) && !RectMatches(actual, hostRect))
+        || (GetWindowRect(Handle, out actual) && !RectMatches(actual, hostRect));
+    }
+    uint placementFlags = SWP_NOACTIVATE | SWP_SHOWWINDOW | (sizeChanged ? 0u : SWP_NOSIZE);
+    int placementWidth = sizeChanged ? width : 0;
+    int placementHeight = sizeChanged ? height : 0;
+    if (!geometrySame || force || reassertPass) {
+      if (thumbnail != IntPtr.Zero) {
+        if (!SetWindowPos(Handle, surfaceInsertAfter, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
+            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (!SetWindowPos(sourceWindow, Handle, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
+            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      } else {
+        // Until WGC has primed the SVG sampler, show the real source above the
+        // empty DWM destination so startup never flashes a black base frame.
+        if (!SetWindowPos(sourceWindow, surfaceInsertAfter, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
+            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (!SetWindowPos(Handle, sourceWindow, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
+            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
     }
 
-    if (width != lastWidth || height != lastHeight || radius != lastRadius) {
+    if (sizeChanged || radius != lastRadius) {
       ApplyCornerRegion(Handle, width, height, radius);
       ApplyCornerRegion(sourceWindow, width, height, radius);
-      lastWidth = width;
-      lastHeight = height;
-      lastRadius = radius;
     }
 
-    if (thumbnail != IntPtr.Zero) {
+    // 缩略图目标矩形是窗口内的坐标，跟屏幕位置无关：纯拖动时它一个字段都没变，这次
+    // DwmUpdateThumbnailProperties 可以直接省掉。
+    // The thumbnail destination is in window-local coordinates and does not depend on the screen
+    // position, so a pure move leaves every field intact and this call can be skipped.
+    if (thumbnail != IntPtr.Zero && (!thumbnailSame || force)) {
       DWM_THUMBNAIL_PROPERTIES properties = new DWM_THUMBNAIL_PROPERTIES();
       properties.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_OPACITY
         | DWM_TNP_VISIBLE | DWM_TNP_SOURCECLIENTAREAONLY;
@@ -1837,8 +1970,21 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
       if (result != 0) {
         throw new InvalidOperationException("DwmUpdateThumbnailProperties failed: 0x" + result.ToString("X8"));
       }
+      lastThumbWidth = width;
+      lastThumbHeight = height;
+      lastThumbOpacity = visualOpacity;
+      lastThumbPositionX = visualPositionX;
+      lastThumbPositionY = visualPositionY;
+      lastThumbScale = visualScale;
     }
+
+    lastWidth = width;
+    lastHeight = height;
+    lastRadius = radius;
+    lastHostRect = hostRect;
+    geometryApplied = true;
     consecutiveFollowFailures = 0;
+    ApplyFollowCadence(!geometrySame);
   }
 
   public static void Run(string sourceId, string expectedTitle, string expectedExecutable,
@@ -2025,6 +2171,11 @@ class WallpaperEngineRuntime {
     // cause is not obvious, the one thing that settles it is what we actually sent — without this
     // you either guess or try to catch a control process that lives a few dozen milliseconds.
     this.controlCommandLogPath = String(options.controlCommandLogPath || '').trim();
+    // 每个启动阶段的耗时落在这一份里：优化加载速度唯一可靠的依据是真实分布，而不是猜
+    // 哪一段慢。失败时同样落盘，失败点前面的阶段耗时往往就是原因。
+    // Per-stage startup timings land here: guessing which stage is slow is how "optimisations"
+    // end up doing nothing. Written on failure too, where the stages before the failure matter.
+    this.startTimingLogPath = String(options.startTimingLogPath || '').trim();
     this.frameDeltaPath = String(options.frameDeltaPath || '').trim();
     this.windowFrameDelta = readWindowFrameDelta(this.frameDeltaPath);
     this.windowController = typeof options.windowController === 'function'
@@ -3093,6 +3244,20 @@ class WallpaperEngineRuntime {
     return this.residentWindowController === true && this.platform === 'win32' && !this.disposed;
   }
 
+  // 常驻控制宿主要先起一个 PowerShell 再 Add-Type 编译那段 C#，实测 0.9~1.1 秒才收第一条
+  // 命令。第一次真正需要它的动作是 `isolate-window-shell`，也就是"壁纸窗口已经开出来"之后，
+  // 等于把这段时间整段加在画面出现前面。启动一开始就把它预热掉，和引擎冷启/工程准备重叠。
+  // The resident host needs a PowerShell cold start plus an Add-Type compile — 0.9~1.1 s before
+  // it accepts the first command. Its first real caller is `isolate-window-shell`, i.e. after the
+  // wallpaper window already exists, which put that wait straight onto time-to-picture. Warm it
+  // as soon as a start begins so it overlaps the engine bootstrap and project staging.
+  _warmWindowControlHost() {
+    if (!this._windowControlHostEnabled()) return;
+    try {
+      Promise.resolve(this._ensureWindowControlHost()).catch(() => {});
+    } catch (_) { }
+  }
+
   // 宿主起不来（没有 PowerShell、脚本编译失败、被杀）时静默退回单次脚本，功能不受影响，
   // 只是回到每次约 0.95 秒的老开销。宿主自身的问题只在控制台留一行。
   async _nativeWindowControl(action, details = {}) {
@@ -3515,11 +3680,25 @@ class WallpaperEngineRuntime {
   // until the instance this process started exits. Only those PIDs are touched, so a user-owned
   // engine keeps its taskbar presence.
   _startEngineWindowIsolationMonitor(processNames) {
-    this._stopEngineWindowIsolationMonitor();
     const targets = (Array.isArray(processNames) ? processNames : [])
       .map((name) => String(name || '').trim())
       .filter((name) => /^[A-Za-z0-9_. -]+$/.test(name));
     if (!targets.length || this.disposed) return 0;
+    // 目标没变、旧监视器还活着就继续用它。以前每次 start 都先杀掉再起一个新的，等于每启用
+    // 一次壁纸就重启一遍 PowerShell —— 白付一次冷启动，还会在枚举的空档里让 WE 窗口冒回
+    // 任务栏。只在目标集合真的变化（或进程已退出）时重建。
+    // Reuse a live monitor when the target set is unchanged. This used to kill and respawn one on
+    // every start, paying a PowerShell cold start per wallpaper and leaving a gap where the engine
+    // window could flash back onto the taskbar. Rebuild only on a real target change or exit.
+    const existing = this.engineWindowMonitor;
+    if (existing
+      && existing.stopped !== true
+      && existing.child
+      && existing.child.exitCode == null
+      && String(existing.pids.join(',')) === targets.join(',')) {
+      return Number(existing.isolated) || 0;
+    }
+    this._stopEngineWindowIsolationMonitor();
     let child = null;
     try {
       child = this.spawn(this.powerShellExecutable, [
@@ -3903,11 +4082,25 @@ class WallpaperEngineRuntime {
     }
   }
 
-  async _applySessionMute(session) {
+  async _applySessionMute(session, options = {}) {
     if (!this._sessionIsCurrent(session) || !session.executable || !session.locationTitle) return false;
     if (session.muteApplyPromise) return session.muteApplyPromise;
+    const properties = buildScenePropertyPayload(session.muteProperties, session.userProperties);
+    const payloadKey = JSON.stringify(properties);
+    // 同一条属性、刚被确认过、窗口也没重建：再发一次只是又起一个 WE 控制进程（约 1.2 秒）。
+    // `confirmCaptureReady` 就落在启动早期静音之后几百毫秒，正是这个情形。
+    // 定时重发（reassert）必须真的发出去 —— 它们的意义就是覆盖场景重建后被重置的属性。
+    // Same payload, acknowledged moments ago, window never rebuilt: sending again only spawns
+    // another WE control process (~1.2 s). `confirmCaptureReady` lands a few hundred ms after the
+    // startup mute, exactly this case. Scheduled re-assertions must really send — their whole
+    // point is to override properties reset by a scene rebuild.
+    if (options.reassert !== true
+      && session.audioMuted === true
+      && session.audioMutePayloadKey === payloadKey
+      && this.now() - Number(session.audioMuteLastAt || 0) < AUDIO_MUTE_REUSE_MS) {
+      return true;
+    }
     const operation = (async () => {
-      const properties = buildScenePropertyPayload(session.muteProperties, session.userProperties);
       await this._runTransientControl(session.executable, [
         '-control',
         'applyProperties',
@@ -3919,6 +4112,7 @@ class WallpaperEngineRuntime {
       if (!this._sessionIsCurrent(session)) return false;
       session.audioMuteCommandCount = Math.max(0, Number(session.audioMuteCommandCount) || 0) + 1;
       session.audioMuteLastAt = this.now();
+      session.audioMutePayloadKey = payloadKey;
       // This flag means the unique-location property command was acknowledged.
       // It deliberately does not mutate Windows' persistent Core Audio state.
       session.audioPropertySuppressed = true;
@@ -3940,7 +4134,11 @@ class WallpaperEngineRuntime {
       const timer = setTimeout(() => {
         if (session.muteReassertTimers) session.muteReassertTimers.delete(timer);
         if (!this._sessionIsCurrent(session)) return;
-        this._applySessionMute(session).catch((error) => {
+        // 定时重发必须强制：它们存在的意义就是盖掉场景重建后被重置的属性，任何"刚发过
+        // 就跳过"的判断在这里都是错的。
+        // Scheduled re-assertions must force: they exist to override properties reset by a scene
+        // rebuild, so any "we just sent that" shortcut would defeat their purpose.
+        this._applySessionMute(session, { reassert: true }).catch((error) => {
           console.warn('[Wallpaper Engine] location-scoped audio suppression retry failed:', error && error.message || error);
         });
       }, delay);
@@ -3980,17 +4178,29 @@ class WallpaperEngineRuntime {
     const session = this.active;
     expectedSessionId = String(expectedSessionId || '');
     if (!session || (expectedSessionId && session.sessionId !== expectedSessionId)) return false;
-    const muted = await this._applySessionMute(session);
-    if (!muted || this.active !== session || session.stopping === true) return false;
     if (!session.windowEmbedding || session.windowEmbedding.aligned !== true) return false;
+    // 静音属性与 DWM 缩略图互不依赖：前者是一条 WE 控制进程（约 1.2 秒），后者是一次
+    // PowerShell 冷启（约 1 秒），串着做等于把两段时间相加，而它们没有先后关系。
+    // The mute property command (one WE control process, ~1.2 s) and the DWM thumbnail helper (a
+    // PowerShell cold start, ~1 s) do not depend on each other. Serially they add up; concurrently
+    // the wait is only the slower one.
+    const [muted, surfaceReady] = await Promise.all([
+      this._applySessionMute(session).catch(() => false),
+      this._startSessionDwmSurface(session).catch(() => false),
+    ]);
+    if (!muted || !surfaceReady || this.active !== session || session.stopping === true
+      || session.dwmSurfaceReady !== true) {
+      // 并行之后可能一边成功一边失败：没静音却起了缩略图，等于把有声画面贴到界面上。
+      // One side can succeed while the other fails; a thumbnail on an unmuted session would put
+      // audible picture on screen, so tear it down again.
+      if (!muted) this._stopSessionDwmSurface(session);
+      return false;
+    }
     // Keep the native WE source physically aligned behind Mineradio so the
     // engine continues to read the real Windows cursor. DWM mirrors that live
     // surface into a click-through helper directly beneath the transparent
     // Electron host; unlike Chromium window capture, it does not bake a second
     // delayed cursor into the picture.
-    const surfaceReady = await this._startSessionDwmSurface(session).catch(() => false);
-    if (!surfaceReady || this.active !== session || session.stopping === true
-      || session.dwmSurfaceReady !== true) return false;
     this._stopSessionPointerRelay(session);
     session.windowParking = null;
     this._scheduleSessionMuteReassertions(session);
@@ -4096,14 +4306,22 @@ class WallpaperEngineRuntime {
     if (!isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
     let closeResult = null;
     let closeError = null;
-    try {
-      closeResult = await this._controlSessionWindow('close', session, previousSourceId);
-    } catch (error) {
-      // 以前这个 catch 是空的，底层原因（标题校验失败、进程校验失败、控制器起不来）
-      // 全部被丢弃，上层只看到笼统的关窗失败。原因保留到抛出的错误对象上。
-      // This catch used to be empty, discarding the underlying cause entirely and leaving the
-      // caller with a generic close failure. Keep it on the error that gets thrown.
-      closeError = error;
+    // 同上：命令投递成功不代表窗口没了。这条路径本来就要立刻重开，只给很短的时间窗
+    // （320 ms），窗口还没走才补外部关闭——两个关闭请求打在同一个窗口上会把引擎打崩。
+    // Same reasoning as _closeSession, with a short budget because this path reopens
+    // immediately: only send the external close when the window is really still there.
+    if (await this._waitForSessionWindowGone(session, previousSourceId, 320)) {
+      closeResult = { ok: true, closed: true, missing: true };
+    } else {
+      try {
+        closeResult = await this._controlSessionWindow('close', session, previousSourceId);
+      } catch (error) {
+        // 以前这个 catch 是空的，底层原因（标题校验失败、进程校验失败、控制器起不来）
+        // 全部被丢弃，上层只看到笼统的关窗失败。原因保留到抛出的错误对象上。
+        // This catch used to be empty, discarding the underlying cause entirely and leaving the
+        // caller with a generic close failure. Keep it on the error that gets thrown.
+        closeError = error;
+      }
     }
     if (!isCurrent()) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
     if (!closeResult || (closeResult.closed !== true && closeResult.missing !== true)) {
@@ -4384,6 +4602,9 @@ class WallpaperEngineRuntime {
     };
   }
 
+  // 把「启用壁纸」那条路上最贵、又和具体壁纸无关的准备工作提前做掉，见 warmUp()。
+  // The expensive, wallpaper-independent half of "enable a wallpaper" lives in warmUp().
+
   async revealWorkshop(workshopId) {
     workshopId = String(workshopId || '').trim();
     if (!/^\d{5,32}$/.test(workshopId)) throw runtimeError('WALLPAPER_ENGINE_WORKSHOP_ID_INVALID');
@@ -4403,15 +4624,16 @@ class WallpaperEngineRuntime {
   }
 
   // 记一条发往引擎的命令。写失败只忽略——诊断能力不该反过来拖垮播放。
+  // 走 appendLogLine 是为了给日志设上限：这里每发一条控制命令就多一行，纯 append 会无限长。
   // Record one command sent to the engine. A write failure is ignored on purpose: a diagnostic aid
-  // must never become the reason playback fails.
+  // must never become the reason playback fails. It goes through appendLogLine so the file has a
+  // ceiling — this one grows a line per control command and would otherwise never stop.
   _logControlCommand(args) {
     const target = this.controlCommandLogPath;
     if (!target) return false;
     try {
       const line = `${new Date().toISOString()}\t${(Array.isArray(args) ? args : []).map((value) => String(value)).join(' ')}\n`;
-      fs.appendFileSync(target, line, 'utf8');
-      return true;
+      return appendLogLine(target, line);
     } catch (error) {
       return false;
     }
@@ -4821,9 +5043,19 @@ class WallpaperEngineRuntime {
     const acceptSource = typeof constraints.acceptSource === 'function'
       ? constraints.acceptSource
       : null;
+    // 调用方可以在等窗口的同时盯着别的动作（例如开窗命令本身失败）：那种情况下继续等满
+    // 15 秒只会把一次"命令根本没送到"记成"窗口没出现"，两者要修的东西完全不同。
+    // The caller may watch a concurrent action (the open command itself failing, say). Without
+    // this a command that never landed would be reported as a 15 s window timeout, and the two
+    // failures have nothing in common.
+    const checkAbort = typeof constraints.checkAbort === 'function' ? constraints.checkAbort : null;
     const assertCurrent = () => {
       if (generation !== this.generation || this.disposed || (isCurrent && !isCurrent())) {
         throw runtimeError(supersededCode);
+      }
+      if (checkAbort) {
+        const aborted = checkAbort();
+        if (aborted) throw aborted;
       }
     };
     const deadline = this.now() + options.sourceTimeoutMs;
@@ -4931,8 +5163,19 @@ class WallpaperEngineRuntime {
     if (session.embedPromise) return session.embedPromise;
     const generation = this.generation;
     const operation = (async () => {
-      let embedding = await this._controlSessionWindow('embed', session, String(session.sourceId || ''), host);
-      for (let attempt = 0; attempt < 3 && embedding.aligned !== true; attempt += 1) {
+      const embedSourceId = String(session.sourceId || '');
+      // 先用 fit 把引擎窗口直接摆到宿主位置：同一个窗口只改位置和尺寸，渲染链不重建。
+      // 关窗重开要重新初始化整个场景，4K HDR 这类重素材一次就是几秒，而且反复初始化
+      // 本身就是它崩溃的高发点；对齐差几个像素完全没必要付这个代价。
+      // Fit the existing engine window onto the host first: same window, only position and
+      // size change, so the render chain is never rebuilt. A close/reopen reinitialises the
+      // whole scene — seconds on heavy 4K HDR assets, and repeated reinitialisation is
+      // exactly where the engine crashes. A few pixels of misalignment do not justify that.
+      let embedding = await this._controlSessionWindow('fit', session, embedSourceId, host);
+      if (embedding.aligned !== true) {
+        // fit 摆不平（例如引擎窗口带不可见边框）才退回关窗重开，且只允许一次。
+        // Only when fit cannot land it (an invisible frame, say) fall back to the old
+        // close-and-reopen path — once, never in a loop.
         const hostWidth = Math.max(1, Number(embedding.hostRight) - Number(embedding.hostLeft));
         const hostHeight = Math.max(1, Number(embedding.hostBottom) - Number(embedding.hostTop));
         const sourceWidth = Math.max(1, Number(embedding.right) - Number(embedding.left));
@@ -4948,13 +5191,14 @@ class WallpaperEngineRuntime {
         const correctedHeight = Math.round(Number(session.launchHeight) - (sourceHeight - hostHeight) * scaleY);
         const correctedX = Math.round(Number(session.launchX) + (Number(embedding.hostLeft) - Number(embedding.left)) * scaleX);
         const correctedY = Math.round(Number(session.launchY) + (Number(embedding.hostTop) - Number(embedding.top)) * scaleY);
-        if (correctedWidth === session.launchWidth
-          && correctedHeight === session.launchHeight
-          && correctedX === session.launchX
-          && correctedY === session.launchY) break;
-        await this._relaunchSessionWindow(session, correctedWidth, correctedHeight, correctedX, correctedY);
-        embedding = await this._controlSessionWindow('embed', session, String(session.sourceId || ''), host);
+        if (correctedWidth !== session.launchWidth
+          || correctedHeight !== session.launchHeight
+          || correctedX !== session.launchX
+          || correctedY !== session.launchY) {
+          await this._relaunchSessionWindow(session, correctedWidth, correctedHeight, correctedX, correctedY);
+        }
       }
+      embedding = await this._controlSessionWindow('embed', session, embedSourceId, host);
       if (embedding.aligned !== true) throw runtimeError('WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
       if (generation !== this.generation || this.disposed || this.active !== session || session.stopping === true) {
         throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
@@ -5003,6 +5247,38 @@ class WallpaperEngineRuntime {
     } finally {
       if (session.parkPromise === operation) session.parkPromise = null;
     }
+  }
+
+  // 等 WE 自己把窗口收掉再决定要不要补外部关闭。`closeWallpaper` 是异步投递的，
+  // 命令返回只代表"收到了"，不代表窗口已经消失；紧接着补 PostMessage(WM_CLOSE) 会让
+  // 引擎在自己的关窗流程里重入，实测直接把 wallpaper64.exe 打成 0xc0000374（堆损坏）。
+  // Give the engine time to close the window itself before sending anything else.
+  // `closeWallpaper` is asynchronous: the command returning only means "accepted", not
+  // "window gone". A follow-up PostMessage(WM_CLOSE) re-enters its teardown and has been
+  // observed to corrupt the heap (0xc0000374 in wallpaper64.exe).
+  async _waitForSessionWindowGone(session, sourceId, timeoutMs = 700) {
+    if (!session || !sourceId) return false;
+    // 常驻控制宿主没起来时，单次 exists 要付一次 PowerShell 冷启动（约 0.95 s），
+    // 比直接关还慢，这时交给调用方的兜底关闭。
+    // Without the resident control host every probe costs a PowerShell cold start, which
+    // is slower than the close itself; let the caller fall back instead.
+    if (typeof this._windowControlHostEnabled === 'function' && !this._windowControlHostEnabled()) return false;
+    const deadline = this.now() + Math.max(120, timeoutMs);
+    while (this.now() < deadline) {
+      await this.nativeSleep(60);
+      try {
+        const state = await this._controlSessionWindow('exists', session, sourceId);
+        if (state && state.missing === true) return true;
+      } catch (error) {
+        // 标题不匹配 = 那个句柄已经不属于我们的窗口，等价于窗口没了。其它异常（控制器
+        // 起不来之类）不能当成"已关闭"，否则真实失败会被记成成功、窗口留在桌面上。
+        // A title mismatch means the handle no longer belongs to our window. Any other
+        // failure must never be read as "closed": that would hide a real failure.
+        const reason = String(error && (error.nativeDetail || error.message) || '');
+        if (/title mismatch/i.test(reason)) return true;
+      }
+    }
+    return false;
   }
 
   // 引擎进程已经消失（崩溃、被用户手动退出、Steam 更新覆盖）时，"关窗"永远不可能被确认：
@@ -5076,17 +5352,28 @@ class WallpaperEngineRuntime {
         windowClosed = true;
         console.log('[Wallpaper Engine] engine process already gone, session treated as closed:',
           session.locationTitle);
-      } else if (sourceId) {
-        try {
-          const fallback = await this._controlSessionWindow('close', session, sourceId);
-          windowClosed = !!(fallback && (fallback.closed === true || fallback.missing === true));
-        } catch (error) {
-          closeNotes.push('hwnd-close:' + String(
-            error && (error.nativeDetail || error.closeReason || error.code || error.message) || error || ''
-          ));
+      } else {
+        // closeWallpaper 只是把命令投递给引擎，投递成功不代表窗口已经消失。先给它时间
+        // 自己收尾；只有确实没关掉才补一次外部关闭，避免同一窗口收到两个关闭请求、
+        // 让引擎在关窗流程里重入（实测崩溃形态：wallpaper64.exe 0xc0000374 堆损坏）。
+        // Delivery is not closure. Give the engine time to finish on its own and only send
+        // an external close when the window is really still there — two close requests on
+        // one window re-enter its teardown and crash it (0xc0000374 heap corruption).
+        if (closeRequested && sourceId) {
+          windowClosed = await this._waitForSessionWindowGone(session, sourceId, 700);
+        }
+        if (!windowClosed && sourceId) {
+          try {
+            const fallback = await this._controlSessionWindow('close', session, sourceId);
+            windowClosed = !!(fallback && (fallback.closed === true || fallback.missing === true));
+          } catch (error) {
+            closeNotes.push('hwnd-close:' + String(
+              error && (error.nativeDetail || error.closeReason || error.code || error.message) || error || ''
+            ));
+          }
         }
       }
-      await this.nativeSleep(180);
+      if (!windowClosed) await this.nativeSleep(180);
       // 按窗口名枚举是**独立于 HWND 校验**的确认手段：它回答的是"那个标题的窗口还在不在"，
       // 而 HWND 校验回答的是"我能不能操作我现在拿着的那个句柄"。只要还没确认关掉就该跑它。
       // 原来的 `!sourceId` 恰好跳过了最需要它的场景——有 sourceId、但 HWND 校验失败
@@ -5139,6 +5426,35 @@ class WallpaperEngineRuntime {
     } finally {
       if (session.closePromise === operation) session.closePromise = null;
     }
+  }
+
+  // 一行一个启动：`时间 \t 结果 \t total=… \t 阶段=该阶段耗时 …`。阶段是「进入时刻」，
+  // 相邻相减就是这一段花了多久，最后 `post` 是最后一次标记到返回之间的收尾。
+  // One line per start: timestamp, outcome, total, then each stage with the time it took. Stage
+  // marks are entry times; adjacent deltas are durations, and `post` is the tail after the last.
+  _logStartTiming(session, startedAt, stageMarks, outcome) {
+    if (!this.startTimingLogPath) return;
+    const now = this.wallNow();
+    const parts = [];
+    let previous = startedAt;
+    for (const entry of Array.isArray(stageMarks) ? stageMarks : []) {
+      const stage = String(entry && entry[0] || '');
+      const at = Number(entry && entry[1]) || previous;
+      if (!stage) continue;
+      parts.push(`${stage}=${Math.max(0, at - previous)}`);
+      previous = at;
+    }
+    parts.push(`post=${Math.max(0, now - previous)}`);
+    const line = [
+      new Date(now).toISOString(),
+      String(outcome || 'ok'),
+      `total=${Math.max(0, now - startedAt)}`,
+      ...parts,
+      `id=${String(session && session.id || '')}`,
+    ].join('\t');
+    try {
+      appendLogLine(this.startTimingLogPath, line + '\n');
+    } catch (_) { }
   }
 
   async start(id, options = {}) {
@@ -5258,6 +5574,25 @@ class WallpaperEngineRuntime {
     };
     this.pending = session;
     let startStage = 'discover-target';
+    const startedAt = this.wallNow();
+    // 每个阶段的进入时刻。最终按「相邻差值」写成一行：优化加载速度唯一可靠的依据是这份真实
+    // 分布，而不是猜哪一段慢。成功和失败都记，失败点之前的那几段往往就是原因。
+    // Entry time of every stage. Written as one line of adjacent deltas: real distribution is the
+    // only reliable basis for optimising startup latency. Recorded on success and failure alike;
+    // the stages before a failure usually explain it.
+    const stageMarks = [];
+    const markStage = (stage) => { stageMarks.push([String(stage), this.wallNow()]); };
+    markStage(startStage);
+    // 开窗命令的 promise 要跨到 catch 里用：它可能还在飞，而"窗口到底开出来了没有"决定
+    // 失败时是该关窗还是只清暂存目录。
+    // The open command's promise is needed in the catch block: it may still be in flight, and
+    // "did the window open at all" decides between closing it and only clearing the staged copy.
+    let initialOpenPromise = null;
+    // 常驻控制宿主要一个 PowerShell 冷启动 + Add-Type 编译（0.9~1.1 秒），而第一次真正用到
+    // 它是窗口开出来之后的 isolate。从这里开始预热，和引擎引导/工程准备完全重叠。
+    // The resident host needs a PowerShell cold start plus an Add-Type compile (0.9~1.1 s) and is
+    // first used by isolate, after the window exists. Warming it here overlaps it entirely.
+    this._warmWindowControlHost();
 
     try {
       const [installation, target] = await Promise.all([
@@ -5291,20 +5626,34 @@ class WallpaperEngineRuntime {
       session.nativeKind = nativeKind;
       if (generation !== this.generation || this.disposed) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
 
+      session.muteProperties = sanitizeMuteProperties(target && target.muteProperties);
       startStage = 'ensure-engine-ready';
-      session.executable = await this._ensureEngineReady(installation.executable, session.silentWindows);
+      markStage(startStage);
+      // 这三件事互不依赖：拉起引擎（冷启最慢）、准备静默工程（重场景包首次要复制上百 MB）、
+      // 读用户属性。串着做等于把三段时间相加，并起来只等最慢的那一段。
+      // These three are independent: engine cold start, staging the silent project (a heavy
+      // scene package is copied once), and reading user properties. Run them concurrently so
+      // the wait is the slowest one instead of their sum.
+      const launchFilePromise = projectStat
+        ? this._prepareSilentLaunchFile(session, projectFile, scenePackage)
+        : Promise.resolve(scenePackage);
+      // 准备工程失败时，别让这个已经 reject 的 promise 之外的错误被它挡掉上报。
+      launchFilePromise.catch(() => {});
+      const [executable, launchFile, userProperties] = await Promise.all([
+        this._ensureEngineReady(installation.executable, session.silentWindows),
+        launchFilePromise,
+        this._loadUserProperties(installation.executable, target),
+      ]);
+      session.executable = executable;
+      session.launchFile = launchFile;
+      session.userProperties = userProperties;
       if (generation !== this.generation || this.disposed || this.pending !== session) {
         throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
       }
-      session.muteProperties = sanitizeMuteProperties(target && target.muteProperties);
-      session.userProperties = await this._loadUserProperties(installation.executable, target);
-      startStage = 'prepare-silent-project';
-      session.launchFile = projectStat
-        ? await this._prepareSilentLaunchFile(session, projectFile, scenePackage)
-        : scenePackage;
       const previous = this.active;
       if (previous && previous.sessionId !== session.sessionId) {
         startStage = 'close-previous-window';
+        markStage(startStage);
         // 这里刻意**不重试**：契约是"关窗没被确认就只尝试一次然后失败"，避免连续开窗、
         // 在桌面上叠出多个 WE 窗口。要让这一步能过去，得在 _closeSession 里真正把
         // "窗口是否还在"确认对（见那边的按名枚举），而不是在这里反复试。
@@ -5324,16 +5673,35 @@ class WallpaperEngineRuntime {
         }
       }
       startStage = 'open-initial-window';
-      await this._openInitialSessionWindow(session, generation);
-      if (generation !== this.generation || this.disposed) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
+      markStage(startStage);
+      // 开窗命令与"等窗口出现"本来就是重叠的：命令进程只负责把指令交给引擎，窗口是引擎
+      // 之后自己创建的。等它退出再开始轮询，等于白付一次 wallpaper64.exe 的启动时间
+      // （0.3~0.9 秒）。这里只记下它的失败，交给轮询循环当作中止信号。
+      // The open command and "wait for the window" overlap by nature: the control process only
+      // hands the instruction over, and the engine creates the window afterwards. Waiting for it
+      // to exit before polling wastes one wallpaper64.exe launch (0.3~0.9 s). Only its failure is
+      // kept, as an abort signal for the polling loop.
+      let openFailure = null;
+      initialOpenPromise = this._openInitialSessionWindow(session, generation);
+      initialOpenPromise.catch((error) => { openFailure = error || runtimeError('WALLPAPER_ENGINE_CONTROL_FAILED'); });
       let earlyMuteError = null;
-      const earlyMutePromise = this._muteSession(session, session.muteProperties)
-        .then(() => true)
-        .catch((error) => {
-          earlyMuteError = error;
-          return false;
-        });
+      // 静音属性只能发给已经存在的窗口，所以它挂在开窗命令成功之后；但它和"等窗口出现"
+      // 并行 —— 命令送达通常比引擎建好窗口早，这段重叠本来就是白赚的。
+      // The mute property only means anything for an existing window, so it hangs off the open
+      // command's success. It still overlaps "wait for the window": the command usually lands
+      // before the engine has built one, and that overlap is free.
+      const earlyMutePromise = initialOpenPromise.then(
+        () => this._muteSession(session, session.muteProperties).then(
+          () => true,
+          (error) => {
+            earlyMuteError = error;
+            return false;
+          }
+        ),
+        () => false
+      );
       startStage = 'find-initial-source';
+      markStage(startStage);
       const captureSource = await this._findWindowSource(
         session.locationTitle,
         generation,
@@ -5342,14 +5710,21 @@ class WallpaperEngineRuntime {
           exactTitleOnly: true,
           returnSource: true,
           isCurrent: () => this.pending === session,
+          checkAbort: () => openFailure,
         }
       );
+      // 窗口已经出现了，再把开窗命令的结论收回来：它要是失败过，这里就是最后一次如实上报。
+      // The window is up; collect the open command's outcome — if it failed, this is the last
+      // honest place to report it.
+      await initialOpenPromise;
       if (generation !== this.generation || this.disposed) throw runtimeError('WALLPAPER_ENGINE_START_SUPERSEDED');
       session.sourceId = String(captureSource && captureSource.id || '');
       session.windowSourceId = session.sourceId;
       startStage = 'isolate-window-shell';
+      markStage(startStage);
       await this._isolateSessionWindow(session);
       startStage = 'apply-location-audio-properties';
+      markStage(startStage);
       const mutedBeforeCapture = await earlyMutePromise;
       if (!mutedBeforeCapture) {
         if (generation !== this.generation || this.disposed || this.pending !== session) {
@@ -5363,10 +5738,18 @@ class WallpaperEngineRuntime {
 
       this.active = session;
       if (this.pending === session) this.pending = null;
+      this._logStartTiming(session, startedAt, stageMarks, 'ok');
       return this._publicSession(session);
     } catch (error) {
       console.warn(`[Wallpaper Engine] native Scene start failed at ${startStage}:`, error && (error.code || error.message) || error);
+      this._logStartTiming(session, startedAt, stageMarks, 'failed:' + String(error && (error.code || error.message) || 'unknown'));
       if (this.pending === session) this.pending = null;
+      // 开窗命令可能还没落定。放着不管的话 `session.launched` 仍是 false，清理就会当成
+      // "窗口从来没开"，把已经出现在桌面上的 WE 窗口留在那里。
+      // The open command may still be in flight. Left alone, `session.launched` would still be
+      // false, cleanup would treat it as "no window was ever opened", and the engine window that
+      // did appear would stay on screen.
+      if (initialOpenPromise) await initialOpenPromise.catch(() => {});
       if (session.launched && (!this.active || this.active.sessionId !== session.sessionId)) {
         await this._closeSession(session);
       } else if (!session.launched) {
@@ -5460,20 +5843,31 @@ class WallpaperEngineRuntime {
   }
 
   // 用户在壁纸库里翻页的那几秒正好可以用来做掉启用时的固定开销：解析引擎路径、确认引擎就绪、
-  // 把窗口控制宿主编译好、把 DWM 帮手脚本落盘。引擎没在运行时不去拉起它，避免仅仅浏览列表
-  // 就多出一个进程。
+  // 把窗口控制宿主编译好、把 DWM 帮手脚本落盘。引擎没在运行时默认不去拉起它，避免仅仅浏览
+  // 列表就多出一个进程；调用方确认用户真的在挑壁纸后可以传 `engine: 'launch'`，那时冷启的
+  // 3.8~5.3 秒正好被用户自己的浏览时间覆盖掉。
+  // The seconds spent browsing the wallpaper library can pay for the fixed cost of enabling one:
+  // resolve the engine, confirm it is ready, compile the control host, write the DWM helper script.
+  // A stopped engine is left alone by default so merely opening the list cannot spawn a process;
+  // a caller that knows the user is really picking passes `engine: 'launch'`, and the 3.8~5.3 s
+  // cold bootstrap is then absorbed by their own browsing time.
   async warmUp(options = {}) {
-    if (this.disposed || this.platform !== 'win32') return { ok: false, engine: '', helper: false };
-    const result = { ok: true, engine: '', helper: false };
+    if (this.disposed || this.platform !== 'win32') return { ok: false, engine: '', helper: false, launched: false };
+    const result = { ok: true, engine: '', helper: false, launched: false };
+    const launchEngine = options && options.engine === 'launch';
     try {
       const installation = await this._discoverExecutable(false);
       if (installation.available && installation.executable) {
         const pids = this.fastEngineProbe ? await this._fastEnginePids() : null;
-        if (pids && pids.length) {
+        const running = !!(pids && pids.length);
+        // 已经有会话在跑时不必再引导：那条路径只会重新探测一遍进程。
+        // A live session makes another bootstrap pointless; it would only re-probe the process.
+        if (running || (launchEngine && !this.active && !this.pending)) {
           result.engine = await this._ensureEngineReady(
             installation.executable,
             options.silentWindows !== false
           ).catch(() => '');
+          result.launched = !running && !!result.engine;
         }
       }
     } catch (_) { }

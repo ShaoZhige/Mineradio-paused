@@ -231,10 +231,10 @@ function makeWindowController(records = []) {
     records.push({ action, details: { ...details } });
     return {
       ok: true,
-      moved: action === 'embed' || action === 'park',
+      moved: action === 'embed' || action === 'park' || action === 'fit',
       embedded: action === 'embed',
       parked: action === 'park',
-      aligned: action === 'embed',
+      aligned: action === 'embed' || action === 'fit',
       closePosted: action === 'close',
       closed: action === 'close',
       missing: action === 'close',
@@ -486,8 +486,12 @@ async function main() {
     assert.strictEqual(embeddedStarted.sourceWindowEmbedded, true);
     assert.strictEqual(embeddedStarted.sourceWindowRounded, true, 'the public session should report the native rounded source window');
     assert.strictEqual(embeddedStarted.audioMuted, true);
-    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['isolate', 'embed', 'isolate'],
-      'the freshly opened source window must be pulled out of the shell before it can flash the taskbar, and embedding must re-assert it');
+    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['isolate', 'fit', 'embed', 'isolate'],
+      'the freshly opened source window must be pulled out of the shell before it can flash the taskbar, '
+      + 'alignment must reposition the window instead of closing and reopening it, and embedding must re-assert it');
+    assert.ok(!windowControlCalls.some((call) => call.action === 'close'),
+      'a few pixels of misalignment must never go through a close/reopen: rebuilding a heavy scene is slow '
+      + 'and is where the engine crashes');
     assert.strictEqual(windowControlCalls[0].details.sourceId, 'window:4242:0');
     assert.strictEqual(windowControlCalls[0].details.executable, executable);
     assert.strictEqual(windowControlCalls[1].details.sourceId, 'window:4242:0');
@@ -501,9 +505,16 @@ async function main() {
     assert.strictEqual(runtime.getStatus().sourceWindowParked, false,
       'DWM composition must keep the real WE source aligned instead of parking it away from the Windows cursor');
     assert.strictEqual(runtime.getStatus().sourceWindowAligned, true);
-    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['isolate', 'embed', 'isolate'],
-      'DWM readiness must not issue the retired 1x1 parking action, and embedding must re-assert shell isolation');
-    assert.strictEqual(transientControlCalls.length, muteCallsBeforeCaptureReady + 1, 'capture readiness must immediately reassert the location-scoped mute');
+    assert.deepStrictEqual(windowControlCalls.map((call) => call.action), ['isolate', 'fit', 'embed', 'isolate'],
+      'DWM readiness must not issue the retired 1x1 parking action, alignment must reposition rather than '
+      + 'reopen the engine window, and embedding must re-assert shell isolation');
+    // 启动阶段的静音刚被确认过（同一份属性、窗口没重建），确认捕获时再发一次只能换来又一次
+    // 约 1.2 秒的 WE 控制进程。复用结论，但定时重发（reassert）仍然强制发送。
+    // The startup mute was just acknowledged with the same payload and no rebuild in between;
+    // resending here only buys another ~1.2 s control process. Reuse it, while scheduled
+    // re-assertions still force a real send.
+    assert.strictEqual(transientControlCalls.length, muteCallsBeforeCaptureReady,
+      'capture readiness must reuse a mute acknowledged moments ago instead of spawning another control process');
     assert.strictEqual(dwmSurfaceSpawns.length, 1, 'capture readiness must start one persistent DWM surface helper');
     const firstDwmSurface = dwmSurfaceSpawns[0];
     assert.strictEqual(firstDwmSurface.file, 'powershell.exe');
@@ -600,9 +611,10 @@ async function main() {
     assert.strictEqual(runtime.updateGlassSurface(started.sessionId, glassGeometry).updated, false,
       'unchanged control-console geometry must not write another native command');
     assert.strictEqual(await runtime.confirmCaptureReady('ffffffffffffffffffffffff'), false);
-    assert.strictEqual(transientControlCalls.length, muteCallsBeforeCaptureReady + 1, 'a stale capture-ready confirmation must not target the active location');
+    assert.strictEqual(transientControlCalls.length, muteCallsBeforeCaptureReady,
+      'a stale capture-ready confirmation must not target the active location');
     await new Promise((resolve) => setTimeout(resolve, 260));
-    assert(transientControlCalls.length >= muteCallsBeforeCaptureReady + 2, 'the delayed mute reassertion should issue another transient control');
+    assert(transientControlCalls.length >= muteCallsBeforeCaptureReady + 1, 'the delayed mute reassertion should issue another transient control');
 
     captureSourceId = 'window:4242:1';
     partialTitleOnlyPolls = 1;
@@ -777,8 +789,9 @@ async function main() {
     );
 
     assert.deepStrictEqual(windowControlCalls.map((call) => call.action),
-      ['isolate', 'embed', 'isolate', 'embed', 'isolate', 'close'],
-      'every embed must keep the source window out of the shell, and no parking action may reappear');
+      ['isolate', 'fit', 'embed', 'isolate', 'fit', 'embed', 'isolate', 'close'],
+      'every embed must keep the source window out of the shell, alignment must reposition instead of '
+      + 'reopening, and no parking action may reappear');
     await runtime.revealWorkshop('3715870843');
     const revealCall = transientControlCalls[transientControlCalls.length - 1];
     assert.deepStrictEqual(revealCall.args, ['-control', 'revealWallpaper', '-id', '3715870843']);
@@ -2064,7 +2077,7 @@ async function main() {
           moved: action === 'embed' || action === 'park',
           embedded: action === 'embed',
           parked: action === 'park',
-          aligned: action === 'embed',
+          aligned: action === 'embed' || action === 'fit',
           rounded: action === 'embed',
           sourceWindowId: details.sourceId,
           sourceProcessId: 6006,

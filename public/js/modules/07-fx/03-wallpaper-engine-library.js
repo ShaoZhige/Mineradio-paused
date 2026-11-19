@@ -32,6 +32,7 @@ var wallpaperEnginePreviewObserver = null;
 var wallpaperEngineSearchRenderTimer = 0;
 var wallpaperEnginePreviewScrollTimer = 0;
 var wallpaperEngineSwitchTimer = 0;
+var wallpaperEngineWarmupTimer = 0;
 var wallpaperEngineVideoRetryTimer = 0;
 var wallpaperEngineFirstFrameWait = null;
 var wallpaperEngineCaptureStream = null;
@@ -2479,14 +2480,38 @@ async function loadWallpaperEngineLibrary(force, showNotice) {
   }
 }
 
+// 打开面板就开始预热：引擎冷启要 3.8~5.3 秒、控制宿主约 1 秒，而用户在这张面板上挑壁纸
+// 通常远不止这个时间。延迟 1.2 秒再发，是为了区分「真的在挑」和「顺手点开又关掉」——
+// 后者不该因此拉起一个后台引擎。
+// Warm on open: an engine cold start is 3.8~5.3 s and the control host ~1 s, while picking a
+// wallpaper takes longer than that. The 1.2 s delay separates "actually browsing" from
+// "opened and closed it by accident", which must not spawn a background engine.
+function scheduleWallpaperEngineWarmup() {
+  var api = wallpaperEngineDesktopApi();
+  if (!api || typeof api.warmupWallpaperEngineRuntime !== 'function') return;
+  clearTimeout(wallpaperEngineWarmupTimer);
+  wallpaperEngineWarmupTimer = setTimeout(function () {
+    wallpaperEngineWarmupTimer = 0;
+    var modal = document.getElementById('wallpaper-engine-modal');
+    if (!modal || !modal.classList.contains('show')) return;
+    Promise.resolve(api.warmupWallpaperEngineRuntime({
+      engine: 'launch',
+      silentWindows: fx.wallpaperEngineSilentWindows !== false,
+    })).catch(function () { });
+  }, 1200);
+}
+
 async function openWallpaperEngineLibrary() {
   var modal = document.getElementById('wallpaper-engine-modal');
   if (modal) modal.classList.add('show');
+  scheduleWallpaperEngineWarmup();
   if (!wallpaperEngineLibrarySnapshot) await loadWallpaperEngineLibrary(false, false);
   else renderWallpaperEngineLibrary();
 }
 
 function closeWallpaperEngineLibrary() {
+  clearTimeout(wallpaperEngineWarmupTimer);
+  wallpaperEngineWarmupTimer = 0;
   closeWallpaperEngineProjectDetails();
   var modal = document.getElementById('wallpaper-engine-modal');
   if (modal) modal.classList.remove('show');

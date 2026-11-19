@@ -24,8 +24,8 @@
 
 const { execFile, spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const portablePaths = require('./portable-paths');
 
 const PROBE_TIMEOUT_MS = 15000;
 
@@ -41,7 +41,11 @@ const MEDIA_KEYS = Object.freeze({
 const PLAYBACK_STATUS = ['closed', 'opened', 'changing', 'stopped', 'playing', 'paused'];
 
 function tempScriptPath(label) {
-  const dir = process.env.MINERADIO_NATIVE_TEMP_DIR || os.tmpdir();
+  // 环境变量丢了也要落回软件目录内的 native 临时区，不能悄悄写 os.tmpdir()：启动时的残留清扫
+  // 只扫那一个目录，写到系统临时目录的脚本谁也清不到。
+  // Fall back into the app folder's native temp area even when the variable is missing. Writing to
+  // os.tmpdir() would put the file outside the one directory the startup prune looks at.
+  const dir = String(process.env.MINERADIO_NATIVE_TEMP_DIR || '').trim() || portablePaths.resolveNativeTempDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch (err) { /* 已经存在 */ }
   return path.join(dir, 'mineradio-' + label + '-' + process.pid + '-' + Date.now() + '.ps1');
 }

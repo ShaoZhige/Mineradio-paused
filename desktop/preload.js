@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   chooseWallpaperEngineProjectFile: () => ipcRenderer.invoke('mineradio-wallpaper-engine-choose-project-file'),
   removeWallpaperEngineDirectory: (rootId) => ipcRenderer.invoke('mineradio-wallpaper-engine-remove-directory', String(rootId || '')),
   getWallpaperEngineRuntimeStatus: (payload) => ipcRenderer.invoke('mineradio-wallpaper-engine-runtime-status', payload || {}),
+  // 预热只把"启用壁纸"那条路上与具体壁纸无关的等待前移，结果不影响任何状态机。
+  // Warmup only moves wallpaper-independent waiting earlier; it drives no state machine.
+  warmupWallpaperEngineRuntime: (payload) => ipcRenderer.invoke('mineradio-wallpaper-engine-warmup', payload || {}),
   getWindowsGameModeStatus: () => ipcRenderer.invoke('minerado-windows-game-mode-status'),
   enableWindowsGameMode: () => ipcRenderer.invoke('minerado-windows-game-mode-enable'),
   disableWindowsGameMode: () => ipcRenderer.invoke('minerado-windows-game-mode-disable'),

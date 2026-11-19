@@ -165,9 +165,18 @@ for (const needle of [
   );
 }
 
+// 目标集合没变、旧监视器还活着时允许复用（每次 start 都重启一个 PowerShell 等于白付一次
+// 冷启动），但只要有一项对不上就必须回收旧的，绝不能同时留着两个。
+// Reuse is allowed when the live process and the target set are both unchanged; anything else must
+// reap the old monitor. Two monitors must never run at once.
 assert(
-  /_stopEngineWindowIsolationMonitor\(\);\s*\n\s*const targets/.test(monitorSource),
-  'starting a monitor must reap the previous one instead of leaking a second PowerShell'
+  /const targets[\s\S]{0,1600}this\._stopEngineWindowIsolationMonitor\(\);/.test(monitorSource),
+  'starting a monitor must still reap the previous one instead of leaking a second PowerShell'
+);
+assert(
+  /existing\.child\.exitCode == null/.test(monitorSource)
+    && /String\(existing\.pids\.join\(','\)\) === targets\.join\(','\)/.test(monitorSource),
+  'a live monitor may only be reused when both the process and the target set are unchanged'
 );
 assert(
   /this\.spawn\(this\.powerShellExecutable/.test(monitorSource),

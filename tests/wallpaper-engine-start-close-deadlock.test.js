@@ -80,9 +80,16 @@ assert(
   + 'sourceId whose HWND validation failed (title/process mismatch)'
 );
 assert(
-  /^[\s\S]*if \(sourceId\) \{/.test(closeSessionBody),
-  'the HWND-based close must still run when a sourceId is known'
+  /if \(!windowClosed && sourceId\) \{/.test(closeSessionBody),
+  'the HWND-based close must still run when a sourceId is known and the engine did not close the window'
 );
+// 外部 WM_CLOSE 只能是「等过之后仍未关掉」的兜底：命令投递成功后立刻补一刀会让引擎在
+// 关窗流程里重入，实测把 wallpaper64.exe 打成 0xc0000374（堆损坏）。
+const waitIndex = closeSessionBody.indexOf('_waitForSessionWindowGone');
+const hwndCloseIndex = closeSessionBody.indexOf("_controlSessionWindow('close'");
+assert(waitIndex >= 0, 'the close path must wait for the engine to close on its own first');
+assert(waitIndex < hwndCloseIndex,
+  'the external WM_CLOSE must come only after waiting, never immediately after the control command');
 
 function runCloseSession(options = {}) {
   const context = vm.createContext({ console });
@@ -106,6 +113,12 @@ function runCloseSession(options = {}) {
     _clearSessionMuteReassertions: () => { context.__events.push('clear-mute'); },
     _cleanupStagedProject: async () => { context.__events.push('cleanup-staged'); },
     _spawnControl: async () => { context.__events.push('we-control'); },
+    // 默认认为引擎没有自己关掉窗口：这些用例验证的是「等过之后仍要兜底 HWND 关闭」，
+    // 以及兜底失败时按名枚举仍能确认。
+    _waitForSessionWindowGone: async () => {
+      context.__events.push('wait-window-gone');
+      return options.windowGoneAfterWait === true;
+    },
     _controlSessionWindow: async () => {
       context.__events.push('hwnd-close');
       if (options.hwndCloseThrows === true) {
@@ -258,7 +271,24 @@ const baseSession = () => ({
   );
 
   // -------------------------------------------------------------------------
-  // 3. 关掉上一个会话仍然只尝试一次
+  // 3. 引擎自己把窗口关掉时，不能再补一次外部 WM_CLOSE
+  // -------------------------------------------------------------------------
+
+  // closeWallpaper 投递成功只代表"引擎收到命令"。以前这里紧接着补一个
+  // PostMessage(WM_CLOSE)，同一个窗口收到第二个关闭请求会让引擎在关窗流程里重入；
+  // 实测把 wallpaper64.exe 打成 0xc0000374（堆损坏），表现得像"退出 MR 顺手杀了 WE"。
+  const selfClosed = runCloseSession({ windowGoneAfterWait: true });
+  const selfClosedRun = await selfClosed.close(baseSession());
+  assert.strictEqual(selfClosedRun.result, true, 'a window the engine closed itself must count as closed');
+  assert.strictEqual(selfClosedRun.session.launched, false, 'a self-closed session must be reset');
+  assert.ok(
+    !selfClosed.events().includes('hwnd-close'),
+    'no external WM_CLOSE may follow: a second close request on one window re-enters the '
+    + 'engine teardown and corrupts its heap'
+  );
+
+  // -------------------------------------------------------------------------
+  // 4. 关掉上一个会话仍然只尝试一次
   // -------------------------------------------------------------------------
 
   const previousStopCalls = startBody.match(/this\.stop\(previous\.sessionId\)/g) || [];

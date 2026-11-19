@@ -813,8 +813,8 @@ function checkWallpaperEngineImportGuard() {
   if (!/wallpaper-engine-active/.test(fs.readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '02-accent-background-controls.js'), 'utf8'))) {
     fail('The preserved original background video must stay paused while the Wallpaper Engine layer is active');
   }
-  if (!/mineradio-wallpaper-engine-list/.test(mainText) || !/mineradio-wallpaper-engine-project-details/.test(mainText) || !/mineradio-wallpaper-engine-open-project-details/.test(mainText) || !/mineradio-wallpaper-engine-start-scene/.test(mainText) || !/mineradio-wallpaper-engine-capture-result/.test(mainText) || !/mineradio-wallpaper-engine-glass-surface/.test(mainText) || !/mineradio-wallpaper-engine-prepare-glass-capture/.test(mainText) || !/installProtocol\(protocol\)/.test(mainText) || !/listWallpaperEngineProjects/.test(preloadText) || !/getWallpaperEngineProjectDetails/.test(preloadText) || !/openWallpaperEngineProjectDetails/.test(preloadText) || !/startWallpaperEngineScene/.test(preloadText) || !/reportWallpaperEngineCaptureResult/.test(preloadText) || !/prepareWallpaperEngineGlassCapture/.test(preloadText) || !/updateWallpaperEngineGlassSurface/.test(preloadText) || !/stopWallpaperEngineScene/.test(preloadText) || !/isTrustedWallpaperEngineIpc/.test(mainText) || !/function isTrustedMainDocumentUrl/.test(mainText) || !/pathname === '\/' \|\| pathname === '\/index\.html'/.test(mainText)) {
-    fail('Wallpaper Engine scan/import IPC and restricted media protocol are not fully wired');
+  if (!/mineradio-wallpaper-engine-list/.test(mainText) || !/mineradio-wallpaper-engine-warmup/.test(mainText) || !/warmupWallpaperEngineRuntime/.test(preloadText) || !/mineradio-wallpaper-engine-project-details/.test(mainText) || !/mineradio-wallpaper-engine-open-project-details/.test(mainText) || !/mineradio-wallpaper-engine-start-scene/.test(mainText) || !/mineradio-wallpaper-engine-capture-result/.test(mainText) || !/mineradio-wallpaper-engine-glass-surface/.test(mainText) || !/mineradio-wallpaper-engine-prepare-glass-capture/.test(mainText) || !/installProtocol\(protocol\)/.test(mainText) || !/listWallpaperEngineProjects/.test(preloadText) || !/getWallpaperEngineProjectDetails/.test(preloadText) || !/openWallpaperEngineProjectDetails/.test(preloadText) || !/startWallpaperEngineScene/.test(preloadText) || !/reportWallpaperEngineCaptureResult/.test(preloadText) || !/prepareWallpaperEngineGlassCapture/.test(preloadText) || !/updateWallpaperEngineGlassSurface/.test(preloadText) || !/stopWallpaperEngineScene/.test(preloadText) || !/isTrustedWallpaperEngineIpc/.test(mainText) || !/function isTrustedMainDocumentUrl/.test(mainText) || !/pathname === '\/' \|\| pathname === '\/index\.html'/.test(mainText)) {
+    fail('Wallpaper Engine scan/import/warmup IPC and restricted media protocol are not fully wired');
   }
   if (!/wallpaperEnginePlayWasInterrupted/.test(rendererText) || !/WALLPAPER_ENGINE_SWITCH_FADE_MS/.test(rendererText)) {
     fail('Wallpaper Engine playback interruption and wallpaper-to-wallpaper crossfade guards are missing');
@@ -934,7 +934,7 @@ function checkWallpaperEngineImportGuard() {
     || !/kind === 'dwm'/.test(rendererText)) {
     fail('Wallpaper Engine DWM mode must feed a cursor-free 1:1 sampler through the existing SVG control-console glass');
   }
-  if (!/scheduleWallpaperEngineHostBoundsRestart/.test(mainText) || !/suspendWallpaperEngineForHiddenHost/.test(mainText) || !/resumeWallpaperEngineForVisibleHost/.test(mainText) || !/win\.on\('move'[\s\S]{0,220}scheduleWallpaperEngineHostBoundsRestart\(win, 'move'\)/.test(mainText) || !/win\.on\('resize'[\s\S]{0,220}scheduleWallpaperEngineHostBoundsRestart\(win, 'resize'\)/.test(mainText) || !/scheduleWallpaperEngineHostBoundsRestart\([\s\S]{0,180}display-metrics-changed/.test(mainText) || !/phase:\s*'prepare'/.test(mainText) || !/phase:\s*'restart'/.test(mainText) || !/mineradio-wallpaper-engine-host-bounds-changed/.test(mainText) || !/onWallpaperEngineHostBoundsChanged/.test(preloadText) || !/handleWallpaperEngineHostBoundsChange/.test(rendererText) || !/wallpaperEngineHostBoundsPreparing/.test(rendererText) || !/restartWallpaperEngineAfterHostBoundsChange/.test(rendererText) || !/status\.captureMode === 'dwm-thumbnail'\) return/.test(mainText) || !/followTimer\.Interval = 60/.test(dwmSurfaceBlock) || !/FollowHost\(\)/.test(dwmSurfaceBlock)) {
+  if (!/scheduleWallpaperEngineHostBoundsRestart/.test(mainText) || !/suspendWallpaperEngineForHiddenHost/.test(mainText) || !/resumeWallpaperEngineForVisibleHost/.test(mainText) || !/win\.on\('move'[\s\S]{0,220}scheduleWallpaperEngineHostBoundsRestart\(win, 'move'\)/.test(mainText) || !/win\.on\('resize'[\s\S]{0,220}scheduleWallpaperEngineHostBoundsRestart\(win, 'resize'\)/.test(mainText) || !/scheduleWallpaperEngineHostBoundsRestart\([\s\S]{0,180}display-metrics-changed/.test(mainText) || !/phase:\s*'prepare'/.test(mainText) || !/phase:\s*'restart'/.test(mainText) || !/mineradio-wallpaper-engine-host-bounds-changed/.test(mainText) || !/onWallpaperEngineHostBoundsChanged/.test(preloadText) || !/handleWallpaperEngineHostBoundsChange/.test(rendererText) || !/wallpaperEngineHostBoundsPreparing/.test(rendererText) || !/restartWallpaperEngineAfterHostBoundsChange/.test(rendererText) || !/status\.captureMode === 'dwm-thumbnail'\) return/.test(mainText) || !/followTimer\.Interval = FOLLOW_IDLE_INTERVAL_MS/.test(dwmSurfaceBlock) || !/FOLLOW_ACTIVE_INTERVAL_MS = 16/.test(dwmSurfaceBlock) || !/SWP_NOSIZE/.test(dwmSurfaceBlock) || !/geometrySame/.test(dwmSurfaceBlock) || !/FollowHost\(\)/.test(dwmSurfaceBlock)) {
     fail('Wallpaper Engine DWM surfaces must follow move/resize in place while the legacy capture fallback remains restart-safe');
   }
   const wallpaperHostRestartBlock = rendererText.slice(
@@ -1010,6 +1010,26 @@ function checkWallpaperEngineImportGuard() {
   }
   if (!/MINERADIO_NATIVE_TEMP_DIR/.test(systemMemoryText) || !/setNativeTempPath/.test(systemMemoryText) || !/TEMP:\s*ensureNativeTempPath\(\)/.test(systemMemoryText) || !/NATIVE_HELPER_TEMP_PATH/.test(mainText) || !/nativeTempPath:\s*NATIVE_HELPER_TEMP_PATH/.test(mainText) || !/TEMP:\s*this\.nativeTempPath/.test(runtimeText)) {
     fail('PowerShell Add-Type helpers must use the app-owned stable native temp directory');
+  }
+  // native 临时区里「每次唯一命名」的 helper 脚本只在正常退出时删除，被强杀 / 崩溃就会残留。
+  // 启动时必须清一遍；阈值也不许缩小到会误删另一个实例正在跑的脚本。同理，任何模块都不许
+  // 把这类脚本写到 os.tmpdir() —— 那里清扫够不着。
+  // Uniquely named native helper scripts are removed only on a clean exit and survive a forced
+  // kill, so startup has to prune them; the age threshold must stay long enough not to delete a
+  // script another instance is running, and no module may fall back to os.tmpdir().
+  {
+    const cleanupText = fs.readFileSync(path.join(appRoot, 'desktop', 'native-temp-cleanup.js'), 'utf8');
+    const spotifyProbeText = fs.readFileSync(path.join(appRoot, 'desktop', 'spotify-client-probe.js'), 'utf8');
+    const logRotationText = fs.readFileSync(path.join(appRoot, 'desktop', 'log-rotation.js'), 'utf8');
+    if (!/pruneStaleNativeTempScripts\(NATIVE_HELPER_TEMP_PATH\)/.test(mainText)
+      || !/DEFAULT_MAX_AGE_MS = 10 \* 60 \* 1000/.test(cleanupText)
+      || !/UNIQUE_HELPER_NAME = \/\^mineradio-/.test(cleanupText)
+      || /require\('os'\)/.test(spotifyProbeText)
+      || !/appendLogLine\(target, line\)/.test(runtimeText)
+      || !/appendLogLine\(file, payload\)/.test(mainText)
+      || !/DEFAULT_MAX_BYTES = 4 \* 1024 \* 1024/.test(logRotationText)) {
+      fail('Native helper scripts must be pruned at startup by name shape and age, never written to os.tmpdir(), and diagnostic logs must use the rotating append');
+    }
   }
   if (/MINERADIO_WE_QA_CLEANUP/.test(mainText) || /taskkill\.exe[\s\S]{0,120}wallpaper(?:32|64)/i.test(mainText) || /x:\s*-16000[\s\S]{0,80}y:\s*-16000/.test(mainText) || !/width:\s*Math\.max\(640,[\s\S]{0,220}physicalBounds\.width[\s\S]{0,220}x:\s*physicalBounds\.x,[\s\S]{0,80}y:\s*physicalBounds\.y/.test(mainText)) {
     fail('Wallpaper Engine release code must launch at the host pixel origin without QA cleanup or fixed offscreen coordinates');
