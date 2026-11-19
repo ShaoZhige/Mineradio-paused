@@ -1298,12 +1298,19 @@ async function playQueueAt(idx, opts) {
     }
     // Spotify 源：优先交给本机客户端（远程播放），客户端不在时保留原来的换源行为。
     // 跳过音质切换/换源重试等内部转场，避免重复唤起。
+    // 判定必须走 songProviderKey：混队列里的歌可能只带 source / spotifyUri 而没有 provider，
+    // 只看 song.provider 会让它们既不被接管、又不会被按停（下面取音源时用的却是归一化结果，
+    // 于是它去走 Web API → 免费账号 403 → 换源）。
     // Spotify tracks: hand them to the local client when the CDP channel is up; otherwise
     // keep the original switch_source behaviour. Skip internal transitions to avoid re-launching.
-    if (song && song.provider !== 'spotify' && typeof window !== 'undefined' && window.SpotifyRemote) {
+    var spotifyProviderKey = (song && typeof songProviderKey === 'function') ? songProviderKey(song) : '';
+    if (song && spotifyProviderKey !== 'spotify' && typeof window !== 'undefined' && window.SpotifyRemote) {
       window.SpotifyRemote.deactivate();
     }
-    if (song && song.provider === 'spotify' && !opts.qualitySwitch && !opts.fallbackDepth && typeof window !== 'undefined') {
+    // spotifySkipTakeover：客户端交接没成功时，模块会让引擎重跑这一首并跳过接管，
+    // 直接走下面的取音源 / 换源链路（否则会原地再等一次，用户只看到卡住）。
+    // spotifySkipTakeover: the module asks for a re-run without takeover after a failed handover.
+    if (song && spotifyProviderKey === 'spotify' && !opts.qualitySwitch && !opts.fallbackDepth && !opts.spotifySkipTakeover && typeof window !== 'undefined') {
       // 接管要等客户端真的切到这——句柄是异步的，切不过去就返回 false 让下面的换源继续跑。
       // The handover is async: it resolves false when the client cannot switch, so the
       // original switch_source path below still runs instead of a silent dead end.
@@ -1317,6 +1324,11 @@ async function playQueueAt(idx, opts) {
         }
       }
       if (token !== trackSwitchToken) return false;
+      // 没接管成功就把上一次留下的"已交给客户端"标记清掉：留着会让换源链路
+      // 以为这首已经有人放了（`tryAutoPlaybackFallback` 直接返回 true），界面照旧停住。
+      // Clear a stale remote flag, or the fallback chain thinks someone else is already playing.
+      if (!remoteTakenOver) song.spotifyRemote = false;
+      else song.spotifyHoldSource = false;
       // 「SP 换源其他」关掉时给这一首上锁：客户端没接管就如实停下，绝不偷偷换成别家平台。
       // With "switch to another source" off, a Spotify track that the client cannot take over must
       // stop with an honest notice instead of silently playing another platform's version.

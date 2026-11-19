@@ -537,6 +537,7 @@
   "spotify_client_disconnected": "Связь с клиентом Spotify потеряна, воспроизведение приостановлено",
   "spotify_client_need_restart": "Spotify уже запущен без отладочного порта: закройте его из трея, и Mineradio запустит клиент в фоне заново",
   "spotify_client_not_installed": "Локальный клиент Spotify не найден; дальше действует настройка переключения источника",
+  "spotify_client_handover_failed": "Клиент Spotify не переключился на этот трек; дальше действует настройка переключения источника",
   "settings_preferred_source": "Источник по умолчанию",
   "settings_preferred_source_sub": "При воспроизведении сначала ищем ту же песню на выбранной платформе; если её нет, пробуем другие по порядку",
   "settings_preferred_source_auto": "Не задано (как есть)",

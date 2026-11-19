@@ -5471,6 +5471,8 @@ const server = http.createServer(async (req, res) => {
         title,
         artist: String(url.searchParams.get('artist') || '').trim(),
         uri,
+        // fast=1：桥接受点播就返回，不在服务端等 7 秒确认（确认由渲染进程的轮询完成）。
+        fast: url.searchParams.get('fast') === '1',
       });
       sendJSON(res, result);
     } catch (err) {

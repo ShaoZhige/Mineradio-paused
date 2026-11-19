@@ -537,6 +537,7 @@
   "spotify_client_disconnected": "Lost the Spotify client connection, playback paused",
   "spotify_client_need_restart": "Spotify is already running without its debug port: quit it from the tray and Mineradio will start it in the background again",
   "spotify_client_not_installed": "The local Spotify client was not found; the source setting decided what happens next",
+  "spotify_client_handover_failed": "The Spotify client did not switch to this track; the source setting decided what happens next",
   "settings_preferred_source": "Preferred source",
   "settings_preferred_source_sub": "On playback, look for the same song on the chosen platform first; if it is not there, keep trying the other platforms in order",
   "settings_preferred_source_auto": "Not set (leave as-is)",

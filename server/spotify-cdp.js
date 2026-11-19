@@ -476,7 +476,10 @@ function createSpotifyCdp(options) {
 
   // ① API 级点播：给出 URI 直接播，不搜索、不点 DOM。
   // 失败时**不改动**任何状态，调用方照旧走换源 —— 绝不假装播上了。
-  async function playTrackViaUri(song, uri, started) {
+  // fast = true 时不在这里等确认（那个循环最长 7 秒，切歌时是纯等待）：
+  // 桥接层接受点播就返回，确认交给前端的轮询（它本来每秒都在读状态）。
+  // With fast, return as soon as the bridge accepts the play; the renderer's poll confirms it.
+  async function playTrackViaUri(song, uri, started, fast) {
     const title = String(song.title || song.name || '').trim();
     const artist = String(song.artist || '').trim();
     const result = { ok: false, already: false, mode: 'api', uri, title, artist, elapsedMs: 0 };
@@ -487,6 +490,16 @@ function createSpotifyCdp(options) {
         result.error = String((answer && answer.error) || 'SPOTIFY_CDP_PLAY_REJECTED');
         result.elapsedMs = Date.now() - started;
         lastPlay = Object.assign({ at: started }, result);
+        return result;
+      }
+      if (fast) {
+        bridgeMode = 'api';
+        result.ok = true;
+        result.pending = true;
+        result.elapsedMs = Date.now() - started;
+        lastPlay = Object.assign({ at: started }, result);
+        lastCommand = 'PlayTrack';
+        lastCommandAt = Date.now();
         return result;
       }
       // play() 是异步的：必须等客户端真的换过去，不能"发出去了就当成功"。
@@ -522,7 +535,12 @@ function createSpotifyCdp(options) {
     const artist = String(song.artist || '').trim();
     const uri = String(song.uri || song.spotifyUri || '').trim();
     const started = Date.now();
-    const result = { ok: false, already: false, title, artist, uri, elapsedMs: 0 };
+    // 只有"有 URI + 桥已经可用"才走 fast：前者是精确点播，后者说明页面早就好了。
+    // 首次接入（桥还没注过）仍要等页面就绪，否则会把"还没起来"错判成"点播被拒"。
+    // fast needs a URI (precise play) and a bridge that already worked once; the very first
+    // handover still waits for the page, or "not ready yet" would look like "rejected".
+    const fast = song.fast === true && !!uri && bridgeMode === 'api';
+    const result = { ok: false, already: false, title, artist, uri, elapsedMs: 0, fast };
 
     if (!title && !uri) {
       result.error = 'SPOTIFY_CDP_NO_TITLE';
@@ -530,7 +548,7 @@ function createSpotifyCdp(options) {
       return result;
     }
 
-    if (!(await waitForPageReady())) {
+    if (!fast && !(await waitForPageReady())) {
       result.error = 'SPOTIFY_CDP_PAGE_NOT_READY';
       result.elapsedMs = Date.now() - started;
       lastPlay = Object.assign({ at: started }, result);
@@ -552,10 +570,10 @@ function createSpotifyCdp(options) {
 
     // 有 URI 就先走精确点播；走不通且手上有曲名时，再退回搜索点击。
     if (uri) {
-      const viaApi = await playTrackViaUri(song, uri, started);
+      const viaApi = await playTrackViaUri(song, uri, started, fast);
       if (viaApi.ok) return viaApi;
       result.apiError = viaApi.error;
-      if (!title) return viaApi;
+      if (!title || fast) return viaApi;
     }
 
     const query = (title + ' ' + artist).trim();

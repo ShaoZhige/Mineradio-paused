@@ -537,6 +537,7 @@
   "spotify_client_disconnected": "Spotify クライアントとの接続が切れたため、再生を一時停止しました",
   "spotify_client_need_restart": "Spotify は起動中ですがデバッグポートがありません。トレイから終了すると Mineradio がバックグラウンドで起動し直します",
   "spotify_client_not_installed": "ローカルの Spotify クライアントが見つかりません。ソース切替の設定に従って処理しました",
+  "spotify_client_handover_failed": "Spotify クライアントがこの曲に切り替わりませんでした。ソース切替の設定に従って処理しました",
   "settings_preferred_source": "既定のソース",
   "settings_preferred_source_sub": "再生時は指定したプラットフォームで同名曲を先に探し、無ければ他のプラットフォームを順に試します",
   "settings_preferred_source_auto": "指定しない（そのまま）",

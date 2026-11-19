@@ -537,6 +537,7 @@
   "spotify_client_disconnected": "Spotify 用戶端連線中斷，已暫停播放",
   "spotify_client_need_restart": "Spotify 已在執行但沒開除錯連接埠：請從托盤結束它，Mineradio 會在後台重新拉起",
   "spotify_client_not_installed": "找不到本機 Spotify 用戶端，已依換源設定處理",
+  "spotify_client_handover_failed": "Spotify 用戶端沒能切到這首，已依換源設定處理",
   "settings_preferred_source": "預設源",
   "settings_preferred_source_sub": "播放時優先到指定平台找同名歌曲，找不到就繼續按順序試其它平台",
   "settings_preferred_source_auto": "不指定（保持原樣）",

@@ -550,6 +550,298 @@ const {
   delete globalThis.playQueue;
   delete globalThis.currentIdx;
 
+  // ── 10. 混队列：三格窗口 / 切走按停 / MR 主导时钟 ─────────────────────────
+  // 把 Spotify 歌和别家源混在同一个队列里时，MR 是主：播哪首、播不播由 MR 决定，
+  // 客户端只负责出声，进度按它对齐。客户端自己停下（放完 / 被别处暂停）绝不能把
+  // MR 的静音时钟一起停住 —— 那个时钟一停 `ended` 就永远不触发，队列循环断在这里。
+  const mixAudio = {
+    currentTime: 0,
+    duration: 210,
+    paused: true,
+    listeners: {},
+    addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
+    play() { this.paused = false; return Promise.resolve(); },
+    pause() { this.paused = true; },
+  };
+  globalThis.audio = mixAudio;
+  const commands = [];
+  let mixState = {
+    uri: 'spotify:track:SP1', title: 'SP 曲', artist: '丁',
+    isPlaying: true, positionMs: 0, durationMs: 210000, hasProgress: true, receivedAt: Date.now(),
+  };
+  globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.indexOf('/api/spotify/client/command') >= 0) {
+      const parsed = new URL(href, 'http://127.0.0.1');
+      commands.push({ name: parsed.searchParams.get('name'), position: parsed.searchParams.get('position') });
+      return { json: async () => ({ ok: true }) };
+    }
+    if (href.indexOf('/play-track') >= 0) {
+      return { json: async () => ({ ok: true, title: 'SP 曲', state: Object.assign({}, mixState) }) };
+    }
+    return { json: async () => ({ ok: true, available: true, state: Object.assign({}, mixState) }) };
+  };
+  const mixedQueue = () => [
+    { provider: 'netease', name: 'NC 曲' },
+    { provider: 'spotify', name: 'SP 曲', artist: '丁', spotifyUri: 'spotify:track:SP1', duration: 210 },
+    { provider: 'qq', name: 'QQ 曲' },
+  ];
+
+  // 10a. 窗口判定：「上一首 / 当前 / 下一首」三格里有没有 Spotify
+  globalThis.playQueue = mixedQueue();
+  globalThis.currentIdx = 0; // 正在放网易云，下一首是 Spotify
+  assert.strictEqual(remote.queueWindowHasSpotify(), true,
+    'a Spotify track in the three-slot window must keep the client supervised');
+  globalThis.currentIdx = 1;
+  assert.strictEqual(remote.queueWindowHasSpotify(), true, 'the current Spotify track counts too');
+  // 三格都不含 Spotify：不该接管这条队列，客户端保持自由
+  globalThis.playQueue = [
+    { provider: 'netease', name: 'A' }, { provider: 'qq', name: 'B' },
+    { provider: 'kugou', name: 'C' }, { provider: 'netease', name: 'D' },
+  ];
+  globalThis.currentIdx = 0;
+  assert.strictEqual(remote.queueWindowHasSpotify(), false,
+    'a queue with no Spotify nearby must not be supervised');
+  globalThis.playQueue = mixedQueue();
+
+  // 10b. 从 Spotify 切到别家源：客户端必须被按停，否则两个声音一起响
+  globalThis.currentIdx = 1;
+  await remote.poll();
+  assert.strictEqual(await remote.handleTrackStart(globalThis.playQueue[1]), true,
+    'the takeover must succeed before testing the switch away');
+  commands.length = 0;
+  globalThis.currentIdx = 0;
+  remote.deactivate();
+  assert.deepStrictEqual(commands.map(c => c.name), ['Pause'],
+    'leaving Spotify must pause the client we started — otherwise it keeps singing under netease');
+
+  // 10c. 哨兵：MR 播别家源，客户端还在放队列里那首 Spotify → 再按停一次
+  remote.command('Play'); // 覆盖"刚发过 Pause"的节流标记，测的是哨兵本身
+  commands.length = 0;
+  assert.strictEqual(remote.holdStrayClient(), true,
+    'a leftover client track must be silenced while another source plays');
+  assert.deepStrictEqual(commands.map(c => c.name), ['Pause'], 'the guard must send exactly one Pause');
+  // 客户端放的是队列外的歌（用户在 Spotify 里自由听）→ 不打扰
+  const outsideState = Object.assign({}, mixState, { uri: 'spotify:track:OUTSIDE' });
+  globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.indexOf('/api/spotify/client/command') >= 0) {
+      const parsed = new URL(href, 'http://127.0.0.1');
+      commands.push({ name: parsed.searchParams.get('name') });
+      return { json: async () => ({ ok: true }) };
+    }
+    return { json: async () => ({ ok: true, available: true, state: Object.assign({}, outsideState) }) };
+  };
+  remote.command('Play');
+  commands.length = 0;
+  await remote.poll();
+  assert.strictEqual(remote.holdStrayClient(), false, 'free listening outside the queue must be left alone');
+  assert.deepStrictEqual(commands, [], 'the guard must not touch a track that is not in the queue');
+
+  // 10d. 接管时客户端停在这一首上：必须从头放，不能接着上次的进度
+  globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.indexOf('/api/spotify/client/command') >= 0) {
+      const parsed = new URL(href, 'http://127.0.0.1');
+      commands.push({ name: parsed.searchParams.get('name'), position: parsed.searchParams.get('position') });
+      return { json: async () => ({ ok: true }) };
+    }
+    return { json: async () => ({ ok: true, available: true, state: Object.assign({}, mixState) }) };
+  };
+  globalThis.currentIdx = 1;
+  mixState = Object.assign({}, mixState, { isPlaying: false, positionMs: 120000 });
+  await remote.poll();
+  commands.length = 0;
+  assert.strictEqual(await remote.handleTrackStart(globalThis.playQueue[1]), true,
+    'a parked client still owns the track');
+  assert.deepStrictEqual(commands.map(c => c.name), ['Seek', 'Play'],
+    'a parked client must restart from the top, not resume mid-song');
+  assert.strictEqual(commands[0].position, '0', 'the restart seek must go to zero');
+  assert.strictEqual(remote.state().positionMs, 0, 'the mirrored position must be reset as well');
+
+  // 10e. 播放途中客户端停了：MR 是主，把客户端拉回来，绝不停 MR 的时钟
+  mixAudio.paused = false; // MR 正在播
+  mixState = Object.assign({}, mixState, { isPlaying: false, positionMs: 40000, durationMs: 210000 });
+  await remote.poll();
+  remote.command('Seek', { position: 1 }); // 让"刚发过 Play"的节流不挡住断言
+  commands.length = 0;
+  remote.syncToAudio();
+  assert.strictEqual(mixAudio.paused, false,
+    'a stopped client must never stop the MR clock — that would kill `ended` and stall the queue');
+  assert.ok(commands.some(c => c.name === 'Play'),
+    'MR is still playing, so the client must be resumed to keep providing the sound');
+
+  // 10f. 客户端已经播到结尾：不要叫它重播，让 MR 的时钟自己走完进下一首
+  mixState = Object.assign({}, mixState, { isPlaying: false, positionMs: 209500, durationMs: 210000 });
+  mixAudio.currentTime = 100; // MR 的时钟还在中段走着，不是"被重置回开头"
+  await remote.poll();
+  remote.command('Play'); // 挡掉节流，测 near-end 判定本身
+  commands.length = 0;
+  remote.syncToAudio();
+  assert.strictEqual(commands.filter(c => c.name === 'Play').length, 0,
+    'a client parked at the end must not be restarted');
+  assert.strictEqual(mixAudio.paused, false, 'the clock still runs to its own end');
+
+  // 10f-2. 单曲循环：本地时钟被 loop 回开头，客户端还停在曲尾 → 让它也从头开始
+  // 10d 的接管设了 2.2 秒的 seek 冷静期（那段时间不拿旧位置判断），等它过去。
+  await new Promise(resolve => setTimeout(resolve, 2400));
+  mixAudio.currentTime = 0;
+  commands.length = 0;
+  await remote.poll();
+  assert.ok(commands.some(c => c.name === 'Seek' && c.position === '0'),
+    'a clock reset to the top must pull the client back to the top too');
+  assert.strictEqual(remote.state().positionMs, 0, 'the mirrored position must follow the restart');
+
+  // 10g. 客户端在放另一首时，绝不用它的时长当静音时钟长度
+  const strayData = remote.playbackData({ provider: 'spotify', name: '完全不同的歌', duration: 187 });
+  assert.strictEqual(strayData.durationMs, 187000,
+    'another track\'s duration must not become this track\'s clock length');
+
+  // 10h. 客户端换到队列里的非相邻曲目：MR 不跟，队列顺序不能被拽乱
+  let jumpedTo = null;
+  globalThis.playQueueAt = idx => { jumpedTo = idx; return Promise.resolve(); };
+  globalThis.playQueue = [
+    { provider: 'spotify', name: 'S0', spotifyUri: 'spotify:track:S0' },
+    { provider: 'netease', name: 'N1' },
+    { provider: 'spotify', name: 'S2', spotifyUri: 'spotify:track:S2' },
+    { provider: 'netease', name: 'N3' },
+  ];
+  globalThis.currentIdx = 0;
+  mixState = Object.assign({}, mixState, {
+    uri: 'spotify:track:S0', title: 'S0', isPlaying: true, positionMs: 1000, durationMs: 200000,
+  });
+  await remote.poll();
+  await remote.handleTrackStart(globalThis.playQueue[0]);
+  mixState = Object.assign({}, mixState, { uri: 'spotify:track:S2', title: 'S2' });
+  await remote.poll();
+  assert.strictEqual(jumpedTo, null,
+    'a jump to a non-adjacent queued track must not re-drive the queue');
+
+  // 相邻（客户端按了下一首/上一首）才算和 MR 同步的操作，跟着走
+  globalThis.currentIdx = 3;
+  mixState = Object.assign({}, mixState, { uri: 'spotify:track:S2', title: 'S2' });
+  await remote.poll();
+  mixState = Object.assign({}, mixState, { uri: 'spotify:track:S0', title: 'S0' });
+  await remote.poll();
+  assert.strictEqual(jumpedTo, 0,
+    'an adjacent jump is the client\'s next/prev and must be followed');
+
+  // ── 11. 乐观交接：切歌不再等客户端回执 ──────────────────────────────────
+  // 以前 handleTrackStart 会 await 一整套"点播 + 确认"（服务端最长 7 秒），混队列里
+  // 每切一首都要交一遍这个过路费。现在有 uri + 桥可用时立刻返回，静音时钟马上跑，
+  // 由轮询确认；4 秒还没确认就交还给换源链路，绝不留一段永远没声音的静音时钟。
+  let playTrackCalls = 0;
+  let playTrackDelayMs = 0;
+  let playTrackAnswer = { ok: true, pending: true, mode: 'api' };
+  globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.indexOf('/api/spotify/client/command') >= 0) {
+      const parsed = new URL(href, 'http://127.0.0.1');
+      commands.push({ name: parsed.searchParams.get('name'), position: parsed.searchParams.get('position') });
+      return { json: async () => ({ ok: true }) };
+    }
+    if (href.indexOf('/play-track') >= 0) {
+      playTrackCalls += 1;
+      if (playTrackDelayMs) await new Promise(resolve => setTimeout(resolve, playTrackDelayMs));
+      return { json: async () => Object.assign({}, playTrackAnswer) };
+    }
+    return { json: async () => ({ ok: true, available: true, mode: 'api', state: Object.assign({}, mixState) }) };
+  };
+
+  // 客户端在 S0，MR 要放 S2（两首都有 uri）
+  globalThis.currentIdx = 2;
+  mixState = {
+    uri: 'spotify:track:S0', title: 'S0', isPlaying: true, positionMs: 5000, durationMs: 200000,
+    volume: 50, hasProgress: true,
+  };
+  await remote.poll();
+  assert.strictEqual(remote.handover().apiMode, 'api', 'the bridge mode must be tracked for the fast path');
+
+  // 11a. 点播在服务端还要 600ms —— 接管也必须立刻返回
+  playTrackDelayMs = 600;
+  playTrackCalls = 0;
+  const handoverStartedAt = Date.now();
+  const optimistic = await remote.handleTrackStart(globalThis.playQueue[2]);
+  const handoverWaitedMs = Date.now() - handoverStartedAt;
+  assert.strictEqual(optimistic, true, 'an optimistic handover must report success so the timeline starts');
+  assert.ok(handoverWaitedMs < 150,
+    `the handover must not wait for the play confirmation (waited ${handoverWaitedMs}ms)`);
+  assert.strictEqual(playTrackCalls, 1, 'the play request must still be sent');
+  assert.strictEqual(remote.handover().pendingUri, 'spotify:track:S2',
+    'the pending target must be tracked while waiting for the client');
+  assert.strictEqual(remote.isActive(), true, 'the silent clock must already be under remote control');
+
+  // 交接期间绝不拿上一首的进度去纠偏（否则歌词会被灌进 S0 的位置）
+  mixAudio.currentTime = 100;
+  remote.syncToAudio();
+  assert.strictEqual(Math.round(mixAudio.currentTime), 100,
+    'the clock must not be corrected from the old track during a handover');
+
+  // 11b. 客户端到了 S2：轮询即确认，守卫解除
+  mixState = {
+    uri: 'spotify:track:S2', title: 'S2', isPlaying: true, positionMs: 1200, durationMs: 210000,
+    volume: 50, hasProgress: true,
+  };
+  await remote.poll();
+  assert.strictEqual(remote.handover().pendingUri, '', 'a matching poll must confirm the handover');
+  assert.strictEqual(remote.handover().switchingLeftMs, 0, 'confirmation must clear the switching guard');
+  assert.strictEqual(remote.calibration().running, true, 'calibration must start once the client is here');
+  // 确认后的复校定时器 + 密集轮询：等它们跑完，别把计时器带进下一节
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
+  // 11c. fast 点播被拒：先用慢路径重试一次，仍失败才交还换源（页面重载是瞬时故障）
+  let handedBackIdx = null;
+  globalThis.playQueueAt = idx => { handedBackIdx = idx; return Promise.resolve(true); };
+  playTrackDelayMs = 0;
+  playTrackAnswer = { ok: false, error: 'SPOTIFY_CDP_PLAY_REJECTED' };
+  mixState = {
+    uri: 'spotify:track:S0', title: 'S0', isPlaying: true, positionMs: 5000, durationMs: 200000,
+    volume: 50, hasProgress: true,
+  };
+  await remote.poll();
+  playTrackCalls = 0;
+  globalThis.playQueue[2].spotifyRemote = true; // 上一次尝试留下的标记，必须被清掉
+  await remote.handleTrackStart(globalThis.playQueue[2]);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.strictEqual(playTrackCalls, 2, 'a failed fast play must be retried once on the slow path');
+  assert.strictEqual(handedBackIdx, 2, 'a rejected play must be handed back to the fallback chain right away');
+  assert.strictEqual(remote.isActive(), false, 'a rejected play must release the silent clock');
+  assert.strictEqual(globalThis.playQueue[2].spotifyRemote, false,
+    'the stale remote flag must be cleared or the fallback chain would report a false success');
+
+  // 11d. 客户端一直不切：4 秒后由看门狗交还，而不是让静音时钟空转
+  playTrackAnswer = { ok: true, pending: true, mode: 'api' };
+  handedBackIdx = null;
+  mixState = {
+    uri: 'spotify:track:S0', title: 'S0', isPlaying: true, positionMs: 5000, durationMs: 200000,
+    volume: 50, hasProgress: true,
+  };
+  await remote.poll();
+  await remote.handleTrackStart(globalThis.playQueue[2]);
+  assert.strictEqual(remote.handover().pendingUri, 'spotify:track:S2', 'the handover must be pending again');
+  await new Promise(resolve => setTimeout(resolve, 4200));
+  await remote.poll();
+  // 交还是排到下一拍执行的（同一个 tick 里重跑播放会和引擎自己的收尾打架）
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.strictEqual(remote.handover().pendingUri, '', 'the watchdog must give up on a stuck handover');
+  assert.strictEqual(handedBackIdx, 2, 'an unconfirmed handover must be handed back to the fallback chain');
+
+  // 11e. 服务端必须支持"发出去就返回"的 fast 点播，而且只在前端要求时才走
+  const cdpSource = read('server/spotify-cdp.js');
+  assert.ok(/const fast = song\.fast === true && !!uri && bridgeMode === 'api'/.test(cdpSource),
+    'the fast path must require a URI and a live bridge');
+  assert.ok(/result\.pending = true/.test(cdpSource), 'the fast path must return before confirming');
+  assert.ok(/fast: url\.searchParams\.get\('fast'\) === '1'/.test(read('server/server.js')),
+    'the play-track route must forward the fast flag');
+  assert.ok(/var useFast = !!targetUri && spotifyRemoteApiMode === 'api'/.test(componentSource),
+    'the renderer must only be optimistic when the injected bridge is in use');
+
+  remote.deactivate();
+  delete globalThis.playQueueAt;
+  delete globalThis.audio;
+  delete globalThis.playQueue;
+  delete globalThis.currentIdx;
+
   globalThis.window = originalWindow;
   globalThis.document = originalDocument;
   globalThis.setInterval = originalSetInterval;

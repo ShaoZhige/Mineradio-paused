@@ -537,6 +537,7 @@
   "spotify_client_disconnected": "Se perdió la conexión con el cliente de Spotify, reproducción en pausa",
   "spotify_client_need_restart": "Spotify ya está en marcha sin puerto de depuración: ciérralo desde la bandeja y Mineradio lo abrirá otra vez en segundo plano",
   "spotify_client_not_installed": "No se encontró el cliente local de Spotify; se aplicó el ajuste de cambio de fuente",
+  "spotify_client_handover_failed": "El cliente de Spotify no cambió a esta pista; se aplicó el ajuste de cambio de fuente",
   "settings_preferred_source": "Fuente preferida",
   "settings_preferred_source_sub": "Al reproducir, busca primero la misma canción en la plataforma elegida. Si no está, sigue probando las demás en orden",
   "settings_preferred_source_auto": "Sin especificar (dejar como está)",
