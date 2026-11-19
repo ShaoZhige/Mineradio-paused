@@ -1914,6 +1914,40 @@ function animateDesktopWindowRestore() {
   }, 280);
 }
 
+var desktopWindowCornerClipTimer = 0;
+
+// 窗口是全透明、无边框的，圆角靠 #desktop-window-shell 的 border-radius + clip-path 画出来，
+// 这一整块又是一个独立的 GPU 合成层。全屏 ↔ 窗口化时窗口尺寸在一两帧里从整屏跳到小窗，
+// 合成器有时不会按新尺寸重建裁剪掩码，圆角仍按旧的直角矩形裁，看上去就是「圆角没了」，
+// 要等下一次无关重绘（鼠标划过某个动画）才自己恢复。
+// 这里在尺寸稳定后把裁剪微调 0.1px 再交还给样式表：值真的变了，掩码才会重建。
+// The window is transparent and frameless, so the rounded corners are painted by
+// #desktop-window-shell's border-radius/clip-path on a dedicated GPU layer. When the bounds jump
+// between fullscreen and windowed, the compositor sometimes keeps the previous rectangular mask
+// and the corners render square until some unrelated repaint. Nudging the clip by 0.1px and
+// handing it back forces the mask to be rebuilt.
+function refreshDesktopWindowCornerClip() {
+  var shell = document.getElementById('desktop-window-shell');
+  if (!shell) return;
+  var nudged = 'inset(0 round 33.9px)';
+  shell.style.clipPath = nudged;
+  if ('webkitClipPath' in shell.style) shell.style.webkitClipPath = nudged;
+  // 读一次布局，让上面这次裁剪真的生效，否则两次写入会被合并成一次。
+  void shell.offsetWidth;
+  shell.style.removeProperty('clip-path');
+  shell.style.removeProperty('-webkit-clip-path');
+}
+
+function scheduleDesktopWindowCornerClipRefresh() {
+  clearTimeout(desktopWindowCornerClipTimer);
+  // 160 ms：主进程离开全屏后会等 50 ms 才把窗口 setBounds 回窗口尺寸，
+  // 太早刷新还是在旧尺寸上算掩码。
+  desktopWindowCornerClipTimer = setTimeout(function () {
+    desktopWindowCornerClipTimer = 0;
+    refreshDesktopWindowCornerClip();
+  }, 160);
+}
+
 function toggleFullscreen() {
   var api = window.desktopWindow;
   if (api && api.isDesktop && typeof api.toggleFullscreen === 'function') {
@@ -1951,6 +1985,10 @@ function toggleFullscreen() {
   document.body.classList.remove('desktop-fullscreen');
   desktopFullscreenActive = false;
   syncCursorAutoHideMode();
+  // 拖拽改尺寸、最大化、DPI 跳变都会给合成层一个新尺寸；停下之后再重算一次圆角裁剪。
+  // Dragging, maximizing and DPI changes all hand the compositor a new size; re-apply the
+  // corner clip once it settles.
+  window.addEventListener('resize', scheduleDesktopWindowCornerClipRefresh, { passive: true });
 
   var maxBtn = document.querySelector('[data-window-action="maximize"]');
   var maxIcon = maxBtn && maxBtn.querySelector('.icon-maximize');
@@ -1969,6 +2007,8 @@ function toggleFullscreen() {
     var isHidden = !!desktopWindowState.isMinimized || desktopWindowState.isVisible === false;
     if (wasHidden && !isHidden) animateDesktopWindowRestore();
     var isMaximized = !!desktopWindowState.isMaximized;
+    var wasMaximized = document.body.classList.contains('desktop-maximized');
+    var wasWallpaperMode = document.body.classList.contains('desktop-wallpaper-mode');
     var isFullScreen = !!desktopWindowState.isFullScreen || !!desktopWindowState.isNativeFullScreen || !!desktopWindowState.isHtmlFullScreen || !!desktopWindowState.isWindowFullScreen || !!document.fullscreenElement;
     var wasFullScreen = desktopFullscreenActive;
     desktopFullscreenActive = isFullScreen;
@@ -2004,6 +2044,15 @@ function toggleFullscreen() {
     }
     if (maxIcon) maxIcon.style.display = isFullScreen ? 'none' : '';
     if (restoreIcon) restoreIcon.style.display = isFullScreen ? '' : 'none';
+    // 圆角的几个开关（全屏 / 最大化 / 桌面壁纸模式）都走 CSS 类，而窗口尺寸的跳变发生在主进程
+    // 那侧。类变了之后等尺寸落定，再把裁剪掩码重算一次，避免留下直角。
+    // Every corner switch is a CSS class, but the bounds jump happens in the main process. Once
+    // the classes change, re-apply the clip after the bounds settle so no square corner sticks.
+    if (isFullScreen !== wasFullScreen
+      || isMaximized !== wasMaximized
+      || document.body.classList.contains('desktop-wallpaper-mode') !== wasWallpaperMode) {
+      scheduleDesktopWindowCornerClipRefresh();
+    }
   }
 
   document.querySelectorAll('[data-window-action]').forEach(function (btn) {
