@@ -140,6 +140,40 @@ async function handleAppleMusicSearch(requester, keywords, limit, offset) {
   };
 }
 
+// 目录接口不带曲目数：library playlists 的属性里没有 trackCount，卡片于是一律显示「0 首」。
+// Apple 另有一个只读一行的计数接口，Folia 补卡片的做法也一样。这里并发两路、总预算 2.5 秒，
+// 读不到就保持 0 —— 计数是可选的，绝不能让它拖慢或拖垮整页目录。
+// The catalog page carries no track count (library playlists have no trackCount attribute), so every
+// card read "0 首". Apple has a one-row counting read, and Folia fills cards the same way. Two lanes,
+// 2.5 s of total budget, and a missing count simply stays 0: the count is optional and must never
+// slow the page down or fail it.
+const APPLE_MUSIC_COUNT_BUDGET_MS = 2500;
+const APPLE_MUSIC_COUNT_MAX = 10;
+const APPLE_MUSIC_COUNT_ATTEMPT_MS = 1200;
+async function fillAppleMusicPlaylistTrackCounts(requester, playlists) {
+  const pending = playlists
+    .filter((item) => item && item.id && !(item.trackCount > 0))
+    .slice(0, APPLE_MUSIC_COUNT_MAX);
+  if (!pending.length) return;
+  const deadline = Date.now() + APPLE_MUSIC_COUNT_BUDGET_MS;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < pending.length && Date.now() < deadline) {
+      const item = pending[cursor++];
+      const budget = Math.max(300, Math.min(APPLE_MUSIC_COUNT_ATTEMPT_MS, deadline - Date.now()));
+      try {
+        const answer = await Promise.race([
+          requester('playlistTrackCount', { playlistId: item.id, limit: 1, offset: 0 }),
+          new Promise((resolve) => { const timer = setTimeout(() => resolve(null), budget); if (timer.unref) timer.unref(); }),
+        ]);
+        const total = answer && answer.ok === true && answer.data ? answer.data.total : null;
+        if (Number.isSafeInteger(total) && total >= 0) item.trackCount = total;
+      } catch (_) { /* 读不到就保持 0 */ }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+}
+
 async function handleAppleMusicPlaylists(requester, limit, offset) {
   limit = Math.max(1, Math.min(100, Number(limit) || 25));
   offset = Math.max(0, Number(offset) || 0);
@@ -166,6 +200,7 @@ async function handleAppleMusicPlaylists(requester, limit, offset) {
   const data = (result && result.data) || {};
   const items = Array.isArray(data.items) ? data.items : [];
   const playlists = items.map(mapAppleMusicPlaylist).filter(Boolean).slice(0, limit);
+  await fillAppleMusicPlaylistTrackCounts(requester, playlists);
   return {
     provider: 'applemusic',
     configured: true,

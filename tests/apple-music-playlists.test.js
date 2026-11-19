@@ -67,6 +67,34 @@ test('playlists forwards paging and normalizes the page', async () => {
   assert.equal(result.nextOffset, 1);
 });
 
+test('a card with no track count is filled from the one-row counting read', async () => {
+  // 库歌单的属性里没有 trackCount，卡片否则一律显示「0 首」。计数接口是单独一次只读一行的请求。
+  // Library playlists carry no trackCount attribute, so cards otherwise read "0 首"; the count comes
+  // from a separate one-row read.
+  const calls = [];
+  const result = await handleAppleMusicPlaylists(async (operation, params) => {
+    calls.push({ operation, params });
+    if (operation === 'playlistTrackCount') return { ok: true, data: { total: 7 } };
+    return { ok: true, data: { items: [playlist({ trackCount: undefined })], hasMore: false, nextOffset: 1 } };
+  }, 25, 0);
+  assert.equal(result.playlists[0].trackCount, 7);
+  assert.deepEqual(
+    calls.filter(call => call.operation === 'playlistTrackCount').map(call => call.params),
+    [{ playlistId: 'p.abc123', limit: 1, offset: 0 }],
+    'the count read asks for a single row and must not page'
+  );
+});
+
+test('a failing count read leaves the card at zero instead of failing the page', async () => {
+  const result = await handleAppleMusicPlaylists(async (operation) => {
+    if (operation === 'playlistTrackCount') throw new Error('upstream-error');
+    return { ok: true, data: { items: [playlist({ trackCount: undefined })], hasMore: false, nextOffset: 1 } };
+  }, 25, 0);
+  assert.equal(result.playlists.length, 1);
+  assert.equal(result.playlists[0].trackCount, 0);
+  assert.equal(result.error, undefined);
+});
+
 test('playlist tracks use the shared `tracks` envelope and map songs', async () => {
   const calls = [];
   const result = await handleAppleMusicPlaylistTracks(async (operation, params) => {
@@ -160,7 +188,7 @@ function loadPageReader(responder) {
   };
 }
 
-test('library playlist tracks request the catalog relationship and stay playable', async () => {
+test('library playlist tracks must not ask for the catalog relationship', async () => {
   // 读曲目前页面会先确认账号区域（`v1/me/storefront`），所以第一跳不是 /tracks。
   // The page confirms the account region (`v1/me/storefront`) before a library read.
   const page = loadPageReader(requestPath => (
@@ -172,7 +200,13 @@ test('library playlist tracks request the catalog relationship and stay playable
   const trackCall = page.calls.find(call => call.path.indexOf('/tracks') > 0);
   assert.ok(trackCall, `the track page must be requested: ${JSON.stringify(page.calls.map(call => call.path))}`);
   assert.equal(trackCall.path, 'v1/me/library/playlists/p.abc123/tracks');
-  assert.equal(trackCall.options.include, 'catalog', 'without the relationship a library song has no numeric id to play');
+  // 🔴 `include: 'catalog'` 让 Apple 为每首歌额外装配目录关系：实测连只有 1 首歌的歌单都要
+  // 20.0 秒，正好撞上 20 秒的请求超时，整页于是只剩「加载失败」。库内曲目的 catalogId
+  // 本来就随 playParams 下发，所以这里必须保持不带 include。
+  // 🔴 `include: 'catalog'` makes Apple assemble the catalog relationship for every row: measured
+  // at 20.0 s even for a single-track playlist, exactly the request timeout, so the page only saw a
+  // failure. Library tracks already carry catalogId in playParams, so include must stay off.
+  assert.equal(trackCall.options.include, undefined, 'include: catalog times the whole request out');
   assert.equal(trackCall.options.limit, 25);
   assert.equal(result.ok, true);
   assert.equal(result.data.items.length, 1);

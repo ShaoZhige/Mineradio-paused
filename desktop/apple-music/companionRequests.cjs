@@ -393,12 +393,19 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             options = { limit: p.limit, offset: p.offset, extend: 'tags' };
         } else if (request.operation === 'playlistTracks' || request.operation === 'playlistTrackCount') {
             path = 'v1/me/library/playlists/' + encodeURIComponent(p.playlistId) + '/tracks';
-            // 曲目是库内资源，catalog 关系里才有可播放的数字 catalog id（playSong 只收数字）。
-            // Library songs only expose a playable numeric catalog id through this relationship;
-            // playSong rejects anything else.
+            // 🔴 这里**不能**带 `include: 'catalog'`。库内曲目本来就随 playParams 给出 catalogId
+            // （实测 `i.eoD8V5gfMbAPzJG` 的 playParams.catalogId 就是 `6784560665`），而带上
+            // include 之后 Apple 要为每首歌额外装配 catalog 关系：连只有 1 首歌的歌单都要
+            // 20.0 秒，正好撞上本文件 20 秒的请求超时，前端于是只看到「歌单加载失败」。
+            // Folia 的同一处同样不带 include。
+            // 🔴 Never add `include: 'catalog'` here. Library tracks already carry the catalog id in
+            // playParams (measured: `i.eoD8V5gfMbAPzJG` → catalogId `6784560665`). With include,
+            // Apple builds the catalog relationship for every row: even a single-track playlist took
+            // exactly 20.0 s, hitting this file's 20 s request timeout, so the page only ever saw a
+            // failed load. Folia's equivalent call does not send include either.
             options = request.operation === 'playlistTrackCount'
                 ? { limit: 1 }
-                : { limit: p.limit, offset: p.offset, include: 'catalog' };
+                : { limit: p.limit, offset: p.offset };
         } else {
             path = base + '/songs/' + encodeURIComponent(p.songId) + '/syllable-lyrics';
         }
