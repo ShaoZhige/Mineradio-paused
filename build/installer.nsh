@@ -99,8 +99,12 @@
   Var MineradioSmallFont
   Var MineradioDirectoryPage
   Var MineradioDirectoryInput
+  Var MineradioDesktopShortcutCheck
   Var MineradioLanguage
   Var MineradioLangCombo
+  ; "1" = 这次安装要建桌面快捷方式，由安装位置页的勾选框决定。
+  ; "1" means the desktop shortcut should be created; the directory page's checkbox owns it.
+  Var MineradioCreateDesktopShortcut
 !endif
 
 !macro customInit
@@ -108,6 +112,7 @@
     Call MineradioUsePreferredInstallDir
     Call MineradioDisableUnsafeOldUninstallers
     Call MineradioResolveLanguage
+    Call MineradioResolveDesktopShortcut
     ${If} ${Silent}
       Call MineradioValidateInstallDir
     ${EndIf}
@@ -136,6 +141,33 @@
       FileWrite $0 "$MineradioLanguage$\r$\n"
       FileClose $0
     ${EndIf}
+  ${EndIf}
+
+  ; 桌面快捷方式：package.json 里 createDesktopShortcut 是 false，electron-builder 既不建也没有
+  ; 勾选项，所以由这里按安装位置页的勾选自己建。静默更新（/S 且已有旧版本）一律不动 —— 用户可能
+  ; 早就把桌面图标删了，更新时再变回来会显得很粗鲁。
+  ; The desktop shortcut is created here because createDesktopShortcut is false in package.json:
+  ; electron-builder neither creates it nor offers a checkbox. A silent update leaves it alone,
+  ; because the user may have deleted the icon on purpose.
+  ${If} $MineradioCreateDesktopShortcut == "1"
+    ${If} ${Silent}
+    ${AndIf} ${isUpdated}
+      DetailPrint "Keep desktop shortcut untouched (silent update)"
+    ${Else}
+      CreateShortCut "$DESKTOP\${SHORTCUT_NAME}.lnk" \
+        "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "" \
+        "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 "" "" "${APP_DESCRIPTION}"
+      ; 不调用 WinShell::SetLnkAUMI：那个插件只在带 !addplugindir 的脚本里能找到，
+      ; 而卸载器编译时的插件目录是空的（实测报 "Plugin not found"），一处依赖两处受制。
+      ; 应用启动时会自己 app.setAppUserModelId，任务栏分组与通知归属照样正确。
+      ; WinShell::SetLnkAUMI is skipped on purpose: that plugin is only reachable when the
+      ; script carries !addplugindir, and the uninstaller compile does not. The app calls
+      ; app.setAppUserModelId on startup, so taskbar grouping still works.
+      WriteRegStr HKCU "Software\${APP_GUID}" DesktopShortcut "1"
+      System::Call 'shell32::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'
+    ${EndIf}
+  ${Else}
+    DeleteRegValue HKCU "Software\${APP_GUID}" DesktopShortcut
   ${EndIf}
 !macroend
 
@@ -828,6 +860,22 @@ Function MineradioResolveLanguage
   ${EndIf}
 FunctionEnd
 
+Function MineradioResolveDesktopShortcut
+  ; 默认建桌面快捷方式；/CREATEDESKTOPSHORTCUT=0 可在命令行关掉，方便无人值守部署
+  ; 一次装完不留图标。勾选框在页面上仍然可见，用户可以改回来。
+  ; Defaults to creating the shortcut. /CREATEDESKTOPSHORTCUT=0 turns it off for unattended
+  ; deployments that must not leave a desktop icon; the checkbox still shows the choice.
+  StrCpy $MineradioCreateDesktopShortcut "1"
+
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/CREATEDESKTOPSHORTCUT=" $R1
+  ${IfNot} ${Errors}
+  ${AndIf} $R1 == "0"
+    StrCpy $MineradioCreateDesktopShortcut "0"
+  ${EndIf}
+FunctionEnd
+
 Function MineradioWelcomeShow
   Call MineradioUsePreferredInstallDir
 
@@ -960,35 +1008,40 @@ Function MineradioDirectoryShow
   CreateFont $MineradioBodyFont "Microsoft YaHei UI" 9 400
   CreateFont $MineradioSmallFont "Microsoft YaHei UI" 8 500
 
-  ${NSD_CreateLabel} 22u 12u 238u 20u "选择安装位置"
+  ${NSD_CreateLabel} 22u 8u 238u 20u "选择安装位置"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioTitleFont 1
   SetCtlColors $0 "111217" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 40u 238u 24u "你可以使用默认路径，也可以选择其它磁盘或文件夹。安装器会自动创建缺失的目录。"
+  ${NSD_CreateLabel} 22u 34u 238u 34u "你可以使用默认路径，也可以选择其它磁盘或文件夹，安装器会自动创建缺失的目录。$\r$\n推荐 D:\${MINERADIO_INSTALL_DIR_NAME}；只选盘符（如 E:）也会自动补上文件夹。"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
   SetCtlColors $0 "4B5263" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 76u 238u 10u "安装目录"
+  ${NSD_CreateLabel} 22u 78u 238u 10u "安装目录"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ${NSD_CreateText} 22u 94u 178u 15u "$INSTDIR"
+  ${NSD_CreateText} 22u 92u 178u 14u "$INSTDIR"
   Pop $MineradioDirectoryInput
   SendMessage $MineradioDirectoryInput ${WM_SETFONT} $MineradioBodyFont 1
   SetCtlColors $MineradioDirectoryInput "111217" "FFFFFF"
 
-  ${NSD_CreateBrowseButton} 210u 93u 50u 17u "浏览..."
+  ${NSD_CreateBrowseButton} 210u 91u 50u 16u "浏览..."
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
   ${NSD_OnClick} $0 MineradioDirectoryBrowse
 
-  ${NSD_CreateLabel} 22u 122u 238u 12u "默认推荐：D:\${MINERADIO_INSTALL_DIR_NAME}；选盘符会自动建文件夹。"
-  Pop $0
-  SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
-  SetCtlColors $0 "6B7280" "FFFFFF"
+  ; 桌面快捷方式勾选项。默认勾上（大多数人都想要），取消勾选则不建。
+  ; Desktop shortcut checkbox, checked by default; clearing it skips creation.
+  ${NSD_CreateCheckbox} 22u 116u 238u 12u "在桌面创建快捷方式"
+  Pop $MineradioDesktopShortcutCheck
+  SendMessage $MineradioDesktopShortcutCheck ${WM_SETFONT} $MineradioBodyFont 1
+  SetCtlColors $MineradioDesktopShortcutCheck "111217" "FFFFFF"
+  ${If} $MineradioCreateDesktopShortcut == "1"
+    ${NSD_Check} $MineradioDesktopShortcutCheck
+  ${EndIf}
 
   nsDialogs::Show
 FunctionEnd
@@ -1004,6 +1057,16 @@ Function MineradioDirectoryLeave
   Pop $0
   StrCpy $INSTDIR "$0"
   SendMessage $MineradioDirectoryInput ${WM_SETTEXT} 0 "STR:$INSTDIR"
+
+  ; 读回勾选状态：键盘空格也能切换，不能只靠点击回调。
+  ; Read the checkbox state back; the space bar toggles it without firing a click handler.
+  ${NSD_GetState} $MineradioDesktopShortcutCheck $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $MineradioCreateDesktopShortcut "1"
+  ${Else}
+    StrCpy $MineradioCreateDesktopShortcut "0"
+  ${EndIf}
+
   Call MineradioValidateInstallDir
 FunctionEnd
 !endif
@@ -1098,6 +1161,26 @@ FunctionEnd
 
 Function un.MineradioRemoveInstalledFiles
   SetOutPath $TEMP
+
+  ; 桌面快捷方式：只有安装时勾了才会存在，这里按同样的名字清掉。Delete 对不存在的文件是空操作，
+  ; 所以从没建过图标的用户不会受影响。
+  ; The desktop shortcut only exists when the box was ticked; remove it under the same name.
+  ; Deleting a non-existent file is a no-op, so users who never had one are unaffected.
+  !ifdef SHORTCUT_NAME
+    StrCpy $0 "${SHORTCUT_NAME}"
+  !else
+    StrCpy $0 "${PRODUCT_FILENAME}"
+  !endif
+  ${If} ${FileExists} "$DESKTOP\$0.lnk"
+    ; 只用 Delete：WinShell::UninstShortcut 在卸载器编译时找不到插件（实测
+    ; "Plugin not found, cannot call WinShell::UninstShortcut"），删文件已足够，
+    ; 残留的 AppUserModelID 记录用户看不见，也不影响再次安装。
+    ; Delete only: WinShell::UninstShortcut cannot be linked in the uninstaller compile
+    ; ("Plugin not found"). Removing the file is enough; the leftover AppUserModelID entry
+    ; is invisible and does not affect a later reinstall.
+    Delete "$DESKTOP\$0.lnk"
+    System::Call 'shell32::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'
+  ${EndIf}
 
   Delete "$INSTDIR\${PRODUCT_FILENAME}.exe"
   Delete "$INSTDIR\Uninstall ${PRODUCT_FILENAME}.exe"
