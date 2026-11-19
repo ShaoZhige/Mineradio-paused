@@ -7,6 +7,8 @@
 // Apple Music tracks are external-playback entries: they have no direct audio
 // URL, but they are playable through the companion's playSong operation.
 
+const { convertAppleMusicTtmlToLyric } = require('./apple-music-lyrics.js');
+
 function appleMusicText(value, limit) {
   return typeof value === 'string' ? value.slice(0, limit || 4096) : '';
 }
@@ -266,10 +268,91 @@ async function handleAppleMusicPlaylistTracks(requester, playlistId, limit, offs
   };
 }
 
+// ── 歌词 ────────────────────────────────────────────────────────────────────────
+// companion 早就会读 Apple 的 syllable-lyrics（TTML），但上层一直没接：前端把 Apple 的
+// `i.xxx` / catalog id 直接塞进了网易云的 `/api/lyric`，那里的 id 空间完全不同，于是
+// Apple Music 播任何歌都只有「歌名 - 歌手」占位，既没有逐行也没有逐字。
+// The companion has always been able to read Apple's syllable-lyrics TTML, but nothing above it
+// called the operation: the renderer fed Apple's `i.xxx` / catalog id straight into Netease's
+// `/api/lyric`, whose id space is unrelated, so every Apple track showed the title placeholder.
+const APPLE_MUSIC_LYRIC_CACHE_TTL_MS = 30 * 60 * 1000;
+const APPLE_MUSIC_LYRIC_CACHE_MAX = 200;
+const appleMusicLyricCache = new Map();
+
+function readAppleMusicLyricCache(songId) {
+  const hit = appleMusicLyricCache.get(songId);
+  if (!hit) return null;
+  if (Date.now() - hit.at > APPLE_MUSIC_LYRIC_CACHE_TTL_MS) {
+    appleMusicLyricCache.delete(songId);
+    return null;
+  }
+  return hit.payload;
+}
+
+function writeAppleMusicLyricCache(songId, payload) {
+  if (!songId || !payload) return;
+  appleMusicLyricCache.set(songId, { at: Date.now(), payload });
+  while (appleMusicLyricCache.size > APPLE_MUSIC_LYRIC_CACHE_MAX) {
+    const oldest = appleMusicLyricCache.keys().next();
+    if (oldest.done) break;
+    appleMusicLyricCache.delete(oldest.value);
+  }
+}
+
+// 空歌词也回一个 `lyric: ''` 的信封：前端看到空文本会退回占位文本，不会当成请求失败去重试。
+// An empty answer still comes back as a `lyric: ''` envelope so the renderer falls back to the
+// placeholder instead of treating it as a failed request and retrying.
+async function handleAppleMusicLyric(requester, songId) {
+  const id = String(songId || '').trim();
+  const base = { provider: 'applemusic', id, lyric: '', tlyric: '', yrc: '', ytlrc: '', source: 'none' };
+  // Apple 的歌词只认 catalog id（纯数字）。库内 `i.xxx` 走的也是同一个 catalog 资源，
+  // 调用方必须先换成 catalogId。
+  // Apple's lyric resource is catalog-only (digits); library `i.xxx` ids must be mapped to the
+  // catalog id before the call.
+  if (!/^\d{1,40}$/.test(id)) {
+    return { ...base, error: 'invalid-song-id', message: 'Apple Music 歌词需要 catalog id。' };
+  }
+  const cached = readAppleMusicLyricCache(id);
+  if (cached) return cached;
+  if (typeof requester !== 'function') {
+    return { ...base, configured: false, error: 'APPLE_MUSIC_RUNTIME_UNAVAILABLE', message: 'Apple Music 组件尚未就绪。' };
+  }
+  let result;
+  try {
+    result = await requester('lyrics', { songId: id });
+  } catch (err) {
+    return { ...base, configured: true, error: 'request-failed', message: String((err && err.message) || err).slice(0, 200) };
+  }
+  const ttml = result && result.ok === true && result.data ? result.data.ttml : '';
+  const converted = convertAppleMusicTtmlToLyric(ttml);
+  if (!converted) {
+    // 纯音乐、Apple 没上歌词、或这一版只有行级文本拿不到：都算「没有」，不是错误。
+    // Instrumentals, tracks Apple has no lyric for, and unusable payloads are all "none", not errors.
+    const error = (result && result.error) || (ttml ? 'lyric-unusable' : 'lyrics-unavailable');
+    const payload = { ...base, configured: true, error, message: 'Apple Music 没有这首的歌词。' };
+    // `lyrics-unavailable` 会缓存：一首纯音乐反复切歌不必每次都打一趟 Apple。
+    if (error === 'lyrics-unavailable') writeAppleMusicLyricCache(id, payload);
+    return payload;
+  }
+  const payload = {
+    ...base,
+    configured: true,
+    lyric: converted.lyric,
+    yrc: converted.yrc,
+    source: 'applemusic',
+    timing: converted.timing,
+    lineCount: converted.lineCount,
+    message: '',
+  };
+  writeAppleMusicLyricCache(id, payload);
+  return payload;
+}
+
 module.exports = {
   handleAppleMusicSearch,
   handleAppleMusicPlaylists,
   handleAppleMusicPlaylistTracks,
+  handleAppleMusicLyric,
   mapAppleMusicSong,
   mapAppleMusicPlaylist,
 };

@@ -121,17 +121,38 @@
     } catch (e) { /* ignore */ }
   }
 
-  function tick() {
+  // 进度与播放态不能只读 `audio` 元素：Apple Music 的音频在 WebView2 companion 里，
+  // 本页的 audio 既没有 src 也不会跳时间（currentTime 恒 0、paused 恒 true），
+  // 于是歌词条永远停在第 0 行、播放态也一直算作暂停。
+  // Progress and play state must not come from the media element alone: Apple Music plays inside
+  // the WebView2 companion, so this page's audio element has no src, stays at 0 s and stays paused,
+  // which froze the lyric bar on line 0.
+  function playbackSeconds() {
+    if (typeof getPlaybackCurrentSeconds === 'function') {
+      var seconds = Number(getPlaybackCurrentSeconds());
+      if (isFinite(seconds) && seconds >= 0) return seconds;
+    }
     var el = ensureAudio();
-    if (!el) return;
-    var playing = !el.paused && !el.ended;
+    return el && isFinite(Number(el.currentTime)) ? Math.max(0, Number(el.currentTime) || 0) : 0;
+  }
+
+  function playbackIsPlaying() {
+    if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+      return !!(typeof externalPlaybackState !== 'undefined' && externalPlaybackState && externalPlaybackState.isPlaying);
+    }
+    var el = ensureAudio();
+    return !!(el && !el.paused && !el.ended);
+  }
+
+  function tick() {
+    var playing = playbackIsPlaying();
     if (playing !== state.lastPlaying) {
       state.lastPlaying = playing;
       var hp = getHalo();
       if (hp && state.enabled) hp.playState(playing);
     }
     if (!state.enabled) return;
-    var line = activeLineAt(state.lines, el.currentTime || 0);
+    var line = activeLineAt(state.lines, playbackSeconds());
     if (line === state.lastLine) return;
     state.lastLine = line;
     var h = getHalo();

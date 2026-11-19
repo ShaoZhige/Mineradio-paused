@@ -155,7 +155,7 @@ const {
   handleSpotifySongUrl,
   handleSpotifyLyric,
 } = require('./spotify-api');
-const { handleAppleMusicSearch, handleAppleMusicPlaylists, handleAppleMusicPlaylistTracks } = require('./apple-music-api');
+const { handleAppleMusicSearch, handleAppleMusicPlaylists, handleAppleMusicPlaylistTracks, handleAppleMusicLyric } = require('./apple-music-api');
 const {
   appendCuefieldFeedback,
   readCuefieldFeedbackStats,
@@ -5368,6 +5368,21 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[AppleMusicPlaylistTracks]', err && (err.code || err.message || err));
       sendJSON(res, { provider: 'applemusic', configured: !!appleMusicRequester, error: 'request-failed', songs: [] }, 502);
+    }
+    return;
+  }
+
+  // Apple Music 歌词（TTML → 行级 LRC + 逐字 YRC）。
+  // `id` 必须是 catalog id：库内 `i.xxx` 与 catalog 资源不是同一个 id 空间。
+  // Apple Music lyrics (TTML -> line-level LRC plus word-level YRC). `id` must be a catalog id:
+  // a library `i.xxx` id does not address the same resource.
+  if (pn === '/api/apple-music/lyric') {
+    try {
+      const id = url.searchParams.get('id') || url.searchParams.get('catalogId') || '';
+      sendJSON(res, await handleAppleMusicLyric(appleMusicRequester, id));
+    } catch (err) {
+      console.error('[AppleMusicLyric]', err && (err.code || err.message || err));
+      sendJSON(res, { provider: 'applemusic', lyric: '', tlyric: '', yrc: '', ytlrc: '', source: 'none', error: 'request-failed' }, 502);
     }
     return;
   }

@@ -91,6 +91,15 @@ function lyricEndpointForSong(songOrId) {
   if (provider === 'spotify') {
     return '/api/spotify/lyric?id=' + encodeURIComponent(song.id || song.providerSongId || song.spotifyId || '');
   }
+  if (provider === 'applemusic') {
+    // Apple 的歌词资源只认 catalog id（纯数字）。库内条目 `i.xxx` 与 catalog 不是同一个
+    // id 空间，拿 `i.xxx` 去查只会 404；mapAppleMusicSong 已经把 playParams.catalogId
+    // 贴进 song.catalogId，这里优先用它。
+    // Apple's lyric resource is catalog-only (digits). A library `i.xxx` id addresses a different
+    // resource and always 404s; mapAppleMusicSong already put playParams.catalogId on the song.
+    var appleCatalogId = song.catalogId || song.appleMusicId || song.providerSongId || song.id || '';
+    return '/api/apple-music/lyric?id=' + encodeURIComponent(appleCatalogId);
+  }
   var songId = song ? song.id : songOrId;
   return '/api/lyric?id=' + encodeURIComponent(songId);
 }
@@ -619,7 +628,18 @@ function computeLyricRuntimeState(lines, seconds, playingNow, fallbackText) {
 
 function syncLyricRuntimeState(source) {
   var song = lyricRuntimeSongRef();
-  var rawT = (typeof audio !== 'undefined' && audio && isFinite(Number(audio.currentTime))) ? Number(audio.currentTime) : 0;
+  // 这个缓存喂的是桌面歌词与 3D 歌词的"当前第几句"，必须和进度条读同一个时钟。
+  // Apple Music 走外部播放时 `audio.currentTime` 恒为 0（音频在 WebView2 里），
+  // getPlaybackCurrentSeconds 已经分派到 externalPlaybackCurrentSeconds。
+  // This cache feeds the desktop overlay and the 3D lyrics; it must read the same clock as the
+  // progress bar. Under external playback (Apple Music) `audio.currentTime` stays 0 because the
+  // audio lives in the WebView2 companion, and getPlaybackCurrentSeconds already routes there.
+  var rawT = 0;
+  if (typeof getPlaybackCurrentSeconds === 'function') {
+    rawT = Math.max(0, Number(getPlaybackCurrentSeconds()) || 0);
+  } else if (typeof audio !== 'undefined' && audio && isFinite(Number(audio.currentTime))) {
+    rawT = Number(audio.currentTime);
+  }
   var t = typeof getAdjustedLyricPlaybackTime === 'function' ? getAdjustedLyricPlaybackTime(rawT) : rawT;
   var playingNow = (typeof playing !== 'undefined') ? !!playing : false;
   var next = computeLyricRuntimeState(
