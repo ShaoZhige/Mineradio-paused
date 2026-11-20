@@ -394,13 +394,18 @@ body.desktop-shell.desktop-fullscreen #empty-home,
 html:fullscreen body.desktop-shell #empty-home {
   top: 96px;
   bottom: 52px;
-  width: min(1480px, calc(100vw - 96px))
+  /* issue #7：全屏时视口变宽，但这里原来 min(1480px, …) 把首页锁在屏幕中心一小块，
+     卡片跟着挤在中间。改成铺满（左右各留 48px），和普通窗口/最大化态一致地散开。
+     The fullscreen width used to be capped at 1480px and centred, keeping the cards in a
+     narrow strip in the middle of a wide screen. Let it fill the viewport instead. */
+  width: calc(100vw - 96px)
 }
 
 body.desktop-shell.desktop-fullscreen .empty-home-shell,
 html:fullscreen body.desktop-shell .empty-home-shell {
-  max-width: 1480px;
-  margin: 0 auto;
+  /* 同步去掉二次锁宽，否则只放宽容器、内容仍被 max-width + margin:auto 锁在中心。 */
+  max-width: none;
+  margin: 0;
   grid-template-columns: minmax(380px, .92fr) minmax(560px, 1.08fr)
 }
 
