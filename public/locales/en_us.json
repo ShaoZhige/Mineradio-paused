@@ -784,6 +784,7 @@
   "fx_leftbar_frost": "Left panel frosted",
   "fx_glass_opacity": "Frosted-glass transparency",
   "fx_window_bg_transparent": "Window background transparency",
+  "fx_window_corner_radius": "Window corner radius",
   "fx_glass_hint": "Window glass feel and shelf reveal feel",
   "fx_cat_glass_leftbar": "Glass & left panel",
   "fx_ui_color_hint": "UI highlight, visual accent and icon colors",

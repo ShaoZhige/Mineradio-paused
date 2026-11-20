@@ -784,6 +784,7 @@
   "fx_leftbar_frost": "Матовость левой панели",
   "fx_glass_opacity": "Прозрачность матового стекла",
   "fx_window_bg_transparent": "Прозрачность фона окна",
+  "fx_window_corner_radius": "Радиус скругления углов окна",
   "fx_glass_hint": "Ощущение стекла окна и появления полки",
   "fx_cat_glass_leftbar": "Стекло и левая панель",
   "fx_ui_color_hint": "Подсветка UI, акцент и цвета иконок",

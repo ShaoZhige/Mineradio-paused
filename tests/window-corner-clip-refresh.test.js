@@ -35,8 +35,9 @@ function functionSource(name) {
 
 test('the rounded corners really are a CSS clip on the window shell', () => {
   // 这条是前提：圆角由 CSS 画，不是 DWM 给的，所以浏览器侧的裁剪掩码才是失效点。
-  assert.match(coreCss, /#desktop-window-shell\s*\{[^}]*border-radius:\s*34px/);
-  assert.match(coreCss, /#desktop-window-shell\s*\{[^}]*clip-path:\s*inset\(0 round 34px\)/);
+  // 圆角现在是用户可调的（issue #6）：CSS 用 --desktop-shell-radius 变量、34px 兜底。
+  assert.match(coreCss, /#desktop-window-shell\s*\{[^}]*border-radius:\s*var\(--desktop-shell-radius,\s*34px\)/);
+  assert.match(coreCss, /#desktop-window-shell\s*\{[^}]*clip-path:\s*inset\(0 round var\(--desktop-shell-radius,\s*34px\)\)/);
   // 全屏/最大化/桌面壁纸模式必须把圆角收成 0，否则整屏时四角会露出桌面。
   assert.match(
     coreCss,
@@ -47,7 +48,10 @@ test('the rounded corners really are a CSS clip on the window shell', () => {
 test('the clip refresh nudges the value and forces a layout flush', () => {
   const refresh = functionSource('refreshDesktopWindowCornerClip');
   // 必须写一个「几乎一样但确实不同」的值：值不变则合成器会把它优化掉。
-  assert.match(refresh, /inset\(0 round 33\.9px\)/);
+  // 半径可调后 nudge 从实时变量算出：34 时是 33.9，0（直角）时往大偏到 0.1。
+  assert.match(refresh, /getPropertyValue\('--desktop-shell-radius'\)/);
+  assert.match(refresh, /nudgedRadius = radius > 0 \? Math\.max\(0, radius - 0\.1\) : 0\.1/);
+  assert.match(refresh, /'inset\(0 round ' \+ nudgedRadius \+ 'px\)'/);
   assert.match(refresh, /shell\.style\.clipPath = nudged/);
   // 中间读一次布局，否则两次写入会合并成一次，掩码根本不会重建。
   assert.match(refresh, /void shell\.offsetWidth/);
@@ -78,4 +82,45 @@ test('window resizes also settle the clip', () => {
     shellSource,
     /window\.addEventListener\('resize', scheduleDesktopWindowCornerClipRefresh, \{ passive: true \}\)/
   );
+});
+
+test('the shell radius is a user setting wired end to end (issue #6)', () => {
+  const defaults = fs
+    .readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '04-fx-defaults.js'), 'utf8');
+  const readSaved = fs
+    .readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '05a-fx-save-read.js'), 'utf8');
+  const layout = fs
+    .readFileSync(path.join(appRoot, 'public', 'js', 'modules', '00-state', '06-fx-runtime-layout.js'), 'utf8');
+  const bindings = fs
+    .readFileSync(path.join(appRoot, 'public', 'js', 'modules', '07-fx', '07-bindings-shelf-immersive.js'), 'utf8');
+  const main = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
+  const preload = fs.readFileSync(path.join(appRoot, 'desktop', 'preload.js'), 'utf8');
+
+  // 默认值 = 历史硬编码的 34；0（直角）与 48（上限）是合法边界。
+  assert.match(defaults, /windowCornerRadius:\s*34/);
+  // 读档用 layoutNumber 而不是 ||，否则 0 会被当成"没设置"丢掉。
+  assert.match(readSaved, /layoutNumber\(raw\.windowCornerRadius,\s*fxDefaults\.windowCornerRadius,\s*0,\s*48\)/);
+  assert.match(readSaved, /windowCornerRadius:\s*savedWindowCornerRadius/);
+  // 应用时写 CSS 变量、并把值同步给原生壁纸窗口。
+  assert.match(layout, /setProperty\('--desktop-shell-radius', radius \+ 'px'\)/);
+  assert.match(layout, /api\.setWindowCornerRadius\(radius\)/);
+  // 滑块绑定 + 主进程可信 IPC + preload 暴露，缺一环滑块就只是个摆设。
+  assert.match(bindings, /\['fx-windowradius', 'windowCornerRadius'\]/);
+  assert.match(main, /ipcMain\.on\('mineradio-window-corner-radius'/);
+  assert.match(main, /isTrustedMainWindowIpc\(event\)/);
+  assert.match(main, /rendererWindowCornerRadius \* scaleFactor/);
+  assert.match(preload, /setWindowCornerRadius:.*ipcRenderer\.send\('mineradio-window-corner-radius'/);
+});
+
+test('all seven locales carry the corner-radius label (issue #6)', () => {
+  const localesDir = path.join(appRoot, 'public', 'locales');
+  const files = fs.readdirSync(localesDir).filter(name => name.endsWith('.json'));
+  assert.equal(files.length, 7, 'all seven locale dictionaries must stay in sync');
+  for (const name of files) {
+    const json = JSON.parse(fs.readFileSync(path.join(localesDir, name), 'utf8'));
+    assert.ok(
+      typeof json.fx_window_corner_radius === 'string' && json.fx_window_corner_radius.length > 0,
+      `${name} is missing fx_window_corner_radius`
+    );
+  }
 });

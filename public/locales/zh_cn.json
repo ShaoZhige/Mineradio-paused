@@ -784,6 +784,7 @@
   "fx_leftbar_frost": "左栏雾面",
   "fx_glass_opacity": "毛玻璃透明",
   "fx_window_bg_transparent": "窗口背景透明",
+  "fx_window_corner_radius": "窗口圆角",
   "fx_glass_hint": "窗口玻璃质感和歌单栏唤出手感",
   "fx_cat_glass_leftbar": "玻璃与左栏",
   "fx_ui_color_hint": "界面高亮、视觉主色与图标颜色",

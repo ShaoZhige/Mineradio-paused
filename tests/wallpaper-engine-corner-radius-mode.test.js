@@ -47,6 +47,8 @@ const sandbox = {
   windowFullscreenActive: false,
   htmlFullscreenActive: false,
   screen: { getDisplayMatching: () => ({ scaleFactor: 2 }) },
+  // issue #6：圆角现在是用户可设的，默认 34；主进程从 IPC 收到后更新这个变量。
+  rendererWindowCornerRadius: 34,
   fullDesktopModeRuntime: {
     getStatus: () => ({ enabled: desktopModeEnabled }),
   },
@@ -76,6 +78,14 @@ function reset() {
 // 1. 普通窗口态：圆角跟随应用外壳（34px × 显示器缩放）。
 reset();
 assert.strictEqual(radiusFor({}), 68, 'an ordinary window keeps the 34px shell radius at 200% scaling');
+
+// 1b. issue #6：用户在视觉面板改了圆角，原生窗口必须跟着变（含 0 直角、非整数半径取整）。
+reset();
+sandbox.rendererWindowCornerRadius = 0;
+assert.strictEqual(radiusFor({}), 0, 'a square shell (radius 0) squares the native WE window too');
+sandbox.rendererWindowCornerRadius = 12;
+assert.strictEqual(radiusFor({}), 24, 'a custom shell radius scales to the native window at 200%');
+sandbox.rendererWindowCornerRadius = 34;
 
 // 2. 应用侧已经是直角的状态，原生窗口必须一起变直角。
 reset();

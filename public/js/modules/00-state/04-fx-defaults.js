@@ -85,6 +85,9 @@ var fxDefaults = {
   backgroundColor: '#000000',
   backgroundOpacity: 1,
   windowBackgroundOpacity: 1,
+  // 窗口外壳圆角（issue #6）。34 是历史值，0 = 直角，最大 48。
+  // Shell corner radius (issue #6): 34 was the old hard-coded value, 0 = square, max 48.
+  windowCornerRadius: 34,
   backgroundGlassOpacity: 0,
   controlGlassChromaticOffset: 50,
   playlistPanelGlassBlur: 14,

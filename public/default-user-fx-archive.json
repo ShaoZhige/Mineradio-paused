@@ -72,6 +72,7 @@
     "backgroundColor": "#000000",
     "backgroundOpacity": 1,
     "windowBackgroundOpacity": 1,
+    "windowCornerRadius": 34,
     "backgroundGlassOpacity": 0,
     "controlGlassChromaticOffset": 50,
     "playlistPanelGlassBlur": 14,

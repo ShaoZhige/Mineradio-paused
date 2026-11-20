@@ -181,8 +181,8 @@ body.desktop-shell #wallpaper-engine-layer,
 body.desktop-shell #wallpaper-engine-image,
 body.desktop-shell #wallpaper-engine-video,
 body.desktop-shell #wallpaper-engine-freeze {
-  border-radius: 34px;
-  clip-path: inset(0 round 34px)
+  border-radius: var(--desktop-shell-radius, 34px);
+  clip-path: inset(0 round var(--desktop-shell-radius, 34px))
 }
 
 body.desktop-shell.desktop-maximized #wallpaper-engine-layer,

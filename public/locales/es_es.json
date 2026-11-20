@@ -784,6 +784,7 @@
   "fx_leftbar_frost": "Efecto esmerilado del panel izquierdo",
   "fx_glass_opacity": "Transparencia del cristal esmerilado",
   "fx_window_bg_transparent": "Transparencia del fondo de la ventana",
+  "fx_window_corner_radius": "Radio de las esquinas de la ventana",
   "fx_glass_hint": "Sensación del cristal de la ventana y de la aparición del estante",
   "fx_cat_glass_leftbar": "Cristal y panel izquierdo",
   "fx_ui_color_hint": "Realce de la interfaz, color visual e iconos",

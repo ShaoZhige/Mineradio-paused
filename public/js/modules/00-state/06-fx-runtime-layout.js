@@ -77,3 +77,30 @@ function applyPlaylistPanelFxSettings() {
   setPlaylistPanelCssVar('--playlist-toolbar-a3', alphas.toolbar3.toFixed(3));
 }
 applyPlaylistPanelFxSettings();
+
+// 窗口外壳的圆角（issue #6）：写一个 CSS 变量，两处用到它的样式（外壳自己的 border-radius /
+// clip-path、壁纸层的裁剪）都跟着走；主进程那边的原生壁纸窗口读同一份存档里的值。
+// 0 是合法值（直角），所以不能把 0 当成"没设置"用 || 兜底。
+// The shell radius (issue #6) is a single CSS variable consumed by both the shell and the
+// wallpaper layer; the native wallpaper window reads the same saved value in the main process.
+// Zero is a legal value, so it must not be treated as "unset" by a || fallback.
+function windowCornerRadiusValue() {
+  var raw = fx && fx.windowCornerRadius != null ? Number(fx.windowCornerRadius) : NaN;
+  if (!isFinite(raw)) raw = Number(fxDefaults.windowCornerRadius) || 0;
+  return Math.max(0, Math.min(48, Math.round(raw)));
+}
+
+function applyWindowCornerRadius() {
+  var radius = windowCornerRadiusValue();
+  document.documentElement.style.setProperty('--desktop-shell-radius', radius + 'px');
+  // 半径变了要重建裁剪掩码，否则窗口化态会沿用旧圆角（和全屏切换那次是同一个坑）。
+  if (typeof scheduleDesktopWindowCornerClipRefresh === 'function') scheduleDesktopWindowCornerClipRefresh();
+  // 原生 WE 壁纸窗口在主进程裁剪，走专用 IPC 把值同步过去；离线打开 index.html 时没有 API，跳过即可。
+  try {
+    var api = window.desktopWindow;
+    if (api && typeof api.setWindowCornerRadius === 'function') api.setWindowCornerRadius(radius);
+  } catch (_error) { }
+  return radius;
+}
+
+applyWindowCornerRadius();

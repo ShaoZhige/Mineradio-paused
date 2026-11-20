@@ -784,6 +784,7 @@
   "fx_leftbar_frost": "左カラムの曇り",
   "fx_glass_opacity": "すりガラスの透明度",
   "fx_window_bg_transparent": "ウィンドウ背景の透明度",
+  "fx_window_corner_radius": "ウィンドウの角の丸み",
   "fx_glass_hint": "ウィンドウのガラス質感とシェルフ表示の手触り",
   "fx_cat_glass_leftbar": "ガラスと左カラム",
   "fx_ui_color_hint": "UIハイライト・ビジュアル主色・アイコン色",

@@ -575,6 +575,12 @@ let wallpaperEngineHostVisibilityResumeTimer = null;
 let wallpaperEngineHostVisibilityOperation = 0;
 let wallpaperEngineHostVisibilityStopPromise = null;
 let wallpaperEngineHostVisibilityResidentMinimized = false;
+
+// 外壳圆角（issue #6）：渲染进程的滑块值通过 IPC 同步过来，原生 WE 窗口据此裁剪。
+// 默认 34 = 历史硬编码值，0（直角）是合法值，所以不能用 || 兜底。
+// Shell corner radius (issue #6): the renderer slider syncs here so the native WE window
+// clips to the same radius. 34 is the legacy default; 0 (square) is legal, never use ||.
+let rendererWindowCornerRadius = 34;
 let wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
 // 渲染进程在最小化时也会自己走一遍 visibilitychange 拆台（prepare + stopWallpaperEngineScene），
 // 这段拆台会打掉主进程刻意保留的原生表面，恢复时只能整轮重启。只在这个短窗口内忽略被限定到
@@ -629,7 +635,9 @@ function wallpaperEngineHostCornerRadius(win) {
   const bounds = win.getContentBounds();
   const display = screen.getDisplayMatching(bounds);
   const scaleFactor = Math.max(1, Number(display && display.scaleFactor) || 1);
-  return Math.max(0, Math.round(34 * scaleFactor));
+  // issue #6：跟随用户在视觉面板里设的外壳圆角，不再写死 34。
+  // Follow the shell radius the user picked in the FX panel (issue #6) instead of hard-coding 34.
+  return Math.max(0, Math.round(rendererWindowCornerRadius * scaleFactor));
 }
 
 function wallpaperEnginePhysicalContentBounds(win, fallback = {}) {
@@ -3862,6 +3870,15 @@ ipcMain.on('mineradio-wallpaper-engine-visual-settings', (event, payload = {}) =
   const scale = Number(payload.scale);
   if (![opacity, positionX, positionY, scale].every(Number.isFinite)) return;
   wallpaperEngineRuntime.updateDwmVisualSettings(sessionId, { opacity, positionX, positionY, scale });
+});
+
+// 外壳圆角（issue #6）：渲染进程每次改动圆角都会把 0~48 的整数发过来。原生 WE 窗口
+// 在 start/embed 时才读它，所以这里只更新缓存、不立即重建窗口（下一次 source refresh 自会应用）。
+ipcMain.on('mineradio-window-corner-radius', (event, value) => {
+  if (!isTrustedMainWindowIpc(event)) return;
+  const radius = Number(value);
+  if (!Number.isFinite(radius)) return;
+  rendererWindowCornerRadius = Math.max(0, Math.min(48, Math.round(radius)));
 });
 
 ipcMain.on('mineradio-wallpaper-engine-pointer-activity', (event, payload = {}) => {

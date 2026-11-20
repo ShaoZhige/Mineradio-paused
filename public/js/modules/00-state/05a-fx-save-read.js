@@ -194,6 +194,9 @@ function readSavedLyricLayout() {
     var savedBgOpacity = clampRange(raw.backgroundOpacity == null ? fxDefaults.backgroundOpacity : Number(raw.backgroundOpacity), 0, 1);
     var savedWindowBgOpacity = clampRange(raw.windowBackgroundOpacity == null ? fxDefaults.windowBackgroundOpacity : Number(raw.windowBackgroundOpacity), 0, 1);
     var savedBgGlassOpacity = clampRange(raw.backgroundGlassOpacity == null ? fxDefaults.backgroundGlassOpacity : Number(raw.backgroundGlassOpacity), 0, 1);
+    // 圆角是 0~48 的整数像素，0（直角）必须能存下来，所以用 layoutNumber 兜默认值而不是 ||。
+    // The shell radius is a 0~48 integer; 0 (square) has to survive a round trip.
+    var savedWindowCornerRadius = layoutNumber(raw.windowCornerRadius, fxDefaults.windowCornerRadius, 0, 48);
     var savedBgCropX = layoutNumber(raw.backgroundMediaCropX, fxDefaults.backgroundMediaCropX, 0, 100);
     var savedBgCropY = layoutNumber(raw.backgroundMediaCropY, fxDefaults.backgroundMediaCropY, 0, 100);
     var savedBgZoom = layoutNumber(raw.backgroundMediaZoom, fxDefaults.backgroundMediaZoom, 1, 2.8);
@@ -298,6 +301,7 @@ function readSavedLyricLayout() {
       backgroundColor: savedBgColor,
       backgroundOpacity: savedBgOpacity,
       windowBackgroundOpacity: savedWindowBgOpacity,
+      windowCornerRadius: savedWindowCornerRadius,
       backgroundGlassOpacity: savedBgGlassOpacity,
       controlGlassChromaticOffset: savedGlassOffset,
       playlistPanelGlassBlur: savedPlaylistPanelGlassBlur,

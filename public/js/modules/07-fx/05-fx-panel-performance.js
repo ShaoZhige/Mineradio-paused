@@ -64,12 +64,12 @@ function setRange(id, value) {
   if (id === 'fx-coverres') value = normalizeCoverResolution(value);
   if (id === 'fx-glassaberration') value = normalizeControlGlassChromaticOffset(value);
   if (id === 'fx-lyriccustomlines') value = lyricCustomLineCountValue();
-  if (id === 'fx-memory-interval' || id === 'fx-memory-threshold' || id === 'fx-bgcropx' || id === 'fx-bgcropy' || /^fx-sonic(?!we)/.test(id) || id === 'fx-sonicwegain') value = Math.round(Number(value) || 0);
+  if (id === 'fx-memory-interval' || id === 'fx-memory-threshold' || id === 'fx-bgcropx' || id === 'fx-bgcropy' || id === 'fx-windowradius' || /^fx-sonic(?!we)/.test(id) || id === 'fx-sonicwegain') value = Math.round(Number(value) || 0);
   el.value = value;
   var out = el.parentElement.querySelector('output');
   if (out) out.textContent = id === 'fx-coverres'
     ? coverParticleCountLabel(value)
-    : (id === 'fx-lyricweight' || id === 'fx-lyriccustomlines' || id === 'fx-glassaberration' || id === 'fx-playlistblur' || id === 'fx-bgcropx' || id === 'fx-bgcropy' || id === 'fx-lyrictiltx' || id === 'fx-lyrictilty' || id === 'fx-shelfangle' || id === 'fx-shelfdetailanglex' || id === 'fx-shelfdetailangley' || id === 'fx-memory-interval' || id === 'fx-memory-threshold' || /^fx-sonic(?!we)/.test(id) || id === 'fx-sonicwegain' ? String(Math.round(Number(value) || 0)) : Number(value).toFixed(id === 'fx-lyricspacing' ? 3 : 2));
+    : (id === 'fx-lyricweight' || id === 'fx-lyriccustomlines' || id === 'fx-glassaberration' || id === 'fx-playlistblur' || id === 'fx-bgcropx' || id === 'fx-bgcropy' || id === 'fx-lyrictiltx' || id === 'fx-lyrictilty' || id === 'fx-shelfangle' || id === 'fx-shelfdetailanglex' || id === 'fx-shelfdetailangley' || id === 'fx-memory-interval' || id === 'fx-memory-threshold' || id === 'fx-windowradius' || /^fx-sonic(?!we)/.test(id) || id === 'fx-sonicwegain' ? String(Math.round(Number(value) || 0)) : Number(value).toFixed(id === 'fx-lyricspacing' ? 3 : 2));
 }
 function updateDevelopmentFxControls() {
   [
@@ -311,6 +311,7 @@ function updateFxInputs() {
   setRange('fx-bgcropy', fx.backgroundMediaCropY == null ? fxDefaults.backgroundMediaCropY : fx.backgroundMediaCropY);
   setRange('fx-bgzoom', fx.backgroundMediaZoom == null ? fxDefaults.backgroundMediaZoom : fx.backgroundMediaZoom);
   setRange('fx-windowbgopacity', fx.windowBackgroundOpacity == null ? fxDefaults.windowBackgroundOpacity : fx.windowBackgroundOpacity);
+  setRange('fx-windowradius', fx.windowCornerRadius == null ? fxDefaults.windowCornerRadius : fx.windowCornerRadius);
   setRange('fx-bgglassopacity', fx.backgroundGlassOpacity == null ? fxDefaults.backgroundGlassOpacity : fx.backgroundGlassOpacity);
   setRange('fx-glassaberration', fx.controlGlassChromaticOffset);
   setRange('fx-playlistblur', fx.playlistPanelGlassBlur);

@@ -1929,7 +1929,18 @@ var desktopWindowCornerClipTimer = 0;
 function refreshDesktopWindowCornerClip() {
   var shell = document.getElementById('desktop-window-shell');
   if (!shell) return;
-  var nudged = 'inset(0 round 33.9px)';
+  // 半径现在是用户可调的（--desktop-shell-radius，issue #6），不能写死 34：微调值从当前半径
+  // 推出来，差 0.1px 就够让合成器重建裁剪掩码了。
+  // The radius is user-adjustable now (issue #6), so the nudge derives from the live value;
+  // 0.1px is enough to force a new clip mask.
+  var radius = 34;
+  try {
+    var raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--desktop-shell-radius'));
+    if (isFinite(raw) && raw >= 0) radius = raw;
+  } catch (_error) { }
+  // radius=0（直角）时不能用 0-0.1 得到 0，否则和原值相同、触发不了重建；改往大偏 0.1。
+  var nudgedRadius = radius > 0 ? Math.max(0, radius - 0.1) : 0.1;
+  var nudged = 'inset(0 round ' + nudgedRadius + 'px)';
   shell.style.clipPath = nudged;
   if ('webkitClipPath' in shell.style) shell.style.webkitClipPath = nudged;
   // 读一次布局，让上面这次裁剪真的生效，否则两次写入会被合并成一次。
