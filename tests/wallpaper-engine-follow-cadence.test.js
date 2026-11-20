@@ -104,3 +104,41 @@ check('move / resize 仍然会更新最小尺寸（判重不能把它整段跳�
 });
 
 console.log('\nwallpaper-engine-follow-cadence: all checks passed');
+
+// issue #5：拖动跟手改事件驱动后新增的不变量。定时器两档仍是兜底，事件钩子才是主路径；
+// 这几个点写错都不会报错，只会"钩子静默失效"或"回调崩进程"，所以逐条钉死。
+check('窗口移动事件钩子用 OUTOFCONTEXT 跨进程接收，不注入 DLL', () => {
+  assert.match(helper, /const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;/);
+  assert.match(helper, /const uint WINEVENT_OUTOFCONTEXT = 0x0000;/);
+  assert.match(helper, /const uint WINEVENT_SKIPOWNPROCESS = 0x0002;/);
+  assert.match(helper, /static extern IntPtr SetWinEventHook\(uint eventMin, uint eventMax, IntPtr module,\s*\n\s*WinEventDelegate callback, uint processId, uint threadId, uint flags\)/,
+    'SetWinEventHook P/Invoke 签名必须是 7 参数的标准原型');
+  assert.match(helper, /SetWinEventHook\(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,\s*\n\s*IntPtr\.Zero, locationHookCallback, 0, 0, WINEVENT_OUTOFCONTEXT \| WINEVENT_SKIPOWNPROCESS\)/,
+    '只监听 locationchange、进程/线程 ID 传 0 表示全系统，OUTOFCONTEXT|SKIPOWNPROCESS');
+});
+
+check('事件回调只认目标窗口并切回 UI 线程，delegate 用 GCHandle 钉住', () => {
+  const installAt = helper.indexOf('void InstallLocationHook()');
+  const install = helper.slice(installAt, helper.indexOf('\n  }', installAt));
+  assert.match(install, /idObject != OBJID_WINDOW/, '必须过滤掉光标等非窗口对象的 locationchange');
+  assert.match(install, /idChild != CHILDID_SELF/);
+  assert.match(install, /hwnd != hostWindow/, '只跟随 Electron 宿主，不理会别的窗口移动');
+  assert.match(install, /BeginInvoke\(new Action/, '回调在线程池线程，必须切回 UI 线程再动 WinForms / SetWindowPos');
+  assert.match(install, /FollowHost\(\)/);
+  assert.match(install, /GCHandle\.Alloc\(locationHookCallback\)/, 'delegate 不钉住会被 GC 回收，回调直接崩进程');
+});
+
+check('事件钩子的生命周期完整：安装一次、销毁时卸载并释放 delegate', () => {
+  assert.match(helper, /static extern bool UnhookWinEvent\(IntPtr hook\)/);
+  const removeAt = helper.indexOf('void RemoveLocationHook()');
+  const remove = helper.slice(removeAt, helper.indexOf('\n  }', removeAt));
+  assert.match(remove, /UnhookWinEvent\(locationHook\)/);
+  assert.match(remove, /locationHookPin\.Free\(\)/);
+  // 安装在 OnShown、卸载在 OnFormClosed，成对出现。
+  const shown = helper.slice(helper.indexOf('protected override void OnShown'), helper.indexOf('protected override void OnFormClosed'));
+  assert.match(shown, /InstallLocationHook\(\)/);
+  const closed = helper.slice(helper.indexOf('protected override void OnFormClosed'));
+  assert.match(closed, /RemoveLocationHook\(\)/);
+});
+
+console.log('\nissue #5 event-driven follow: all checks passed');

@@ -1449,11 +1449,12 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   // 真的变了就切到 16ms（≈60Hz）跟手，停手 300ms 后再回落。原来是不管有没有变化都按
   // 60ms 对两个窗口各发一次带尺寸的 SetWindowPos —— 跨进程同步调用，WE 渲染线程一忙就
   // 把助手自己的消息循环堵住，拖动时表现为壁纸比窗口慢半拍。
+  // issue #5：跟手现在主要由下面的 SetWinEventHook 事件提供（宿主一动立刻回调，不必等
+  // 16ms 定时 tick），定时器两档保留作事件漏报时的兜底，逻辑不动。
   // The idle cadence only samples two window rects and issues zero cross-process calls. A real
-  // host-rect change switches to 16ms (~60Hz) so dragging stays locked to the cursor, and 300ms
-  // of stillness falls back to idle. The old loop fired a sized SetWindowPos at both windows
-  // every 60ms regardless; those are synchronous cross-process calls, so a busy WE renderer
-  // thread stalled this helper's own message loop — which reads as "wallpaper lags the window".
+  // host-rect change switches to 16ms (~60Hz); 300ms of stillness falls back to idle. issue #5
+  // adds a SetWinEventHook so dragging is driven by the move event itself instead of waiting for
+  // the next timer tick; the two timer cadences stay as a safety net, unchanged.
   const int FOLLOW_ACTIVE_INTERVAL_MS = 16;
   const int FOLLOW_IDLE_INTERVAL_MS = 100;
   const int FOLLOW_SETTLE_MS = 300;
@@ -1467,6 +1468,16 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   const int HTTRANSPARENT = -1;
   const uint GA_ROOT = 2;
   const uint MONITOR_DEFAULTTONEAREST = 2;
+  // issue #5：拖动跟手改成事件驱动。定时器轮询只留作低频安全网，真正跟手靠
+  // SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE) —— 宿主窗口每次移动都回调一次，
+  // 静止时零回调、零跨进程调用。WINEVENT_OUTOFCONTEXT 不需要注入 DLL，回调在本进程
+  // 消息循环执行；delegate 必须用 GCHandle 钉住，否则 GC 回收后回调会崩进程。
+  // Skipping own process is safe: the host HWND belongs to Electron, not to this helper.
+  const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+  const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+  const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+  const int OBJID_WINDOW = 0;
+  const int CHILDID_SELF = 0;
 
   [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface ITaskbarList {
@@ -1498,6 +1509,18 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   [DllImport("user32.dll", SetLastError = true)]
   static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter,
     int x, int y, int width, int height, uint flags);
+
+  // issue #5：跨进程窗口移动事件。OUTOFCONTEXT 模式回调在本进程消息循环上执行，
+  // 不需要把 DLL 注入 Electron；SKIPOWNPROCESS 滤掉助手自己窗口的抖动回调。
+  delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr hwnd,
+    int idObject, int idChild, uint eventThread, uint eventTime);
+
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module,
+    WinEventDelegate callback, uint processId, uint threadId, uint flags);
+
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool UnhookWinEvent(IntPtr hook);
 
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter,
@@ -1538,6 +1561,11 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   readonly int windowCornerRadius;
   bool desktopIconLayeringEnabled;
   readonly System.Windows.Forms.Timer followTimer;
+  // issue #5：钩子的三个引用都得活到窗体销毁，delegate 被 GC 收回后回调会直接崩进程。
+  IntPtr locationHook = IntPtr.Zero;
+  WinEventDelegate locationHookCallback;
+  GCHandle locationHookPin;
+  bool locationHookPinned;
   IntPtr thumbnail = IntPtr.Zero;
   int lastWidth = -1;
   int lastHeight = -1;
@@ -1617,6 +1645,37 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     };
   }
 
+  // issue #5：安装跨进程窗口移动事件钩子。回调在线程池线程触发，必须 BeginInvoke 回 UI
+  // 线程再跑 FollowHost（WinForms 控件和 SetWindowPos 都要求在拥有句柄的线程上做）。
+  // delegate 用 GCHandle 钉住，生命周期到 OnFormClosed 才解除，否则 GC 回收后回调崩溃。
+  void InstallLocationHook() {
+    if (locationHook != IntPtr.Zero) return;
+    locationHookCallback = delegate(IntPtr hook, uint eventType, IntPtr hwnd,
+        int idObject, int idChild, uint eventThread, uint eventTime) {
+      if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF) return;
+      if (hwnd != hostWindow) return;
+      try {
+        if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() { FollowHost(); }));
+      } catch { }
+    };
+    locationHookPin = GCHandle.Alloc(locationHookCallback);
+    locationHookPinned = true;
+    locationHook = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+      IntPtr.Zero, locationHookCallback, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+  }
+
+  void RemoveLocationHook() {
+    if (locationHook != IntPtr.Zero) {
+      try { UnhookWinEvent(locationHook); } catch { }
+      locationHook = IntPtr.Zero;
+    }
+    if (locationHookPinned) {
+      try { locationHookPin.Free(); } catch { }
+      locationHookPinned = false;
+    }
+    locationHookCallback = null;
+  }
+
   protected override bool ShowWithoutActivation { get { return true; } }
 
   protected override void WndProc(ref Message message) {
@@ -1631,6 +1690,9 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     base.OnShown(eventArgs);
     FollowHost();
     followTimer.Start();
+    // issue #5：事件驱动跟手。钩子装好后宿主的每次移动都会直接触发 FollowHost，
+    // 定时器继续按两档兜底；任一环节失效都不影响另一条路。
+    InstallLocationHook();
     Thread inputThread = new Thread(delegate() {
       try {
         string line;
@@ -1718,6 +1780,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
 
   protected override void OnFormClosed(FormClosedEventArgs eventArgs) {
     followTimer.Stop();
+    RemoveLocationHook();
     if (thumbnail != IntPtr.Zero) {
       DwmUnregisterThumbnail(thumbnail);
       thumbnail = IntPtr.Zero;
