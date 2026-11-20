@@ -18,6 +18,7 @@ const { createQuitController } = require('./quit');
 const desktopIcons = require('./desktop-icons');
 const { pruneStaleNativeTempScripts } = require('./native-temp-cleanup');
 const { appendLogLine } = require('./log-rotation');
+const { configure: configureSpotifyClientLog } = require('./spotify-client-log');
 const { createMiddleClickPoller } = require('./global-middle-click-poller');
 const { createDesktopLyricsController } = require('./desktop-lyrics');
 const {
@@ -241,6 +242,9 @@ function resolveStableUserDataPath() {
 const STABLE_USER_DATA_PATH = resolveStableUserDataPath();
 fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
 app.setPath('userData', STABLE_USER_DATA_PATH);
+// Spotify 客户端通道的日志跟 startup-error.log 放同一层，用户按 issue 指引就能拖出来。
+// The Spotify channel log sits next to startup-error.log so a user can attach it to an issue.
+configureSpotifyClientLog({ dir: STABLE_USER_DATA_PATH });
 
 // 一次性迁移：把旧位置（%APPDATA%\<APP> 与旧缓存根，历史上默认是 D:\MineradioCache）里的
 // 用户数据【复制】进便携数据根。旧目录原样保留、不删除任何东西；已存在的目标文件一律不覆盖，

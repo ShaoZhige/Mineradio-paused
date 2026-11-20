@@ -2667,8 +2667,28 @@ async function checkSpotifyProviderGuard() {
   if (!/Runtime\.evaluate/.test(cdpText) || /api\.spotify\.com\/v1/.test(cdpText)) {
     fail('the Spotify CDP bridge must read the local page through Runtime.evaluate, not the Web API');
   }
-  if (!/--remote-debugging-port=/.test(fs.readFileSync(path.join(appRoot, 'desktop', 'spotify-client-probe.js'), 'utf8'))) {
+  const spotifyProbeText = fs.readFileSync(path.join(appRoot, 'desktop', 'spotify-client-probe.js'), 'utf8');
+  if (!/--remote-debugging-port=/.test(spotifyProbeText)) {
     fail('Mineradio must be able to launch the Spotify client with its debug port');
+  }
+  // 端口必须是每次随机挑的：固定 9222 等于把"本机任意进程都能接手播放"写在命令行上。
+  // The port must be random per launch — a fixed 9222 hands local control to any process.
+  if (!/function pickDebugPort/.test(spotifyProbeText) || /remote-debugging-port=9222/.test(spotifyProbeText)) {
+    fail('the Spotify debug port must be randomised per launch, never the well-known 9222');
+  }
+  if (!/function readSavedDebugPort/.test(spotifyProbeText) || !/function saveDebugPort/.test(spotifyProbeText)) {
+    fail('the chosen Spotify debug port must be remembered so a restart reconnects to the same instance');
+  }
+  // 拉起的客户端只出声、不露脸：少数客户端版本会在首帧自己 ShowWindow，挂一块黑布在桌面上
+  // （issue #1）。守卫必须在 launch 里挂上，且只能用异步的 ShowWindowAsync。
+  // The client MR spawns must not leave a window on screen; only the async minimise call is safe.
+  if (!/suppressClientWindow\(\)/.test(spotifyProbeText) || !/ShowWindowAsync/.test(spotifyProbeText)) {
+    fail('the Spotify client window must be minimised after launch, through ShowWindowAsync only');
+  }
+  // 桥的每个方法先验 nonce；注入源码只能通过 IIFE 实参传值，不能在函数体里出现字面量。
+  // Every bridge method checks the nonce, and the value is only ever an IIFE argument.
+  if (!/buildBridgeSource/.test(cdpText) || !/ensureBridgeNonce/.test(cdpText)) {
+    fail('the Spotify bridge must be injected with a per-process nonce, not as a static script');
   }
   if (!/\/api\/spotify\/client\/state/.test(serverText) || !/\/api\/spotify\/client\/command/.test(serverText) || !/\/api\/spotify\/client\/launch/.test(serverText)) {
     fail('server.js must expose the Spotify client state, command and launch routes');

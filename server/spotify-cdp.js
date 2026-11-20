@@ -13,7 +13,7 @@
 //   · Web API /v1/me/player/*   → 免费账号 403，Premium 限定
 //   · 系统媒体会话 SMTC          → 客户端把 HardwareMediaKeyHandling 关了，压根不发布会话
 //   · UI Automation              → 能读到控件，但值是从不刷新的快照（属性变化事件 0 个）
-//   · CDP（本文件）              → 客户端以 --remote-debugging-port=9222 启动后，本地执行 JS
+//   · CDP（本文件）              → 客户端带一个**随机**调试端口启动后，本地执行 JS
 //     拿到毫秒级进度、播放态、曲目、音量，并能定向点按钮，零配额、零安装、不需要 Premium。
 //
 // 通道分两级，优先用第一级：
@@ -36,8 +36,13 @@
 //
 // Node 22 / Electron 自带 fetch 与 WebSocket，这里不引入任何依赖。
 
-const { BRIDGE_SOURCE } = require('./spotify-cdp-bridge');
+const crypto = require('node:crypto');
 
+const { BRIDGE_SOURCE, buildBridgeSource } = require('./spotify-cdp-bridge');
+const { spotifyClientLog } = require('../desktop/spotify-client-log');
+
+// 兜底端口：客户端如果是用户自己用 9222 启动的（或端口记忆文件被清理过），还能连上。
+// 正常路径是启动时随机挑一个，见 desktop/spotify-client-probe.js。
 const DEFAULT_PORT = 9222;
 const REQUEST_TIMEOUT_MS = 3500;
 const STATE_CACHE_MS = 700;
@@ -190,7 +195,10 @@ function trackMatches(song, state) {
 
 function createSpotifyCdp(options) {
   options = options || {};
-  const port = Number(options.port || process.env.MINERADIO_SPOTIFY_CDP_PORT || DEFAULT_PORT);
+  // 端口不再是常量：客户端每次以随机端口启动，成功后由 server 调 setPort() 同步进来。
+  // 初始值优先取"上次记住的端口"（MR 退出后客户端不退出，下次要连回同一个实例）。
+  let port = Number(options.initialPort || options.port || process.env.MINERADIO_SPOTIFY_CDP_PORT || DEFAULT_PORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) port = DEFAULT_PORT;
   const timeout = Number(options.timeoutMs) || REQUEST_TIMEOUT_MS;
 
   let cachedState = null;
@@ -200,6 +208,28 @@ function createSpotifyCdp(options) {
   let lastCommand = '';
   let lastCommandAt = 0;
   let lastPlay = null;
+  // 日志只记状态**变化**：轮询每 600ms 一次，失败一次就写一行会把日志刷成噪声。
+  // Only transitions are logged: the poll runs every 600ms, and logging each miss would bury
+  // the one line that matters.
+  let loggedChannelMiss = '';
+  let loggedCommandFailure = '';
+
+  // 注入用的 nonce：进程内稳定（页面重载后桥会重建，但仍认同一个 nonce）。
+  // 它只作为 evaluate 的实参出现，不进任何源码字面量 —— 见 spotify-cdp-bridge.js。
+  let bridgeNonce = '';
+
+  function ensureBridgeNonce() {
+    if (!bridgeNonce) bridgeNonce = crypto.randomBytes(16).toString('hex');
+    return bridgeNonce;
+  }
+
+  // 通道恢复只在"之前记过失败"时写一行，避免每轮成功都刷日志。
+  // A recovery line is only written when a miss was logged before, so steady state stays quiet.
+  function noteChannelBack(mode) {
+    if (!loggedChannelMiss) return;
+    spotifyClientLog('channel-ok', { port, mode, after: loggedChannelMiss });
+    loggedChannelMiss = '';
+  }
 
   // 一次连接里跑多步（点搜索框 → 敲字 → 回车 → 点结果），比每步重连省一大截时间。
   // One socket per interaction sequence, so the search flow does not reconnect five times.
@@ -304,19 +334,46 @@ function createSpotifyCdp(options) {
   let bridgeMode = 'unknown'; // 'api' | 'dom'
   let lastBridgeInjectAt = 0;
 
+  // 端口换了意味着连的是另一个客户端实例：旧状态、旧连接、旧 nonce 一起作废。
+  function setPort(next) {
+    const value = Number(next);
+    if (!Number.isInteger(value) || value < 1 || value > 65535) return false;
+    if (value === port) return true;
+    port = value;
+    cachedState = null;
+    cachedAt = 0;
+    lastSuccessAt = 0;
+    lastError = '';
+    bridgeMode = 'unknown';
+    bridgeNonce = '';
+    return true;
+  }
+
+  // 记住的端口已经没人应答时用：退回兜底端口，兼容"用户自己用 9222 启动"的老实例。
+  function resetPort() {
+    if (port === DEFAULT_PORT) return false;
+    return setPort(DEFAULT_PORT);
+  }
+
+  // nonce 作为第一个实参传进去；它不出现在源码字面量里，
+  // 所以 `__MR__.cmd.toString()` 只能看到标识符，看不到值。
   function bridgeCallExpression(method, argJson) {
+    const token = JSON.stringify(ensureBridgeNonce());
     return [
       '(function () {',
       '  if (!window.__MR__) return JSON.stringify({ ok: false, error: "NO_BRIDGE" });',
-      '  return window.__MR__.' + method + '(' + (argJson || '') + ');',
+      '  if (typeof window.__MR__.' + method + ' !== "function") return JSON.stringify({ ok: false, error: "NO_BRIDGE" });',
+      '  return window.__MR__.' + method + '(' + token + (argJson ? ', ' + argJson : '') + ');',
       '})()',
     ].join('\n');
   }
 
   async function callBridge(method, argJson) {
     let answer = await evaluate(bridgeCallExpression(method, argJson));
-    if (answer && answer.error === 'NO_BRIDGE') {
-      const injected = await evaluate(BRIDGE_SOURCE);
+    // NO_BRIDGE = 页面重载过、window 被清空；E_TOKEN = 桥上还挂着上一轮进程的 nonce。
+    // 两种情况都重注入一次：注入源码自己会判断现有桥认不认当前 nonce，认就复用、不认就重建。
+    if (answer && (answer.error === 'NO_BRIDGE' || answer.error === 'E_TOKEN')) {
+      const injected = await evaluate(buildBridgeSource(ensureBridgeNonce()));
       lastBridgeInjectAt = Date.now();
       if (!injected || injected.ok !== true) {
         throw new Error(String((injected && injected.error) || 'SPOTIFY_CDP_NO_BRIDGE'));
@@ -353,6 +410,7 @@ function createSpotifyCdp(options) {
     try {
       const state = await readStateViaApi();
       bridgeMode = 'api';
+      noteChannelBack('api');
       return { ok: true, available: true, cached: false, mode: 'api', state: rememberState(state) };
     } catch (err) {
       failure = err;
@@ -367,12 +425,17 @@ function createSpotifyCdp(options) {
         throw new Error('SPOTIFY_CDP_BOOTING');
       }
       bridgeMode = 'dom';
+      noteChannelBack('dom');
       return { ok: true, available: true, cached: false, mode: 'dom', state: rememberState(state) };
     } catch (domErr) {
       failure = domErr;
     }
 
     lastError = String((failure && failure.message) || failure);
+    if (lastError !== loggedChannelMiss) {
+      loggedChannelMiss = lastError;
+      spotifyClientLog('channel-miss', { port, error: lastError });
+    }
     // 短暂的断连不该让 UI 立刻闪成"未接入"；缓存还能用就继续给旧状态。
     if (cachedState && Date.now() - cachedAt < 10000) {
       return { ok: true, available: true, cached: true, stale: true, error: lastError, state: cachedState };
@@ -395,6 +458,7 @@ function createSpotifyCdp(options) {
         lastCommand = name;
         lastCommandAt = Date.now();
         cachedAt = 0;
+        loggedCommandFailure = '';
         return { ok: true, name, mode: 'api' };
       }
       bridgeError = String((answer && answer.error) || 'SPOTIFY_CDP_COMMAND_REJECTED');
@@ -412,9 +476,18 @@ function createSpotifyCdp(options) {
       lastCommand = name;
       lastCommandAt = Date.now();
       cachedAt = 0;
+      loggedCommandFailure = '';
       return { ok: true, name, mode: 'dom' };
     } catch (err) {
       lastError = String((err && err.message) || err);
+      // 同一条命令 + 同一个错误只记一次：用户在断连状态下连点暂停不该刷出几十行。
+      // One line per distinct (command, error) pair; a user clicking pause while disconnected
+      // must not produce dozens of identical records.
+      const failureKey = name + '|' + lastError;
+      if (failureKey !== loggedCommandFailure) {
+        loggedCommandFailure = failureKey;
+        spotifyClientLog('command-failed', { name, port, error: lastError });
+      }
       return { ok: false, name, error: lastError };
     }
   }
@@ -651,7 +724,17 @@ function createSpotifyCdp(options) {
     };
   }
 
-  return { readState, command, playTrack, status, port, readStateViaApi };
+  return {
+    readState,
+    command,
+    playTrack,
+    status,
+    readStateViaApi,
+    setPort,
+    resetPort,
+    // 端口会随客户端启动而变，所以只能给 getter —— 对象字面量里写死值会让调用方读到旧端口。
+    get port() { return port; },
+  };
 }
 
 module.exports = {

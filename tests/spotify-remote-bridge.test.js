@@ -118,10 +118,11 @@ const {
         } else if (/window\.__MR__/.test(expression)) {
           if (!apiBox.bridge) {
             value = JSON.stringify({ ok: false, error: 'NO_BRIDGE' });
-          } else if (/__MR__\.read\(\)/.test(expression)) {
+          } else if (/__MR__\.read\(/.test(expression)) {
             value = JSON.stringify({ ok: true, state: apiBox.state });
           } else if (/__MR__\.play\(/.test(expression)) {
-            const match = /window\.__MR__\.play\((.+?)\);/.exec(expression);
+            // 第一个实参是注入时的 nonce，第二个才是 URI —— 桥现在要求 token 先行。
+            const match = /window\.__MR__\.play\([^,]+, (.+?)\);/.exec(expression);
             const target = match ? JSON.parse(match[1]) : '';
             apiBox.played.push(target);
             // 客户端真的换过去了：URI 与曲名同时更新，随后的轮询就能确认。

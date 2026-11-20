@@ -23,9 +23,12 @@
 // PowerShell/WinRT — no API calls, no quota, no Premium.
 
 const { execFile, spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const portablePaths = require('./portable-paths');
+const { spotifyClientLog } = require('./spotify-client-log');
 
 const PROBE_TIMEOUT_MS = 15000;
 
@@ -175,6 +178,63 @@ async function minimizeClientWindow() {
   return runPowerShell(lines);
 }
 
+// MR 拉起的客户端只负责出声，窗口不该露脸：多数机器上隐藏启动（STARTUPINFO 的 SW_HIDE）
+// 根本不会出窗口，但有的客户端版本会在首帧自己 ShowWindow —— 那一刻它还是一块没画过的黑布，
+// 挂在桌面上要等用户从托盘退出才消失（issue #1 的反馈）。
+// 这里只盯"MR 自己拉起客户端"之后的这一小段时间：看见可见窗口就最小化，收工即退。
+// 用户自己开的客户端永远不碰 —— 那样会把人正在听的 Spotify 窗口抢走。
+// The client we spawn only exists to make sound; its window should never be on screen.
+// This watches a short window after our own launch and minimises anything that shows up.
+const CLIENT_WINDOW_GUARD_MS = 25000;
+const CLIENT_WINDOW_GUARD_STEP_MS = 150;
+// 还没看见窗口时（隐藏启动的常态）没必要 150ms 一探，放宽一倍省点 CPU。
+const CLIENT_WINDOW_GUARD_IDLE_STEP_MS = 300;
+// 最小化之后要连续这么久（约 2 秒）没再弹回来才算稳住。实测客户端在启动收尾时会自己
+// ShowWindow 一次，把第一次最小化直接顶掉 —— 只按一下是没用的。
+const CLIENT_WINDOW_GUARD_STABLE_TICKS = 13;
+
+async function suppressClientWindow(timeoutMs) {
+  const span = Math.max(300, Math.min(60000, Number(timeoutMs) || CLIENT_WINDOW_GUARD_MS));
+  const lines = [
+    "$ErrorActionPreference = 'Stop'",
+    PS_UTF8,
+    // ShowWindowAsync，不是 ShowWindow：跨进程的同步版本在目标线程卡住时会连着把我们也卡住
+    // （DWM 助手那边已经交过一次学费）。
+    // ShowWindowAsync rather than ShowWindow: the synchronous variant blocks on a hung target.
+    'Add-Type -MemberDefinition \'[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);\' -Name WindowGuard -Namespace MineradioProbe | Out-Null',
+    '$deadline = (Get-Date).AddMilliseconds(' + span + ')',
+    '$saw = $false',
+    '$hits = 0',
+    '$stable = 0',
+    '$step = ' + CLIENT_WINDOW_GUARD_IDLE_STEP_MS,
+    'while ((Get-Date) -lt $deadline) {',
+    '  $target = Get-Process -Name Spotify -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1',
+    '  if ($target -and -not [MineradioProbe.WindowGuard]::IsIconic($target.MainWindowHandle)) {',
+    '    [MineradioProbe.WindowGuard]::ShowWindowAsync($target.MainWindowHandle, 6) | Out-Null',
+    '    $saw = $true',
+    '    $hits = $hits + 1',
+    '    $stable = 0',
+    '    $step = ' + CLIENT_WINDOW_GUARD_STEP_MS,
+    '  } elseif ($saw) {',
+    '    $stable = $stable + 1',
+    '    if ($stable -ge ' + CLIENT_WINDOW_GUARD_STABLE_TICKS + ') { break }',
+    '  }',
+    '  Start-Sleep -Milliseconds $step',
+    '}',
+    '@{ sawWindow = $saw; minimized = $hits; spanMs = ' + span + ' } | ConvertTo-Json -Compress',
+  ];
+  // 脚本自己是有限循环，外面的 timeout 只是兜住 PowerShell 起不来这种意外。
+  const answer = await runPowerShell(lines, span + 8000);
+  // 只在真的压过窗口时记一行：正常情况下这里什么都不该出现，出现了就说明用户的客户端
+  // 会自己把窗口 Show 出来，正是 issue #1 那份反馈的现场。
+  // Only log actual hits: in the normal case nothing shows up here, and a hit is exactly the
+  // symptom reported in issue #1.
+  if (answer && answer.sawWindow === true) {
+    spotifyClientLog('window-guard', { minimized: answer.minimized, spanMs: answer.spanMs });
+  }
+  return answer;
+}
+
 // 找 Spotify 的窗口句柄与标题，用来判断"点播之后它到底露出来多久"。
 async function inspectClientWindow() {
   const lines = [
@@ -201,23 +261,154 @@ async function isClientRunning() {
   }
 }
 
+// ---- 调试端口的选择与记忆 -------------------------------------------------------
+// 客户端是 CEF，`--remote-debugging-port` 只接受 0 或 1024–65535（libcef 的判断是
+// `port >= 1024 && port <= 65535`）。传 0 等于交给系统，而系统只会从动态端口段里挑
+// （Windows 默认 49152–65535）—— 范围其实只有四分之一。自己挑才能覆盖 1024–65535，
+// 代价是要自己兜住"选中的端口被抢"，所以先 bind 一次再放掉。
+// The client is CEF: `--remote-debugging-port` takes 0 or 1024–65535. Passing 0 lets the OS
+// choose, and the OS only picks from the dynamic range (49152–65535 on Windows by default) —
+// a quarter of the space. Choosing ourselves widens the range, at the cost of a bind probe.
+const DEBUG_PORT_MIN = 1024;
+const DEBUG_PORT_MAX = 65535;
+// 通用 CDP 扫描器与开发工具默认会试的那一批：随机撞上等于白做。
+const DEBUG_PORT_SKIP = new Set([1024, 1080, 3000, 3128, 3306, 5000, 5432, 6379, 8000, 8080, 8081, 8443, 8888, 9222, 9229, 9418]);
+const DEBUG_PORT_ATTEMPTS = 10;
+// DevTools 的 HTTP 端点在页面加载之前就能应答，1.5 秒足以判断端口是否真的起来了。
+const DEBUG_PORT_READY_TIMEOUT_MS = 1500;
+const DEBUG_PORT_FILE_NAME = '.spotify-cdp-port';
+
+// 端口记在原生临时区：MR 退出时客户端不会跟着退出，下次启动要靠这个文件把通道接回来。
+// 临时目录被系统清掉只会让下次退回 9222 并提示重启客户端，不会出错。
+function debugPortFilePath() {
+  const override = String(process.env.MINERADIO_SPOTIFY_PORT_FILE || '').trim();
+  if (override) return override;
+  return path.join(portablePaths.APP_NATIVE_TEMP_PATH || portablePaths.resolveNativeTempDir(), DEBUG_PORT_FILE_NAME);
+}
+
+function isValidDebugPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= DEBUG_PORT_MIN && port <= DEBUG_PORT_MAX;
+}
+
+function readSavedDebugPort() {
+  try {
+    const saved = Number(fs.readFileSync(debugPortFilePath(), 'utf8').trim());
+    return isValidDebugPort(saved) ? saved : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveDebugPort(port) {
+  if (!isValidDebugPort(port)) return false;
+  try {
+    fs.writeFileSync(debugPortFilePath(), String(Number(port)), 'utf8');
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function forgetDebugPort() {
+  try {
+    fs.unlinkSync(debugPortFilePath());
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// bind 一下再放掉：既排除别的程序占着的端口，也排除 Hyper-V / WSL 保留的区间
+// （那些端口 listen 会直接 EACCES，bind 测试把它们一并筛掉）。
+function isPortFree(port) {
+  return new Promise(resolve => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    try {
+      probe.listen({ port, host: '127.0.0.1', exclusive: true });
+    } catch (err) {
+      resolve(false);
+    }
+  });
+}
+
+// crypto.randomInt 的均匀性有保证（Math.random 没有），上界是开区间。
+async function pickDebugPort() {
+  for (let i = 0; i < DEBUG_PORT_ATTEMPTS; i++) {
+    const candidate = crypto.randomInt(DEBUG_PORT_MIN, DEBUG_PORT_MAX + 1);
+    if (DEBUG_PORT_SKIP.has(candidate)) continue;
+    if (await isPortFree(candidate)) return candidate;
+  }
+  // 十次都撞车几乎不可能；真撞上就如实失败，别偷偷退回固定端口。
+  return 0;
+}
+
+async function waitForDebugPort(port, timeoutMs) {
+  if (!isValidDebugPort(port)) return false;
+  const deadline = Date.now() + (Number(timeoutMs) || DEBUG_PORT_READY_TIMEOUT_MS);
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch('http://127.0.0.1:' + port + '/json/version', { signal: AbortSignal.timeout(600) });
+      if (response.ok) return true;
+    } catch (err) {
+      // 还没起来，继续等
+    }
+    await new Promise(resolve => setTimeout(resolve, 120));
+  }
+  return false;
+}
+
+// 记住的端口可能早就失效（客户端被关过、端口被系统回收）：探一下，没人应答就忘掉它。
+// 只在启动时跑一次，默认 400ms 上限 —— "客户端没在跑"是常态，不该拖住启动。
+async function verifySavedDebugPort(timeoutMs) {
+  const saved = readSavedDebugPort();
+  if (!saved) return null;
+  if (await waitForDebugPort(saved, Number(timeoutMs) || 400)) return saved;
+  forgetDebugPort();
+  return null;
+}
+
 // MR 负责用调试端口启动客户端：用户不必改快捷方式。
 // 已经在运行时**绝不**替用户关掉它 —— 那会打断正在放的音乐，只能提示重启接入。
+// 端口每次随机（见上），所以启动成功后要把它记下来，MR 重启后才连得回同一个实例。
 // MR starts the client with the debug port so the user never has to edit a shortcut.
 // If it is already running we never close it; closing would interrupt playback.
 async function launchClientWithDebugPort(port) {
-  if (await isClientRunning()) return { ok: false, reason: 'already-running' };
+  if (await isClientRunning()) {
+    spotifyClientLog('launch-skipped', { reason: 'already-running', savedPort: readSavedDebugPort() });
+    return { ok: false, reason: 'already-running', port: readSavedDebugPort() };
+  }
   const exe = path.join(process.env.APPDATA || '', 'Spotify', 'Spotify.exe');
-  if (!fs.existsSync(exe)) return { ok: false, reason: 'not-installed', path: exe };
+  if (!fs.existsSync(exe)) {
+    spotifyClientLog('launch-skipped', { reason: 'not-installed', path: exe });
+    return { ok: false, reason: 'not-installed', path: exe };
+  }
+  // 调用方仍可指定端口（诊断用）；正常路径一律随机。
+  const chosen = isValidDebugPort(port) ? Number(port) : await pickDebugPort();
+  if (!chosen) {
+    spotifyClientLog('launch-skipped', { reason: 'no-port' });
+    return { ok: false, reason: 'no-port' };
+  }
   try {
-    const child = spawn(exe, ['--remote-debugging-port=' + (Number(port) || 9222)], {
+    const child = spawn(exe, ['--remote-debugging-port=' + chosen], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
     });
     child.unref();
-    return { ok: true, pid: child.pid || 0 };
+    saveDebugPort(chosen);
+    spotifyClientLog('launch', { port: chosen, pid: child.pid || 0 });
+    // 窗口守卫和端口探测并行跑，不占等待时间。
+    suppressClientWindow().catch(() => {});
+    // 端口真的应答了才算数；没应答也不阻断 —— 前端还会自己轮询 6 秒，
+    // 这里只是给诊断留一个 portReady 字段。
+    const ready = await waitForDebugPort(chosen);
+    if (!ready) spotifyClientLog('launch-port-timeout', { port: chosen });
+    return { ok: true, pid: child.pid || 0, port: chosen, portReady: ready };
   } catch (err) {
+    spotifyClientLog('launch-failed', { port: chosen, error: (err && err.message) || err });
     return { ok: false, reason: String((err && err.message) || err) };
   }
 }
@@ -359,8 +550,18 @@ module.exports = {
   readWindowTree,
   readPlayerState,
   launchClientWithDebugPort,
+  readSavedDebugPort,
+  saveDebugPort,
+  forgetDebugPort,
+  verifySavedDebugPort,
+  pickDebugPort,
+  isValidDebugPort,
+  DEBUG_PORT_MIN,
+  DEBUG_PORT_MAX,
   sendMediaKey,
   minimizeClientWindow,
+  suppressClientWindow,
+  CLIENT_WINDOW_GUARD_MS,
   inspectClientWindow,
   isClientRunning,
   MEDIA_KEYS,

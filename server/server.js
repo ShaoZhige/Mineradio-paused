@@ -71,11 +71,25 @@ const credentialCrypto = require('../desktop/credential-crypto');
 // Reads the machine's media sessions and sends one media key: measures whether the running
 // official client can be driven from here at all.
 const spotifyClientProbe = require('../desktop/spotify-client-probe');
+const { logSpotifyClientPath: spotifyClientLogPath } = require('../desktop/spotify-client-log');
 // 官方客户端的本地 CDP 通道：毫秒级进度、播放态、曲目、音量与定向控制。
-// 没带 --remote-debugging-port 启动时 readState() 会返回 unavailable，上层自行降级。
+// 端口是每次启动随机挑的，所以初始化时先读"上次记住的端口"——MR 退出后客户端不退出，
+// 下次启动要靠它连回同一个实例；读不到就退回 9222（用户自己带该端口启动的情况）。
 // Local CDP channel to the official client: millisecond position, playback state, track,
-// volume and targeted controls. Reports unavailable when the client was launched without the flag.
-const spotifyCdp = require('./spotify-cdp').createSpotifyCdp();
+// volume and targeted controls. The port is randomised per launch, so start from the remembered
+// one; fall back to 9222 when there is none.
+const spotifyCdp = require('./spotify-cdp').createSpotifyCdp({
+  initialPort: spotifyClientProbe.readSavedDebugPort(),
+});
+// 记住的端口可能早就失效（客户端被关过、端口被系统回收）：启动后异步探一次，没人应答就退回默认端口，
+// 那条记录也一并删掉，免得下次又去敲一个死端口。探测有 400ms 上限，不拖启动。
+setImmediate(() => {
+  spotifyClientProbe.verifySavedDebugPort().then(saved => {
+    if (!saved) spotifyCdp.resetPort();
+  }).catch(() => {
+    // 探测本身失败按"没有记住"处理，反正后续 readState 会自己降级。
+  });
+});
 // 走代理而不是直接 require('./dj-analyzer')：解码与频谱计算要放进 utilityProcess，
 // 否则整首歌的 O(n) 计算会占住主进程事件循环，分析期间所有 IPC 一起变慢。
 // 代理在没有 utilityProcess 的环境（纯 Node 测试）会自动退回进程内调用。
@@ -5401,6 +5415,10 @@ const server = http.createServer(async (req, res) => {
         sessions: sessions.length,
         allSessions: sessions,
         window: windowInfo,
+        // 用户反馈"多了一块黑窗"时要的东西：日志在哪、当前端口是什么，一次问清。
+        // What a bug report needs for the "extra black window" case: the log path and the port.
+        logPath: spotifyClientLogPath(),
+        port: spotifyCdp.port,
       });
     } catch (err) {
       console.error('[SpotifyClientProbe]', err && err.message);
@@ -5411,7 +5429,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pn === '/api/spotify/client/launch') {
     try {
-      sendJSON(res, await spotifyClientProbe.launchClientWithDebugPort(url.searchParams.get('port')));
+      const answer = await spotifyClientProbe.launchClientWithDebugPort(url.searchParams.get('port'));
+      // 端口是每次随机挑的：启动成功后要把通道切过去，否则后面的 state / command 还在敲旧端口。
+      // The port is randomised per launch, so the channel has to follow it.
+      if (answer && answer.ok && answer.port) spotifyCdp.setPort(answer.port);
+      sendJSON(res, answer);
     } catch (err) {
       sendJSON(res, { ok: false, error: String((err && err.message) || err).slice(0, 300) });
     }

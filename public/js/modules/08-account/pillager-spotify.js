@@ -819,8 +819,8 @@ function PillagerSpotify() {
   }
 
   // 通道没起来时，先请主进程用调试端口把客户端拉起来（已经在跑的实例绝不打断），
-  // 再等它出现在 127.0.0.1:9222 上。这样用户第一次点 Spotify 歌就能直接进入远程模式，
-  // 不必自己去改快捷方式。
+  // 再等它出现在那个每次随机的本地端口上（端口由主进程记着，前端不必知道）。
+  // 这样用户第一次点 Spotify 歌就能直接进入远程模式，不必自己去改快捷方式。
   // 「后台开启 SP」关着时这里直接返回 false —— 不替用户开客户端，交给上层换源。
   // Ask the main process to start the client with its debug port, then wait for the channel.
   function spotifyRemoteEnsureChannel() {
