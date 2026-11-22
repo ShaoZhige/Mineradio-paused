@@ -7,7 +7,14 @@ const path = require('node:path');
 
 const appRoot = path.resolve(__dirname, '..');
 const mainText = fs.readFileSync(path.join(appRoot, 'desktop', 'main.js'), 'utf8');
-const quickCheckText = fs.readFileSync(path.join(appRoot, 'scripts', 'quick-check.js'), 'utf8');
+// quick-check 已拆成 scripts/checks/*.cjs：这些接线断言要读**整包**文本，否则搬家即误报。
+const quickCheckText = (function () {
+  const orchestrator = fs.readFileSync(path.join(appRoot, 'scripts', 'quick-check.js'), 'utf8');
+  const dir = path.join(appRoot, 'scripts', 'checks');
+  const parts = fs.readdirSync(dir).filter((f) => f.endsWith('.cjs')).sort()
+    .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'));
+  return [orchestrator].concat(parts).join('\n');
+})();
 
 test('startup QA isolates its disposable userData away from the real profile', () => {
   assert.match(mainText, /MINERADIO_STARTUP_QA_USER_DATA/);

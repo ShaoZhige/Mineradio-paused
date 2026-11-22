@@ -200,6 +200,9 @@ async function refreshCustomSources() {
     // A failed list read must not be recorded as "loaded and empty"; otherwise playback
     // would wrongly conclude that no script is active.
     console.warn('[CustomSource] list failed', error && (error.message || error));
+    if (typeof logEvent === 'function') {
+      logEvent('source', 'list-failed', { message: String((error && error.message) || error || '').slice(0, 200) }, 'warn');
+    }
   }
 }
 
@@ -376,6 +379,10 @@ async function resolveCustomSourcePlaybackData(song, quality) {
     return data;
   } catch (error) {
     console.warn('[CustomSource] resolve failed', error && (error.message || error));
+    // 脚本解析失败是"某首歌莫名其妙放不出来"的常见来源，必须留痕。
+    if (typeof logEvent === 'function') {
+      logEvent('source', 'resolve-failed', { message: String((error && error.message) || error || '').slice(0, 200) }, 'warn');
+    }
     return null;
   } finally {
     if (timer) clearTimeout(timer);

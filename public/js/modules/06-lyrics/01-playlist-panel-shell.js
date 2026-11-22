@@ -760,10 +760,17 @@ async function loadPlaylistCatalogProviderPage(provider, reason) {
     state.authExpired = false;
     rebuildUserPlaylistsFromCatalog({ animate: first && isPlaylistPanelVisibleForRender(), reset: first, preserveScroll: !first, reason: reason || 'playlist-catalog-page' });
     refreshPlaylistCatalogErrorState();
+    // Apple 的卡片没有 trackCount 属性，列表先出来，计数随后单独一批补（不阻塞、不排队）。
+    if (provider === 'applemusic') scheduleAppleMusicTrackCountFill();
     return incoming.length > 0;
   } catch (e) {
     if (playlistCatalogSyncState.token !== token) return false;
     console.warn('[PlaylistCatalogPage]', provider, e);
+    if (typeof logEvent === 'function') {
+      logEvent('playlist', 'catalog-page-failed', {
+        provider: provider, message: String((e && e.message) || e || '').slice(0, 240),
+      }, 'warn');
+    }
     state.error = e && e.message || 'PLAYLIST_CATALOG_PAGE_FAILED';
     state.authExpired = !!(e && e.authExpired);
     state.hasMore = false;
@@ -787,6 +794,46 @@ async function loadPlaylistCatalogProviderPage(provider, reason) {
 // platform that recovers clears it by itself. The old `playlistCatalogSyncState.error` was
 // only reset on a forced refresh, which is why one timed-out background page left
 // "部分歌单载入失败" pinned under a fully loaded list forever.
+// 歌单卡片上的「N 首」：列表响应里不带，Apple 需要单独读一次 `playlistTrackCount`。
+// 🔴 这件事绝不能跟列表请求一起做 —— companion 是串行的，计数一慢就会把下一次打开歌单堵死。
+// 这里只在列表渲染完之后、**一次一批**地补，并且全局只允许一个在飞。
+// Track counts are filled after the list is on screen, one batch at a time, never in the list call.
+var appleMusicCountFillBusy = false;
+var appleMusicCountFillTimer = 0;
+function scheduleAppleMusicTrackCountFill() {
+  // 列表刚出来时通道还在忙别的：等一会儿再问，而且只问一小批（companion 是串行的，
+  // 计数会直接拖慢随后打开歌单/播放）。
+  if (appleMusicCountFillTimer) clearTimeout(appleMusicCountFillTimer);
+  appleMusicCountFillTimer = setTimeout(runAppleMusicTrackCountFill, 2000);
+}
+function runAppleMusicTrackCountFill() {
+  appleMusicCountFillTimer = 0;
+  if (appleMusicCountFillBusy || playlistCatalogSyncState.loading) return;
+  var rows = (appleMusicPlaylists || []).filter(function (pl) {
+    return pl && /^p\.[A-Za-z0-9._-]{1,198}$/.test(String(pl.id || '')) && !(Number(pl.trackCount) > 0);
+  }).slice(0, 4);
+  if (!rows.length) return;
+  var ids = rows.map(function (pl) { return pl.id; }).join(',');
+  var token = playlistCatalogSyncState.token;
+  appleMusicCountFillBusy = true;
+  apiJson('/api/apple-music/playlist/counts?ids=' + encodeURIComponent(ids), { timeoutMs: 6000 })
+    .then(function (r) {
+      appleMusicCountFillBusy = false;
+      if (!r || !r.counts || playlistCatalogSyncState.token !== token) return;
+      var changed = 0;
+      (appleMusicPlaylists || []).forEach(function (pl) {
+        var next = pl && r.counts[pl.id];
+        if (Number.isSafeInteger(next) && next >= 0 && Number(pl.trackCount) !== next) {
+          pl.trackCount = next;
+          changed += 1;
+        }
+      });
+      if (!changed) return;
+      playlistCatalogRevision += 1;
+      renderUserPlaylistsList({ preserveScroll: true });
+    })
+    .catch(function () { appleMusicCountFillBusy = false; });
+}
 function refreshPlaylistCatalogErrorState() {
   var root = playlistCatalogSyncState;
   if (!root) return;
@@ -913,12 +960,16 @@ async function refreshUserPlaylists(force) {
   // can read. Probe it before deciding whether the Apple playlist tab exists;
   // once logged in the status stays true, so this only hits the bridge until
   // the first successful answer.
+  // 🔴 打开歌单栏**不**会去拉起 Apple 的 companion：以前这里是"只要不是登着就探一次"，
+  // 于是从没链接过 Apple 的人每次点歌单栏都要付一次 WebView2 启动（十几秒 + 几百兆）。
+  // 现在只在"缓存说登着、但还没验证过"时才补验一次；未登录一律不碰，等用户在登录界面里
+  // 主动点检测（那里会 force）。
+  // Never spawn the Apple companion just because the shelf opened: only verify a cached
+  // "signed in" once, and leave signed-out users completely alone.
   if (typeof refreshAppleMusicLoginStatus === 'function'
-      && !(typeof appleMusicLoginStatus !== 'undefined' && appleMusicLoginStatus.loggedIn)) {
-    // Probe the companion off the critical path. accountStatus may have to start
-    // WebView2 and answer auth-required after several seconds; awaiting it here
-    // delayed every left-panel open even when the user never linked Apple Music.
-    Promise.resolve().then(refreshAppleMusicLoginStatus).then(function (status) {
+      && typeof appleMusicLoginStatus !== 'undefined' && appleMusicLoginStatus
+      && appleMusicLoginStatus.loggedIn && appleMusicLoginStatus.fromCache) {
+    Promise.resolve().then(function () { return refreshAppleMusicLoginStatus(); }).then(function (status) {
       if (status && status.loggedIn && typeof refreshUserPlaylists === 'function') {
         refreshUserPlaylists(true);
       }

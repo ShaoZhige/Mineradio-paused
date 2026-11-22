@@ -87,7 +87,7 @@ var fxDefaults = {
   windowBackgroundOpacity: 1,
   // 窗口外壳圆角（issue #6）。34 是历史值，0 = 直角，最大 48。
   // Shell corner radius (issue #6): 34 was the old hard-coded value, 0 = square, max 48.
-  windowCornerRadius: 34,
+  windowCornerRadius: 20,
   backgroundGlassOpacity: 0,
   controlGlassChromaticOffset: 50,
   playlistPanelGlassBlur: 14,
@@ -135,6 +135,13 @@ var fxDefaults = {
   // unknown or the read path fell back, so lose the glass enhancement rather than show a border
   // nobody asked for. Win11 (build >= 22000) is turned back on by the read path.
   wallpaperEngineGlassSampler: false,
+  // WE 捕获渲染：把原生壁纸窗口抓成视频流放进自己的窗口里画，绕开 DWM 跨窗口合成，
+  // 换取更跟手的拖动/动画（代价是 Chromium 捕获本身有 1~3 帧延迟）。默认关闭；
+  // 只对"需要合成"的壁纸（Scene / Web，即走原生窗口的那些）生效，MR 自己播的视频壁纸不受影响。
+  // Capture rendering: paint the native WE window as a captured video stream inside our own
+  // window instead of letting DWM compose two windows. Defaults to off; only affects wallpapers
+  // that need compositing (native Scene/Web), never the videos we play ourselves.
+  wallpaperEngineCaptureRender: false,
   // 视觉开关默认值：溢光（bloom）默认关，轮廓高亮（edge）默认开。
   // bloom 参与两处渲染：预设网格的 uBloomStrength（关掉直接归零）和独立的 bloomParticles 层
   // （整层隐藏），见 07-fx/04-preset-grid-uniforms.js；edge 只是网格着色器里的 uEdgeEnabled 一项。

@@ -102,6 +102,8 @@ function fxConsoleLayout() {
         fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false),
         fxConsoleItem('t-wallpaperEngineSilentWindows', consoleWorkspaceText('fx_we_window_silence'), '任务栏 隐藏 Alt+Tab 进程提醒 静默'),
         fxConsoleItem('t-wallpaperEngineGlassSampler', consoleWorkspaceText('fx_we_glass'), '捕获 黄框 玻璃 像素 采样 Win10'),
+        // 捕获渲染：必须登记，否则面板重建时会把它当"未归组"的旧节点直接删掉（实测 DOM 里查不到）。
+        fxConsoleItem('t-wallpaperEngineCaptureRender', consoleWorkspaceText('fx_we_capture_render'), '捕获 视频流 合成 延迟 跟手 拖动 渲染'),
         fxConsoleItem('wallpaper-engine-opacity', consoleWorkspaceText('fx_we_opacity'), 'WE 透明 壁纸 淡'),
         fxConsoleItem('wallpaper-engine-position-x', consoleWorkspaceText('bg_we_pos_x'), 'WE 左右 水平 位移'),
         fxConsoleItem('wallpaper-engine-position-y', consoleWorkspaceText('bg_we_pos_y'), 'WE 上下 垂直 位移'),
@@ -116,6 +118,9 @@ function fxConsoleLayout() {
       ] },
       { key: 'glass', title: consoleWorkspaceText('fx_cat_glass_leftbar'), hint: consoleWorkspaceText('fx_glass_hint'), items: [
         fxConsoleItem('fx-windowbgopacity', consoleWorkspaceText('fx_window_bg_transparent'), '窗口透明度'),
+        // issue #6 加圆角滑块时漏了分组登记，运行期被残留扫描收进「系统 → 其他设置」，
+        // 在「玻璃 / 窗口外观」组里查不到。和窗口透明度相邻补上，DOM 顺序也和这里一致。
+        fxConsoleItem('fx-windowradius', consoleWorkspaceText('fx_window_corner_radius', '窗口圆角'), '窗口圆角 弧度 直角 radius corner'),
         fxConsoleItem('fx-bgglassopacity', consoleWorkspaceText('fx_glass_opacity'), '玻璃 背景模糊'),
         fxConsoleItem('fx-glassaberration', consoleWorkspaceText('console_glass_aberration', '控制台玻璃色差'), 'RGB 色散 玻璃质感'),
         fxConsoleItem('fx-playlistblur', consoleWorkspaceText('fx_leftbar_frost'), '歌单栏 模糊'),

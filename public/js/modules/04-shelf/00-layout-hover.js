@@ -1,5 +1,5 @@
 // ============================================================
-var shelfPinnedOpen = false;
+// 变量本身声明在 00-state/07-ui-playback-runtime.js（更早加载的模块也要读它）。
 var shelfManager = null;
 var shelfOpenAnimAt = -10;
 var shelfHoverCue = { target: 0, value: 0, x: 0, y: 0, lastAt: 0, enteredAt: 0, zoneActive: false, guide: false };

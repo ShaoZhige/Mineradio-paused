@@ -140,10 +140,14 @@ test('启动时就把 Spotify 查起来，并真正启动它的定时器', () =>
   assert.ok(/startSpotifyLoginStatusAutoRefresh\(\);/.test(sources.startup), '定时器此前只定义没启动，要接上');
 });
 
-test('Apple Music 只在缓存说"上次登着"时才后台补验', () => {
-  assert.ok(/appleMusicLoginStatus\.loggedIn && appleMusicLoginStatus\.fromCache/.test(sources.startup),
+test('Apple Music 启动阶段只补验一次，不预热、不重试（companion 是串行的）', () => {
+  const body = sources.startup;
+  assert.ok(/appleMusicLoginStatus\.loggedIn && appleMusicLoginStatus\.fromCache/.test(body),
     '没有缓存还去拉 WebView2，会让从没用过 Apple 的人白付一份内存');
-  assert.ok(/refreshAppleMusicLoginStatus\(\)/.test(sources.startup), '缓存命中时要在后台补验一次');
+  assert.ok(/refreshAppleMusicLoginStatus\(\)/.test(body), '缓存命中时要在后台补验一次');
+  // 启动阶段多发一个请求（warm/重试）就会把歌单列表和曲目数堵在串行通道后面。
+  assert.ok(!/appleMusicRequest\('warm'/.test(body), '启动阶段不许预热 WebView2');
+  assert.ok(!/appleMusicPrewarmTries/.test(body), '不许退避重试');
 });
 
 test('登出会清缓存，刷新成功会写缓存', () => {

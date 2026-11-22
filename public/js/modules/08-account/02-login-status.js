@@ -123,12 +123,30 @@ function auditProviderVipState(provider, status) {
   writeProviderVipAuditState(state);
 }
 
+// 登录态**只在变化时**记一行。掉线排查需要时间线，但每次轮询都写会把日志刷爆。
+// One line per transition only: a timeline is useful, a poll-by-poll dump is not.
+var accountStatusLog = Object.create(null);
+function noteAccountStatus(provider, status) {
+  if (typeof logEvent !== 'function') return;
+  var entry = status || {};
+  var key = (entry.loggedIn ? '1' : '0') + '|' + String(entry.error || '');
+  if (accountStatusLog[provider] === key) return;
+  accountStatusLog[provider] = key;
+  logEvent('account', 'status', {
+    provider: String(provider || ''),
+    loggedIn: !!entry.loggedIn,
+    error: String(entry.error || '').slice(0, 60),
+    stale: !!entry.stale,
+  }, entry.loggedIn ? 'info' : 'warn');
+}
+
 async function refreshLoginStatus(force) {
   try {
     var info = await apiJson('/api/login/status?t=' + Date.now());
     loginStatusChecked = true;
     loginStatusCheckFailed = false;
     loginStatus = info || { loggedIn: false };
+    noteAccountStatus('netease', loginStatus);
     auditProviderVipState('netease', loginStatus);
     if (loginStatus.loggedIn && !hasPlatformLogin(activeAccountProvider)) activeAccountProvider = 'netease';
     renderUserBtn();
@@ -238,6 +256,7 @@ async function refreshQQLoginStatus(options) {
     var info = await apiJson(query);
     var prevLogged = !!qqLoginStatus.loggedIn;
     qqLoginStatus = normalizeQQLoginStatus(info);
+    noteAccountStatus('qq', qqLoginStatus);
     auditProviderVipState('qq', qqLoginStatus);
     if (!qqLoginStatus.loggedIn) {
       if (prevLogged || qqLoginWasLoggedIn) showToast(qqLoginStatus.stale ? loginStatusText('qq_login_expired', 'QQ 音乐登录已失效') : loginStatusText('lstatus_qq_dropped'));
@@ -368,6 +387,7 @@ async function refreshKugouLoginStatus() {
     if (info && info.error && !info.reauthRequired) throw new Error(info.error);
     var prevLogged = !!kugouLoginStatus.loggedIn;
     kugouLoginStatus = normalizeKugouLoginStatus(info);
+    noteAccountStatus('kugou', kugouLoginStatus);
     auditProviderVipState('kugou', kugouLoginStatus);
     if (!kugouLoginStatus.loggedIn) {
       if (prevLogged || kugouLoginWasLoggedIn) showToast(kugouLoginStatus.stale ? loginStatusText('lstatus_kugou_expired') : loginStatusText('lstatus_kugou_dropped'));
@@ -440,6 +460,7 @@ async function refreshQishuiLoginStatus() {
     if (info && info.error && !info.reauthRequired) throw new Error(info.error);
     var prevLogged = !!qishuiLoginStatus.loggedIn;
     qishuiLoginStatus = normalizeQishuiLoginStatus(info);
+    noteAccountStatus('qishui', qishuiLoginStatus);
     auditProviderVipState('qishui', qishuiLoginStatus);
     if (!qishuiLoginStatus.loggedIn) {
       if (prevLogged || qishuiLoginWasLoggedIn) showToast(qishuiLoginStatus.reauthRequired ? loginStatusText('lstatus_qishui_expired') : loginStatusText('lstatus_qishui_cleared'));
@@ -517,6 +538,7 @@ async function refreshSpotifyLoginStatus() {
     var restoredFromCache = !!spotifyLoginStatus.fromCache;
     var prevLogged = !!spotifyLoginStatus.loggedIn && !restoredFromCache;
     spotifyLoginStatus = normalizeSpotifyLoginStatus(info);
+    noteAccountStatus('spotify', spotifyLoginStatus);
     rememberProviderLoginStatus('spotify', spotifyLoginStatus);
     auditProviderVipState('spotify', spotifyLoginStatus);
     if (!spotifyLoginStatus.loggedIn) {

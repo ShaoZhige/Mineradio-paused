@@ -298,26 +298,6 @@ function setCustomBackgroundCoverMode(silent) {
 function resetCustomBackgroundColor() {
   setCustomBackgroundCoverMode(false);
 }
-function setCustomBackgroundOpacity(value, silent) {
-  fx.backgroundOpacity = clampRange(Number(value), 0, 1);
-  fx.backgroundColorMode = 'custom';
-  fx.backgroundColorCustom = true;
-  updateCustomBackgroundControls();
-  saveLyricLayout({ user: true, reason: 'backgroundOpacity' });
-  if (!silent) showToast(accentBackgroundControlsText('accent_bg_opacity_prefix') + Math.round(fx.backgroundOpacity * 100) + '%');
-}
-function setWindowBackgroundOpacity(value, silent) {
-  fx.windowBackgroundOpacity = clampRange(Number(value), 0, 1);
-  updateCustomBackgroundControls();
-  saveLyricLayout({ user: true, reason: 'windowBackgroundOpacity' });
-  if (!silent) showToast(accentBackgroundControlsText('accent_window_opacity_prefix') + Math.round(fx.windowBackgroundOpacity * 100) + '%');
-}
-function setBackgroundGlassOpacity(value, silent) {
-  fx.backgroundGlassOpacity = clampRange(Number(value), 0, 1);
-  updateCustomBackgroundControls();
-  saveLyricLayout({ user: true, reason: 'backgroundGlassOpacity' });
-  if (!silent) showToast(accentBackgroundControlsText('accent_frosted_opacity_prefix') + Math.round(fx.backgroundGlassOpacity * 100) + '%');
-}
 function setCustomBackgroundAlbumCover(enabled, silent) {
   fx.backgroundAlbumCover = enabled === true;
   if (fx.backgroundAlbumCover) {
@@ -330,28 +310,6 @@ function setCustomBackgroundAlbumCover(enabled, silent) {
 }
 function toggleCustomBackgroundAlbumCover() {
   setCustomBackgroundAlbumCover(!(typeof customBackgroundUsesAlbumCover === 'function' && customBackgroundUsesAlbumCover()));
-}
-function setCustomBackgroundCrop(key, value, silent) {
-  var allowed = {
-    backgroundMediaCropX: [0, 100, 50],
-    backgroundMediaCropY: [0, 100, 50],
-    backgroundMediaZoom: [1, 2.8, 1]
-  };
-  if (!allowed[key]) return;
-  var meta = allowed[key];
-  var next = clampRange(Number(value), meta[0], meta[1]);
-  fx[key] = isFinite(next) ? next : meta[2];
-  updateCustomBackgroundControls();
-  saveLyricLayout({ user: true, reason: 'backgroundMediaCrop' });
-  if (!silent) showToast(accentBackgroundControlsText('accent_bg_crop_updated'));
-}
-function resetCustomBackgroundCrop() {
-  fx.backgroundMediaCropX = fxDefaults.backgroundMediaCropX == null ? 50 : fxDefaults.backgroundMediaCropX;
-  fx.backgroundMediaCropY = fxDefaults.backgroundMediaCropY == null ? 50 : fxDefaults.backgroundMediaCropY;
-  fx.backgroundMediaZoom = fxDefaults.backgroundMediaZoom == null ? 1 : fxDefaults.backgroundMediaZoom;
-  updateCustomBackgroundControls();
-  saveLyricLayout({ user: true, reason: 'backgroundMediaCrop' });
-  showToast(accentBackgroundControlsText('accent_bg_crop_reset'));
 }
 function customBackgroundCropSnapshot() {
   return {
@@ -1151,9 +1109,6 @@ function setSonicWorkshopRegionColorMode(id, mode, silent) {
   fx[item.modeKey] = mode === 'custom' ? 'custom' : 'cover';
   pushSonicWorkshopColorChange(item.id === 'theme' ? 'sonicWorkshopColorMode' : item.colorKey);
   if (!silent) showToast(accentBackgroundControlsText('accent_soundfield_we_prefix') + item.label + ': ' + (fx[item.modeKey] === 'cover' ? '\u5c01\u9762\u53d6\u8272' : accentBackgroundControlsText('accent_fixed_color')));
-}
-function setSonicWorkshopColorMode(mode, silent) {
-  setSonicWorkshopRegionColorMode('theme', mode, silent);
 }
 function setSonicWorkshopTheme(theme, silent) {
   theme = normalizeSonicWorkshopTheme(theme);

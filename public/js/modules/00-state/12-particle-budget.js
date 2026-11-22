@@ -237,9 +237,6 @@ function tickParticleBudget() {
   return refreshParticleBudget();
 }
 
-function particleBudgetCurrentScale() {
-  return particleBudgetAppliedScale >= 0 ? particleBudgetAppliedScale : runtimeParticleBudgetScale();
-}
 
 // 各粒子系统建几何体时用它放大分配量。基准数量（baseCount）保持原值不变，
 // 这样"系数 × 基准"的语义在每一档都读得懂，余量只存在于缓冲区里。

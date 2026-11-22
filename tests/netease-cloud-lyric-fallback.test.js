@@ -152,7 +152,6 @@ assert(cacheLimitSource.includes('LYRIC_FALLBACK_PAYLOAD_LIMIT'), 'fallback cach
 assert(cacheLimitSource.includes('LYRIC_FALLBACK_MISS_LIMIT'), 'fallback miss cache limit is missing');
 const cacheHelperSource = [
   'pruneLyricFallbackCache',
-  'pruneLyricFallbackCaches',
   'rememberLyricFallbackMiss',
   'rememberLyricFallbackPayload',
 ].map((name) => extractFunction(name)).join('\n');

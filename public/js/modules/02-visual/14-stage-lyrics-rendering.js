@@ -3109,12 +3109,22 @@ function tickLyricsParticles() {
   }
   var previewingSeek = stageLyricProgressPreviewActive();
   var holdLyricsOnPause = !fx || fx.lyricPauseHold !== false;
-  var pausedWithTrack = !!(holdLyricsOnPause && audio && audio.src && audio.paused && !audio.ended && lyricsLines && lyricsLines.length);
-  if (!audio || !lyricsLines.length || (audio && audio.ended)) {
+  // 外部播放（Apple Music / Spotify）时，主页面的 audio 元素没有 src、paused 恒 true。
+  // 以前这里直接读 audio 的状态，导致 AM 在默认（3D）歌词样式下永远走 retire 分支 ——
+  // 只有特殊样式（folia classic/sonnet）能吃上词。播放态统一走 playbackIsPlayingNow()。
+  // External playback has no local <audio> source, so the old audio-based gate retired the 3D
+  // lyrics for Apple Music entirely; only the folia styles worked.
+  var externalAudio = typeof playbackUsesExternalAudio === 'function' && playbackUsesExternalAudio();
+  var isPlayingNow = typeof playbackIsPlayingNow === 'function'
+    ? playbackIsPlayingNow()
+    : !!(audio && !audio.paused && !audio.ended);
+  var pausedWithTrack = !!(holdLyricsOnPause && lyricsLines && lyricsLines.length
+    && (externalAudio ? !isPlayingNow : (audio && audio.src && audio.paused && !audio.ended)));
+  if (!lyricsLines.length || (!externalAudio && (!audio || audio.ended))) {
     retireCurrentStageLyricForIdle();
     return;
   }
-  if (!playing && !previewingSeek) {
+  if (!isPlayingNow && !previewingSeek) {
     if (pausedWithTrack) {
       if (stageLyrics.current && stageLyrics.current.userData) {
         stageLyrics.current.userData.state = 'in';

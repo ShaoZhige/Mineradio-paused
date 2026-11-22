@@ -18,6 +18,7 @@ const { createQuitController } = require('./quit');
 const desktopIcons = require('./desktop-icons');
 const { pruneStaleNativeTempScripts } = require('./native-temp-cleanup');
 const { appendLogLine } = require('./log-rotation');
+const { beginSessionLog, SESSION_LOG_MAX_BYTES } = require('./session-log');
 const { configure: configureSpotifyClientLog } = require('./spotify-client-log');
 const { createMiddleClickPoller } = require('./global-middle-click-poller');
 const { createDesktopLyricsController } = require('./desktop-lyrics');
@@ -38,6 +39,7 @@ const {
   writeTransferFile,
 } = require('./playlist-transfer');
 const { WallpaperEngineRuntime } = require('./wallpaper-engine-runtime');
+const { WallpaperEngineCaptureWorker } = require('./wallpaper-engine-capture-worker');
 const { FullDesktopModeRuntime } = require('./full-desktop-mode-runtime');
 const windowsGameMode = require('./windows-game-mode');
 const {
@@ -61,6 +63,7 @@ const {
 } = require('../server/spotify-api');
 const { CustomSourceManager } = require('./custom-source/manager');
 const { createCompanionClient } = require('./apple-music/companionClient.cjs');
+const { createLogger, installConsoleMirror } = require('./logging.cjs');
 const { resolveNativeExecutable } = require('./apple-music/nativePaths.cjs');
 
 registerWallpaperEngineScheme(protocol);
@@ -173,6 +176,76 @@ const spotifyLogin = createSpotifyLogin({
 // 播放控制都经同一条私有管道。宿主不存在时返回 runtime-unavailable，交给前端提示安装。
 // Apple Music runs in a system WebView2 host; one companion instance owns login, search and
 // playback over a private pipe. A missing host resolves runtime-unavailable for the UI.
+// ── 日志：每个子系统一个文件，统一在 userdata/ 下，统一 JSON Lines ──────────────
+// 现在接入的是 Apple Music（请求结算 / 实例更替 / 宿主诊断）与渲染进程（错误、
+// 自定义音源、播放失败）。其它子系统原有的 spotify-channel.log、wallpaper-engine-*.log
+// 有各自的解析方，暂不迁移，但新代码一律走这里。
+let appLoggerInstance = null;
+let appleMusicLoggerInstance = null;
+let rendererLoggerInstance = null;
+// 每次运行一个日志文件：userdata/logs/<启动时间>.log，退出时补 session/end，最多留 50 份。
+// 以前所有会话都追加到同一个 app.log，既分不清是哪次运行，也没法回看"上次退出前"。
+// One log file per run, named by start time, capped at 50 files (oldest pruned at startup).
+let sessionLogState = null;
+function sessionLog() {
+  if (sessionLogState) return sessionLogState;
+  try {
+    sessionLogState = beginSessionLog({
+      userDataDir: app.getPath('userData'),
+      pid: process.pid,
+      meta: {
+        version: String(app.getVersion() || ''),
+        electron: String(process.versions.electron || ''),
+        platform: process.platform,
+        arch: process.arch,
+      },
+    });
+  } catch {
+    sessionLogState = { ok: false, filePath: '', finish() { return false; } };
+  }
+  return sessionLogState;
+}
+function appLogger() {
+  if (!appLoggerInstance) {
+    const session = sessionLog();
+    appLoggerInstance = session && session.ok
+      // 会话文件按时间命名，保留策略按份数；这里的体积上限只是防止单次超长运行无限长。
+      ? createLogger({ name: 'app', filePath: session.filePath, maxBytes: SESSION_LOG_MAX_BYTES })
+      : createLogger({ name: 'app', dir: app.getPath('userData') });
+  }
+  return appLoggerInstance;
+}
+function appleMusicLogger() {
+  if (!appleMusicLoggerInstance) appleMusicLoggerInstance = createLogger({ name: 'apple-music', dir: app.getPath('userData'), mirrorConsole: true });
+  return appleMusicLoggerInstance;
+}
+function rendererLogger() {
+  if (!rendererLoggerInstance) rendererLoggerInstance = createLogger({ name: 'renderer', dir: app.getPath('userData') });
+  return rendererLoggerInstance;
+}
+
+// 主进程里所有 console.error / console.warn 都镜像进 userdata/app.log：服务端的 99 处
+// `console.error('[Scope]', err)`、壁纸与 Spotify 的告警因此自动留痕，不用逐处改造。
+// 安装点放在 app.setPath('userData', …) 之后（见下方 installAppLogging()），否则日志会写到
+// 临时 userData 里 —— 便携模式下一个文件都不会留在软件目录。
+// The mirror is installed only after the portable userData path is final.
+let appLoggingInstalled = false;
+function installAppLogging() {
+  if (appLoggingInstalled) return;
+  try {
+    installConsoleMirror(appLogger());
+    appLoggingInstalled = true;
+  } catch { /* 日志装不上也要能启动 */ }
+}
+
+// 退出时补一行 session/end（同步写，quit 的异步收尾不等我们）。重复触发只会写一次。
+// Append the session/end line synchronously: quit teardown does not wait for async writers.
+app.on('before-quit', () => {
+  try {
+    if (sessionLogState && typeof sessionLogState.finish === 'function') sessionLogState.finish('quit');
+  } catch { /* 退出路径出错不影响退出 */ }
+});
+
 let appleMusicCompanion = null;
 function getAppleMusicCompanion() {
   if (appleMusicCompanion) return appleMusicCompanion;
@@ -187,6 +260,9 @@ function getAppleMusicCompanion() {
   appleMusicCompanion = createCompanionClient({
     nativeExecutablePath,
     profilePath: path.join(app.getPath('userData'), 'apple-music-companion'),
+    // 落一份 userdata/apple-music.log：AM 的诊断以前只在 stdout，用户报"播放加载失败"时
+    // 手上没有任何可查的时间线。现在每次请求结算、实例更替、宿主诊断都留一行。
+    logger: appleMusicLogger(),
   });
   return appleMusicCompanion;
 }
@@ -242,6 +318,7 @@ function resolveStableUserDataPath() {
 const STABLE_USER_DATA_PATH = resolveStableUserDataPath();
 fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
 app.setPath('userData', STABLE_USER_DATA_PATH);
+installAppLogging();
 // Spotify 客户端通道的日志跟 startup-error.log 放同一层，用户按 issue 指引就能拖出来。
 // The Spotify channel log sits next to startup-error.log so a user can attach it to an issue.
 configureSpotifyClientLog({ dir: STABLE_USER_DATA_PATH });
@@ -287,6 +364,14 @@ function looksLikeLegacyCacheRoot(directory) {
 
 // 旧缓存根可能来自旧配置，也可能只是历史默认值，候选一并探测。
 // The legacy cache root may come from a saved setting or just the old hard-coded default.
+// 默认缓存根 = <userdata>/cache，与 cacheSettingsManager.defaultRootPath() 一致。
+// 🔴 这个函数以前根本不存在：迁移代码里直接调 defaultCacheRootPath() 会抛 ReferenceError，
+// 被外层 try/catch 吞成一句 warn（"migration skipped"），于是旧缓存**永远不迁移**，而且
+// 谁也不会发现。这里补上；注意不能改成调 cacheSettingsManager —— 迁移发生在它 init() 之前。
+function defaultCacheRootPath() {
+  return path.join(STABLE_USER_DATA_PATH, 'cache');
+}
+
 function legacyCacheRootCandidates() {
   const candidates = [];
   try {
@@ -580,7 +665,7 @@ let wallpaperEngineHostVisibilityResidentMinimized = false;
 // 默认 34 = 历史硬编码值，0（直角）是合法值，所以不能用 || 兜底。
 // Shell corner radius (issue #6): the renderer slider syncs here so the native WE window
 // clips to the same radius. 34 is the legacy default; 0 (square) is legal, never use ||.
-let rendererWindowCornerRadius = 34;
+let rendererWindowCornerRadius = 20;
 let wallpaperEngineHostVisibilityResidentMinimizedAt = 0;
 // 渲染进程在最小化时也会自己走一遍 visibilitychange 拆台（prepare + stopWallpaperEngineScene），
 // 这段拆台会打掉主进程刻意保留的原生表面，恢复时只能整轮重启。只在这个短窗口内忽略被限定到
@@ -893,6 +978,7 @@ function waitForLocalHttpReady(port, timeoutMs = STARTUP_HTTP_TIMEOUT_MS) {
   });
 }
 
+
 function getCurrentFxAutosavePath() {
   return fxAutosave.getPath(app.getPath('userData'));
 }
@@ -1124,6 +1210,14 @@ function createWallpaperEngineCaptureGrant(result, operation, options = {}) {
   };
   return wallpaperEngineCaptureGrant;
 }
+
+// 后台捕获 worker：WE 播窗是 DirectComposition 表面，Chromium 抓不到，只能常驻进程抓了推流。
+// 只在「WE 捕获渲染」打开时启动；会话结束或失败必须立刻停，否则会留下一个空转的子进程。
+const wallpaperEngineCaptureWorker = new WallpaperEngineCaptureWorker({
+  onLog: (text) => {
+    try { appLogger().event('wallpaper/capture-worker-log', { message: String(text).slice(0, 200) }, 'warn'); } catch { }
+  },
+});
 
 function getWallpaperEngineCaptureGrant() {
   const grant = wallpaperEngineCaptureGrant;
@@ -1844,22 +1938,6 @@ async function setFullDesktopModeInteractive(value, reason = 'interaction-change
   }
 }
 
-async function toggleFullDesktopModeInteraction(reason = 'interaction-toggled') {
-  fullDesktopModeHostVisibilityTransitionDepth += 1;
-  try {
-    const before = fullDesktopModeRuntime.getStatus(`${reason}-before`);
-    if (before.interactive !== true) await syncWallpaperEngineDesktopIconLayering(`${reason}-coexist-preflight`, true);
-    return await fullDesktopModeRuntime.toggleInteractive(reason);
-  } finally {
-    await syncWallpaperEngineDesktopIconLayering(`${reason}-settled`).catch(() => false);
-    fullDesktopModeHostVisibilityTransitionDepth = Math.max(0, fullDesktopModeHostVisibilityTransitionDepth - 1);
-    syncWallpaperEngineWithFullDesktopMode(mainWindow, `${reason}-settled`);
-    if (fullDesktopModeRuntime.getStatus(`${reason}-cleanup`).enabled !== true) {
-      releaseFullDesktopModeRecoveryTray();
-    }
-    syncFullDesktopEscapeShortcut(`${reason}-escape`);
-  }
-}
 
 async function disableFullDesktopMode(reason = 'disabled') {
   fullDesktopEnableOperation += 1;
@@ -2699,14 +2777,6 @@ function bindStartupFailureHandlers() {
 
 bindStartupFailureHandlers();
 
-function shouldEnsureDesktopShortcut() {
-  if (process.platform !== 'win32') return false;
-  if (process.env.MINERADIO_NO_DESKTOP_SHORTCUT === '1') return false;
-  // 默认不往桌面写任何东西；只有显式要求才创建快捷方式。
-  // Nothing is written to the desktop by default; the shortcut is strictly opt-in.
-  return process.env.MINERADIO_CREATE_DESKTOP_SHORTCUT === '1';
-}
-
 function ensureDesktopShortcut() {
   if (!shouldEnsureDesktopShortcut()) return { ok: false, skipped: true };
   try {
@@ -2739,6 +2809,18 @@ function ensureDesktopShortcut() {
     return { ok: false, error: e.message || 'DESKTOP_SHORTCUT_FAILED' };
   }
 }
+
+
+function shouldEnsureDesktopShortcut() {
+  if (process.platform !== 'win32') return false;
+  if (process.env.MINERADIO_NO_DESKTOP_SHORTCUT === '1') return false;
+  // 默认不往桌面写任何东西；只有显式要求才创建快捷方式。
+  // Nothing is written to the desktop by default; the shortcut is strictly opt-in.
+  return process.env.MINERADIO_CREATE_DESKTOP_SHORTCUT === '1';
+}
+
+
+
 
 const loginWindows = createLoginWindows({
   BrowserWindow,
@@ -3696,6 +3778,66 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
       await wallpaperEngineRuntime.stop(grant.sessionId).catch(() => {});
       return { ok: false, error: 'WALLPAPER_ENGINE_START_SUPERSEDED', sessionId: grant.sessionId };
     }
+    // 捕获渲染（用户可选，默认关）：把壁纸窗口抓成 MediaStream 交给渲染进程自己画，
+    // 绕开 DWM 跨窗口合成，牺牲一点捕获延迟换跟手。只有需要合成的壁纸（原生 Scene/Web）
+    // 会走到这里；MR 自己播的视频壁纸根本不进这条路径。
+    // Opt-in capture rendering: hand the wallpaper window over as a MediaStream so the renderer
+    // paints it in-process instead of letting DWM compose two windows.
+    if (payload && payload.captureRender === true) {
+      // 后台捕获：抓的是我们自己起的那个 WE 播窗（标题 `Mineradio Wallpaper <sessionId>`），
+      // 由常驻进程 GDI 抓帧 → 本机 MJPEG → 渲染进程一个 <img> 显示。完全绕开 Chromium 采集。
+      const captureWorker = await wallpaperEngineCaptureWorker
+        .start(`Mineradio Wallpaper ${grant.sessionId}`)
+        .catch((error) => ({ ok: false, error: 'CAPTURE_WORKER_THREW', detail: String(error && error.message || error) }));
+      if (!captureWorker || captureWorker.ok !== true || !captureWorker.url) {
+        try { appLogger().event('wallpaper/capture-render-failed', { detail: String((captureWorker && (captureWorker.detail || captureWorker.error)) || 'worker-failed').slice(0, 200), sessionId: grant.sessionId }, 'error'); } catch { }
+        clearWallpaperEngineCaptureGrant(grant.sessionId);
+        await wallpaperEngineRuntime.stop(grant.sessionId).catch(() => {});
+        return {
+          ok: false,
+          error: 'WALLPAPER_CAPTURE_WORKER_FAILED',
+          detail: String((captureWorker && (captureWorker.detail || captureWorker.error)) || '').slice(0, 300),
+          sessionId: grant.sessionId,
+        };
+      }
+      // ⚠️ 这里**不能**清 grant：渲染端随后会发确认 ACK，ACK 处理器要靠这个 grant 才能匹配上、
+      // 才会把会话标成已确认（跟随对齐靠它）。以前在这里提前清掉，确认永远失败，
+      // 用户拖动窗口时 WE 原生窗口就停在旧位置，屏幕上多出一块没对齐的壁纸。
+      // 隐藏原生窗口，让屏幕上只剩我们画的那层。两条路，按可靠性排序：
+      // 1) DWM cloak —— 最理想（窗口仍在合成里渲染，抓帧不受影响）。但 WE 的播窗属于
+      //    wallpaper64.exe，**跨进程** DwmSetWindowAttribute 会被系统拒绝
+      //    （实测 setHr=0x80070005 E_ACCESSDENIED），所以这条路目前必然走不通。
+      // 2) 兜底：把窗口整体挪到虚拟屏外（保留尺寸）。用户看不见，GDI 抓帧照常。
+      // Hide the native window so only our captured layer is on screen.
+      // DWM cloak is cross-process here (window belongs to wallpaper64.exe) and the OS
+      // refuses it with E_ACCESSDENIED, so fall back to parking it off the virtual screen.
+      let hideMode = 'none';
+      try {
+        await wallpaperEngineRuntime.setActiveWindowCloaked(grant.sessionId, true);
+        hideMode = 'cloak';
+      } catch (error) {
+        try {
+          appLogger().event('wallpaper/capture-cloak-failed', {
+            detail: String((error && (error.code || error.message)) || error).slice(0, 120),
+            // 原生层回的具体原因（HRESULT / 实际 cloak 状态），否则只剩一个错误码查不出所以然。
+            nativeDetail: String((error && error.nativeDetail) || '').slice(0, 200),
+          }, 'warn');
+        } catch { }
+        try {
+          await wallpaperEngineRuntime.moveActiveWindowOffscreen(grant.sessionId);
+          hideMode = 'offscreen';
+        } catch (fallbackError) {
+          try {
+            appLogger().event('wallpaper/capture-hide-failed', {
+              detail: String((fallbackError && (fallbackError.code || fallbackError.message)) || fallbackError).slice(0, 120),
+              nativeDetail: String((fallbackError && fallbackError.nativeDetail) || '').slice(0, 200),
+            }, 'warn');
+          } catch { }
+        }
+      }
+      try { appLogger().event('wallpaper/capture-render-ready', { sessionId: grant.sessionId, source: 'gdi-worker', port: captureWorker.port, hideMode }, 'info'); } catch { }
+      return { ...result, ...embedded, capturePrepared: true, captureMode: 'capture-worker', captureStreamUrl: captureWorker.url };
+    }
     // Native Scene mode is composed by DWM, not captured as a Chromium video.
     // The renderer keeps this one-shot grant only for the readiness ACK; the
     // runtime starts a click-through live surface underneath the transparent
@@ -3742,9 +3884,13 @@ ipcMain.handle('mineradio-wallpaper-engine-capture-result', async (event, payloa
   const matched = clearWallpaperEngineCaptureGrant(sessionId);
   let confirmed = false;
   if (matched && payload && payload.ok === true && typeof wallpaperEngineRuntime.confirmCaptureReady === 'function') {
-    confirmed = await wallpaperEngineRuntime.confirmCaptureReady(sessionId).catch(() => false);
+    // 捕获渲染时渲染端会带 skipDwmSurface：确认阶段只做静音，不再起 DWM 缩略图表面。
+    confirmed = await wallpaperEngineRuntime.confirmCaptureReady(sessionId, {
+      skipDwmSurface: payload.skipDwmSurface === true,
+    }).catch(() => false);
   }
   if (matched && !confirmed) {
+    try { appLogger().event('wallpaper/capture-confirm-failed', { sessionId, skipDwmSurface: payload && payload.skipDwmSurface === true }, 'error'); } catch { }
     wallpaperEngineHostBoundsFollowupReason = '';
     await wallpaperEngineRuntime.stop(sessionId).catch(() => {});
   }
@@ -3872,13 +4018,24 @@ ipcMain.on('mineradio-wallpaper-engine-visual-settings', (event, payload = {}) =
   wallpaperEngineRuntime.updateDwmVisualSettings(sessionId, { opacity, positionX, positionY, scale });
 });
 
-// 外壳圆角（issue #6）：渲染进程每次改动圆角都会把 0~48 的整数发过来。原生 WE 窗口
-// 在 start/embed 时才读它，所以这里只更新缓存、不立即重建窗口（下一次 source refresh 自会应用）。
+// 外壳圆角（issue #6 重写）：渲染进程拖滑块时把 0~120 的整数发过来。
+// 旧实现只更新缓存、等 start/embed 才应用，所以原生 WE 壁纸"不会被实时裁剪"。
+// 现在两件事一起做：更新缓存（下次 start/embed 用），并把新半径推给活着的原生表面。
+// 注意这里推的是**物理像素**（× scaleFactor），和 wallpaperEngineHostCornerRadius 同口径，
+// 否则高 DPI 下原生裁剪会比 DOM 外壳小一圈。
+// The renderer pushes the slider value; we cache it AND forward it to the live native
+// wallpaper surface in physical pixels (× scaleFactor) so the crop updates immediately.
 ipcMain.on('mineradio-window-corner-radius', (event, value) => {
   if (!isTrustedMainWindowIpc(event)) return;
   const radius = Number(value);
   if (!Number.isFinite(radius)) return;
-  rendererWindowCornerRadius = Math.max(0, Math.min(48, Math.round(radius)));
+  rendererWindowCornerRadius = Math.max(0, Math.min(120, Math.round(radius)));
+  try {
+    if (wallpaperEngineRuntime && typeof wallpaperEngineRuntime.updateDwmCornerRadius === 'function') {
+      wallpaperEngineRuntime.updateDwmCornerRadius('',
+        wallpaperEngineHostCornerRadius(mainWindow));
+    }
+  } catch (_) { }
 });
 
 ipcMain.on('mineradio-wallpaper-engine-pointer-activity', (event, payload = {}) => {
@@ -3911,6 +4068,9 @@ ipcMain.on('mineradio-wallpaper-engine-pointer-activity', (event, payload = {}) 
 ipcMain.handle('mineradio-wallpaper-engine-stop-scene', async (event, payload = {}) => {
   try {
     if (!isTrustedWallpaperEngineIpc(event)) return { ok: false, error: 'WALLPAPER_ENGINE_UNTRUSTED_CALLER' };
+    // 捕获 worker 跟着会话走：停会话（切壁纸、最小化、退出）就得停，否则会留一个空转子进程。
+    try { wallpaperEngineCaptureWorker.stop(); } catch { }
+    try { await wallpaperEngineRuntime.setActiveWindowCloaked('', false); } catch { }
     const sessionId = String(payload.sessionId || '');
     const stopAll = payload && payload.all === true || !sessionId;
     // 刚进入最小化的那一小段时间里，渲染进程自己的 visibilitychange 拆台请求会和主进程的
@@ -4444,6 +4604,7 @@ async function initializeCustomSourceManager() {
     await customSourceManager.startActive();
   } catch (error) {
     console.warn('[CustomSource] initialization skipped:', error && error.message || error);
+    try { appLogger().event('source.init-skipped', { message: String((error && error.message) || error || '').slice(0, 200) }, 'warn'); } catch { }
     customSourceManager = null;
   }
 }
@@ -4592,6 +4753,13 @@ ipcMain.handle('spotify-music-clear-login', async () => {
 
 // Apple Music 渲染进程只能发固定 operation；参数与白名单由 companionRequests 再校验。
 // The renderer can only send fixed operations; companionRequests validates them again.
+ipcMain.handle('mineradio-log', (event, scope, type, fields, level) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+  // 渲染进程来的对象不可信：createLogger 内部会 sanitize（限深/限长/限键）。
+  rendererLogger().event(type || 'event', Object.assign({ scope: String(scope || 'renderer') }, fields && typeof fields === 'object' ? fields : {}), level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info');
+  return { ok: true };
+});
+
 ipcMain.handle('apple-music-request', async (event, operation, params) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
   return requestAppleMusic(operation, params);
@@ -5923,6 +6091,17 @@ if (!gotSingleInstanceLock) {
     // Repair a leaked icon layer shortly after startup: does not block boot and dodges the
     // Explorer re-layout that happens right after login.
     setTimeout(() => { desktopIcons.repairLeakedDesktopIconLayer(NATIVE_HELPER_TEMP_PATH).catch(() => {}); }, 2500);
+
+    // opt-in 桌面快捷方式：只在用户显式设置 MINERADIO_CREATE_DESKTOP_SHORTCUT=1 时创建。
+    // 这个函数一直存在、也被守卫盯着（"桌面唯一写入路径"），但**没有任何调用点** ——
+    // 等于功能写了却从没生效。默认分支直接 skipped，不会往桌面写东西。
+    // The opt-in desktop shortcut had no caller at all; wire it here (default: skipped).
+    try {
+      const shortcut = ensureDesktopShortcut();
+      if (shortcut && shortcut.created) console.log('[DesktopShortcut] created:', shortcut.path);
+    } catch (error) {
+      console.warn('[DesktopShortcut] failed:', error && error.message || error);
+    }
     const handleDisplayLayoutChanged = (_event, _display, changedMetrics) => {
       desktopLyricsController.reposition();
       positionWallpaperWindow(Array.isArray(changedMetrics) ? 'display-metrics-changed' : 'display-layout-changed');

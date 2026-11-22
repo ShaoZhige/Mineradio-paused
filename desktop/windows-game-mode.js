@@ -61,9 +61,6 @@ function parentKeyName() {
     .slice(0, 24);
 }
 
-function parentKeyPath() {
-  return PARENTS_KEY + '\\' + parentKeyName();
-}
 
 // 统一的 PowerShell 执行入口。**spawn 阶段失败是同步抛出的**（EPERM / EACCES / ENOENT），
 // 不会走进回调，所以必须 try/catch 包住；这一点在壁纸库扫描那边也踩过一次。

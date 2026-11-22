@@ -137,7 +137,8 @@ function currentFxAutosaveTouchedKeys(reason, payload) {
     wallpaperEngineSilentWindows: ['wallpaperEngineSilentWindows'],
     desktopWallpaperBackdrop: ['desktopWallpaperBackdrop'],
     windowsGameMode: ['windowsGameMode'],
-    wallpaperEngineGlassSampler: ['wallpaperEngineGlassSampler']
+    wallpaperEngineGlassSampler: ['wallpaperEngineGlassSampler'],
+    wallpaperEngineCaptureRender: ['wallpaperEngineCaptureRender']
   };
   if (Object.prototype.hasOwnProperty.call(map, reason)) return map[reason];
   if (reason.indexOf('reset:') === 0) {
@@ -455,6 +456,7 @@ function saveLyricLayout(opts) {
       windowsGameMode: fx.windowsGameMode === true,
       wallpaperEngineGlassSampler: fx.wallpaperEngineGlassSampler == null
         ? wallpaperEngineBorderlessCaptureSupported() : fx.wallpaperEngineGlassSampler !== false,
+      wallpaperEngineCaptureRender: fx.wallpaperEngineCaptureRender === true,
       coverResolution: normalizeCoverResolution(fx.coverResolution),
       shelf: /^(off|side|stage)$/.test(String(fx.shelf || '')) ? fx.shelf : fxDefaults.shelf,
       shelfPinnedOpen: fx.shelf === 'side' && normalizeShelfPresence(fx.shelfPresence || fxDefaults.shelfPresence) === 'always' && fx.shelfPinnedOpen === true,

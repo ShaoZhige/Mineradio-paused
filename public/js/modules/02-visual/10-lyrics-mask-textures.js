@@ -722,9 +722,6 @@ function finishLyricReadabilityTextureBuild(state) {
   return state.texture;
 }
 
-function makeLyricReadabilityTexture(mask) {
-  return finishLyricReadabilityTextureBuild(beginLyricReadabilityTextureBuild(mask));
-}
 
 function beginLyricGlowTextureBuild(text, fontSize, textWidth, lines, lineHeight, fitScaleX, entries, activeLine, sourceMask, rasterScale) {
   text = String(text || '').replace(/\s+/g, ' ').trim();

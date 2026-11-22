@@ -498,9 +498,6 @@ function updateDesktopModeControl(status) {
   reportDesktopControllerZone();
 }
 
-function updateDesktopIconLockControl(status) {
-  updateDesktopModeControl(status);
-}
 
 function consumeDesktopModeControlEvent(event) {
   if (!event) return;
@@ -2023,6 +2020,11 @@ function toggleFullscreen() {
     var isFullScreen = !!desktopWindowState.isFullScreen || !!desktopWindowState.isNativeFullScreen || !!desktopWindowState.isHtmlFullScreen || !!desktopWindowState.isWindowFullScreen || !!document.fullscreenElement;
     var wasFullScreen = desktopFullscreenActive;
     desktopFullscreenActive = isFullScreen;
+    // 圆角/全屏这类"偶发"问题需要时间线：只在状态真的变化时记一行，重复上报已被 lastKey 挡掉。
+    // Only real transitions are logged; duplicate reports are filtered by lastKey above.
+    if (typeof logEvent === 'function' && (isMaximized !== wasMaximized || isFullScreen !== wasFullScreen)) {
+      logEvent('window', 'state', { fullscreen: isFullScreen, maximized: isMaximized, wallpaper: wasWallpaperMode });
+    }
     document.body.classList.toggle('desktop-maximized', isMaximized);
     document.body.classList.toggle('desktop-fullscreen', isFullScreen);
     syncDesktopWallpaperBodyClasses(

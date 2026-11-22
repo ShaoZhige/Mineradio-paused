@@ -117,6 +117,7 @@ body.wallpaper-engine-dwm-active.wallpaper-engine-glass-sampler-ready #wallpaper
 
 #wallpaper-engine-image,
 #wallpaper-engine-video,
+#wallpaper-engine-capture-image,
 #wallpaper-engine-freeze {
   position: absolute;
   inset: 0;
@@ -135,8 +136,14 @@ body.wallpaper-engine-dwm-active.wallpaper-engine-glass-sampler-ready #wallpaper
 }
 
 #wallpaper-engine-image,
-#wallpaper-engine-video {
+#wallpaper-engine-video,
+#wallpaper-engine-capture-image {
   z-index: 1
+}
+
+/* 捕获渲染（后台进程抓 WE 播窗推来的 MJPEG）：只有 capture-ready 时才显形 */
+#wallpaper-engine-layer.capture-ready #wallpaper-engine-capture-image {
+  opacity: var(--wallpaper-engine-visual-opacity, 1)
 }
 
 #wallpaper-engine-freeze {
@@ -180,26 +187,31 @@ body.wallpaper-engine-dwm-active.wallpaper-engine-glass-sampler-ready #wallpaper
 body.desktop-shell #wallpaper-engine-layer,
 body.desktop-shell #wallpaper-engine-image,
 body.desktop-shell #wallpaper-engine-video,
+body.desktop-shell #wallpaper-engine-capture-image,
 body.desktop-shell #wallpaper-engine-freeze {
-  border-radius: var(--desktop-shell-radius, 34px);
-  clip-path: inset(0 round var(--desktop-shell-radius, 34px))
+  border-radius: var(--desktop-shell-radius, 20px);
+  clip-path: inset(0 round var(--desktop-shell-radius, 20px))
 }
 
 body.desktop-shell.desktop-maximized #wallpaper-engine-layer,
 body.desktop-shell.desktop-maximized #wallpaper-engine-image,
 body.desktop-shell.desktop-maximized #wallpaper-engine-video,
+body.desktop-shell.desktop-maximized #wallpaper-engine-capture-image,
 body.desktop-shell.desktop-maximized #wallpaper-engine-freeze,
 body.desktop-shell.desktop-fullscreen #wallpaper-engine-layer,
 body.desktop-shell.desktop-fullscreen #wallpaper-engine-image,
 body.desktop-shell.desktop-fullscreen #wallpaper-engine-video,
+body.desktop-shell.desktop-fullscreen #wallpaper-engine-capture-image,
 body.desktop-shell.desktop-fullscreen #wallpaper-engine-freeze,
 body.desktop-shell.desktop-wallpaper-mode #wallpaper-engine-layer,
 body.desktop-shell.desktop-wallpaper-mode #wallpaper-engine-image,
 body.desktop-shell.desktop-wallpaper-mode #wallpaper-engine-video,
+body.desktop-shell.desktop-wallpaper-mode #wallpaper-engine-capture-image,
 body.desktop-shell.desktop-wallpaper-mode #wallpaper-engine-freeze,
 html:fullscreen body.desktop-shell #wallpaper-engine-layer,
 html:fullscreen body.desktop-shell #wallpaper-engine-image,
 html:fullscreen body.desktop-shell #wallpaper-engine-video,
+html:fullscreen body.desktop-shell #wallpaper-engine-capture-image,
 html:fullscreen body.desktop-shell #wallpaper-engine-freeze {
   border-radius: 0 !important;
   clip-path: none !important

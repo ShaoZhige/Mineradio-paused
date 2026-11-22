@@ -89,8 +89,9 @@ test('存档键表保持 append-only，新键只能追加在末尾', () => {
   const keys = [...text.slice(start, end).matchAll(/'([A-Za-z0-9_]+)'/g)].map((m) => m[1]);
   assert.strictEqual(keys.indexOf('lyricTextureClarity'), 205,
     'lyricTextureClarity 的下标变了 —— 有人往 USER_FX_SHARE_KEYS 中间插了键，分享码会解错');
-  assert.strictEqual(keys[keys.length - 1], 'beatAnalysis',
-    'beatAnalysis 必须是最后一项，这样下一次追加才会排在它后面');
+  // 哨兵随每次追加前移：新键追加到末尾后，这里要改成最新的那一个。
+  assert.strictEqual(keys[keys.length - 1], 'wallpaperEngineCaptureRender',
+    '最新追加的键必须是最后一项，这样下一次追加才会排在它后面');
   assert.strictEqual(new Set(keys).size, keys.length, 'USER_FX_SHARE_KEYS 里不能有重复键');
 });
 

@@ -73,7 +73,7 @@ test('queue hydration reads an Apple Music playlist id as Apple Music, not NetEa
   const sandbox = { Object, String, Number, Array, Math };
   vm.createContext(sandbox);
   vm.runInContext(
-    slice(LOADERS, 'function playlistQueueSource', 'function playlistQueuePageUrl')
+    slice(LOADERS, 'function playlistQueueSource', 'function cancelPlaylistQueueHydration')
       + '\nthis.resolve = playlistQueueSource; this.pageSize = playlistQueuePageSize;',
     sandbox,
     { filename: 'playlist-queue-source.js' }

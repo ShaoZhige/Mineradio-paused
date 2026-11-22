@@ -233,21 +233,6 @@ async function requestJson(targetUrl, opts, body) {
   }
 }
 
-function requestJsonWithMeta(targetUrl, opts, body) {
-  opts = opts || {};
-  return requestTextWithMeta(targetUrl, opts, body).then(meta => {
-    try {
-      return { json: JSON.parse(meta.text), headers: meta.headers || {}, statusCode: meta.statusCode };
-    } catch (e) {
-      const err = new Error('Invalid JSON from Qishui API');
-      err.cause = e;
-      err.body = meta.text;
-      err.headers = meta.headers || {};
-      throw err;
-    }
-  });
-}
-
 function requestTextWithMeta(targetUrl, opts, body) {
   opts = opts || {};
   return new Promise((resolve, reject) => {

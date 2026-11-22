@@ -38,6 +38,13 @@ var immersiveState = {
   bottomVisible: false
 };
 
+// 侧架"钉住"状态。真正的 owner 在 04-shelf/00-layout-hover.js，但 01-scene / 02-visual 里
+// 多个**更早加载**的模块会直接读它（`if (shelfPinnedOpen) return true;`）。经典脚本的顶层
+// `var` 要等该脚本执行才有绑定，启动瞬间的 mousemove 就会炸 ReferenceError（实测日志：
+// `shelfPinnedOpen is not defined` @ 01-scene/04-bottom-controls-cursor.js:91）。
+// 所以在这里先声明；04-shelf 那边只做赋值，不再重复 var。
+var shelfPinnedOpen = false;
+
 // 鼠标 / 摄像头视差
 var pointerParallax = { x: 0, y: 0 };
 var pointerTarget = { x: 0, y: 0 };

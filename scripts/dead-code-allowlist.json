@@ -1,0 +1,11 @@
+{
+  "desktop/main.js::getCurrentFxAutosavePath": "守卫 tests/refactor-guardrails.test.js 断言它存在（自动保存路径契约）；保留访问器，删了守卫要改",
+  "desktop/main.js::isTransientWallpaperEngineCaptureError": "壁纸采集重试链路的一部分；采集流程（WALLPAPER_CAPTURE_*）仍是活的，重试接线未完成，勿删",
+  "desktop/main.js::resetWallpaperEngineCaptureGrantForRetry": "同上：与 isTransientWallpaperEngineCaptureError 配套的重试函数",
+  "desktop/main.js::prepareWallpaperEngineRendererCapture": "渲染端采集准备；getWallpaperEngineCaptureGrant 仍在用，属于半接完的链路，待确认后再删",
+  "public/js/modules/05-playback/18-cuefield-automix-integration.js::cuefieldRunEqualPowerCrossfade": "automix 交叉淡入的未接完实现（100+ 行），属进行中功能",
+  "public/js/modules/05-playback/18-cuefield-automix-integration.js::cuefieldWaitForMediaTime": "同上，配套的等待函数",
+  "public/js/modules/08-account/02-login-status.js::writeQQPlaybackVipEvidence": "tests 里有引用，且属 QQ VIP 判定链路",
+  "public/js/modules/08-account/03-login-modal-flows.js::readLoginWorkflowConnections": "登录工作流（workflow 节点连线）的读取器；面板入口刚修好，先观察这条链路是否还有用",
+  "public/js/modules/08-account/03-login-modal-flows.js::parseSpotifyConfigInput": "Spotify 配置粘贴登录的解析器；登录 UI 可能还留着入口，待确认"
+}

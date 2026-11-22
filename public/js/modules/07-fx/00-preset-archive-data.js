@@ -285,7 +285,9 @@ var USER_FX_SHARE_KEYS = [
   'gestureSensitivity',
   'wallpaperEngineSilentWindows',
   'wallpaperEngineGlassSampler',
-  'beatAnalysis'
+  'beatAnalysis',
+  // 追加在末尾：分享码是按下标编码的，插到中间会让旧码解错位。
+  'wallpaperEngineCaptureRender'
 ];
 function archiveNumber(raw, key, fallback, min, max) {
   var value = raw && raw[key] != null ? Number(raw[key]) : fallback;
@@ -388,6 +390,8 @@ function normalizeFxArchiveSnapshot(raw) {
     wallpaperEngineSilentWindows: raw.wallpaperEngineSilentWindows !== false,
     wallpaperEngineGlassSampler: raw.wallpaperEngineGlassSampler == null
       ? wallpaperEngineBorderlessCaptureSupported() : raw.wallpaperEngineGlassSampler !== false,
+    // 默认关的开关必须写 `=== true`：别人的旧分享码里没有这一位，不能顺手打开。
+    wallpaperEngineCaptureRender: raw.wallpaperEngineCaptureRender === true,
     // 这一项是本文件里唯一「默认关」的性能开关，所以必须写成 `=== true`。分享码是按下标编码的，
     // 别人用旧版本生成的码里根本没有这个键 —— 写成 `!== false` 会让导入别人的存档顺手把
     // 节奏分析打开，而对方的存档里其实压根没表达过这个意思。

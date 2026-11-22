@@ -87,7 +87,7 @@ applyPlaylistPanelFxSettings();
 function windowCornerRadiusValue() {
   var raw = fx && fx.windowCornerRadius != null ? Number(fx.windowCornerRadius) : NaN;
   if (!isFinite(raw)) raw = Number(fxDefaults.windowCornerRadius) || 0;
-  return Math.max(0, Math.min(48, Math.round(raw)));
+  return Math.max(0, Math.min(120, Math.round(raw)));
 }
 
 function applyWindowCornerRadius() {

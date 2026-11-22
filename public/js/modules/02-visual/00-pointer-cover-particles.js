@@ -101,7 +101,9 @@ window.addEventListener('mousemove', function (e) {
   // pointer-driven UI reactions (auto-hide, idle guide, free camera) may run.
   if (typeof desktopSoftwarePointerIgnored === 'function' && desktopSoftwarePointerIgnored()) return;
   updateControlsAutoHideFromPointer(e.clientX, e.clientY);
-  idleGuidePointerMove(e);
+  // 引导模块（09-…）比本模块晚加载：启动瞬间的第一次 mousemove 会撞上"函数还不存在"，
+  // 抛 ReferenceError 并中断后面整段指针逻辑。加门槛而不是靠加载顺序。
+  if (typeof idleGuidePointerMove === 'function') idleGuidePointerMove(e);
   if (freeCamera && freeCamera.active) {
     markRenderInteraction('free-camera', 900);
     var pointerLocked = typeof freeCameraPointerLockActive === 'function' && freeCameraPointerLockActive();

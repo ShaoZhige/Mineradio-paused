@@ -132,9 +132,6 @@ function playlistQueuePageSize(provider, initial) {
   if (provider === 'applemusic') return 100;
   return PLAYLIST_QUEUE_BACKGROUND_BATCH_SIZE;
 }
-function playlistQueuePageUrl(source, offset, limit) {
-  return playlistTracksEndpoint(source.provider, source.id, { offset: Math.max(0, offset || 0), limit: Math.max(1, limit || PLAYLIST_QUEUE_INITIAL_BATCH_SIZE) });
-}
 function cancelPlaylistQueueHydration(reason) {
   var previous = queueHydrationState;
   if (previous && previous.timer) clearTimeout(previous.timer);
@@ -197,6 +194,14 @@ async function hydratePlaylistQueueNextPage(reason) {
   }).catch(function (e) {
     if (!playlistQueueHydrationValid(state, token)) return false;
     console.warn('[PlaylistQueueHydration]', state.playlistId, reason || '', e);
+    // 续页失败会让队列停在半截（后面的歌永远排不上），以前只有控制台一行。
+    if (typeof logEvent === 'function') {
+      logEvent('queue', 'page-failed', {
+        provider: String(state.provider || ''), playlistId: String(state.playlistId || '').slice(0, 40),
+        offset: Number(state.nextOffset) || 0, reason: String(reason || '').slice(0, 40),
+        message: String((e && e.message) || e || '').slice(0, 200),
+      }, 'warn');
+    }
     state.error = e && e.message || 'PLAYLIST_QUEUE_PAGE_FAILED';
     state.active = false;
     state.pausedForBuffer = false;

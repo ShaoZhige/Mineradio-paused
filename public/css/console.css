@@ -119,8 +119,11 @@ body.fx-console-scrolling #fx-console-scroll * {
 #fx-fab {
   position: fixed;
   z-index: 19;
-  right: 24px;
-  bottom: 24px;
+  /* 右下角同样要避让圆弧：默认半径下 24/24 是安全的，但 R 一拉大（本机可到 120）
+     这个 54px 的圆就被啃掉一角 —— 判据与右上角对偶：
+     (R - 右边距)² + (R - 下边距)² ≤ R²。沿用同一个避让量即可。 */
+  right: calc(24px + var(--shell-corner-inset, 0px));
+  bottom: calc(24px + var(--shell-corner-inset, 0px));
   width: 54px;
   height: 54px;
   border-radius: 50%;
@@ -156,8 +159,9 @@ body.fx-console-scrolling #fx-console-scroll * {
 #fx-fab-hide-btn {
   position: fixed;
   z-index: 20;
-  right: 84px;
-  bottom: 37px;
+  /* 84px 是它相对右边的基础位置（原先写在下面的 right），同样跟圆角避让走。 */
+  right: calc(84px + var(--shell-corner-inset, 0px));
+  bottom: calc(37px + var(--shell-corner-inset, 0px));
   width: 18px;
   height: 28px;
   border-radius: 999px;
@@ -195,7 +199,7 @@ body.fx-fab-auto-hide #fx-fab {
 }
 
 body.fx-fab-auto-hide.fx-fab-peek #fx-fab {
-  right: 24px;
+  right: calc(24px + var(--shell-corner-inset, 0px));
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -239,11 +243,11 @@ body.desktop-shell.diy-mode #fx-panel {
 }
 
 body.desktop-shell.diy-mode #fx-fab {
-  bottom: 24px
+  bottom: calc(24px + var(--shell-corner-inset, 0px))
 }
 
 body.desktop-shell.diy-mode #fx-fab-hide-btn {
-  bottom: 37px
+  bottom: calc(37px + var(--shell-corner-inset, 0px))
 }
 
 body.controls-visible #fx-fab,

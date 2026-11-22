@@ -152,6 +152,20 @@ function getPlaybackCurrentSeconds() {
   }
   return audio && isFinite(audio.currentTime) && audio.currentTime > 0 ? audio.currentTime : 0;
 }
+// 「现在是不是在放」的统一判定。Apple Music 的音频在 WebView2 里，主页面的 audio 元素
+// 没有 src、paused 恒 true —— 任何直接读 audio.paused 的地方都会把 AM 当成"没在放"，
+// 于是默认（3D）歌词会走 retire 分支，屏幕上一片空。凡是要判播放态的地方都用这个。
+// Single source of truth for "is playing": external (Apple Music) playback reports through
+// externalPlaybackState, and the local audio element is silent in that mode.
+function playbackIsPlayingNow() {
+  if (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive()) {
+    return !!(typeof externalPlaybackState !== 'undefined' && externalPlaybackState && externalPlaybackState.isPlaying);
+  }
+  return !!(audio && !audio.paused && !audio.ended);
+}
+function playbackUsesExternalAudio() {
+  return typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive();
+}
 // 上一拍真正写进 DOM 的值。心跳是 5 次/秒，播放时百分比一直在动，但暂停、缓冲、
 // 或者一首歌播完之后这几条写入就全是重复的了 —— 重复写 textContent 会重建文本节点、
 // 让整行布局标脏，白白触发一轮排版。量化到 0.01% 再比对，肉眼无差。
@@ -523,8 +537,17 @@ progressBar.addEventListener('pointercancel', function (e) { endProgressDrag(e, 
 progressBar.addEventListener('lostpointercapture', function (e) { endProgressDrag(e, true); });
 var progressUiHeartbeatTimer = setInterval(function () {
   if (!audio) {
-    if (restoredLastPlaybackSnapshot && pendingPlaybackResumeAt > 0) applyRestoredPlaybackProgressUi(restoredLastPlaybackSnapshot);
-    else updatePlaybackProgressUi();
+    // 恢复快照只在"还没开始播放"时代表进度（提示将从哪里续播）。一旦有实时播放源在放
+    // —— 尤其是 Apple Music 这种不建 audio 元素的外部播放 —— 就不能再拿快照去画，否则
+    // 它和轮询写进来的真实位置会交替刷同一个进度条，看起来就是来回跳。
+    // The restore snapshot only stands for "not playing yet"; once anything is really playing
+    // (notably external Apple Music, which never creates the audio element) it must not paint.
+    var livePlayback = (typeof isExternalPlaybackActive === 'function' && isExternalPlaybackActive());
+    if (!livePlayback && restoredLastPlaybackSnapshot && pendingPlaybackResumeAt > 0) {
+      applyRestoredPlaybackProgressUi(restoredLastPlaybackSnapshot);
+    } else {
+      updatePlaybackProgressUi();
+    }
     return;
   }
   if (progressDragState.active) {

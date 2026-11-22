@@ -62,28 +62,46 @@ startQishuiLoginStatusAutoRefresh();
 // This timer used to be defined and never started, so an expired Spotify session went unnoticed
 // until something else happened to refresh it.
 startSpotifyLoginStatusAutoRefresh();
-// Apple Music 不走上面那条：它要拉起 WebView2 companion，冷启动读一次账号 12~25 秒。所以只在
-// 缓存说"上次是登着的"时才在后台补验一次，从没用过 Apple 的人不必为它付这份内存。
-// Apple Music is different: probing it spawns the WebView2 companion and a cold read takes
-// 12–25 s. Only verify in the background when the cache says the account was signed in.
+// Apple Music 的会话在 WebView2 companion 里，冷启动读一次账号要 12~25 秒，而 companion 的
+// 请求是**串行**的：启动阶段任何一次 accountStatus 都会把歌单列表、曲目数、播放全堵在后面。
+// 所以这里只做一件事：缓存说"上次登着"时在后台补验一次，失败就算了（用户真的打开歌单或
+// 登录面板时会再验）。不预热、不重试、不额外发请求。
+// Exactly one background re-check, only when the cache said "signed in": the companion serialises
+// requests, so an early probe would stall the playlist list, the counts and playback.
 if (typeof refreshAppleMusicLoginStatus === 'function'
     && typeof appleMusicLoginStatus !== 'undefined' && appleMusicLoginStatus.loggedIn && appleMusicLoginStatus.fromCache) {
-  window.setTimeout(function () {
+  // 排到首屏之后（有 requestIdleCallback 就用它）：WebView2 冷启动要抢一两秒 CPU，
+  // 和首屏渲染/歌单请求撞在一起时，用户感知到的就是"软件拉起来很慢"。
+  var runAppleMusicStartupProbe = function () {
     Promise.resolve(refreshAppleMusicLoginStatus()).then(function () {
-      // 缓存过期了就要把残留的 Apple 歌单一起收掉，否则列表里会留下点不进去的条目。
-      // 不弹 toast：用户什么都没做，启动时弹"已登出"只会像出错。
-      // An expired cache has to drop the leftover Apple playlists too, or the shelf keeps entries
-      // that fail to open. No toast: the user did nothing, and a logout notice at startup reads
-      // like a failure.
+      // 补验成功但歌单是空的（上一次可能被误清过）：把 Apple 歌单拉回来，别让面板停在"未载入"。
+      if (appleMusicLoginStatus && appleMusicLoginStatus.loggedIn
+          && !appleMusicLoginStatus.fromCache
+          && !(appleMusicPlaylists && appleMusicPlaylists.length)
+          && typeof refreshUserPlaylists === 'function') {
+        refreshUserPlaylists(true);
+        return;
+      }
       if (appleMusicLoginStatus && !appleMusicLoginStatus.loggedIn) {
         appleMusicPlaylists = [];
         userPlaylists = userPlaylists.filter(function (pl) { return pl.provider !== 'applemusic'; });
         playlistCatalogRevision += 1;
         if (typeof safeShelfRebuild === 'function') safeShelfRebuild('applemusic-cache-expired');
       }
-      renderUserBtn();
+      // 账号确认之后顺手把歌单第一页拉进服务端缓存（120s）：这里页面已经热了，
+      // 多这一次往返很便宜，但用户打开歌单栏时就是秒开。
+      if (appleMusicLoginStatus && appleMusicLoginStatus.loggedIn
+          && typeof apiJson === 'function' && !(appleMusicPlaylists && appleMusicPlaylists.length)) {
+        apiJson('/api/apple-music/playlists?limit=25&offset=0', { timeoutMs: 15000 }).catch(function () { });
+      }
+      if (typeof renderUserBtn === 'function') renderUserBtn();
     }, function () { });
-  }, 2500);
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(runAppleMusicStartupProbe, { timeout: 6000 });
+  } else {
+    window.setTimeout(runAppleMusicStartupProbe, 6000);
+  }
 }
 if (typeof setupFullscreenToolsLayoutTracking === 'function') setupFullscreenToolsLayoutTracking();
 if (startupLoginStatusPromise && startupLoginStatusPromise.then) {

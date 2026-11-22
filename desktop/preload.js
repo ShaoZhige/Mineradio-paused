@@ -133,6 +133,8 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   },
   openSpotifyAuthUrl: (url) => ipcRenderer.invoke('spotify-music-open-auth-url', String(url || '')),
   appleMusicRequest: (operation, params) => ipcRenderer.invoke('apple-music-request', String(operation || ''), params || {}),
+  // 渲染进程日志：主进程统一写 userdata/renderer.log（见 desktop/logging.cjs）。
+  logEvent: (scope, type, fields, level) => ipcRenderer.invoke('mineradio-log', String(scope || 'renderer'), String(type || 'event'), fields || {}, String(level || 'info')),
   clearQishuiMusicLogin: () => ipcRenderer.invoke('qishui-music-clear-login'),
   openUpdatePage: (url) => ipcRenderer.invoke('mineradio-open-update-page', String(url || '')),
   restartApp: () => ipcRenderer.invoke('mineradio-restart-app'),

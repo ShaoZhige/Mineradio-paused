@@ -1172,9 +1172,6 @@ async function loadHomePlatformNeteaseRecommendations(force) {
   }
 }
 
-async function loadHomePlatformQishuiRecommendations(force) {
-  return loadHomePlatformFeedRecommendations('qishui', force);
-}
 
 async function loadHomePlatformFeedRecommendations(source, force) {
   var config = homePlatformRecommendationFeedConfig(source);

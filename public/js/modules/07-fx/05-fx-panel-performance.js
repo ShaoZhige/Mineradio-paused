@@ -423,6 +423,8 @@ function updateFxInputs() {
   if (desktopLyricsHighlightToggle) desktopLyricsHighlightToggle.classList.toggle('on', fx.desktopLyricsHighlight === true);
   var wallpaperEngineSilentWindowsToggle = document.getElementById('t-wallpaperEngineSilentWindows');
   if (wallpaperEngineSilentWindowsToggle) wallpaperEngineSilentWindowsToggle.classList.toggle('on', fx.wallpaperEngineSilentWindows !== false);
+  var wallpaperEngineCaptureRenderToggle = document.getElementById('t-wallpaperEngineCaptureRender');
+  if (wallpaperEngineCaptureRenderToggle) wallpaperEngineCaptureRenderToggle.classList.toggle('on', fx.wallpaperEngineCaptureRender === true);
   var wallpaperEngineGlassSamplerToggle = document.getElementById('t-wallpaperEngineGlassSampler');
   if (wallpaperEngineGlassSamplerToggle) wallpaperEngineGlassSamplerToggle.classList.toggle('on', fx.wallpaperEngineGlassSampler !== false);
   updateDesktopLyricsFpsControls();
@@ -548,6 +550,9 @@ function resetFxSliderValue(id, key, btn) {
   if (key === 'coverResolution') applyCoverParticleResolution(fx[key], { reload: true });
   if (key === 'backgroundOpacity' || key === 'windowBackgroundOpacity' || key === 'backgroundGlassOpacity' || key === 'backgroundMediaCropX' || key === 'backgroundMediaCropY' || key === 'backgroundMediaZoom') updateCustomBackgroundControls();
   if (key === 'controlGlassChromaticOffset') applyControlGlassChromaticOffset();
+  // 圆角是这个函数的漏网项：它只写 CSS 变量 + 通知主进程，没有走 updateFxInputs 的任何回写，
+  // 所以单条滑块的「恢复默认」以前也是数字变、窗口不变。
+  if (key === 'windowCornerRadius' && typeof applyWindowCornerRadius === 'function') applyWindowCornerRadius();
   if (/^playlistPanel/.test(key)) applyPlaylistPanelFxSettings();
   syncFxUniforms();
   if (/^shelf/.test(key) && shelfManager && shelfManager.refreshTheme) shelfManager.refreshTheme();

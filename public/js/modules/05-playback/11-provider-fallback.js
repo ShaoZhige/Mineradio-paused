@@ -1030,6 +1030,22 @@ async function tryAutoPlaybackFallback(song, data, idx, token, opts) {
   return await skipFailedQueueItem(idx, token, playbackI18nText('pf_no_playable_version'), skipOpts);
 }
 function handlePlaybackUnavailable(song, data) {
+  // 所有平台（本地/网易云/QQ/酷狗/汽水/Spotify/Apple Music）的起播失败都会汇到这里，
+  // 在这里记一条就覆盖了"某首歌放不出来"的整类问题。
+  // Every provider funnels its playback failure through here; one record covers the whole class.
+  if (typeof logEvent === 'function') {
+    var providerKey = '';
+    try { providerKey = typeof songProviderKey === 'function' ? String(songProviderKey(song) || '') : ''; } catch (e) { }
+    logEvent('playback', 'start-failed', {
+      provider: providerKey || String((song && (song.provider || song.source)) || ''),
+      songId: String((song && (song.id || song.mid || song.hash || song.catalogId)) || '').slice(0, 40),
+      error: String((data && (data.error || data.code)) || '').slice(0, 60),
+      status: Number(data && data.status) || 0,
+      category: (function () {
+        try { return String((playbackRestrictionNotice(song, data) || {}).category || ''); } catch (e) { return ''; }
+      })(),
+    }, 'error');
+  }
   hideLoading();
   forcePlaybackControlsInteractive();
   var provider = playbackLoginProvider(song);

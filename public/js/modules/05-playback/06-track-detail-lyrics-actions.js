@@ -1044,10 +1044,6 @@ function toggleLyricGlitchCameraBind() {
 function refreshStageLyricDisplayMode() {
   refreshCurrentLyricStyle();
 }
-function refreshStageLyricVisualOptions() {
-  refreshStageLyricDisplayMode();
-  pushDesktopLyricsState(true);
-}
 function setLyricDisplayMode(mode) {
   fx.lyricDisplayMode = normalizeLyricDisplayMode(mode);
   updateLyricDisplayModeControls();

@@ -68,7 +68,8 @@ test('release body preserves all three labelled HTTPS download pages', () => {
     serverFunctionSource('cleanReleaseLine', 'extractReleaseNotes'),
     serverFunctionSource('safeExternalUpdateUrl', 'normalizeUpdateDownloadPages'),
     serverFunctionSource('normalizeUpdateDownloadPages', 'extractReleaseDownloadPages'),
-    serverFunctionSource('extractReleaseDownloadPages', 'extractReleaseDownloadPage'),
+    // 结束标记用该函数之后的**下一个**顶层函数：`extractReleaseDownloadPage` 是死代码，已删。
+    serverFunctionSource('extractReleaseDownloadPages', 'normalizeManifestUpdateInfo'),
   ].join('\n'), sandbox);
   const pages = sandbox.extractReleaseDownloadPages([
     '<!-- mineradio-download-page: 夸克盘|https://pan.quark.cn/s/df00d9520835 -->',

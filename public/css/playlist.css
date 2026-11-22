@@ -1741,13 +1741,35 @@ html.control-glass-svg-ok #playlist-panel {
   -webkit-backdrop-filter: blur(calc(40px * var(--glass-blur-scale, 1))) saturate(1.4) !important;
 }
 
-.home-hero,
-.home-card,
-.home-tile,
-.home-mosaic-cell {
-  background: linear-gradient(145deg, rgba(var(--home-accent-rgb), .14), rgba(14, 14, 19, .74) 44%, rgba(2, 3, 5, .72)) !important;
-  backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(calc(26px * var(--glass-blur-scale, 1))) saturate(1.16) !important;
+/* 🔴 首页卡片不要底板（用户两次反馈：灰色底"好丑"、左卡圆角处露出奇怪背景）。
+   ⚠️ 光写 `.home-hero { backdrop-filter: none !important }` **没用**：上面
+   `html.control-glass-svg-ok .home-hero` 那条玻璃规则的特异性是 (0,2,1)，更高，会一直赢。
+   所以这里用 `html body` + 双类名把特异性抬到 (0,2,2)，并且放在文件末尾。
+   去掉的是：底板填充、毛玻璃、90px 黑晕、::before 斜向渐晕 —— 它们任何一样留下来，
+   都会在圆角处形成"看得见的方形底"。可读性只靠描边 + 文字投影。
+   The glass rule above outranks a plain `.home-hero{}`, hence the doubled class and html body
+   prefix. Everything that could still read as a panel is removed. */
+html body .home-hero.home-hero,
+html body .home-card.home-card,
+html body .home-tile.home-tile,
+html body .home-mosaic-cell.home-mosaic-cell {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .38);
+}
+
+html body .home-hero.home-hero::before,
+html body .home-card.home-card::before,
+html body .home-card.home-card::after,
+html body .home-tile.home-tile::before,
+html body .home-tile.home-tile::after,
+html body .home-mosaic-cell.home-mosaic-cell::before,
+html body .home-mosaic-cell.home-mosaic-cell::after {
+  content: none !important;
+  background: none !important;
+  box-shadow: none !important;
 }
 
 .home-hero::before,

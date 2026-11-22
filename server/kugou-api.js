@@ -676,10 +676,6 @@ function kugouCookieUserId(obj) {
   return extractKugouAuth(typeof obj === 'string' ? obj : kugouCookieObject(obj)).userid;
 }
 
-function kugouCookieNickname(obj) {
-  return extractKugouAuth(typeof obj === 'string' ? obj : kugouCookieObject(obj)).nickname;
-}
-
 function kugouCookieHasLogin(input) {
   const auth = extractKugouAuth(typeof input === 'string' ? input : kugouCookieObject(input));
   return auth.loggedIn;

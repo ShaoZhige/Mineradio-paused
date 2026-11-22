@@ -833,10 +833,6 @@ function openSearchResultArtist(index) {
   if (!song) return;
   openArtistDetailForSong(song);
 }
-function searchIntentPrefersQQ(q) {
-  q = String(q || '').toLowerCase();
-  return /(^|\s)qq($|\s)|qq音乐|qq音樂/.test(q);
-}
 // 搜索面板能选到的平台来自注册表的 mainSearch 能力，不再单独维护清单。
 // The platforms the search panel offers come from the registry's mainSearch capability.
 var MUSIC_SEARCH_PROVIDER_ORDER = providerRegistryKeysWith('mainSearch');
