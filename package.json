@@ -194,6 +194,7 @@
     "qs": "6.17.0"
   },
   "devDependencies": {
+    "acorn": "^8.19.0",
     "electron": "^45.0.0",
     "electron-builder": "^26.15.3",
     "rcedit": "^5.0.2"
