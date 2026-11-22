@@ -37,6 +37,14 @@ const probe = require('../desktop/spotify-client-probe');
   assert.ok(stepMs <= 300, 'the poll step must be short enough to catch a window that pops up');
   assert.ok(stableTicks * stepMs >= 1000, 'stability must be judged over about a second, not one tick');
 
+  // ── 3~4 只在 Windows 上跑：脚本下发与空跑都要真的调 PowerShell，Linux CI 上做不了。
+  // Sections 3-4 need a real PowerShell; the source-shape checks above stay cross-platform.
+  if (process.platform !== 'win32') {
+    console.log('spotify-client-window-guard: 脚本下发与空跑在非 Windows 上跳过 / skipped on '
+      + process.platform + ' (script shape already verified)');
+    return;
+  }
+
   // ── 3. 真正下发给 PowerShell 的脚本：异步最小化、只碰 Spotify、纯 ASCII ──────
   const captured = [];
   const originalWrite = fs.writeFileSync;

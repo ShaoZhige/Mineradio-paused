@@ -54,6 +54,11 @@ function tempScriptPath(label) {
 }
 
 function runPowerShell(lines, timeoutMs) {
+  // PowerShell 只存在于 Windows：非 Windows 上直接返回 null，别让 execFile 抛 ENOENT。
+  // 桌面端只跑 Windows，这条判断是给 CI（ubuntu-24.04 上跑 Node 测试）兜底的 ——
+  // 以前 Linux 上跑这个测试会冒出 "spawn powershell.exe ENOENT" 并让整条 CI 红。
+  // PowerShell only exists on Windows; CI runs the Node suite on Linux where this must no-op.
+  if (process.platform !== 'win32') return Promise.resolve(null);
   const scriptPath = tempScriptPath('spotify-probe');
   // 脚本里刻意不写中文：PowerShell 5.1 读无 BOM 的 UTF-8 会把中文变成乱码。
   // Deliberately ASCII-only: PowerShell 5.1 misreads BOM-less UTF-8 that holds Chinese text.
