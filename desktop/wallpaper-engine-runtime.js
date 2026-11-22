@@ -85,6 +85,9 @@ function safeRuntimeOptions(options = {}) {
     sourceTimeoutMs: clampInteger(options.sourceTimeoutMs, 500, 30000, DEFAULT_SOURCE_TIMEOUT_MS),
     sourcePollMs: clampInteger(options.sourcePollMs, 50, 1000, DEFAULT_SOURCE_POLL_MS),
     silentWindows: options.silentWindows !== false,
+    // 抓帧渲染时不要 DWM 底座进程：原生播窗在屏外，缩略图必然全黑。
+    // Capture rendering parks the native window offscreen, so the surface can only be black.
+    skipDwmSurface: options.skipDwmSurface === true,
   };
 }
 
@@ -2808,6 +2811,8 @@ class WallpaperEngineRuntime {
     if (session.dwmSurfaceReady === true && session.dwmSurfaceProcess) {
       return true;
     }
+    // 抓帧模式不建底座（见 main.js 的 skipDwmSurface）。
+    if (session.skipDwmSurface === true) return false;
     if (session.dwmSurfaceStartPromise) return session.dwmSurfaceStartPromise;
 
     const sourceId = String(session.windowSourceId || session.sourceId || '');
@@ -5939,6 +5944,7 @@ class WallpaperEngineRuntime {
       launchY: runtimeOptions.y,
       runtimeOptions,
       silentWindows: runtimeOptions.silentWindows,
+      skipDwmSurface: runtimeOptions.skipDwmSurface === true,
       muteProperties: sanitizeMuteProperties(null),
       userProperties: {},
       muteReassertTimers: new Set(),

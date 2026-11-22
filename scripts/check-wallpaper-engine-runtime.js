@@ -424,6 +424,8 @@ async function main() {
       sourceTimeoutMs: 15000,
       sourcePollMs: 60,
       silentWindows: true,
+      // 抓帧模式不建 DWM 底座（2026-11-22）：默认 false，只有主进程按 captureRender 显式打开。
+      skipDwmSurface: false,
     });
 
     const probe = await runtime.probe();

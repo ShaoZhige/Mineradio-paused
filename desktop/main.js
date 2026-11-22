@@ -3712,6 +3712,11 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
       y: physicalBounds.y,
       // 窗口静默由设置项决定，默认开启；关闭后恢复 Wallpaper Engine 默认的任务栏行为。
       silentWindows: payload.silentWindows !== false,
+      // 🔴 抓帧渲染时不要那层 DWM 底座：原生播窗会被 cloak / 挪到虚拟屏外，DWM 不合成不可见
+      // 窗口，底座上的缩略图必然是黑的 —— 屏幕上就多一块 "Mineradio WE DWM Surface" 黑板。
+      // 这个模式下壁纸由抓帧画面自己画，底座没有任何用途，干脆不起进程。
+      // Capture mode parks the native window offscreen, so the DWM thumbnail can only be black.
+      skipDwmSurface: payload.captureRender === true,
     });
     startedSessionId = String(result && result.sessionId || '');
     if (operation !== wallpaperEngineCaptureOperation) {
