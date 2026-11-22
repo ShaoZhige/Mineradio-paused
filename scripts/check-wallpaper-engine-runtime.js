@@ -29,21 +29,6 @@ function writeScenePackage(file, scene, extension = '.pkg') {
   fs.writeFileSync(file, Buffer.concat([index, sceneBuffer]));
 }
 
-async function overwritePackageScene(file, scene) {
-  const packageScene = await readWallpaperPackageScene(file);
-  const encoded = Buffer.from(JSON.stringify(scene), 'utf8');
-  assert(encoded.length <= packageScene.sceneLength, 'replacement scene fixture must fit the existing package entry');
-  const replacement = Buffer.alloc(packageScene.sceneLength, 0x20);
-  encoded.copy(replacement);
-  const handle = await fs.promises.open(file, 'r+');
-  try {
-    await handle.write(replacement, 0, replacement.length, packageScene.dataOffset);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
 // spawn 记录里现在混着引擎启动和常驻监视器的 shell 助手，任何"一个 spawn 都不该有"或"第 N 个
 // spawn 必须是 X"的断言都必须先按可执行文件收窄，否则加入无关辅助进程就会误报。
 // Spawn records now mix engine launches with the resident monitor's shell helper, so any

@@ -111,7 +111,9 @@ const scaleVarBlock = sourceBlock(
 assert.match(scaleVarBlock, /var WALLPAPER_ENGINE_DEFAULT_SCALE = 1;/, 'the default zoom must be exactly 1x');
 assert.match(scaleVarBlock, /var WALLPAPER_ENGINE_LEGACY_DEFAULT_SCALE = 1\.08;/, 'the legacy default must stay recorded for migration');
 
-const layerTransformRule = sourceBlock(cssText, '#wallpaper-engine-image,\n#wallpaper-engine-video,\n#wallpaper-engine-freeze {', '#wallpaper-engine-freeze {');
+// 选择器组里现在还有捕获渲染的 <img>（`#wallpaper-engine-capture-image`），锚点跟着改；
+// 断言的内容没变：三层共用同一份 transform / clip / opacity 规则。
+const layerTransformRule = sourceBlock(cssText, '#wallpaper-engine-image,\n#wallpaper-engine-video,\n#wallpaper-engine-capture-image,\n#wallpaper-engine-freeze {', '#wallpaper-engine-freeze {');
 assert.match(
   layerTransformRule,
   /scale\(var\(--wallpaper-engine-visual-scale, 1\)\)/,
@@ -213,7 +215,8 @@ const clearLayerBlock = sourceBlock(
 );
 assert.match(
   clearLayerBlock,
-  /classList\.remove\('ready', 'image-ready', 'video-ready', 'engine-ready', 'freeze-ready', 'preview-source'\)/,
+  // 捕获渲染的 'capture-ready' 也必须一起清掉（否则 MJPEG 层会留在屏幕上）。
+  /classList\.remove\('ready', 'image-ready', 'video-ready', 'engine-ready', 'freeze-ready', 'preview-source', 'capture-ready'\)/,
   'the preview marker must be cleared together with the layer media'
 );
 const layerReadyBlock = sourceBlock(

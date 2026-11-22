@@ -313,13 +313,6 @@ function openHomePodcast(index) {
   }
   loadPodcastRadioIntoQueue(item.id, true, item.name || '');
 }
-function openHomeThirdCard() {
-  if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
-    openHomeLocalImport();
-    return;
-  }
-  openHomePodcast(0);
-}
 function openHomeLibrary() {
   if (!hasAnyPlatformLogin() && !homeDiscoverState.loggedIn) {
     openHomeProductGuide();

@@ -649,6 +649,8 @@ public sealed class MineradioWeWindowResult {
   public bool closed { get; set; }
   public long closeWaitMs { get; set; }
   public bool taskbarIsolated { get; set; }
+  public bool cloaked { get; set; }
+  public int cloakHr { get; set; }
   public long left { get; set; }
   public long top { get; set; }
   public long right { get; set; }
@@ -673,6 +675,10 @@ public static class MineradioWeWindowControl {
   struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hWnd, int attribute, ref int value, int size);
+  // 只读回查：cloak 之后必须确认 DWM 真的把它从合成里摘掉了，否则"设置成功但其实没生效"。
+  // Read-back probe: DwmSetWindowAttribute can return S_OK without the window actually being cloaked.
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
   [DllImport("user32.dll", SetLastError=true)] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll", SetLastError=true)] static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
@@ -859,6 +865,50 @@ public static class MineradioWeWindowControl {
       parkResult.parked = parkResult.visibleWidth <= 1 && parkResult.visibleHeight <= 1;
       if (!parkResult.parked) throw new InvalidOperationException("Capture source window did not enter the parking strip");
       return parkResult;
+    }
+    if (String.Equals(action, "cloak", StringComparison.OrdinalIgnoreCase)
+      || String.Equals(action, "uncloak", StringComparison.OrdinalIgnoreCase)) {
+      // DWM cloak：窗口从合成里摘掉（屏幕上消失），但**仍在渲染** —— 实测 cloak 前后
+      // PrintWindow 抓到的画面完全一致（avgLuma 132 vs 132），SW_HIDE 则是全黑。
+      // 这是"既隐藏原生窗口、又能继续抓帧"的唯一可行手段。
+      int cloakValue = String.Equals(action, "cloak", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+      int cloakHr = DwmSetWindowAttribute(hWnd, 13, ref cloakValue, 4);
+      // 回读真实状态（DWMWA_CLOAKED = 14）：以前直接按请求值写 cloaked，跨进程被拒
+      // （E_ACCESSDENIED）也照样报成功，于是日志永远干净、屏幕上却还留着那块壁纸。
+      // Read back the real state: set may fail cross-process while still returning a usable hWnd.
+      int actualCloak = -1;
+      int readHr = DwmGetWindowAttribute(hWnd, 14, out actualCloak, 4);
+      MineradioWeWindowResult cloakResult = Snapshot(hWnd, processId);
+      cloakResult.cloaked = actualCloak > 0;
+      cloakResult.cloakHr = cloakHr;
+      bool wantCloaked = cloakValue == 1;
+      if (cloakHr != 0 || (readHr == 0 && cloakResult.cloaked != wantCloaked)) {
+        throw new InvalidOperationException(string.Format(
+          "DWM cloak mismatch: setHr=0x{0:X8} readHr=0x{1:X8} actual={2} want={3}",
+          cloakHr, readHr, actualCloak, cloakValue));
+      }
+      return cloakResult;
+    }
+    if (String.Equals(action, "offscreen", StringComparison.OrdinalIgnoreCase)) {
+      // 捕获渲染专用：把源窗口挪到虚拟屏外，但**不改尺寸、也不隐藏** ——
+      // park 那条路 WE 会把自己缩成一小块，PrintWindow 就只剩一条了（实测 160x28）。
+      // Move the source fully off the virtual screen without resizing or hiding it.
+      RECT offRect;
+      if (!GetWindowRect(hWnd, out offRect)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      int offWidth = Math.Max(1, offRect.Right - offRect.Left);
+      int offHeight = Math.Max(1, offRect.Bottom - offRect.Top);
+      int offRight = GetSystemMetrics(SM_XVIRTUALSCREEN) + Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+      int offTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+      const uint SWP_OFF_NOZORDER = 0x0004;
+      const uint SWP_OFF_NOACTIVATE = 0x0010;
+      if (!SetWindowPos(hWnd, IntPtr.Zero, offRight + 64, offTop, offWidth, offHeight,
+          SWP_OFF_NOZORDER | SWP_OFF_NOACTIVATE)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      MineradioWeWindowResult offResult = Snapshot(hWnd, processId);
+      offResult.moved = true;
+      offResult.parked = offResult.visibleWidth <= 1 && offResult.visibleHeight <= 1;
+      return offResult;
     }
     if (String.Equals(action, "isolate", StringComparison.OrdinalIgnoreCase)) {
       MineradioWeWindowResult isolateResult = Snapshot(hWnd, processId);
@@ -1444,6 +1494,11 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   const uint SWP_NOSIZE = 0x0001;
   const uint SWP_NOACTIVATE = 0x0010;
   const uint SWP_SHOWWINDOW = 0x0040;
+  const uint SWP_NOZORDER = 0x0004;
+  // 注意：不要给这两个 SetWindowPos 加 SWP_ASYNCWINDOWPOS。试过 —— 异步请求会在 WE 的
+  // CEF 线程队列里堆积，壁纸变成"一条一条往外挪"的超慢速追赶；限流又会在窗口外留残影。
+  // Do NOT add SWP_ASYNCWINDOWPOS here: queued async moves make the wallpaper crawl.
+  // 黑底停在旧尺寸的问题由 FollowHost 里的"读自己真实尺寸"自愈兜底。
 
   // 空闲档只读两个窗口矩形（各一次 GetWindowRect），一个跨进程调用都不发；一旦宿主角
   // 真的变了就切到 16ms（≈60Hz）跟手，停手 300ms 后再回落。原来是不管有没有变化都按
@@ -1558,7 +1613,12 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   readonly IntPtr hostWindow;
   readonly IntPtr sourceWindow;
   readonly string sourceTitle;
-  readonly int windowCornerRadius;
+  // issue #6 重写：圆角改成可在运行时修改。原来它是 readonly、只在构造时从 env 读一次，
+  // 拖圆角滑块只改 Electron 外壳，WE 原生表面纹丝不动 —— 这就是"壁纸没有被实时裁剪"。
+  // Mutable now: a runtime R| command retargets the corner region without rebuilding the surface.
+  int windowCornerRadius;
+  // 半径刚被 R| 改过时置位：FollowHost 里"宿主矩形没动就复用 lastRadius"的短路会吃掉这次改动。
+  bool cornerRadiusDirty;
   bool desktopIconLayeringEnabled;
   readonly System.Windows.Forms.Timer followTimer;
   // issue #5：钩子的三个引用都得活到窗体销毁，delegate 被 GC 收回后回调会直接崩进程。
@@ -1580,6 +1640,20 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   int lastThumbScale = -1;
   int ticksSinceReassert = 0;
   int lastGeometryChangeTick = 0;
+  // 已经排了一个 FollowHost 在 UI 线程队列里：移动事件成串到达时只认一个，避免队列堆积。
+  bool followQueued = false;
+  // WE 的 source 窗口是**另一个进程**的，SetWindowPos 可能被 CEF 堵住。把它放到独立线程，
+  // 我们自己的黑底底座就永远能在 UI 线程上同步跟上 —— 黑底不再外露，WE 也不会因为排队而
+  // 变成"超慢速追赶"。工作线程只记"最新目标"，中间位置直接覆盖，所以没有队列堆积。
+  // WE's window is moved on its own thread, so the UI thread can keep the backing glued to the
+  // host (no stray black box) without queueing dozens of stale positions.
+  readonly object sourceMoveGate = new object();
+  readonly AutoResetEvent sourceMoveSignal = new AutoResetEvent(false);
+  Thread sourceMoveThread;
+  bool sourceMovePending;
+  bool sourceMoveStop;
+  int sourceMoveX, sourceMoveY, sourceMoveW, sourceMoveH, sourceMoveRadius;
+  bool sourceMoveResize, sourceMoveRegion;
   int consecutiveFollowFailures = 0;
   IntPtr desktopIconHost = IntPtr.Zero;
   int visualOpacity = 255;
@@ -1625,7 +1699,16 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     // WS_EX_APPWINDOW for WS_EX_TOOLWINDOW by itself and no manual restyling is needed.
     ShowInTaskbar = false;
     StartPosition = FormStartPosition.Manual;
-    BackColor = Color.Black;
+    // 🔴 底座用**色彩键透明**，不再涂纯黑（透明底座方案）：
+    //   - 底色取一个壁纸里几乎不可能出现的"魔法色" (0,1,0)，而不是纯黑 —— 用纯黑当键会把
+    //     壁纸里所有纯黑像素一起抠成透明，暗色壁纸会破洞。
+    //   - 一旦透明，底座就算慢半拍露出来，透出的也是**桌面**而不是一块黑，视觉上等于不存在。
+    //   - 缩略图画在底座上，它自己的像素不会等于这个魔法色，所以壁纸不受影响。
+    //   - ⚠️ DWM 缩略图在部分系统上对 layered 窗口支持不好：若真机上壁纸整块消失，
+    //     把这两行（本行 + OnShown 里的 TransparencyKey）改回去即可，其余逻辑不必动。
+    // Color-key transparency with a magic colour instead of pure black: a latched base then shows
+    // the desktop, never a black slab. Pure black as the key would punch holes in dark wallpapers.
+    BackColor = Color.FromArgb(255, 0, 1, 0);
     Text = "Mineradio WE DWM Surface";
     followTimer = new System.Windows.Forms.Timer();
     followTimer.Interval = FOLLOW_IDLE_INTERVAL_MS;
@@ -1645,6 +1728,82 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     };
   }
 
+  void StartSourceMoveWorker() {
+    if (sourceMoveThread != null) return;
+    sourceMoveThread = new Thread(SourceMoveLoop);
+    sourceMoveThread.IsBackground = true;
+    sourceMoveThread.Name = "MineradioWeSourceMove";
+    sourceMoveThread.Start();
+  }
+
+  void StopSourceMoveWorker() {
+    sourceMoveStop = true;
+    try { sourceMoveSignal.Set(); } catch { }
+    sourceMoveThread = null;
+  }
+
+  // 只登记"最新目标"：连续拖动时新目标直接覆盖旧目标，工作线程取到时永远是最新位置，
+  // 所以不会出现"位置请求排队、壁纸一条一条往外挪"的慢速追赶。
+  // Latest-target-only: overwriting the pending value is what prevents the queued crawl.
+  void QueueSourceMove(int x, int y, int w, int h, bool resize, bool applyRegion, int radius) {
+    lock (sourceMoveGate) {
+      sourceMoveX = x; sourceMoveY = y; sourceMoveW = w; sourceMoveH = h;
+      sourceMoveResize = resize; sourceMoveRegion = applyRegion; sourceMoveRadius = radius;
+      sourceMovePending = true;
+    }
+    try { sourceMoveSignal.Set(); } catch { }
+  }
+
+  void SourceMoveLoop() {
+    while (true) {
+      try {
+        if (!sourceMoveSignal.WaitOne()) return;
+      } catch { return; }
+      if (sourceMoveStop) return;
+      int x, y, w, h, radius;
+      bool resize, applyRegion;
+      lock (sourceMoveGate) {
+        if (!sourceMovePending) continue;
+        sourceMovePending = false;
+        x = sourceMoveX; y = sourceMoveY; w = sourceMoveW; h = sourceMoveH;
+        resize = sourceMoveResize; applyRegion = sourceMoveRegion; radius = sourceMoveRadius;
+      }
+      try {
+        // 阻塞只发生在这个后台线程里，UI 线程不受影响。
+        if (applyRegion) ApplyCornerRegion(sourceWindow, w, h, radius);
+        MoveSourceBehindSurface(x, y, w, h, resize);
+      } catch { }
+    }
+  }
+
+  // 唯一的 source 摆位入口：形状与原来在 UI 线程上的调用一模一样 —— source 插到 Handle
+  // 之后（即垫在纯黑底座下面），像素对齐关系不变；差别只在于现在由后台线程执行。
+  // The single placement entry for the source: identical shape to the old UI-thread call
+  // (source inserted right after the backing handle), just executed off the UI thread.
+  void MoveSourceBehindSurface(int x, int y, int w, int h, bool resize) {
+    uint flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | (resize ? 0u : SWP_NOSIZE);
+    SetWindowPos(sourceWindow, Handle, x, y, resize ? w : 0, resize ? h : 0, flags);
+  }
+
+  // 合并同一波移动事件：拖动时 EVENT_OBJECT_LOCATIONCHANGE 每帧能来好几条，以前每条都
+  // BeginInvoke 一次 FollowHost，队列里堆十几个重复任务 —— 每个都做两次跨进程 SetWindowPos，
+  // 既拖慢跟手又放大被 CEF 堵住的概率。现在"已排队就不再排"，队列里最多一个，追的永远是
+  // 最新位置（FollowHost 每次都重新读宿主矩形）。
+  // Coalesce bursts: at most one FollowHost queued at a time, always reading the newest rect.
+  void QueueFollowHost() {
+    if (followQueued || IsDisposed || !IsHandleCreated) return;
+    followQueued = true;
+    try {
+      BeginInvoke(new Action(delegate() {
+        followQueued = false;
+        try { FollowHost(); }
+        catch { /* 定时器那一路负责收尾/关闭，这里不重复抛 */ }
+      }));
+    } catch {
+      followQueued = false;
+    }
+  }
+
   // issue #5：安装跨进程窗口移动事件钩子。回调在线程池线程触发，必须 BeginInvoke 回 UI
   // 线程再跑 FollowHost（WinForms 控件和 SetWindowPos 都要求在拥有句柄的线程上做）。
   // delegate 用 GCHandle 钉住，生命周期到 OnFormClosed 才解除，否则 GC 回收后回调崩溃。
@@ -1654,9 +1813,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
         int idObject, int idChild, uint eventThread, uint eventTime) {
       if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF) return;
       if (hwnd != hostWindow) return;
-      try {
-        if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() { FollowHost(); }));
-      } catch { }
+      QueueFollowHost();
     };
     locationHookPin = GCHandle.Alloc(locationHookCallback);
     locationHookPinned = true;
@@ -1688,11 +1845,16 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
 
   protected override void OnShown(EventArgs eventArgs) {
     base.OnShown(eventArgs);
+    // 色彩键透明：必须等句柄创建后才能设（WinForms 此时才挂 WS_EX_LAYERED + LWA_COLORKEY）。
+    // 底色那点魔法色被抠成透明，露出来的就是桌面；缩略图的像素不等于它，壁纸照常显示。
+    TransparencyKey = BackColor;
     FollowHost();
     followTimer.Start();
     // issue #5：事件驱动跟手。钩子装好后宿主的每次移动都会直接触发 FollowHost，
     // 定时器继续按两档兜底；任一环节失效都不影响另一条路。
     InstallLocationHook();
+    // 挪 WE 窗口的后台线程：必须在 FollowHost 之前起，第一拍就要能把 source 交出去。
+    StartSourceMoveWorker();
     Thread inputThread = new Thread(delegate() {
       try {
         string line;
@@ -1740,6 +1902,25 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
             } catch { }
             continue;
           }
+          if (command.StartsWith("R|", StringComparison.Ordinal)) {
+            // 运行时改圆角：只重算裁剪区域，不重建表面。滑块拖动时这条命令会连续到达，
+            // 每次都必须强制走一遍 FollowHost（cornerRadiusDirty 绕过"矩形没变就复用旧半径"的短路）。
+            int nextRadius;
+            if (!Int32.TryParse(command.Substring(2), out nextRadius)) continue;
+            try {
+              if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() {
+                int applied = Math.Max(0, Math.Min(512, nextRadius));
+                if (windowCornerRadius != applied) {
+                  windowCornerRadius = applied;
+                  cornerRadiusDirty = true;
+                }
+                FollowHost(true);
+                Console.WriteLine("{\"ok\":true,\"cornerRadius\":" + windowCornerRadius + "}");
+                Console.Out.Flush();
+              }));
+            } catch { }
+            continue;
+          }
           if (command.StartsWith("V|", StringComparison.Ordinal)) {
             string[] values = command.Split('|');
             int nextOpacity, nextPositionX, nextPositionY, nextScale;
@@ -1781,6 +1962,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   protected override void OnFormClosed(FormClosedEventArgs eventArgs) {
     followTimer.Stop();
     RemoveLocationHook();
+    StopSourceMoveWorker();
     if (thumbnail != IntPtr.Zero) {
       DwmUnregisterThumbnail(thumbnail);
       thumbnail = IntPtr.Zero;
@@ -1926,7 +2108,9 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     // MonitorFromWindow + GetMonitorInfo。
     // An unchanged host rect implies an unchanged monitor, so the corner radius cannot change:
     // this skips MonitorFromWindow + GetMonitorInfo on every idle tick.
-    int radius = geometryApplied && RectMatches(hostRect, lastHostRect) ? lastRadius : ResolveCornerRadius(hostRect);
+    // cornerRadiusDirty：R| 命令刚改过半径，即使宿主矩形没动也必须重算，否则会被短路成旧值。
+    int radius = (!cornerRadiusDirty && geometryApplied && RectMatches(hostRect, lastHostRect))
+      ? lastRadius : ResolveCornerRadius(hostRect);
 
     bool geometrySame = geometryApplied && radius == lastRadius && RectMatches(hostRect, lastHostRect);
     bool thumbnailSame = thumbnail == IntPtr.Zero
@@ -1977,28 +2161,55 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
       sizeChanged = (GetWindowRect(sourceWindow, out actual) && !RectMatches(actual, hostRect))
         || (GetWindowRect(Handle, out actual) && !RectMatches(actual, hostRect));
     }
+    // 自愈：光信 lastWidth/lastHeight 不够。只要某一拍被跳过（或曾被阻塞），帮手窗口就会
+    // 停在旧位置/旧尺寸上，而它是纯黑底座 —— 窗口一动那块黑就露在外面（用户截图里的纯黑块）。
+    // 位置和尺寸都要校验：只查尺寸的话，"窗口只是平移了、帮手没跟上"这种最常见的漏网情形
+    // 会被放过。这里**只纠正自己这块窗口**（同进程、纯 SetWindowPos），不碰 WE 的 CEF。
+    // Self-heal position AND size of our own backing window: a pure move that was missed leaves
+    // the black box beside the window, which a size-only check would never catch.
+    if (!sizeChanged) {
+      RECT self;
+      if (GetWindowRect(Handle, out self)) {
+        int selfWidth = Math.Max(1, self.Right - self.Left);
+        int selfHeight = Math.Max(1, self.Bottom - self.Top);
+        bool sizeOff = Math.Abs(selfWidth - width) > 2 || Math.Abs(selfHeight - height) > 2;
+        bool posOff = Math.Abs(self.Left - hostRect.Left) > 2 || Math.Abs(self.Top - hostRect.Top) > 2;
+        if (sizeOff || posOff) {
+          SetWindowPos(Handle, IntPtr.Zero, hostRect.Left, hostRect.Top, width, height,
+            SWP_NOACTIVATE | SWP_NOZORDER);
+        }
+      }
+    }
     uint placementFlags = SWP_NOACTIVATE | SWP_SHOWWINDOW | (sizeChanged ? 0u : SWP_NOSIZE);
     int placementWidth = sizeChanged ? width : 0;
     int placementHeight = sizeChanged ? height : 0;
+    bool regionDirty = sizeChanged || radius != lastRadius;
     if (!geometrySame || force || reassertPass) {
       if (thumbnail != IntPtr.Zero) {
+        // 自己这块纯黑底座：**永远同步、永远在 UI 线程**。这就是"黑底不外露"的唯一保证 ——
+        // 只要它还留在 UI 线程上，就不可能被 WE 的渲染线程拖住。
+        // Our black backing always moves synchronously on the UI thread; that is the guarantee it
+        // can never be left behind by WE's render thread.
+        if (regionDirty) ApplyCornerRegion(Handle, width, height, radius);
         if (!SetWindowPos(Handle, surfaceInsertAfter, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
             placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        if (!SetWindowPos(sourceWindow, Handle, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
-            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        // WE 的窗口交给后台线程：可能阻塞的那一下留在那边，UI 线程这里绝不等待。
+        // WE's window moves on the worker thread, so a slow CEF can never stall us.
+        QueueSourceMove(hostRect.Left, hostRect.Top, width, height, sizeChanged, regionDirty, radius);
       } else {
-        // Until WGC has primed the SVG sampler, show the real source above the
-        // empty DWM destination so startup never flashes a black base frame.
+        // 缩略图还没挂上时 source 才是唯一画面，叠放顺序要紧（source 压在空底座之上）：
+        // 先摆 source 再把它上面的 Handle 放下去，中间不出现"露出黑底"的一帧。
+        // Before the thumbnail is live the source is the visible wallpaper, so keep the exact order
+        // that never exposes the black backing between the two calls.
+        if (regionDirty) {
+          ApplyCornerRegion(Handle, width, height, radius);
+          ApplyCornerRegion(sourceWindow, width, height, radius);
+        }
         if (!SetWindowPos(sourceWindow, surfaceInsertAfter, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
             placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
         if (!SetWindowPos(Handle, sourceWindow, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
             placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
       }
-    }
-
-    if (sizeChanged || radius != lastRadius) {
-      ApplyCornerRegion(Handle, width, height, radius);
-      ApplyCornerRegion(sourceWindow, width, height, radius);
     }
 
     // 缩略图目标矩形是窗口内的坐标，跟屏幕位置无关：纯拖动时它一个字段都没变，这次
@@ -2044,6 +2255,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
     lastWidth = width;
     lastHeight = height;
     lastRadius = radius;
+    cornerRadiusDirty = false;
     lastHostRect = hostRect;
     geometryApplied = true;
     consecutiveFollowFailures = 0;
@@ -2689,6 +2901,9 @@ class WallpaperEngineRuntime {
       // Flush on ready: the renderer's push normally lands before this point, and without
       // the flush the helper keeps rendering at its spawn-time default (the legacy 1.08).
       this._pushDwmVisualSettings(session);
+      // 圆角同理补发一次：用户可能在本机窗口起来之前就拖过滑块（会话里存的是最新值），
+      // 不补发就会按 spawn 时的 env 初值裁剪。
+      this._pushDwmCornerRadius(session);
       // The source window itself stays directly behind Electron until the
       // renderer has opened a cursor-free capture of this plain helper HWND.
       // Only then does activateDwmSurface() register the DWM thumbnail.
@@ -2873,6 +3088,39 @@ class WallpaperEngineRuntime {
   // This used to drop the write when the helper was not ready yet and never retry, so the
   // scale stayed at the spawn-time default forever. The values now stay on the session and
   // the ready path flushes them once.
+  // 圆角运行时更新（issue #6 重写）：用户拖滑块时不等下一次 source refresh，直接把新半径
+  // 推给已经活着的原生 WE 表面。原实现只更新主进程缓存、等 start/embed 才生效，
+  // 所以壁纸"不会被实时裁剪"。
+  // Push a new corner radius to the live native surface instead of waiting for a source refresh.
+  updateDwmCornerRadius(expectedSessionId = '', radius = 0) {
+    const session = this.active;
+    expectedSessionId = String(expectedSessionId || '');
+    if (!session || (expectedSessionId && session.sessionId !== expectedSessionId)) return false;
+    const next = Math.max(0, Math.min(512, Math.round(Number(radius) || 0)));
+    if (session.dwmSurfaceHostCornerRadius === next) return true;
+    session.dwmSurfaceHostCornerRadius = next;
+    return this._pushDwmCornerRadius(session);
+  }
+
+  _pushDwmCornerRadius(session) {
+    if (!session) return false;
+    const child = session.dwmSurfaceProcess;
+    const stdin = child && child.stdin;
+    if (session.dwmSurfaceReady !== true || !stdin || stdin.destroyed === true || stdin.writableEnded === true) {
+      session.dwmCornerRadiusPending = true;
+      return false;
+    }
+    const radius = Math.max(0, Math.min(512, Math.round(Number(session.dwmSurfaceHostCornerRadius) || 0)));
+    try {
+      stdin.write(`R|${radius}\n`, 'ascii');
+      session.dwmCornerRadiusPending = false;
+      return true;
+    } catch (_) {
+      session.dwmCornerRadiusPending = true;
+      return false;
+    }
+  }
+
   _pushDwmVisualSettings(session) {
     if (!session) return false;
     const child = session.dwmSurfaceProcess;
@@ -3697,6 +3945,15 @@ class WallpaperEngineRuntime {
       }
       session.windowSourceId = effectiveSourceId;
       session.windowParking = result;
+    } else if (action === 'cloak' || action === 'uncloak') {
+      session.windowCloaked = action === 'cloak';
+    } else if (action === 'offscreen') {
+      // 不移到 parking 状态里（那套流程会在恢复时把它 fit 回来），这里只记录结果。
+      if (result.missing === true || result.moved !== true) {
+        throw runtimeError('WALLPAPER_ENGINE_WINDOW_ISOLATION_FAILED');
+      }
+      session.windowSourceId = effectiveSourceId;
+      session.windowOffscreen = result;
     }
     return result;
   }
@@ -4237,11 +4494,24 @@ class WallpaperEngineRuntime {
     this._scheduleSessionMuteReassertions(session);
   }
 
-  async confirmCaptureReady(expectedSessionId = '') {
+  async confirmCaptureReady(expectedSessionId = '', options = {}) {
     const session = this.active;
     expectedSessionId = String(expectedSessionId || '');
     if (!session || (expectedSessionId && session.sessionId !== expectedSessionId)) return false;
     if (!session.windowEmbedding || session.windowEmbedding.aligned !== true) return false;
+    // 🔴 捕获渲染传 skipDwmSurface：用户选的就是"不要 DWM 合成"，这里绝不能再起缩略图表面 ——
+    // 起了等于同时贴两层（缩略图 + 捕获视频）；而且缩略图冷启一旦失败，整次确认会返回 false，
+    // 主进程随即 stop() 会话 → 渲染端判失败 → 重启，形成 5 秒一圈的重启环（实测日志就是这样）。
+    // Capture rendering must NOT start the DWM thumbnail surface.
+    if (options && options.skipDwmSurface === true) {
+      const mutedForCapture = await this._applySessionMute(session).catch(() => false);
+      if (!mutedForCapture || this.active !== session || session.stopping === true) return false;
+      this._stopSessionPointerRelay(session);
+      session.windowParking = null;
+      this._scheduleSessionMuteReassertions(session);
+      session.captureSkipDwmSurface = true;
+      return true;
+    }
     // 静音属性与 DWM 缩略图互不依赖：前者是一条 WE 控制进程（约 1.2 秒），后者是一次
     // PowerShell 冷启（约 1 秒），串着做等于把两段时间相加，而它们没有先后关系。
     // The mute property command (one WE control process, ~1.2 s) and the DWM thumbnail helper (a
@@ -5282,6 +5552,28 @@ class WallpaperEngineRuntime {
     } finally {
       if (session.embedPromise === operation) session.embedPromise = null;
     }
+  }
+
+  // 捕获渲染用：cloak 让原生窗口从屏幕上消失，但仍继续渲染（抓帧不受影响）。
+  async setActiveWindowCloaked(expectedSessionId = '', cloaked = true) {
+    const session = this.active;
+    if (!session) throw runtimeError('WALLPAPER_ENGINE_NOT_ACTIVE');
+    expectedSessionId = String(expectedSessionId || '');
+    if (expectedSessionId && session.sessionId !== expectedSessionId) {
+      throw runtimeError('WALLPAPER_ENGINE_SESSION_MISMATCH');
+    }
+    return this._controlSessionWindow(cloaked === false ? 'uncloak' : 'cloak', session, String(session.sourceId || ''));
+  }
+
+  // 捕获渲染用：把源窗口移出屏幕（保留尺寸），让用户看到的是捕获层而不是原生窗口。
+  async moveActiveWindowOffscreen(expectedSessionId = '') {
+    const session = this.active;
+    if (!session) throw runtimeError('WALLPAPER_ENGINE_NOT_ACTIVE');
+    expectedSessionId = String(expectedSessionId || '');
+    if (expectedSessionId && session.sessionId !== expectedSessionId) {
+      throw runtimeError('WALLPAPER_ENGINE_SESSION_MISMATCH');
+    }
+    return this._controlSessionWindow('offscreen', session, String(session.sourceId || ''));
   }
 
   async parkActiveWindow(expectedSessionId = '') {

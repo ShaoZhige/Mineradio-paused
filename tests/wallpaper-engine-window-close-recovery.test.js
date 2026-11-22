@@ -37,7 +37,14 @@ const readSource = (relativePath) => fs
 const runtimeText = readSource('desktop/wallpaper-engine-runtime.js');
 const mainText = readSource('desktop/main.js');
 const libraryText = readSource('public/js/modules/07-fx/03-wallpaper-engine-library.js');
-const quickCheckText = readSource('scripts/quick-check.js');
+// 拆分后要读整包（编排器 + scripts/checks/*.cjs）。
+const quickCheckText = (function () {
+  const orchestrator = readSource('scripts/quick-check.js');
+  const dir = path.join(appRoot, 'scripts', 'checks');
+  const parts = fs.readdirSync(dir).filter((f) => f.endsWith('.cjs')).sort()
+    .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'));
+  return [orchestrator].concat(parts).join('\n');
+})();
 const runtimeCheckText = readSource('scripts/check-wallpaper-engine-runtime.js');
 
 // 片段沙箱里取词函数定义在文件头部、不在切片内，必须一起带进去；i18n 桩只查 zh-CN 词典，

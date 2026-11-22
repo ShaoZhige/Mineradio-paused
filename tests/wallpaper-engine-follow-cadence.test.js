@@ -58,7 +58,8 @@ check('纯移动不传尺寸，只有尺寸真的变了才带 width/height', () 
   assert.match(helper, /int placementWidth = sizeChanged \? width : 0;/);
   assert.match(helper, /int placementHeight = sizeChanged \? height : 0;/);
   // 圆角区域只在尺寸或半径变化时重算，拖动不该反复 CreateRoundRectRgn。
-  assert.match(helper, /if \(sizeChanged \|\| radius != lastRadius\) \{\s*\n\s*ApplyCornerRegion\(Handle/);
+  assert.match(helper, /bool regionDirty = sizeChanged \|\| radius != lastRadius;/);
+  assert.match(helper, /if \(regionDirty\) ApplyCornerRegion\(Handle, width, height, radius\);/);
 });
 
 check('屏幕位置不变时不重发缩略图属性', () => {
@@ -123,8 +124,12 @@ check('事件回调只认目标窗口并切回 UI 线程，delegate 用 GCHandle
   assert.match(install, /idObject != OBJID_WINDOW/, '必须过滤掉光标等非窗口对象的 locationchange');
   assert.match(install, /idChild != CHILDID_SELF/);
   assert.match(install, /hwnd != hostWindow/, '只跟随 Electron 宿主，不理会别的窗口移动');
-  assert.match(install, /BeginInvoke\(new Action/, '回调在线程池线程，必须切回 UI 线程再动 WinForms / SetWindowPos');
-  assert.match(install, /FollowHost\(\)/);
+  // 回调在线程池线程，必须切回 UI 线程再动 WinForms / SetWindowPos；现在统一走合并入口
+  // QueueFollowHost（内部才是 BeginInvoke），避免每条事件都排一个任务。
+  assert.match(install, /QueueFollowHost\(\)/, '回调必须走合并入口 QueueFollowHost');
+  const queueAt = helper.indexOf('void QueueFollowHost()');
+  const queue = helper.slice(queueAt, helper.indexOf('\n  }', queueAt));
+  assert.match(queue, /BeginInvoke\(new Action/, 'QueueFollowHost 内部必须切回 UI 线程');
   assert.match(install, /GCHandle\.Alloc\(locationHookCallback\)/, 'delegate 不钉住会被 GC 回收，回调直接崩进程');
 });
 
@@ -139,6 +144,73 @@ check('事件钩子的生命周期完整：安装一次、销毁时卸载并释�
   assert.match(shown, /InstallLocationHook\(\)/);
   const closed = helper.slice(helper.indexOf('protected override void OnFormClosed'));
   assert.match(closed, /RemoveLocationHook\(\)/);
+});
+
+// issue #6 重写：圆角要能实时改，且不能让帮手被 WE 的线程堵住。
+// 这两条一旦退化都只会在真机上表现为"壁纸不裁"或"窗口外露一块纯黑"，测试必须钉死。
+check('黑底在 UI 线程同步跟随，WE 窗口在后台线程移动（阻塞不许回到 UI 线程）', () => {
+  // 实测踩过两次：
+  //   1. 跨进程 SetWindowPos 同步 → CEF 一忙就把 UI 线程堵住，黑底停在旧位置露出来；
+  //   2. 改成 SWP_ASYNCWINDOWPOS → 位置请求在对方队列里堆积，壁纸"超慢速追赶"鼠标。
+  // 正解是把 WE 的窗口交给后台线程（阻塞留在那边），黑底永远在 UI 线程同步跟上。
+  // 注释里会提到这个标志（记录踩过的坑），所以先剥掉注释再断言代码本身。
+  const codeOnly = helper.replace(/\/\/[^\n]*/g, '');
+  assert.ok(!/SWP_ASYNCWINDOWPOS/.test(codeOnly), '不要用 ASYNC 标志，会排队成慢速追赶');
+  assert.match(helper, /void StartSourceMoveWorker\(\)/);
+  assert.match(helper, /void QueueSourceMove\(/, 'source 移动必须走"只登记最新目标"的入口');
+  const loopAt = helper.indexOf('void SourceMoveLoop()');
+  const loop = helper.slice(loopAt, helper.indexOf('\n  }\n', loopAt));
+  assert.match(loop, /MoveSourceBehindSurface\(/, 'WE 窗口的移动必须由后台线程发起');
+  // 摆位形状和原来一致：source 插到 Handle 之后（垫在底座下面），像素对齐关系不变。
+  assert.match(helper, /void MoveSourceBehindSurface\(/, '需要唯一的 source 摆位入口');
+  assert.match(helper, /SetWindowPos\(sourceWindow, Handle,/, 'source 必须仍然垫在底座 Handle 之后');
+  // latest-wins：登记时直接覆盖，不往队列里追加。
+  const queueAt = helper.indexOf('void QueueSourceMove(');
+  const queue = helper.slice(queueAt, helper.indexOf('\n  }\n', queueAt));
+  assert.ok(!/Queue<|ConcurrentQueue|\.Enqueue\(/.test(queue), '不许排队，只保留最新目标');
+  // 黑底：UI 线程上的同步 set，且在缩略图分支里也照样先动它。
+  const blk = helper.slice(helper.indexOf('uint placementFlags'), helper.indexOf('lastWidth = width;'));
+  assert.match(blk, /SetWindowPos\(Handle,[^;]*placementFlags\)/s, '黑底必须同步跟随');
+  assert.match(blk, /QueueSourceMove\(/, '缩略图激活后 source 交给后台线程');
+  assert.match(blk, /StartSourceMoveWorker\(\)|QueueSourceMove\(/);
+  // 启停在 OnShown / OnFormClosed 成对出现。
+  assert.match(helper, /StartSourceMoveWorker\(\);/);
+  assert.match(helper, /StopSourceMoveWorker\(\);/);
+  // 自愈：位置和尺寸都要查。
+  assert.match(helper, /bool posOff = Math\.Abs\(self\.Left - hostRect\.Left\) > 2/);
+});
+
+check('移动事件必须合并，否则队列里堆满重复的 FollowHost', () => {
+  // 拖动时 LOCATIONCHANGE 每帧来好几条，每条都 BeginInvoke 一次等于每帧白做几十次跨进程调用，
+  // 既拖慢跟手又放大被 CEF 堵住的概率。
+  assert.match(helper, /void QueueFollowHost\(\)/);
+  assert.match(helper, /if \(followQueued \|\| IsDisposed \|\| !IsHandleCreated\) return;/,
+    '已排队就不能再排，队列里最多一个');
+  assert.match(helper, /followQueued = false;\s*\n\s*try \{ FollowHost\(\); \}/,
+    '任务开始执行时必须先清标记，否则后续事件全被吞掉');
+  // 钩子回调必须走合并入口，而不是直接 BeginInvoke。
+  const hookAt = helper.indexOf('void InstallLocationHook()');
+  const hook = helper.slice(hookAt, helper.indexOf('\n  }', hookAt));
+  assert.match(hook, /QueueFollowHost\(\)/);
+  assert.ok(!/BeginInvoke\(new Action\(delegate\(\) \{ FollowHost\(\) \}\); \}\)/.test(hook),
+    '钩子里不要保留裸 BeginInvoke(FollowHost)');
+});
+
+check('底座必须是色彩键透明，不能涂纯黑', () => {
+  // 透明底座：即便它慢半拍露出来，透出的也是桌面而不是一块黑。底色必须是壁纸里几乎不可能
+  // 出现的魔法色 —— 用纯黑当键会把暗色壁纸里的纯黑像素一起抠成透明，壁纸会破洞。
+  assert.ok(!/BackColor = Color\.Black;/.test(helper), '底座不能再涂纯黑');
+  assert.match(helper, /BackColor = Color\.FromArgb\(255, 0, 1, 0\);/);
+  assert.match(helper, /TransparencyKey = BackColor;/, '必须在句柄创建后挂色彩键');
+});
+
+check('圆角在运行时可变，并带 dirty 标记绕过尺寸短路', () => {
+  assert.ok(!/readonly int windowCornerRadius;/.test(helper), '圆角字段不能是 readonly，否则拖滑块永远改不了壁纸');
+  assert.match(helper, /bool cornerRadiusDirty;/);
+  assert.match(helper, /!cornerRadiusDirty && geometryApplied/, 'dirty 时必须重算半径而不是复用 lastRadius');
+  assert.match(helper, /if \(command\.StartsWith\("R\|", StringComparison\.Ordinal\)\)/,
+    '缺少 R| 命令就无法在运行时改原生表面圆角');
+  assert.match(helper, /cornerRadiusDirty = false;/, '每轮 FollowHost 结束必须清掉 dirty');
 });
 
 console.log('\nissue #5 event-driven follow: all checks passed');

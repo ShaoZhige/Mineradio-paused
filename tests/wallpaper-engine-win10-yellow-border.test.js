@@ -33,13 +33,13 @@ assert.match(
 );
 assert.match(
   captureBlock,
-  /if \(options\.sourceIdOnly === true\)[\s\S]{0,180}DISPLAY_MEDIA_FALLBACK_DISABLED/,
-  'source-id-only mode must explicitly disable display-media fallback'
+  /if \(options\.sourceIdOnly === true && !allowDisplayMediaFallback\)[\s\S]{0,180}DISPLAY_MEDIA_FALLBACK_DISABLED/,
+  'source-id-only mode must explicitly disable display-media fallback unless the opt-in flag is set'
 );
 assert.match(
   captureBlock,
-  /if \(options\.sourceIdOnly !== true && typeof navigator\.mediaDevices\.getDisplayMedia === 'function'\)/,
-  'getDisplayMedia may only run outside source-id-only mode'
+  /if \(\(options\.sourceIdOnly !== true \|\| allowDisplayMediaFallback\) && typeof navigator\.mediaDevices\.getDisplayMedia === 'function'\)/,
+  'getDisplayMedia may only run outside source-id-only mode, or with the opt-in flag'
 );
 
 const scenePrepareBlock = sourceBlock(
@@ -47,10 +47,12 @@ const scenePrepareBlock = sourceBlock(
   'window.__mineradioPrepareWallpaperEngineCapture = async function',
   'window.__mineradioPrepareWallpaperEngineGlassCapture = async function'
 );
+// 例外：捕获渲染是用户显式选项，开着的时候允许解锁 display-media 兜底（精确源在新版 Electron
+// 上会报 "Could not start video source"，不开兜底就等于整个功能不可用）。默认仍然是严格模式。
 assert.match(
   scenePrepareBlock,
-  /openWallpaperEngineCaptureStream\(sessionId, fps, sourceId, \{\s*sourceIdOnly: true,\s*purpose: 'scene'\s*\}\)/,
-  'WE scene pak preparation must not fall back to getDisplayMedia on Windows 10'
+  /sourceIdOnly: true,[\s\S]{0,160}allowDisplayMediaFallback: fx\.wallpaperEngineCaptureRender === true/,
+  '场景准备默认仍必须禁用 display-media 兜底，只有捕获渲染开关才能解锁'
 );
 assert.doesNotMatch(
   scenePrepareBlock,

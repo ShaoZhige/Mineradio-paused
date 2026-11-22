@@ -43,6 +43,9 @@ var wallpaperEngineGlassCaptureToken = 0;
 var wallpaperEngineGlassCaptureRetryTimer = 0;
 var wallpaperEngineGlassCaptureRetryAttempt = 0;
 var wallpaperEngineCaptureMode = '';
+// 捕获渲染的"这一轮已回退过"标记：失败一次就退回原生，别在 5 秒一圈的重启里死循环。
+// One-shot fallback flag: after a capture failure this round, go native instead of looping.
+var wallpaperEngineCaptureRenderFallback = false;
 var wallpaperEngineNativeSessionId = '';
 var wallpaperEngineHostBoundsRestartTimer = 0;
 var wallpaperEngineHostBoundsUnsubscribe = null;
@@ -848,7 +851,11 @@ async function openWallpaperEngineCaptureStream(sessionId, fps, sourceId, option
     }
   }
   var displayError = null;
-  if (options.sourceIdOnly === true) {
+  // 默认仍然禁用：Win10 上这条路会带一圈系统捕获黄框。只有调用方显式要（捕获渲染开关打开）
+  // 才允许兜底 —— 那时候精确源这条路在新版 Electron 上根本起不来，宁可有边框也得能出画面。
+  // Off by default (Win10 draws a capture border); only an explicit opt-in unlocks it.
+  var allowDisplayMediaFallback = options.sourceIdOnly === true && options.allowDisplayMediaFallback === true;
+  if (options.sourceIdOnly === true && !allowDisplayMediaFallback) {
     displayError = new Error('DISPLAY_MEDIA_FALLBACK_DISABLED');
     recordAttempt('display-media-disabled', null, displayError);
   }
@@ -856,7 +863,7 @@ async function openWallpaperEngineCaptureStream(sessionId, fps, sourceId, option
   // getDisplayMedia can report cursor: always even when never was requested;
   // retain it as the visual compatibility fallback and record that fact rather
   // than treating the requested constraint as proof of cursor suppression.
-  if (options.sourceIdOnly !== true && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
+  if ((options.sourceIdOnly !== true || allowDisplayMediaFallback) && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
     try {
       var displayStream = await navigator.mediaDevices.getDisplayMedia({
         audio: false,
@@ -886,8 +893,14 @@ window.__mineradioPrepareWallpaperEngineCapture = async function (sessionId, fps
   sessionId = String(sessionId || '');
   if (!/^[a-f0-9]{24}$/i.test(sessionId)) return { ok: false, error: 'WALLPAPER_ENGINE_SESSION_INVALID' };
   try {
+    // 先走精确源（无边框、无光标），失败再走 display-media。精确源这条路在新版 Electron 上
+    // 实测会报 "Could not start video source"，所以「捕获渲染」开启时解锁兜底；未开启时保持
+    // 严格模式（Win10 的捕获黄框只在用户主动选择后才可接受）。
+    // Exact source first; the display-media fallback is unlocked only by the opt-in setting.
     var stream = await openWallpaperEngineCaptureStream(sessionId, fps, sourceId, {
       sourceIdOnly: true,
+      // 只有用户显式开启「WE 捕获渲染」时才解锁 display-media 兜底（见下）。
+      allowDisplayMediaFallback: fx.wallpaperEngineCaptureRender === true,
       purpose: 'scene'
     });
     storeWallpaperEnginePreparedCaptureStream(sessionId, stream);
@@ -1108,10 +1121,11 @@ window.__mineradioPrepareWallpaperEngineDesktopPreview = function (sessionId, re
   });
 };
 
-function reportWallpaperEngineCaptureResult(sessionId, ok) {
+function reportWallpaperEngineCaptureResult(sessionId, ok, extra) {
   var api = wallpaperEngineDesktopApi();
   if (!api || typeof api.reportWallpaperEngineCaptureResult !== 'function') return Promise.resolve({ ok: false });
-  return Promise.resolve(api.reportWallpaperEngineCaptureResult({ sessionId: String(sessionId || ''), ok: ok === true })).catch(function () {
+  var payload = Object.assign({ sessionId: String(sessionId || ''), ok: ok === true }, extra && typeof extra === 'object' ? extra : {});
+  return Promise.resolve(api.reportWallpaperEngineCaptureResult(payload)).catch(function () {
     return { ok: false };
   });
 }
@@ -1149,6 +1163,14 @@ function waitForWallpaperEngineVideoFirstFrame(video, item, token, sessionId, ru
     if (!wallpaperEngineNativeStartIsCurrent(item, token)
       || wallpaperEngineNativeSessionId !== sessionId
       || wallpaperEngineCaptureStream !== video.srcObject) return;
+    // 捕获渲染（DWM 表面）模式下，主进程在返回前就已经确认过表面并清掉了 grant，
+    // 这里不能再发 ACK（发了也匹配不上，只会被判失败）。
+    if (wallpaperEngineCaptureMode === 'main-prepared-glass') {
+      calibrateWallpaperEngineCaptureViewport(video, runtime);
+      wallpaperEngineLayerReady('video', token);
+      clearWallpaperEngineFreezeFrame(false);
+      return;
+    }
     reportWallpaperEngineCaptureResult(sessionId, true).then(function (acknowledgement) {
       if (!wallpaperEngineNativeStartIsCurrent(item, token)
         || wallpaperEngineNativeSessionId !== sessionId
@@ -1327,6 +1349,9 @@ function scheduleWallpaperEngineGlassSamplerCapture(sessionId, layerToken, attem
   wallpaperEngineGlassCaptureRetryAttempt = attempt;
   if (attempt > 4 || layerToken !== wallpaperEngineLayerToken
     || String(wallpaperEngineNativeSessionId || '') !== String(sessionId || '')) return false;
+  // 捕获渲染把 DWM 表面几何设成了整窗（否则采不到完整画面）；玻璃采样会把它改回控制栏那块，
+  // 两边抢同一份几何 —— 开了捕获渲染就先让玻璃采样让路。
+  if (fx.wallpaperEngineCaptureRender === true) return false;
   wallpaperEngineGlassCaptureRetryTimer = setTimeout(function () {
     wallpaperEngineGlassCaptureRetryTimer = 0;
     ensureWallpaperEngineGlassSamplerCapture(sessionId, layerToken, attempt);
@@ -1467,7 +1492,10 @@ async function startWallpaperEngineNativeBackground(item, token) {
     width: Math.max(640, Math.min(3840, Math.round(window.innerWidth || 1920))),
     height: Math.max(360, Math.min(2160, Math.round(window.innerHeight || 1080))),
     fps: wallpaperEngineCaptureFpsPreference(),
-    silentWindows: fx.wallpaperEngineSilentWindows !== false
+    silentWindows: fx.wallpaperEngineSilentWindows !== false,
+    // 捕获渲染（默认关）：让主进程把壁纸窗口抓成视频流，改由本进程绘制，绕开跨窗口合成。
+    // 只走原生场景这条路（MR 自己播的视频壁纸不经过这里）。
+    captureRender: fx.wallpaperEngineCaptureRender === true && !wallpaperEngineCaptureRenderFallback
   });
   if (!result || result.ok === false) {
     var failedSessionId = String(result && result.sessionId || '');
@@ -1518,10 +1546,44 @@ async function startWallpaperEngineNativeBackground(item, token) {
     clearWallpaperEngineFreezeFrame(false);
     return;
   }
-  stopWallpaperEngineGlassCaptureStream(false);
-  var stream = takeWallpaperEnginePreparedCaptureStream(sessionId);
+  // 捕获渲染：后台抓帧进程把 WE 播窗转成本机 MJPEG，这里只挂一个 <img>，不走 MediaStream。
+  // Chromium 完全抓不到那个窗口（DirectComposition），所以只能走这条。
+  if (result.captureMode === 'capture-worker' && result.captureStreamUrl) {
+    stopWallpaperEngineGlassCaptureStream(false);
+    stopWallpaperEnginePreparedCaptureStreams(sessionId);
+    var captureImage = document.getElementById('wallpaper-engine-capture-image');
+    var captureLayer = document.getElementById('wallpaper-engine-layer');
+    if (!captureImage || !captureLayer) {
+      await stopWallpaperEngineNativeSession(sessionId);
+      throw new Error('WALLPAPER_ENGINE_VIDEO_LAYER_MISSING');
+    }
+    stopWallpaperEngineCaptureStream(true);
+    captureImage.src = String(result.captureStreamUrl);
+    captureLayer.classList.add('capture-ready');
+    wallpaperEngineCaptureMode = 'capture-worker';
+    wallpaperEngineNativeSessionId = sessionId;
+    wallpaperEngineLayerReady('video', token);
+    clearWallpaperEngineFreezeFrame(false);
+    // 🔴 必须发这个 ACK：主进程只有"确认过"的会话才会跟随宿主矩形做对齐（host-bounds follow）。
+    // 之前这里直接 return，会话永远不确认 → 用户拖动窗口时 WE 原生窗口停在旧位置，
+    // 屏幕上就多出一块没对齐的壁纸（截图里那个比窗口大一圈的蓝块）。
+    // skipDwmSurface：确认只做静音，不再起 DWM 缩略图表面（否则又多一层）。
+    reportWallpaperEngineCaptureResult(sessionId, true, { skipDwmSurface: true }).then(function (acknowledgement) {
+      if (!wallpaperEngineNativeStartIsCurrent(item, token)) return;
+      if (acknowledgement && acknowledgement.captureReady === true) return;
+      // 确认失败不代表画面坏了（捕获层已经在跑），记下来即可。
+      wallpaperEngineRuntimeError = String(acknowledgement && acknowledgement.error || 'WALLPAPER_CAPTURE_CONFIRMATION_FAILED');
+    });
+    return;
+  }
+  // 捕获渲染用的是 DWM 辅助表面的预制流（WE 场景窗口本身抓不到）；普通兜底路径仍取我们自己的流。
+  var glassCaptureRender = result.captureMode === 'main-prepared-glass';
+  var stream = glassCaptureRender
+    ? takeWallpaperEnginePreparedGlassCaptureStream(sessionId)
+    : takeWallpaperEnginePreparedCaptureStream(sessionId);
   if (!stream) {
-    await reportWallpaperEngineCaptureResult(sessionId, false);
+    // 捕获渲染这个模式下主进程已经确认过表面，渲染端不再发 ACK（发了也没有对应的 grant）。
+    if (!glassCaptureRender) await reportWallpaperEngineCaptureResult(sessionId, false);
     await stopWallpaperEngineNativeSession(sessionId);
     throw new Error(result.captureError || 'WALLPAPER_CAPTURE_PREPARED_STREAM_MISSING');
   }
@@ -1540,7 +1602,9 @@ async function startWallpaperEngineNativeBackground(item, token) {
   }
   stopWallpaperEngineCaptureStream(true);
   wallpaperEngineCaptureStream = stream;
-  wallpaperEngineCaptureMode = result.captureMode === 'main-prepared' ? 'main-prepared' : 'renderer-prepared';
+  wallpaperEngineCaptureMode = glassCaptureRender
+    ? 'main-prepared-glass'
+    : (result.captureMode === 'main-prepared' ? 'main-prepared' : 'renderer-prepared');
   wallpaperEngineNativeSessionId = sessionId;
   video.muted = true;
   video.loop = false;
@@ -1655,7 +1719,13 @@ function clearWallpaperEngineLayerMedia(delay) {
   var video = document.getElementById('wallpaper-engine-video');
   function release() {
     if (token !== wallpaperEngineLayerToken) return;
-    if (layer) layer.classList.remove('ready', 'image-ready', 'video-ready', 'engine-ready', 'freeze-ready', 'preview-source');
+    if (layer) layer.classList.remove('ready', 'image-ready', 'video-ready', 'engine-ready', 'freeze-ready', 'preview-source', 'capture-ready');
+    // 捕获渲染的 <img> 必须断流，否则服务端那个 MJPEG 连接一直挂着。
+    var captureImage = document.getElementById('wallpaper-engine-capture-image');
+    if (captureImage) {
+      captureImage.removeAttribute('src');
+      captureImage.onerror = null;
+    }
     clearWallpaperEngineFreezeFrame(true);
     if (image) {
       image.onload = null;
@@ -1827,6 +1897,24 @@ function wallpaperEngineLayerFailed(item, attemptedKind, token, failureError) {
   showToast(wallpaperEngineLibraryText('we_media_unavailable'));
 }
 
+
+// 捕获渲染失败：只回退一次到原生渲染，并明确告诉用户为什么画面"回去了"。
+// Returns true when the failure was handled by falling back to native rendering.
+function fallbackWallpaperEngineCaptureRender(item, error, token) {
+  if (wallpaperEngineCaptureRenderFallback) return false;
+  if (!(fx.wallpaperEngineCaptureRender === true)) return false;
+  var text = String(error && (error.code || error.message) || error || '');
+  if (!/WALLPAPER_CAPTURE_|WALLPAPER_ENGINE_CAPTURE_/.test(text)) return false;
+  wallpaperEngineCaptureRenderFallback = true;
+  wallpaperEngineRuntimeError = '';
+  try {
+    showToast(bindingsShelfImmersiveText('bind_we_capture_fallback', "捕获渲染失败，已临时回退到原生渲染（设置保持开启）"));
+  } catch (e) { }
+  try { logEvent('wallpaper', 'capture-render-fallback', { detail: text.slice(0, 200) }, 'warn'); } catch (e) { }
+  applyWallpaperEngineBackground(item, false);
+  return true;
+}
+
 function applyWallpaperEngineBackground(item, quiet) {
   item = item || wallpaperEngineProjectById(wallpaperEngineSelection.id);
   if (!item || !wallpaperEngineSelection.active) {
@@ -1859,18 +1947,31 @@ function applyWallpaperEngineBackground(item, quiet) {
   if (!layer || !image || !video) return false;
   updateWallpaperEngineEntryUi(wallpaperEngineLibraryText('we_loading_prefix') + (item.title || wallpaperEngineLibraryText('we_wallpaper')) + '…');
 
+  // 引擎冷启是全部模式里最贵的一段（预热后 0.65s、冷启 3.8s+），只许启动一次：
+  // 旧帧渐隐期间可以提前并行预载（见下方分支），淡出收尾与常规路径都从这里走。
+  // The engine cold start is the most expensive leg (0.65s warm, 3.8s+ cold), so it may be
+  // kicked off in parallel while the outgoing DOM frame is still fading; both the fade
+  // settle and the plain path funnel through here, and it never starts twice.
+  var nativePrefetchStarted = false;
+  function ensureNativeStarted() {
+    if (nativePrefetchStarted) return;
+    nativePrefetchStarted = true;
+    startWallpaperEngineNativeBackground(item, token).catch(function (error) {
+      if (token !== wallpaperEngineLayerToken) return;
+      if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED|WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE/.test(String(error && (error.code || error.message) || error || ''))) return;
+      console.warn('[Wallpaper Engine Scene]', error);
+      if (fallbackWallpaperEngineCaptureRender(item, error, token)) return;
+      wallpaperEngineRuntimeError = wallpaperEngineRuntimeErrorText(error);
+      wallpaperEngineLayerFailed(item, kind, token, error);
+    });
+  }
+
   function beginWallpaperEngineMediaLoad() {
     if (token !== wallpaperEngineLayerToken || !wallpaperEngineSelection.active || wallpaperEngineSelection.id !== item.id) return;
     if (kind === 'engine' && wallpaperEngineNativeHostUnavailable()) return;
     clearWallpaperEngineLayerMedia(0);
     if (kind === 'engine') {
-      startWallpaperEngineNativeBackground(item, token).catch(function (error) {
-        if (token !== wallpaperEngineLayerToken) return;
-        if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED|WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE/.test(String(error && (error.code || error.message) || error || ''))) return;
-        console.warn('[Wallpaper Engine Scene]', error);
-        wallpaperEngineRuntimeError = wallpaperEngineRuntimeErrorText(error);
-        wallpaperEngineLayerFailed(item, kind, token, error);
-      });
+      ensureNativeStarted();
     } else if (kind === 'media' && item.mediaType === 'video') {
       video.muted = true;
       video.loop = true;
@@ -1890,7 +1991,19 @@ function applyWallpaperEngineBackground(item, quiet) {
     }
   }
 
-  if (preserveOutgoingFrame) {
+  // 切换等待只对"旧帧真的画在 DOM 里"有意义。DWM 模式下可见画面在原生表面，
+  // #wallpaper-engine-layer 整个被 CSS 隐藏，440ms 的渐隐对旧场景毫无视觉作用，
+  // 却把新壁纸的启动链（引擎冷启最长 3.8s+）推迟到淡出之后才开始。所以分三态：
+  //   · 旧画面在原生表面 → 跳过等待，立即加载（Scene → Scene / Scene → 媒体省 460ms）
+  //   · 旧画面在 DOM 且新壁纸是 Scene → 保留渐隐，引擎冷启与淡出并行预载
+  //   · 其余 → 原有串行（DOM 媒体切换保留渐隐视觉）
+  // The fade wait only matters when the outgoing frame is really painted in the DOM. In DWM
+  // mode the visible picture lives on the native surface and this layer is CSS-hidden, so the
+  // 440ms fade delayed every new wallpaper's start chain for no visual gain. Three paths:
+  // native outgoing → skip the wait entirely; DOM outgoing → keep the fade but start the
+  // engine cold-start in parallel with it; everything else keeps the original serial flow.
+  if (preserveOutgoingFrame && !document.body.classList.contains('wallpaper-engine-dwm-active')) {
+    if (kind === 'engine' && !wallpaperEngineNativeHostUnavailable()) ensureNativeStarted();
     clearWallpaperEngineLayerMedia(WALLPAPER_ENGINE_SWITCH_FADE_MS);
     wallpaperEngineSwitchTimer = setTimeout(function () {
       wallpaperEngineSwitchTimer = 0;
@@ -2049,6 +2162,7 @@ function restartWallpaperEngineAfterHostBoundsChange() {
     if (token !== wallpaperEngineLayerToken) return;
     if (wallpaperEngineNativeHostUnavailable() || /WALLPAPER_ENGINE_START_SUPERSEDED|WALLPAPER_ENGINE_DESKTOP_BACKDROP_ACTIVE/.test(String(error && (error.code || error.message) || error || ''))) return;
     console.warn('[Wallpaper Engine Scene bounds restart]', error);
+    if (fallbackWallpaperEngineCaptureRender(item, error, token)) return;
     wallpaperEngineRuntimeError = wallpaperEngineRuntimeErrorText(error);
     wallpaperEngineLayerFailed(item, 'engine', token);
   });
