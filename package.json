@@ -113,6 +113,7 @@
     "asarUnpack": [
       "build/icon.ico",
       "desktop/halo-hid-server.js",
+      "desktop/wallpaper-engine-capture-loop.ps1",
       "node_modules/node-hid/**",
       "node_modules/pkg-prebuilds/**"
     ],

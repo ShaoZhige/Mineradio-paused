@@ -14,7 +14,22 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
-const SCRIPT_PATH = path.join(__dirname, 'wallpaper-engine-capture-loop.ps1');
+// 🔴 抓帧脚本必须交给 PowerShell 去执行，而 PowerShell **不认 asar**：
+// 打包后（asar = true）`__dirname` 落在 `resources\app.asar\desktop`，`-File <app.asar>\…ps1`
+// 只会得到「文件不存在」，表现为安装版里"抓帧一直失败、退回封面图"，而本地跑（真实目录）完全正常。
+// 所以这个 .ps1 在 package.json 的 build.asarUnpack 里解包，这里把路径改到 app.asar.unpacked。
+// 开发期没有 app.asar 段，替换不会命中，直接用 __dirname。
+// The .ps1 is executed by PowerShell, which cannot read inside app.asar: it must live in
+// app.asar.unpacked and the path has to be rewritten (same trick as halo-hid-server.js).
+const SCRIPT_PATH = (() => {
+  const plain = path.join(__dirname, 'wallpaper-engine-capture-loop.ps1');
+  const unpacked = plain.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2');
+  if (unpacked === plain) return plain; // 开发期：目录里就是真实文件
+  try {
+    if (fs.existsSync(unpacked)) return unpacked;
+  } catch (error) { /* 读不到就退回原路径，让下游报出真实错误 */ }
+  return plain;
+})();
 const MAX_FRAME_BYTES = 32 * 1024 * 1024;
 
 class WallpaperEngineCaptureWorker {

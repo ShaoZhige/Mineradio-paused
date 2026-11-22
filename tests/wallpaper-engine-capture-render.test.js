@@ -137,3 +137,22 @@ test('捕获模式用 DWM cloak 隐藏原生窗口（隐藏后仍能抓帧）', 
     '起完捕获要把原生窗口 cloaked，否则屏幕上会留一块没对齐的壁纸');
   assert.match(main, /stop-scene'[\s\S]{0,400}setActiveWindowCloaked\('', false\)/);
 });
+
+// 2026-11-22 事故：本地跑抓帧正常，装好以后怎么开都没画面。
+// 抓帧脚本是用 `powershell.exe -File <ps1>` 执行的，而 PowerShell **不认 asar**：
+// 打包后路径落在 resources\app.asar\desktop\…，它只会报文件不存在。脚本必须解包到
+// app.asar.unpacked，worker 里的路径也要跟着改写。两条缺一不可。
+test('抓帧脚本必须解包到 asar 外，worker 的路径也要跟着改写', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const unpack = (pkg.build && pkg.build.asarUnpack) || [];
+  assert.ok(
+    unpack.indexOf('desktop/wallpaper-engine-capture-loop.ps1') >= 0,
+    'wallpaper-engine-capture-loop.ps1 必须在 build.asarUnpack 里，否则安装版里 PowerShell 打不开'
+  );
+
+  const worker = read('desktop/wallpaper-engine-capture-worker.js');
+  // 脚本必须是 -File 方式传入（这才需要解包）；将来换成 -EncodedCommand 这条约束可以放宽。
+  assert.match(worker, /'-File', SCRIPT_PATH/, '抓帧脚本当前以 -File 传入 PowerShell');
+  assert.ok(worker.includes('app.asar.unpacked'),
+    '打包后要把 app.asar 换成 app.asar.unpacked，否则 -File 指向归档内部');
+});
