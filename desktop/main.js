@@ -3792,6 +3792,9 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
       if (!captureWorker || captureWorker.ok !== true || !captureWorker.url) {
         try { appLogger().event('wallpaper/capture-render-failed', { detail: String((captureWorker && (captureWorker.detail || captureWorker.error)) || 'worker-failed').slice(0, 200), sessionId: grant.sessionId }, 'error'); } catch { }
         clearWallpaperEngineCaptureGrant(grant.sessionId);
+        // 抓帧失败时这块底座也要收起来：会话马上 stop，留着它只会是屏幕上的一块黑板。
+        // Hide it on failure too: the session is about to stop, a lingering surface is pure black.
+        try { wallpaperEngineRuntime.setDwmSurfaceVisible(grant.sessionId, false); } catch { }
         await wallpaperEngineRuntime.stop(grant.sessionId).catch(() => {});
         return {
           ok: false,
@@ -3835,7 +3838,23 @@ ipcMain.handle('mineradio-wallpaper-engine-start-scene', async (event, payload =
           } catch { }
         }
       }
-      try { appLogger().event('wallpaper/capture-render-ready', { sessionId: grant.sessionId, source: 'gdi-worker', port: captureWorker.port, hideMode }, 'info'); } catch { }
+      // 🔴 抓帧模式下必须把 DWM 底座收起来：原生播窗已经被 cloak / 挪到虚拟屏外，
+      // DWM 不合成不可见窗口，这块底座的缩略图必然全黑 —— 用户看到的就是一块标题为
+      // "Mineradio WE DWM Surface" 的黑窗口。壁纸此时由抓帧画面自己画，底座没有用途。
+      // Hide the base surface in capture mode: its source window is cloaked/offscreen, so the
+      // DWM thumbnail is inevitably black while the captured frame paints the wallpaper.
+      let surfaceHidden = false;
+      try {
+        const hidden = wallpaperEngineRuntime.setDwmSurfaceVisible(grant.sessionId, false);
+        surfaceHidden = !!(hidden && hidden.ok === true);
+      } catch (error) {
+        try {
+          appLogger().event('wallpaper/capture-surface-hide-failed', {
+            detail: String((error && error.message) || error).slice(0, 160),
+          }, 'warn');
+        } catch { }
+      }
+      try { appLogger().event('wallpaper/capture-render-ready', { sessionId: grant.sessionId, source: 'gdi-worker', port: captureWorker.port, hideMode, surfaceHidden }, 'info'); } catch { }
       return { ...result, ...embedded, capturePrepared: true, captureMode: 'capture-worker', captureStreamUrl: captureWorker.url };
     }
     // Native Scene mode is composed by DWM, not captured as a Chromium video.
@@ -4004,6 +4023,16 @@ ipcMain.on('mineradio-wallpaper-engine-glass-surface', (event, payload = {}) => 
     || mainWindow.isMinimized()
     || wallpaperEngineHostVisibilitySuspended)) return;
   try { wallpaperEngineRuntime.updateGlassSurface(sessionId, payload); } catch (_) { }
+});
+
+// 渲染层随时可以把这块底座收回后台：它只服务底部控制栏的玻璃采样，
+// 任何"采样失败 / 不需要毛玻璃"的时候都应该看不见，否则就是一块黑板。
+// The renderer may park the base surface any time; it only exists to feed the glass sampler.
+ipcMain.on('mineradio-wallpaper-engine-hide-dwm-surface', (event, payload = {}) => {
+  if (!isTrustedWallpaperEngineIpc(event) || typeof wallpaperEngineRuntime.setDwmSurfaceVisible !== 'function') return;
+  const sessionId = String(payload && payload.sessionId || '');
+  if (!/^[a-f0-9]{24}$/i.test(sessionId)) return;
+  try { wallpaperEngineRuntime.setDwmSurfaceVisible(sessionId, false); } catch (_) { }
 });
 
 ipcMain.on('mineradio-wallpaper-engine-visual-settings', (event, payload = {}) => {

@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   reportWallpaperEngineCaptureResult: (payload) => ipcRenderer.invoke('mineradio-wallpaper-engine-capture-result', payload || {}),
   prepareWallpaperEngineGlassCapture: (payload) => ipcRenderer.invoke('mineradio-wallpaper-engine-prepare-glass-capture', payload || {}),
   activateWallpaperEngineDwmSurface: (payload) => ipcRenderer.invoke('mineradio-wallpaper-engine-activate-dwm-surface', payload || {}),
+  hideWallpaperEngineDwmSurface: (payload) => ipcRenderer.send('mineradio-wallpaper-engine-hide-dwm-surface', payload || {}),
   updateWallpaperEngineGlassSurface: (payload) => ipcRenderer.send('mineradio-wallpaper-engine-glass-surface', payload || {}),
   updateWallpaperEngineVisualSettings: (payload) => ipcRenderer.send('mineradio-wallpaper-engine-visual-settings', payload || {}),
   setWindowCornerRadius: (radius) => ipcRenderer.send('mineradio-window-corner-radius', Number(radius) || 0),

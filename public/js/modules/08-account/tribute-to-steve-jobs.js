@@ -460,8 +460,10 @@ function TributeToSteveJobs() {
       // 用户看到的就是"下方控制台进度来回跳"。
       // The resume marker must be cleared here exactly like the local path does; otherwise the
       // heartbeat keeps painting the stale startup snapshot while the poll paints the real clock.
-      pendingPlaybackResumeAt = 0;
-      externalPlaybackState = {
+    pendingPlaybackResumeAt = 0;
+    // AM 也是外部播放：同样把会变黑的壁纸底座收后台（见 07-fx/03）。
+    if (typeof hideWallpaperEngineDwmSurfaceForExternalPlayback === 'function') hideWallpaperEngineDwmSurfaceForExternalPlayback();
+    externalPlaybackState = {
         provider: 'applemusic',
         song: song,
         catalogId: catalogId,

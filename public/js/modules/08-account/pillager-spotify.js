@@ -869,6 +869,8 @@ function PillagerSpotify() {
       spotifyRemoteDeactivate();
       return Promise.resolve(false);
     }
+    // SP 起播就把壁纸底座收后台（那块 DWM 缩略图在外部播放时会变黑，见 07-fx/03）。
+    if (typeof hideWallpaperEngineDwmSurfaceForExternalPlayback === 'function') hideWallpaperEngineDwmSurfaceForExternalPlayback();
     if (!spotifyRemoteAvailable || !spotifyRemoteState) {
       // 客户端可能压根没开：先试着用调试端口拉起来，拉不起来就交给上层换源。
       return spotifyRemoteEnsureChannel().then(function (ready) {

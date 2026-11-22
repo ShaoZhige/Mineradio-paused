@@ -1492,9 +1492,16 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   const uint DWM_TNP_VISIBLE = 0x00000008;
   const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x00000010;
   const uint SWP_NOSIZE = 0x0001;
+  const uint SWP_NOMOVE = 0x0002;
   const uint SWP_NOACTIVATE = 0x0010;
   const uint SWP_SHOWWINDOW = 0x0040;
   const uint SWP_NOZORDER = 0x0004;
+  // 「显示但不抢焦点」的一组标志：D 命令用它上屏（见 inputThread 里的 D 分支）。
+  // Show-without-activating flags used by the D command.
+  const uint SWP_SHOW_NOACTIVATE = SWP_SHOWWINDOW | SWP_NOACTIVATE;
+  const uint SWP_SHOW_NOSIZE = SWP_NOSIZE;
+  const uint SWP_SHOW_NOMOVE = SWP_NOMOVE;
+  const uint SWP_SHOW_NOZORDER = SWP_NOZORDER;
   // 注意：不要给这两个 SetWindowPos 加 SWP_ASYNCWINDOWPOS。试过 —— 异步请求会在 WE 的
   // CEF 线程队列里堆积，壁纸变成"一条一条往外挪"的超慢速追赶；限流又会在窗口外留残影。
   // Do NOT add SWP_ASYNCWINDOWPOS here: queued async moves make the wallpaper crawl.
@@ -1864,10 +1871,43 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
           if (String.Equals(command, "D", StringComparison.Ordinal)) {
             try {
               if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() {
-                ActivateThumbnail();
-                Console.WriteLine("{\"ok\":true,\"dwm\":true,\"active\":true,\"surfaceWindowHandle\":"
-                  + Handle.ToInt64() + "}");
-                Console.Out.Flush();
+                // 只有缩略图注册成功才允许上屏：ActivateThumbnail 失败就保持隐藏。
+                // 用 SWP_SHOWWINDOW 而不是 Form.Show()，避免把焦点从 MR 主窗口抢走。
+                // Only a successfully registered thumbnail may make the surface visible; show it
+                // with SWP_SHOWWINDOW so it never takes focus away from the main window.
+                try {
+                  ActivateThumbnail();
+                  SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0,
+                    SWP_SHOW_NOACTIVATE | SWP_SHOW_NOSIZE | SWP_SHOW_NOMOVE | SWP_SHOW_NOZORDER);
+                  Console.WriteLine("{\"ok\":true,\"dwm\":true,\"active\":true,\"surfaceWindowHandle\":"
+                    + Handle.ToInt64() + "}");
+                  Console.Out.Flush();
+                } catch (Exception activationError) {
+                  Console.WriteLine("{\"ok\":false,\"dwm\":true,\"active\":false,\"error\":\""
+                    + activationError.GetType().Name + "\"}");
+                  Console.Out.Flush();
+                }
+              }));
+            } catch { }
+            continue;
+          }
+          // V|0 / V|1: hide or show the surface window itself.
+          // 抓帧渲染时壁纸由渲染进程自己画，这块底座没有内容可显示，留在屏幕上就是一块黑板
+          // （用户看到的 "Mineradio WE DWM Surface" 黑色窗口）。FollowHost 用的 SetWindowPos
+          // 标志里没有 SWP_SHOWWINDOW，所以 Hide() 之后不会被下一拍重新显示出来。
+          // The follow timer never passes SWP_SHOWWINDOW, so a Hide() here sticks.
+          if (command.StartsWith("V|", StringComparison.Ordinal)) {
+            string visibleValue = command.Substring(2);
+            if (!String.Equals(visibleValue, "0", StringComparison.Ordinal)
+              && !String.Equals(visibleValue, "1", StringComparison.Ordinal)) continue;
+            bool makeVisible = String.Equals(visibleValue, "1", StringComparison.Ordinal);
+            try {
+              if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() {
+                try {
+                  if (makeVisible) Show(); else Hide();
+                  Console.WriteLine("{\"ok\":true,\"visible\":" + (makeVisible ? "true" : "false") + "}");
+                  Console.Out.Flush();
+                } catch { }
               }));
             } catch { }
             continue;
@@ -1957,6 +1997,16 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
       + ",\"surfaceWindowHandle\":" + Handle.ToInt64() + ",\"desktopIconLayering\":"
       + (desktopIconLayeringEnabled ? "true" : "false") + "}");
     Console.Out.Flush();
+    // 默认隐藏：这块底座只有**缩略图注册成功**之后才允许出现在屏幕上（见 D 命令）。
+    // 注册失败、源窗口不可见、抓帧模式、会话中途停止……所有失败路径都停在"看不见"，
+    // 不会再留下一块黑色 "Mineradio WE DWM Surface"。以前它一建出来就是可见的，
+    // 于是任何一次激活失败都等于屏幕上多一块黑板。
+    // Hidden until a thumbnail has actually been registered; every failure path stays invisible.
+    try {
+      BeginInvoke(new Action(delegate() {
+        try { if (!IsDisposed && IsHandleCreated) Hide(); } catch { }
+      }));
+    } catch { }
   }
 
   protected override void OnFormClosed(FormClosedEventArgs eventArgs) {
@@ -3021,6 +3071,28 @@ class WallpaperEngineRuntime {
       await this.sleep(20);
     }
     throw runtimeError('WALLPAPER_ENGINE_DWM_SURFACE_FAILED');
+  }
+
+  // 显示/隐藏 DWM 底座窗口本身。抓帧渲染时底座没有内容（原生播窗被 cloak 或挪到屏外，
+  // DWM 不会合成不可见窗口），必须收起来，否则屏幕上就是一块黑色 "Mineradio WE DWM Surface"。
+  // Show/hide the base surface window itself; capture rendering leaves it with nothing to show.
+  setDwmSurfaceVisible(expectedSessionId = '', visible = false) {
+    const session = this.active;
+    expectedSessionId = String(expectedSessionId || '');
+    if (!session || (expectedSessionId && session.sessionId !== expectedSessionId)) {
+      return { ok: false, error: 'WALLPAPER_ENGINE_SESSION_MISMATCH' };
+    }
+    const child = session.dwmSurfaceProcess;
+    const stdin = child && child.stdin;
+    if (!child || !stdin || stdin.destroyed === true || stdin.writableEnded === true) {
+      // 没有底座（例如还没起来就失败了）：这不是错误，调用方只是想确保看不到它。
+      return { ok: false, error: 'WALLPAPER_ENGINE_DWM_SURFACE_UNAVAILABLE' };
+    }
+    try { stdin.write(visible === true ? 'V|1\n' : 'V|0\n', 'ascii'); }
+    catch (error) {
+      return { ok: false, error: 'WALLPAPER_ENGINE_DWM_SURFACE_FAILED', detail: String(error && error.message || error).slice(0, 200) };
+    }
+    return { ok: true, visible: visible === true };
   }
 
   async updateDwmDesktopIconLayering(expectedSessionId = '', enabled = false) {

@@ -654,6 +654,23 @@ function takeWallpaperEnginePreparedGlassCaptureStream(sessionId) {
   return entry.stream || null;
 }
 
+// 外部播放（Spotify / Apple Music）一起来就把 DWM 底座收后台：它只服务底部控制栏的玻璃采样，
+// 而外部播放时上面那层缩略图会变黑 —— 用户看到的就是 "Mineradio WE DWM Surface" 黑窗口。
+// Park the DWM base surface on external playback: its thumbnail goes black there.
+function hideWallpaperEngineDwmSurfaceForExternalPlayback() {
+  try {
+    var api = typeof window !== 'undefined' ? window.desktopWindow : null;
+    if (!api || typeof api.hideWallpaperEngineDwmSurface !== 'function') return false;
+    var sessionId = typeof wallpaperEngineNativeSessionId !== 'undefined'
+      ? String(wallpaperEngineNativeSessionId || '') : '';
+    if (!/^[a-f0-9]{24}$/i.test(sessionId)) return false;
+    api.hideWallpaperEngineDwmSurface({ sessionId: sessionId });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 function stopWallpaperEngineGlassCaptureStream(keepPreparedStreams) {
   ++wallpaperEngineGlassCaptureToken;
   if (wallpaperEngineGlassCaptureRetryTimer) clearTimeout(wallpaperEngineGlassCaptureRetryTimer);
