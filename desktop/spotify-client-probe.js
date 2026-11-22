@@ -198,7 +198,7 @@ const CLIENT_WINDOW_GUARD_IDLE_STEP_MS = 300;
 // ShowWindow 一次，把第一次最小化直接顶掉 —— 只按一下是没用的。
 const CLIENT_WINDOW_GUARD_STABLE_TICKS = 13;
 
-async function suppressClientWindow(timeoutMs) {
+async function suppressClientWindow(timeoutMs, runner) {
   const span = Math.max(300, Math.min(60000, Number(timeoutMs) || CLIENT_WINDOW_GUARD_MS));
   const lines = [
     "$ErrorActionPreference = 'Stop'",
@@ -228,8 +228,13 @@ async function suppressClientWindow(timeoutMs) {
     '}',
     '@{ sawWindow = $saw; minimized = $hits; spanMs = ' + span + ' } | ConvertTo-Json -Compress',
   ];
-  // 脚本自己是有限循环，外面的 timeout 只是兜住 PowerShell 起不来这种意外。
-  const answer = await runPowerShell(lines, span + 8000);
+  // 脚本自己是有限循环，外面的 timeout 只是兜住宿主工具起不来这种意外。
+  // 🔴 第三个参数是给测试用的注入点：真有 runner 传入时就不再启动宿主进程。
+  // 之前测试直接调本函数，CI 每次都要真的起一次 PowerShell —— Windows runner 冷启动慢到
+  // 撞上 8 秒预算就整条流水线红（2026-11-22 实测）。注入以后这个函数在任何平台上都可测。
+  // The optional runner makes this testable without starting a real host process.
+  const runScript = typeof runner === 'function' ? runner : runPowerShell;
+  const answer = await runScript(lines, span + 8000);
   // 只在真的压过窗口时记一行：正常情况下这里什么都不该出现，出现了就说明用户的客户端
   // 会自己把窗口 Show 出来，正是 issue #1 那份反馈的现场。
   // Only log actual hits: in the normal case nothing shows up here, and a hit is exactly the
@@ -237,7 +242,13 @@ async function suppressClientWindow(timeoutMs) {
   if (answer && answer.sawWindow === true) {
     spotifyClientLog('window-guard', { minimized: answer.minimized, spanMs: answer.spanMs });
   }
-  return answer;
+  // 返回值形状由这里保证：注入的 runner 可能只回 null（非 Windows）或半个对象。
+  // Normalise the shape so callers never have to guard it.
+  return {
+    spanMs: span,
+    minimized: Math.max(0, Number(answer && answer.minimized) || 0),
+    sawWindow: !!(answer && answer.sawWindow),
+  };
 }
 
 // 找 Spotify 的窗口句柄与标题，用来判断"点播之后它到底露出来多久"。

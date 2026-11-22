@@ -37,29 +37,17 @@ const probe = require('../desktop/spotify-client-probe');
   assert.ok(stepMs <= 300, 'the poll step must be short enough to catch a window that pops up');
   assert.ok(stableTicks * stepMs >= 1000, 'stability must be judged over about a second, not one tick');
 
-  // ── 3~4 只在 Windows 上跑：脚本下发与空跑都要真的调 PowerShell，Linux CI 上做不了。
-  // Sections 3-4 need a real PowerShell; the source-shape checks above stay cross-platform.
-  if (process.platform !== 'win32') {
-    console.log('spotify-client-window-guard: 脚本下发与空跑在非 Windows 上跳过 / skipped on '
-      + process.platform + ' (script shape already verified)');
-    return;
-  }
-
-  // ── 3. 真正下发给 PowerShell 的脚本：异步最小化、只碰 Spotify、纯 ASCII ──────
-  const captured = [];
-  const originalWrite = fs.writeFileSync;
-  fs.writeFileSync = function patched(file, data, ...rest) {
-    if (String(file).indexOf('mineradio-spotify-probe') !== -1) captured.push(String(data));
-    return originalWrite.call(fs, file, data, ...rest);
-  };
-  let result;
-  try {
-    result = await probe.suppressClientWindow(300);
-  } finally {
-    fs.writeFileSync = originalWrite;
-  }
-  assert.ok(captured.length >= 1, 'the guard must run through the shared PowerShell helper');
-  const script = captured[captured.length - 1];
+  // ── 3. 真正下发的脚本：异步最小化、只碰 Spotify、纯 ASCII ────────────────────
+  // 🔴 不再真的调 PowerShell：以前这一步会在 CI 上起一次宿主进程，Windows runner 冷启动
+  // 慢到撞上预算就整条流水线红（2026-11-22）。现在注入一个 runner，脚本内容照样逐条断言。
+  // The runner is injected so no host process is started; the script is still asserted line by line.
+  let seenLines = null;
+  const result = await probe.suppressClientWindow(300, (lines) => {
+    seenLines = lines;
+    return null; // 相当于"宿主工具没起来"：调用方必须能兜住
+  });
+  assert.ok(Array.isArray(seenLines) && seenLines.length, 'the guard must build a script through the shared helper');
+  const script = seenLines.join('\r\n');
   assert.ok(/^[\x00-\x7F]*$/.test(script), 'the script must stay ASCII: PowerShell 5.1 mangles BOM-less UTF-8');
   assert.ok(script.indexOf('ShowWindowAsync') !== -1, 'minimising must use the async call');
   assert.ok(script.indexOf('ShowWindow(') === -1, 'the synchronous ShowWindow can block on a hung client');
@@ -68,7 +56,7 @@ const probe = require('../desktop/spotify-client-probe');
   assert.ok(/\$deadline = \(Get-Date\)\.AddMilliseconds\(\d+\)/.test(script), 'the loop must be bounded by a deadline');
   assert.ok(script.indexOf('Start-Sleep -Milliseconds $step') !== -1, 'the step must widen while no window is around');
 
-  // ── 4. 空跑：没有客户端时不报错、不空转，非法入参被夹到下限 ────────────────
+  // ── 4. 宿主没答上来时的返回值形状必须齐全、非法入参被夹到下限 ────────────────
   assert.strictEqual(result.spanMs, 300, 'a too-small timeout is clamped to the 300ms floor');
   assert.strictEqual(result.minimized, 0, 'nothing to minimise when no client is running');
   assert.strictEqual(typeof result.sawWindow, 'boolean', 'the guard reports whether a window was ever seen');
