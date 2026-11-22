@@ -164,3 +164,77 @@ test('四个语言都补齐了歌单分享文案', () => {
   assert.ok(html.includes('data-i18n="pl_import_file"'), 'the import button must go through i18n');
   assert.ok(html.includes('onclick="importPlaylistFromFile()"'), 'the import button must call the renderer helper');
 });
+
+// 2026-11-22：歌单里混进 AM 曲目时，导出的清单把平台字段写成了 netease（`normalizeProvider`
+// 没有 applemusic 分支），对方导进来是一排点不响的灰条 —— "无法导出歌单给别人读取"。
+// AM 行必须原样带上 provider=applemusic 与 catalogId。
+test('AM 曲目导出后仍是 applemusic，并带上 catalogId', () => {
+  const AM_TRACK = {
+    provider: 'applemusic',
+    type: 'applemusic',
+    id: 'a.6825256856',
+    catalogId: '6825256856',
+    appleMusicId: 'a.6825256856',
+    name: '人间',
+    artist: '许飞',
+  };
+  const built = buildTransferPayload({ name: 'AM 混合歌单', tracks: [NETEASE_TRACK, AM_TRACK] });
+  const row = built.payload.tracks.find((track) => track.name === '人间');
+  assert.ok(row, 'AM 曲目不能被丢掉');
+  assert.strictEqual(row.provider, 'applemusic', '平台字段必须是 applemusic');
+  assert.strictEqual(row.source, 'applemusic');
+  assert.strictEqual(row.catalogId, '6825256856', 'catalogId 必须跟着走，否则导入方播不了');
+  assert.strictEqual(row.builtInIdentity, 'applemusic:6825256856', '身份用 catalog id，不用资料库行号');
+  assert.strictEqual(built.payload.tracks.find((track) => track.name === '晴天').provider, 'netease');
+
+  // 回环：导出 → 导入，平台与 catalogId 都不许丢。
+  const roundTrip = parseTransferPayload(JSON.stringify(built.payload));
+  assert.strictEqual(roundTrip.ok, true);
+  const back = roundTrip.tracks.find((track) => track.name === '人间');
+  assert.strictEqual(back.provider, 'applemusic');
+  assert.strictEqual(back.catalogId, '6825256856');
+  assert.strictEqual(roundTrip.skippedInvalid, 0);
+});
+
+// 全平台清点（2026-11-22）：任何一个"把平台名逐个列出"的归一化函数都必须认识六家。
+// 导出时漏掉 applemusic 只是表象 —— 同一个漏法在货架、播放层、登录入口各有一份。
+test('平台归一化函数必须认识全部六家（含 Apple Music）', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+
+  // 1) 播放层的 normalizePlaybackProvider（00-state/00b-local-readers.js）
+  const readers = fs.readFileSync(
+    path.join(ROOT, 'public/js/modules/00-state/00b-local-readers.js'), 'utf8');
+  const at = readers.indexOf('function normalizePlaybackProvider(');
+  assert.ok(at > 0, '缺少 normalizePlaybackProvider');
+  const end = readers.indexOf('\n}', at) + 2;
+  const sandbox = {};
+  vm.runInNewContext(readers.slice(at, end) + '\nthis.normalize = normalizePlaybackProvider;', sandbox);
+  ['netease', 'qq', 'kugou', 'qishui', 'spotify', 'applemusic'].forEach((provider) => {
+    assert.strictEqual(sandbox.normalize(provider), provider, provider + ' 必须原样返回');
+  });
+  assert.strictEqual(sandbox.normalize('appleMusic'), 'applemusic', '驼峰写法也要认');
+  assert.strictEqual(sandbox.normalize(''), 'netease', '空值仍然落到默认源');
+
+  // 2) 内置歌单/歌单文件的清洗层（desktop/built-in-playlist-library.js）
+  const library = fs.readFileSync(path.join(ROOT, 'desktop/built-in-playlist-library.js'), 'utf8');
+  const allowed = library.match(/const ALLOWED_PROVIDERS = new Set\(\[([^\]]+)\]\)/);
+  assert.ok(allowed, '找不到 ALLOWED_PROVIDERS');
+  ['netease', 'qq', 'kugou', 'qishui', 'spotify', 'applemusic'].forEach((provider) => {
+    assert.ok(allowed[1].includes("'" + provider + "'"), 'ALLOWED_PROVIDERS 缺 ' + provider);
+  });
+
+  // 3) 登录入口与货架的平台分支都不许把 applemusic 归成别的平台
+  const login = fs.readFileSync(
+    path.join(ROOT, 'public/js/modules/08-account/04-user-modal-logout.js'), 'utf8');
+  const openAt = login.indexOf('function openProviderLogin(');
+  const openBody = login.slice(openAt, login.indexOf('\n}', openAt));
+  assert.ok(openBody.includes("provider === 'applemusic'"), 'openProviderLogin 必须认识 applemusic');
+  assert.ok(openBody.includes('openAppleMusicLogin'), 'AM 登录要调它自己的窗口，不是网易云表单');
+
+  const shelf = fs.readFileSync(
+    path.join(ROOT, 'public/js/modules/04-shelf/01-manager-core.js'), 'utf8');
+  assert.ok(shelf.includes("pl.provider === 'applemusic' ? 'applemusic'"), '货架要把 AM 歌单标成 applemusic');
+  assert.ok(shelf.includes("'applemusic:'"), '货架歌单 id 要带 applemusic 前缀');
+});

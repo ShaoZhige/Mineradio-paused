@@ -8,7 +8,11 @@ const MAX_PLAYLISTS = 100;
 const MAX_TRACKS_PER_PLAYLIST = 5000;
 const MAX_INDEX_BYTES = 32 * 1024 * 1024;
 const MAX_TRACK_BYTES = 48 * 1024;
-const ALLOWED_PROVIDERS = new Set(['netease', 'qq', 'kugou', 'qishui', 'local', 'spotify']);
+// Apple Music 必须在这里：歌单里混进 AM 曲目时，导出/导入/内置歌单三处都走同一套清洗，
+// 少一个平台就会把它当成网易云（实测 2026-11-22：导出的 AM 曲目 id 变成 netease:a.xxx，
+// 别人导进来全是点不响的灰条）。
+// Apple Music has to be here: otherwise its rows are classified as Netease on export.
+const ALLOWED_PROVIDERS = new Set(['netease', 'qq', 'kugou', 'qishui', 'local', 'spotify', 'applemusic']);
 
 const TRACK_FIELDS = [
   'provider', 'source', 'type', 'id', 'providerSongId', 'provider_song_id', 'trackId', 'track_id',
@@ -22,6 +26,9 @@ const TRACK_FIELDS = [
   'vipRequired', 'needVip', 'onlyVipPlayable', 'only_vip_playable',
   'privilege', 'Privilege', 'mediaPrivilege', 'media_privilege',
   'spotifyId', 'spotifyUri', 'uri', 'previewUrl', 'restriction',
+  // Apple Music 的可播 id：`id` 可能是 `a.<数字>` 这种资料库 id，真正能喂给 MusicKit 的是 catalogId。
+  // 两者都要带上，否则导入方拿到的是一首"没有 catalog id"的歌。
+  'catalogId', 'appleMusicId', 'storefront',
 ];
 
 function cleanText(value, fallback = '', maxLength = 1000) {
@@ -31,6 +38,10 @@ function cleanText(value, fallback = '', maxLength = 1000) {
 
 function normalizeProvider(song) {
   const source = cleanText(song && (song.provider || song.source || song.type), '', 32).toLowerCase();
+  // applemusic / appleMusic / apple_music 都算同一家（source 已小写）；带 appleMusicId 的行也认。
+  // `applemusic` / `apple_music` all map here; an explicit appleMusicId is enough on its own.
+  if (source === 'applemusic' || source === 'apple_music') return 'applemusic';
+  if (song && song.appleMusicId) return 'applemusic';
   if (source === 'spotify' || song && (song.spotifyId || song.spotifyUri)) return 'spotify';
   if (source === 'local' || song && (song.localFileId || song.localKey || song.localUrl)) return 'local';
   if (source === 'qq') return 'qq';
@@ -67,6 +78,8 @@ function trackIdentity(track) {
   else if (provider === 'kugou') value = track.hash || track.fileHash || track.audioHash || track.id;
   else if (provider === 'qishui') value = track.id || track.providerSongId || track.trackId || track.track_id;
   else if (provider === 'spotify') value = track.spotifyId || track.providerSongId || track.id;
+  // AM 的身份用 catalog id：`a.<数字>` 只是资料库行号，换个 storefront 就可能变。
+  else if (provider === 'applemusic') value = track.catalogId || track.appleMusicId || track.id;
   else value = track.id;
   value = cleanText(value, '', 512);
   return value ? `${provider}:${provider === 'kugou' ? value.toLowerCase() : value}` : '';
@@ -84,7 +97,7 @@ function sanitizeTrack(source) {
   });
   track.provider = provider;
   track.source = provider;
-  if (!track.type) track.type = provider === 'local' ? 'local' : (provider === 'qq' ? 'qq' : (provider === 'spotify' ? 'spotify' : 'song'));
+  if (!track.type) track.type = provider === 'local' ? 'local' : (provider === 'qq' ? 'qq' : (provider === 'spotify' ? 'spotify' : (provider === 'applemusic' ? 'applemusic' : 'song')));
   track.name = cleanText(track.name || track.title, '未知歌曲', 1000);
   track.title = cleanText(track.title || track.name, track.name, 1000);
   track.artist = cleanText(track.artist, provider === 'local' ? '本地文件' : '未知歌手', 1000);

@@ -122,12 +122,14 @@ function makeShelfManager() {
     if (userPlaylists.length || (hasAnyPlatformLogin() && myPodcastCollections.length)) {
       var source = activePlaylists();
       var items = source.map(function (pl) {
-        var provider = pl.provider === 'mineradio' ? 'mineradio' : (pl.provider === 'qq' ? 'qq' : (pl.provider === 'kugou' ? 'kugou' : (pl.provider === 'qishui' ? 'qishui' : (pl.provider === 'spotify' ? 'spotify' : 'netease'))));
-        var sourceLabel = provider === 'mineradio' ? 'MR' : (provider === 'qq' ? 'QQ' : (provider === 'kugou' ? 'KG' : (provider === 'qishui' ? 'QS' : (provider === 'spotify' ? 'SP' : 'NE'))));
+        var provider = pl.provider === 'mineradio' ? 'mineradio' : (pl.provider === 'qq' ? 'qq' : (pl.provider === 'kugou' ? 'kugou' : (pl.provider === 'qishui' ? 'qishui' : (pl.provider === 'spotify' ? 'spotify' : (pl.provider === 'applemusic' ? 'applemusic' : 'netease')))));
+        var sourceLabel = provider === 'mineradio' ? 'MR' : (provider === 'qq' ? 'QQ' : (provider === 'kugou' ? 'KG' : (provider === 'qishui' ? 'QS' : (provider === 'spotify' ? 'SP' : (provider === 'applemusic' ? 'AM' : 'NE')))));
         if (provider === 'spotify' && String(pl.id || '').indexOf('spotify:') !== 0) pl = Object.assign({}, pl, { id: 'spotify:' + pl.id });
+        // AM 的歌单 id 也要带平台前缀：不带的话点开会按网易云去拉（2026-11-22 全平台清点）。
+        if (provider === 'applemusic' && String(pl.id || '').indexOf('applemusic:') !== 0) pl = Object.assign({}, pl, { id: 'applemusic:' + pl.id });
         return {
           type: 'playlist', title: pl.name, sub: sourceLabel + ' · ' + (pl.trackCount || 0) + managerCoreText('shelf_tracks_play') + compactCount(pl.playCount || 0),
-          cover: pl.cover || '', tag: provider === 'mineradio' ? managerCoreText('shelf_builtin_playlist') : ((pl.shelfPane || pl.shelf_pane) === 'fav' || (!(pl.shelfPane || pl.shelf_pane) && pl.subscribed) ? managerCoreText('shelf_collect_playlist') : (provider === 'qishui' ? managerCoreText('shelf_qishui_playlist') : managerCoreText('tab_playlists', '我的歌单'))), playlistId: (provider === 'mineradio' ? 'mineradio:' : (provider === 'qq' ? 'qq:' : (provider === 'kugou' ? 'kugou:' : (provider === 'qishui' ? 'qishui:' : '')))) + pl.id, provider: provider
+          cover: pl.cover || '', tag: provider === 'mineradio' ? managerCoreText('shelf_builtin_playlist') : ((pl.shelfPane || pl.shelf_pane) === 'fav' || (!(pl.shelfPane || pl.shelf_pane) && pl.subscribed) ? managerCoreText('shelf_collect_playlist') : (provider === 'qishui' ? managerCoreText('shelf_qishui_playlist') : managerCoreText('tab_playlists', '我的歌单'))), playlistId: (provider === 'mineradio' ? 'mineradio:' : (provider === 'qq' ? 'qq:' : (provider === 'kugou' ? 'kugou:' : (provider === 'qishui' ? 'qishui:' : (provider === 'applemusic' ? 'applemusic:' : ''))))) + pl.id.replace(/^applemusic:/, ''), provider: provider
         };
       });
       if (shelfShowsPodcasts() && (shelfPane === 'mine' || shelfMergesCollections()) && myPodcastCollections.length) {

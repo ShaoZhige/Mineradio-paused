@@ -92,7 +92,7 @@ function createVisibilityPin(command, { limitMs = PIN_LIMIT_MS } = {}) {
 }
 
 // Adapt a native stdin/stdout child to the private child-channel contract used by companionClient.
-function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_LIMIT_MS }) {
+function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_LIMIT_MS, onDiagnostic = null }) {
     return (binary, args) => {
         const profilePath = args.find(arg => arg.startsWith('--user-data-dir='))?.slice('--user-data-dir='.length);
         if (!profilePath) throw new Error('Native companion profile is required');
@@ -163,6 +163,11 @@ function createNativeSpawn({ spawnProcess, timeoutMs = 25000, pinLimitMs = PIN_L
                 // Forward only fixed host lifecycle codes, never arbitrary page or runtime output.
                 if (message?.event === 'diagnostic' && ['environment-ready', 'environment-failed', 'show', 'hide', 'navigation-failed', 'process-failed', 'visibility-pin-unavailable'].includes(message.code)) {
                     console.info('[AppleMusic] Native companion:', message.code);
+                    // 宿主生命周期也留给落盘日志：页面加载失败（navigation-failed）正是
+                    // "播放加载失败"最常见的一种，光有 stdout 用户报障时查不到。
+                    // Host lifecycle codes go to the file log too: navigation-failed is one of the
+                    // usual causes of a failed start and used to exist in stdout only.
+                    try { if (typeof onDiagnostic === 'function') onDiagnostic(message.code); } catch { }
                     continue;
                 }
                 if (message?.event === 'document' && Number.isSafeInteger(message.generation)) {

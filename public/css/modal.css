@@ -128,12 +128,6 @@ body.login-guide-active #login-guide-canvas {
   line-height: 1.6
 }
 
-.dual-login-modal,
-.dual-user-modal {
-  width: min(470px, 92vw);
-  max-width: min(470px, 92vw)
-}
-
 .dual-login-modal {
   width: fit-content;
   min-width: min(610px, calc(100vw - 44px));
@@ -1869,8 +1863,7 @@ body.login-guide-active #login-guide-canvas {
   0%, 100% { filter: brightness(1); transform: translateY(0) }
   50% { filter: brightness(1.18); transform: translateY(-1px) }
 }
-.login-platform-tabs,
-.user-platform-tabs {
+.login-platform-tabs {
   display: flex;
   gap: 8px;
   margin: 0 auto 18px;
@@ -1880,8 +1873,7 @@ body.login-guide-active #login-guide-canvas {
   background: rgba(255, 255, 255, .035)
 }
 
-.login-platform-tabs button,
-.user-platform-tabs button {
+.login-platform-tabs button {
   flex: 1;
   min-width: 0;
   height: 32px;
@@ -1898,49 +1890,41 @@ body.login-guide-active #login-guide-canvas {
   white-space: nowrap
 }
 
-.login-platform-tabs button:hover,
-.user-platform-tabs button:hover {
+.login-platform-tabs button:hover {
   color: rgba(255, 255, 255, .82)
 }
 
-.login-platform-tabs button.active,
-.user-platform-tabs button.active {
+.login-platform-tabs button.active {
   color: #fff;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 10px 26px rgba(0, 0, 0, .20)
 }
 
-.login-platform-tabs button.netease.active,
-.user-platform-tabs button.netease.active {
+.login-platform-tabs button.netease.active {
   background: rgba(217, 91, 103, .16);
   color: #ffd7dc
 }
 
-.login-platform-tabs button.qq.active,
-.user-platform-tabs button.qq.active {
+.login-platform-tabs button.qq.active {
   background: rgba(191, 214, 107, .16);
   color: #f3ffd1
 }
 
-.login-platform-tabs button.kugou.active,
-.user-platform-tabs button.kugou.active {
+.login-platform-tabs button.kugou.active {
   background: rgba(86, 224, 255, .14);
   color: #c9f5ff
 }
 
-.login-platform-tabs button.qishui.active,
-.user-platform-tabs button.qishui.active {
+.login-platform-tabs button.qishui.active {
   background: rgba(69, 214, 143, .14);
   color: #d7ffe5
 }
 
-.login-platform-tabs button.spotify.active,
-.user-platform-tabs button.spotify.active {
+.login-platform-tabs button.spotify.active {
   background: rgba(30, 215, 96, .14);
   color: #d8ffe2
 }
 
-.login-platform-tabs button.applemusic.active,
-.user-platform-tabs button.applemusic.active {
+.login-platform-tabs button.applemusic.active {
   background: rgba(250, 45, 72, .14);
   color: #ffe0e4
 }
@@ -1961,11 +1945,6 @@ body.login-guide-active #login-guide-canvas {
   background: linear-gradient(135deg, rgba(244, 210, 138, .115), rgba(255, 255, 255, .035));
   color: #fff7df;
   box-shadow: 0 9px 24px rgba(0, 0, 0, .16), 0 0 0 1px rgba(244, 210, 138, .045), inset 0 1px 0 rgba(255, 255, 255, .085)
-}
-
-.user-platform-tabs button.both.active {
-  background: rgba(244, 210, 138, .14);
-  color: #fff0bf
 }
 
 .qr-shell {
@@ -2713,69 +2692,6 @@ body.login-guide-active #login-guide-canvas {
 
 #qr-status.preview {
   color: rgba(191, 214, 107, .86)
-}
-
-.account-provider-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 9px;
-  margin-bottom: 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .035);
-  font-size: 10.5px;
-  letter-spacing: .5px;
-  color: rgba(255, 255, 255, .58)
-}
-
-.account-provider-chip.netease {
-  border-color: rgba(217, 91, 103, .26);
-  color: #ffd7dc;
-  background: rgba(217, 91, 103, .08)
-}
-
-.account-provider-chip.qq {
-  border-color: rgba(191, 214, 107, .26);
-  color: #f3ffd1;
-  background: rgba(191, 214, 107, .08)
-}
-
-.account-provider-chip.kugou {
-  border-color: rgba(86, 224, 255, .26);
-  color: #c9f5ff;
-  background: rgba(86, 224, 255, .08)
-}
-
-.account-provider-chip.qishui {
-  border-color: rgba(69, 214, 143, .26);
-  color: #d7ffe5;
-  background: rgba(69, 214, 143, .08)
-}
-
-.account-provider-chip.spotify {
-  border-color: rgba(30, 215, 96, .26);
-  color: #d8ffe2;
-  background: rgba(30, 215, 96, .08)
-}
-
-.account-modal-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 14px
-}
-
-.account-modal-actions .modal-btn {
-  padding: 8px 10px
-}
-
-.account-hint {
-  margin-top: 10px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, .38)
 }
 
 .modal .btn-row {
@@ -4146,4 +4062,111 @@ body.login-guide-active #login-guide-canvas {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, .08)
+}
+
+/* ── Apple Music 接入进度（与 Spotify 向导同思想，按 AM 自己的链路分四步） ──────────
+   AM 没有"填客户端 ID → 回调 → 授权"那套表单，它的链路是：组件起来 → 页面（MusicKit）
+   就绪 → 账号确认 → 歌单自检。每一步都是**可观测的真实信号**，不做假进度。 */
+.apple-music-wizard {
+  display: none;
+  flex: 0 0 auto;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(250, 45, 72, .16);
+  border-radius: 12px;
+  background: rgba(250, 45, 72, .045)
+}
+
+.login-auth-drawer.apple-music-mode .apple-music-wizard {
+  display: block
+}
+
+.apple-music-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px
+}
+
+.apple-music-progress span {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .025);
+  color: rgba(255, 255, 255, .42);
+  font-size: 10.5px;
+  white-space: nowrap;
+  transition: border-color .22s ease, background .22s ease, color .22s ease, transform .22s ease
+}
+
+.apple-music-progress i {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .07);
+  color: rgba(255, 255, 255, .58);
+  font: 800 9px/1 inherit
+}
+
+.apple-music-progress span.current {
+  border-color: rgba(250, 45, 72, .34);
+  background: rgba(250, 45, 72, .08);
+  color: rgba(255, 236, 239, .94);
+  transform: translateY(-1px)
+}
+
+.apple-music-progress span.current i {
+  background: rgba(250, 45, 72, .22);
+  color: rgba(255, 244, 246, .96)
+}
+
+.apple-music-progress span.complete {
+  border-color: rgba(120, 220, 170, .26);
+  background: rgba(120, 220, 170, .07);
+  color: rgba(226, 255, 241, .9)
+}
+
+.apple-music-progress span.complete i {
+  background: rgba(120, 220, 170, .2);
+  color: rgba(226, 255, 241, .96)
+}
+
+.apple-music-progress-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, .48)
+}
+
+.apple-music-recheck {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(250, 45, 72, .28);
+  background: rgba(250, 45, 72, .09);
+  color: rgba(255, 236, 239, .9);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background .18s, border-color .18s
+}
+
+.apple-music-recheck:hover {
+  background: rgba(250, 45, 72, .16);
+  border-color: rgba(250, 45, 72, .46)
+}
+
+.apple-music-recheck:disabled {
+  opacity: .45;
+  cursor: default
 }

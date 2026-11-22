@@ -93,7 +93,7 @@ document.addEventListener('keydown', function (e) {
     }
     if (miniQueueOpen) { closeMiniQueue(); return; }
     if (shelfManager && shelfManager.hasOpenContent()) { safeShelfCloseContent('escape-key'); return; }
-    closeLoginModal(); closeUserModal(); toggleFxPanel(false); togglePlaylistPanel(false);
+    closeLoginModal(); toggleFxPanel(false); togglePlaylistPanel(false);
   }
   else if (e.code === 'KeyL') { if (!immersiveMode) toggleLyricsPanel(); }
   else if (e.code === 'KeyP') {

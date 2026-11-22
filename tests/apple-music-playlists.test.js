@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const {
   handleAppleMusicPlaylists,
   handleAppleMusicPlaylistTracks,
+  handleAppleMusicPlaylistCounts,
   mapAppleMusicPlaylist,
   mapAppleMusicSong,
 } = require('../server/apple-music-api');
@@ -67,31 +68,36 @@ test('playlists forwards paging and normalizes the page', async () => {
   assert.equal(result.nextOffset, 1);
 });
 
-test('a card with no track count is filled from the one-row counting read', async () => {
-  // 库歌单的属性里没有 trackCount，卡片否则一律显示「0 首」。计数接口是单独一次只读一行的请求。
-  // Library playlists carry no trackCount attribute, so cards otherwise read "0 首"; the count comes
-  // from a separate one-row read.
+// companion 是串行的：`playlistTrackCount` 冷的时候一次要十几秒，而超时只是放弃等待、请求
+// 仍在通道里排队。跟着列表一起算就会把下一次打开歌单堵死（"加载一次成功、第二次卡住"）。
+test('歌单列表不再为了计数去占用 companion 通道', async () => {
   const calls = [];
   const result = await handleAppleMusicPlaylists(async (operation, params) => {
     calls.push({ operation, params });
-    if (operation === 'playlistTrackCount') return { ok: true, data: { total: 7 } };
-    return { ok: true, data: { items: [playlist({ trackCount: undefined })], hasMore: false, nextOffset: 1 } };
-  }, 25, 0);
-  assert.equal(result.playlists[0].trackCount, 7);
-  assert.deepEqual(
-    calls.filter(call => call.operation === 'playlistTrackCount').map(call => call.params),
-    [{ playlistId: 'p.abc123', limit: 1, offset: 0 }],
-    'the count read asks for a single row and must not page'
-  );
-});
-
-test('a failing count read leaves the card at zero instead of failing the page', async () => {
-  const result = await handleAppleMusicPlaylists(async (operation) => {
-    if (operation === 'playlistTrackCount') throw new Error('upstream-error');
     return { ok: true, data: { items: [playlist({ trackCount: undefined })], hasMore: false, nextOffset: 1 } };
   }, 25, 0);
   assert.equal(result.playlists.length, 1);
-  assert.equal(result.playlists[0].trackCount, 0);
+  assert.equal(
+    calls.filter(call => call.operation === 'playlistTrackCount').length,
+    0,
+    '列表响应里不能夹带计数请求'
+  );
+});
+
+test('计数走独立接口，一次只读一行', async () => {
+  const calls = [];
+  const result = await handleAppleMusicPlaylistCounts(async (operation, params) => {
+    calls.push({ operation, params });
+    return { ok: true, data: { total: operation === 'playlistTrackCount' ? 7 : 0 } };
+  }, ['p.abc123']);
+  assert.deepEqual(result.counts, { 'p.abc123': 7 });
+  assert.deepEqual(calls, [{ operation: 'playlistTrackCount', params: { playlistId: 'p.abc123', limit: 1, offset: 0 } }]);
+});
+
+test('计数接口过滤非法 id，读失败也不抛错', async () => {
+  const result = await handleAppleMusicPlaylistCounts(async () => { throw new Error('upstream-error'); },
+    ['p.abc123', 'not-a-playlist', '']);
+  assert.deepEqual(result.counts, {}, '读不到就留空，前端保持原样');
   assert.equal(result.error, undefined);
 });
 
@@ -178,7 +184,10 @@ function loadPageReader(responder) {
         }),
       },
     },
-    URL, JSON, Number, String, Array, Object, Promise, console,
+    // 页面里当然有定时器：readFromPage 里所有"给 MusicKit 的 promise 加超时"的辅助函数
+    // 都定义在函数体内，靠的就是它们。
+    // The page has timers; the in-body deadline helpers rely on them.
+    URL, JSON, Number, String, Array, Object, Promise, console, setTimeout, clearTimeout,
   };
   vm.createContext(sandbox);
   vm.runInContext(`${REQUESTS_SOURCE.slice(start, end)}\nthis.readFromPage = readFromPage;`, sandbox, { filename: 'apple-page-read.js' });
@@ -215,4 +224,62 @@ test('library playlist tracks must not ask for the catalog relationship', async 
   assert.equal(mapped.catalogId, '1234567890');
   assert.match(mapped.catalogId, /^\d{1,40}$/, 'playSong accepts digits only');
   assert.equal(mapped.album, '叶惠美');
+});
+
+// 反复开关歌单时不该每次都往 companion 跑一趟（WebView2 往返几百毫秒到十几秒）。
+// Folia 的在线集合也是缓存优先，这里钉住短 TTL 的进程内缓存。
+test('同一页歌单在 TTL 内复用缓存，不重复请求上游', async () => {
+  let calls = 0;
+  const requester = async (operation) => {
+    if (operation === 'playlists') calls += 1;
+    return { ok: true, data: { items: [playlist()], hasMore: false, nextOffset: 1 } };
+  };
+  const first = await handleAppleMusicPlaylists(requester, 25, 0);
+  const second = await handleAppleMusicPlaylists(requester, 25, 0);
+  assert.equal(calls, 1, '第二次应命中缓存');
+  assert.deepEqual(second, first);
+
+  // 换一个 requester（换实例/测试）必须失效，不能把旧实例的数据串过来。
+  let otherCalls = 0;
+  await handleAppleMusicPlaylists(async (operation) => {
+    if (operation === 'playlists') otherCalls += 1;
+    return { ok: true, data: { items: [playlist({ name: '另一个' })], hasMore: false, nextOffset: 1 } };
+  }, 25, 0);
+  assert.equal(otherCalls, 1, 'requester 变了就要重新请求');
+});
+
+// 实测日志里出现 `catalogId: "a.6824409350"` 的队列行：Apple 歌单里混进艺人条目，
+// 点播放必然 am-start-rejected。映射层必须只放行可播 id。
+test('歌单映射丢掉非歌曲条目（a.xxx 艺人 / 非 song kind）', () => {
+  const { mapAppleMusicSong } = require('../server/apple-music-api.js');
+  const base = (id, extra) => Object.assign({ id, attributes: Object.assign({ name: 'x', playParams: { kind: 'song' } }, extra || {}) }, {});
+
+  assert.equal(mapAppleMusicSong(base('a.6824409350', { playParams: { kind: 'artist' } }), 0, ''), null,
+    '艺人条目不能当歌');
+  assert.equal(mapAppleMusicSong(base('a.6824409350'), 0, ''), null, 'a. 前缀即使没 kind 也要拦下');
+  assert.equal(mapAppleMusicSong(base('l.abc123'), 0, ''), null, '专辑 id 同样不是歌');
+
+  // 新版资料库歌曲用 `a.<数字>` 当 id，playParams.catalogId 是有效的数字：
+  // 实测歌单曲目返回 `a.6825256856` + catalogId `6825256856`。按前缀一刀切会把整单丢空。
+  const libA = mapAppleMusicSong(base('a.6825256856', { playParams: { kind: 'song', catalogId: '6825256856' } }), 0, '');
+  assert.ok(libA, '带 catalogId 的 a. 资料库歌曲必须放行');
+  assert.equal(libA.catalogId, '6825256856', '直接取 playParams.catalogId 当播放 id');
+
+  const lib = mapAppleMusicSong(base('i.abcXYZ'), 0, '');
+  assert.equal(lib.catalogId, 'i.abcXYZ', '资料库条目保留 i. id，交给 resolveSong 换算');
+
+  const cat = mapAppleMusicSong(base('1440857781'), 0, '');
+  assert.equal(cat.catalogId, '1440857781');
+});
+
+// 旧存档里的坏行要在恢复时丢掉，否则一启动就卡在那首歌上反复失败。
+test('恢复队列时丢掉不可播的 Apple 旧行', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'public/js/modules/05-playback/09-queue-snapshot-autoplay.js'), 'utf8');
+  assert.match(src, /function isUnplayableAppleMusicRow\(song\)/);
+  assert.match(src, /return !isUnplayableAppleMusicRow\(song\);/);
+  assert.match(src, /if \(isUnplayableAppleMusicRow\(current\)\) \{/,
+    '当前这首也不能播时要换掉，否则 unshift 又会把它塞回队列');
 });

@@ -113,8 +113,7 @@ function maybeRunStartupLoginGuide(source) {
   if (immersiveMode) return;
   if (!loginStatusChecked || loginStatusCheckFailed || loginStatus.loggedIn || playing) return;
   var loginModal = document.getElementById('login-modal');
-  var userModal = document.getElementById('user-modal');
-  if ((loginModal && loginModal.classList.contains('show')) || (userModal && userModal.classList.contains('show'))) return;
+  if (loginModal && loginModal.classList.contains('show')) return;
   startupLoginGuideShown = true;
   setTimeout(function () {
     if (loginStatus.loggedIn || playing || immersiveMode || document.body.classList.contains('splash-active')) return;

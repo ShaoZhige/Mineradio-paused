@@ -80,14 +80,12 @@ function buildSandbox(loggedIn) {
     // doubles as the assertion that logout clears this provider's cached state.
     function forgetCachedProviderLoginStatus(provider) { calls.push('cache-forget:' + provider); }
     function safeShelfRebuild(tag) { calls.push('shelf:' + tag); }
-    function updateUserModalUi() { calls.push('account-panel'); }
-    function closeUserModal() { calls.push('close-account-panel'); }
     function resetHomeDiscoverAfterLogout(tag) { calls.push('discover:' + tag); }
     function clearQQPlaybackVipEvidence() { calls.push('vip-evidence'); }
   `;
   const sandbox = { console };
   vm.runInNewContext(
-    prelude + '\n' + fragment(logoutSource, ['finishProviderLogout', 'logoutProviderAccount', 'logoutActiveAccount']),
+    prelude + '\n' + fragment(logoutSource, ['finishProviderLogout', 'logoutProviderAccount']),
     sandbox
   );
   return sandbox;
@@ -133,7 +131,6 @@ test('退 QQ 只动 QQ：别的平台的状态与歌单都不许被带走', asyn
   assert.ok(calls.includes('ipc:clear-qq'), 'the cached QQ login has to be cleared in the main process');
   assert.ok(calls.includes('vip-evidence'), 'QQ membership evidence must not survive a sign-out');
   assert.ok(calls.includes('shelf:qq-logout'), 'the shelf still holds QQ entries after a sign-out');
-  assert.ok(calls.includes('account-panel'), 'the account panel has to be redrawn');
   assert.ok(calls.some((call) => call === 'toast:已退出 QQ 音乐'));
   assert.ok(!calls.some((call) => call === 'api:/api/logout'), 'the NetEase session must stay untouched');
   // 显示缓存也要跟着退：留下的登录态会在下次启动把已退出的账号画成"已连接"。
@@ -161,18 +158,6 @@ test('退出按钮退的是它自己那个平台，不是当前展示的平台',
   assert.ok(!calls.some((call) => call.startsWith('api:')), 'Apple Music has no server route to call');
   assert.equal(sandbox.appleMusicLoginStatus.loggedIn, false);
   assert.equal(sandbox.loginStatus.loggedIn, true, 'NetEase is the displayed platform and must not be touched');
-});
-
-test('账号面板的按钮仍然退当前展示的平台', async () => {
-  const sandbox = buildSandbox(['qq', 'kugou']);
-  sandbox.activeAccountProvider = 'kugou';
-
-  await sandbox.logoutActiveAccount();
-
-  const calls = callsOf(sandbox);
-  assert.ok(calls.includes('api:/api/kugou/logout'));
-  assert.ok(!calls.includes('api:/api/qq/logout'));
-  assert.equal(sandbox.kugouLoginStatus.loggedIn, false);
 });
 
 test('未知平台名与未登录平台都不产生任何请求', async () => {

@@ -71,8 +71,6 @@ const SITES = [
   ['public/js/modules/05-playback/06-track-detail-lyrics-actions.js', 'trackActionText', 'next_play'],
   ['public/js/modules/05-playback/06-track-detail-lyrics-actions.js', 'trackActionText', 'local_collect_unsupported'],
   ['public/js/modules/05-playback/06-track-detail-lyrics-actions.js', 'trackActionText', 'local_like_unsupported'],
-  ['public/js/modules/08-account/04-user-modal-logout.js', 'accountPanelText', 'account_switch_dual'],
-  ['public/js/modules/08-account/04-user-modal-logout.js', 'accountPanelText', 'account_switch_hint'],
   ['public/js/modules/05-playback/03-home-discover-weather.js', 'homeDiscoverText', 'home_frequent_artists'],
   ['public/js/modules/05-playback/03-home-discover-weather.js', 'homeDiscoverText', 'home_artist_plays'],
   ['public/js/modules/05-playback/03-home-discover-weather.js', 'homeDiscoverText', 'track_count'],
@@ -108,7 +106,6 @@ const RETIRED = [
   ['public/js/modules/05-playback/11-provider-fallback.js', "provider + '需要登录后再尝试播放'"],
   ['public/js/modules/05-playback/11-provider-fallback.js', "message + ' · 正在打开登录'"],
   ['public/js/modules/08-account/02-login-status.js', "return '已保存 QQ 音乐会话 · '"],
-  ['public/js/modules/08-account/04-user-modal-logout.js', '右上角已切换为多平台并排展示。'],
   ['public/js/modules/05-playback/03-home-discover-weather.js', "'私人雷达'"],
   ['public/js/modules/05-playback/04-home-empty-wallpaper.js', "'私人雷达'"],
 ];

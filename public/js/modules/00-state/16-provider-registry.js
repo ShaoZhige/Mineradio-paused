@@ -162,7 +162,15 @@ var PROVIDER_REGISTRY_ROWS = [
     // login is true because the account panel opens the companion's official
     // Apple Music window. directFallback stays false: there is no direct audio
     // URL, playback goes through the external companion.
-    caps: { login: true, mainSearch: true, sourceSwitcher: true, directFallback: false, preferred: false }
+    // preferred: true —— 可以被指定为**默认源**：播放前先在 AM 搜同名同歌手，命中就把队列项
+    // 换成 AM 曲目、走 companion 播放（走的是 preferredSourceLookupOrder，不经过 directFallback）。
+    // 🔴 这两个能力位不是一回事：directFallback 要求"能直接给出可播放地址"（AM 做不到，必须为
+    // false，否则自动换源会换到同样播不了的源上）；preferred 只是"把谁排到查找顺序最前"。
+    // 2026-11-22 打开 preferred：用户要"打开 MR 第一首就听 AM"，而首页推荐只能来自别的平台，
+    // 没有这条路径就永远只能从 AM 歌单点播。
+    // preferred allows AM to be the default source: each track is matched to its AM counterpart
+    // first and then played by the companion. It is a different question from directFallback.
+    caps: { login: true, mainSearch: true, sourceSwitcher: true, directFallback: false, preferred: true }
   }
 ];
 
@@ -340,4 +348,26 @@ function preferredSourceOptions() {
     options.push({ value: key, label: providerRegistryLabel(key) });
   });
   return options;
+}
+
+// ── Apple Music 可播放 id 的唯一归一化入口 ────────────────────────────────────
+// Apple 的 id 有三套命名空间，混用一次就出一类 bug（2026-11-22 一晚上踩了四次）：
+//   · `1234567890`   catalog id —— MusicKit 的 setQueue 和歌词接口**只认这个**
+//   · `i.xxxx`       老资料库条目 —— 必须经 companion 的 resolveSong 换成 catalog id
+//   · `a.1234567890` 新资料库歌曲 —— 数字部分**就是** catalog id（以前被当成艺人条目丢掉）
+// 所有拿 AM id 去起播/查歌词/存快照的地方都从这里取，不要在调用点各写一份正则。
+// One normalization point for Apple ids: catalog digits, legacy `i.` (needs resolveSong) and
+// the newer library `a.<digits>` (digits ARE the catalog id). Call sites must not re-implement it.
+function appleMusicCatalogIdOf(song) {
+  var raw = String((song && (song.catalogId || song.appleMusicId || song.providerSongId || song.id)) || '');
+  if (/^\d{1,40}$/.test(raw)) return raw;
+  var librarySong = /^a\.(\d{1,40})$/.exec(raw);
+  if (librarySong) return librarySong[1];
+  return '';
+}
+// 需要 resolveSong 换算的旧资料库 id；其余（艺人 `a.xxx`、专辑 `l.xxx`）返回空。
+// Legacy library ids that must be resolved through the companion; anything else is empty.
+function appleMusicLibraryIdOf(song) {
+  var raw = String((song && (song.catalogId || song.appleMusicId || song.providerSongId || song.id)) || '');
+  return /^i\.[A-Za-z0-9._-]{1,198}$/.test(raw) ? raw : '';
 }

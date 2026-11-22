@@ -117,3 +117,111 @@ test('没有桌面桥时按运行时不处理，不去碰窗口', async () => {
   assert.deepStrictEqual(calls, [], '没有 appleMusicRequest 就不该发起请求');
   assert.strictEqual(sandbox.appleMusicLoginStatus.error, 'runtime-unavailable');
 });
+
+// 「一启动登录会掉」：companion 页面还在热身时 v1/me/storefront 拿不到区域，以前回
+// storefront-unavailable，上层把它当成"没人登录"→ 抹掉缓存 → 用户看到登录掉了，过一会儿又回来。
+// 现在只有 Apple 明确 401/403，或 MusicKit 自己说没授权，才算真登出。
+test('热身态的 storefront-unavailable 不许抹掉登录缓存', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const flows = fs.readFileSync(
+    path.join(__dirname, '..', 'public/js/modules/08-account/03-login-modal-flows.js'), 'utf8');
+  const at = flows.indexOf('async function refreshAppleMusicLoginStatus(');
+  assert.ok(at > 0);
+  const body = flows.slice(at, flows.indexOf('\nasync function openAppleMusicWindow', at));
+
+  assert.match(body, /var storefrontUnknown = result && result\.ok === false && result\.error === 'storefront-unavailable';/);
+  assert.match(body, /result\.data && typeof result\.data\.authorized === 'boolean'/,
+    '要用 companion 带回来的 authorized 区分热身与真登出');
+  assert.match(body, /var signedOut = result && result\.ok === false\s*\n\s*&& \(result\.error === 'auth-required' \|\| \(storefrontUnknown && authorizedFlag === false\)\);/,
+    '只有 auth-required 或 authorized===false 才算登出');
+  // 旧写法（把 storefront-unavailable 直接当登出）必须消失。
+  assert.ok(!/result\.error === 'auth-required' \|\| result\.error === 'storefront-unavailable'/.test(body),
+    '不能把 storefront-unavailable 直接当登出');
+});
+
+// 热身阶段 mk.isAuthorized 还是 false（配置完成前没意义）。如果直接把它当结论，启动瞬间就会
+// 判成"退出了"，缓存被清、歌单变"未载入"。只有页面真的答上（HTTP 200）才有资格下结论。
+test('热身态不得把 authorized 当结论：只有 200 才算', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'desktop/apple-music/companionRequests.cjs'), 'utf8');
+  assert.match(src, /const answered = status === 200;/);
+  assert.match(src, /let authorized = answered \? \(mk\.isAuthorized === true\) : null;/,
+    '未答上时必须给 null，让上层保留缓存');
+  // 超时是"没答上来"，只能在 MusicKit 明确认可时上报 true；false 一律降成 null，
+  // 否则一次请求挂死就会把已经连上的账号判成退出。
+  assert.match(src, /if \(storefrontTimedOut && mk\.isAuthorized === true\) authorized = true;/,
+    '超时只允许上报明确的授权态');
+  assert.ok(!/const authorized = \(typeof mk\.isAuthorized === 'boolean'\)/.test(src),
+    '不能无条件采纳 isAuthorized——热身期它是 false');
+});
+
+// AM 的接入进度条：与 Spotify 向导同思想（每一步由真实回包判断），但链路不同 ——
+// 组件启动 → 页面就绪 → 账号确认 → 歌单自检。
+test('Apple Music 接入进度条按真实回包推进四步', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public/index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public/css/modal.css'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public/js/modules/08-account/03-login-modal-flows.js'), 'utf8');
+
+  // DOM：四格
+  const chips = html.match(/data-am-progress="[1-4]"/g) || [];
+  assert.equal(chips.length, 4, '进度条必须有四个步骤');
+  assert.ok(html.indexOf('id="apple-music-wizard"') > 0);
+  assert.ok(html.indexOf('id="apple-music-progress-note"') > 0, '需要一行说明当前在做什么');
+
+  // 只在 AM 模式下显示
+  assert.match(css, /\.login-auth-drawer\.apple-music-mode \.apple-music-wizard\s*\{\s*display: block/);
+
+  // 状态映射：runtime → page → account
+  assert.match(js, /var appleMusicSetupStages = \{ runtime: false, page: false, account: false \};/);
+  assert.match(js, /if \(error === 'runtime-unavailable'\) \{/);
+  assert.match(js, /if \(error !== 'not-ready' && error !== 'request-failed'\) appleMusicSetupStages\.page = true;/,
+    'not-ready 说明页面还没就绪，不能算过');
+  assert.match(js, /1: !!appleMusicSetupStages\.runtime,/);
+  assert.match(js, /4: !!\(appleMusicPlaylists && appleMusicPlaylists\.length\)/, '第四步要看真的读到歌单');
+
+  // 渲染：complete/current + aria
+  assert.match(js, /chip\.classList\.toggle\('complete', !!done\[index\]\);/);
+  assert.match(js, /chip\.classList\.toggle\('current', index === current\);/);
+  assert.match(js, /appleWizard\.setAttribute\('aria-hidden', isAppleMusic \? 'false' : 'true'\);/);
+  assert.match(js, /function recheckAppleMusicSetup\(\)/, '需要一个手动重测入口');
+});
+
+// 未登录绝不拉起 companion（WebView2 启动十几秒 + 几百兆），已登录也别反复验证。
+test('未登录不拉起 Apple companion，已登录按 TTL 验证', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const flows = fs.readFileSync(
+    path.join(__dirname, '..', 'public/js/modules/08-account/03-login-modal-flows.js'), 'utf8');
+  const shell = fs.readFileSync(
+    path.join(__dirname, '..', 'public/js/modules/06-lyrics/01-playlist-panel-shell.js'), 'utf8');
+
+  // 门禁：非 force 且缓存不是"登着" → 直接返回，不发请求
+  assert.match(flows, /var cachedLoggedIn = !!\(appleMusicLoginStatus && appleMusicLoginStatus\.loggedIn\);/);
+  assert.match(flows, /if \(!cachedLoggedIn \|\| fresh\) return appleMusicLoginStatus;/,
+    '未登录（或刚验过）时不许发起 accountStatus');
+  assert.match(flows, /var APPLE_MUSIC_STATUS_TTL_MS = 5 \* 60 \* 1000;/);
+
+  // 用户主动入口必须 force，否则点了检测也会被门禁挡掉
+  assert.ok(flows.indexOf('refreshAppleMusicLoginStatus(true)') > 0, '登录界面里的检测要 force');
+
+  // 打开歌单栏不再为"未登录"拉起
+  assert.match(shell, /appleMusicLoginStatus\.loggedIn && appleMusicLoginStatus\.fromCache/);
+  assert.ok(!/Promise\.resolve\(\)\.then\(refreshAppleMusicLoginStatus\)/.test(shell),
+    '旧的"不是登着就探一次"要去掉');
+});
+
+// 启动阶段：补验排到首屏之后，成功后顺手把歌单首页塞进服务端缓存。
+test('启动补验不抢首屏，成功后预取歌单首页', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'public/js/modules/10-shell/05-startup-bindings.js'), 'utf8');
+  assert.match(src, /requestIdleCallback\(runAppleMusicStartupProbe, \{ timeout: 6000 \}\)/);
+  assert.match(src, /apiJson\('\/api\/apple-music\/playlists\?limit=25&offset=0'/,
+    '补验成功后要预取歌单首页，面板打开才是秒开');
+});

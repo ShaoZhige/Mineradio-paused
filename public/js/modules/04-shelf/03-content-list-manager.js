@@ -733,11 +733,13 @@ function makeContentListManager() {
       var kugouPlaylistId = String(playlistId || '').indexOf('kugou:') === 0 ? String(playlistId).slice(6) : '';
       var qishuiPlaylistId = String(playlistId || '').indexOf('qishui:') === 0 ? String(playlistId).slice(7) : '';
       var spotifyPlaylistId = String(playlistId || '').indexOf('spotify:') === 0 ? String(playlistId).slice(8) : '';
+      // AM 歌单同样带前缀（`applemusic:`）——少这一行会按网易云去拉，展开后空空如也。
+      var appleMusicPlaylistId = String(playlistId || '').indexOf('applemusic:') === 0 ? String(playlistId).slice(11) : '';
       var builtInPlaylistId = String(playlistId || '').indexOf('mineradio:') === 0 ? String(playlistId).slice(10) : '';
       contentKind = podcastCollectionKey ? 'podcast' : 'playlist';
       contentSource = podcastCollectionKey ? null : {
-        provider: builtInPlaylistId ? 'mineradio' : (qqPlaylistId ? 'qq' : (kugouPlaylistId ? 'kugou' : (qishuiPlaylistId ? 'qishui' : (spotifyPlaylistId ? 'spotify' : 'netease')))),
-        id: builtInPlaylistId || qqPlaylistId || kugouPlaylistId || qishuiPlaylistId || spotifyPlaylistId || playlistId
+        provider: builtInPlaylistId ? 'mineradio' : (qqPlaylistId ? 'qq' : (kugouPlaylistId ? 'kugou' : (qishuiPlaylistId ? 'qishui' : (spotifyPlaylistId ? 'spotify' : (appleMusicPlaylistId ? 'applemusic' : 'netease'))))),
+        id: builtInPlaylistId || qqPlaylistId || kugouPlaylistId || qishuiPlaylistId || spotifyPlaylistId || appleMusicPlaylistId || playlistId
       };
       // 拉取歌单/播客集合
       var r = null;

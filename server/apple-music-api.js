@@ -26,6 +26,22 @@ function mapAppleMusicSong(item, index, query) {
   const name = appleMusicText(a.name, 1024);
   if (!id || !name) return null;
   const playParams = a.playParams || {};
+  // 🔴 Apple 的歌单里偶尔混进非歌曲条目（艺人 `a.xxx`、音乐视频等），它们的 id 不是可播的
+  // catalog id。以前一律当歌映射，结果队列里出现 `catalogId: "a.6824409350"` 这种行，
+  // 点播放必然失败（实测日志：am-start-rejected / reason=no-catalog-id）。
+  // 但 `a.` 也是**新版资料库歌曲**的 id 空间：歌单曲目实测返回 `a.6825256856`，
+  // `playParams.catalogId` 是有效的 `6825256856`。只按前缀拦会把整个歌单丢空
+  // （用户看到的就是"98 首歌的歌单没有歌"）。所以判据换成：纯数字 / `i.` / 或
+  // **带合法 catalogId 的 `a.`**，再加上 kind 必须是 song。
+  // `a.` ids are also used by newer library songs; rejecting the prefix alone emptied whole
+  // playlists. Accept it when playParams carries a real catalog id, and keep the song-kind gate.
+  const catalogFromParams = appleMusicText(playParams.catalogId, 256);
+  const catalogNumeric = /^\d{1,40}$/.test(catalogFromParams);
+  const idPlayable = /^\d{1,40}$/.test(id)
+    || /^i\.[A-Za-z0-9._-]{1,198}$/.test(id)
+    || (/^a\.[A-Za-z0-9._-]{1,198}$/.test(id) && catalogNumeric);
+  const kind = String(playParams.kind || '').toLowerCase();
+  if (!idPlayable || (kind && kind !== 'song')) return null;
   const durationMs = Number.isFinite(a.durationInMillis) ? Math.max(0, a.durationInMillis) : 0;
   const albums = Array.isArray(a.catalogAlbums) ? a.catalogAlbums : [];
   const artists = Array.isArray(a.catalogArtists) ? a.catalogArtists : [];
@@ -39,7 +55,10 @@ function mapAppleMusicSong(item, index, query) {
     id,
     providerSongId: id,
     appleMusicId: id,
-    catalogId: appleMusicText(playParams.catalogId, 256) || id,
+    // catalogId 只认数字；资料库条目退回自己的 `i.` id，交给渲染端 resolveSong 换算。
+    // 带 catalogId 的 `a.` 资料库歌曲直接用那个数字。
+    catalogId: catalogNumeric ? catalogFromParams
+      : (/^\d{1,40}$/.test(id) ? id : (/^i\./.test(id) ? id : '')),
     name,
     artist,
     artists: (artists.length ? artists : (artist ? [{ name: artist }] : [])).map((entry) => ({
@@ -145,36 +164,53 @@ async function handleAppleMusicSearch(requester, keywords, limit, offset) {
 // 目录接口不带曲目数：library playlists 的属性里没有 trackCount，卡片于是一律显示「0 首」。
 // Apple 另有一个只读一行的计数接口，Folia 补卡片的做法也一样。这里并发两路、总预算 2.5 秒，
 // 读不到就保持 0 —— 计数是可选的，绝不能让它拖慢或拖垮整页目录。
-// The catalog page carries no track count (library playlists have no trackCount attribute), so every
-// card read "0 首". Apple has a one-row counting read, and Folia fills cards the same way. Two lanes,
-// 2.5 s of total budget, and a missing count simply stays 0: the count is optional and must never
-// slow the page down or fail it.
-const APPLE_MUSIC_COUNT_BUDGET_MS = 2500;
-const APPLE_MUSIC_COUNT_MAX = 10;
-const APPLE_MUSIC_COUNT_ATTEMPT_MS = 1200;
-async function fillAppleMusicPlaylistTrackCounts(requester, playlists) {
-  const pending = playlists
-    .filter((item) => item && item.id && !(item.trackCount > 0))
+// 曲目数**不能**跟着歌单列表一起算：companion 是串行的，`playlistTrackCount` 冷的时候一次
+// 要十几秒，而 Promise.race 超时只是放弃等待、并不会取消那次请求 —— 被放弃的请求继续占着
+// 通道，于是"第一次加载成功、第二次打开歌单就排不进去"。现在改成独立接口：列表立刻返回，
+// 前端在列表渲染完之后单独、一次一批地问。
+// Track counts must not ride along with the list: the companion serialises requests, and an
+// abandoned count call keeps occupying it (Promise.race does not cancel the underlying call).
+// They now live behind their own endpoint, requested by the UI once the list is on screen.
+const APPLE_MUSIC_COUNT_BUDGET_MS = 2000;
+const APPLE_MUSIC_COUNT_MAX = 4;
+const APPLE_MUSIC_COUNT_ATTEMPT_MS = 700;
+
+async function handleAppleMusicPlaylistCounts(requester, ids) {
+  const wanted = (Array.isArray(ids) ? ids : [])
+    .map((id) => String(id || ''))
+    .filter((id) => /^p\.[A-Za-z0-9._-]{1,198}$/.test(id))
     .slice(0, APPLE_MUSIC_COUNT_MAX);
-  if (!pending.length) return;
+  if (typeof requester !== 'function' || !wanted.length) {
+    return { provider: 'applemusic', counts: {}, error: wanted.length ? 'APPLE_MUSIC_RUNTIME_UNAVAILABLE' : '' };
+  }
+  const counts = {};
   const deadline = Date.now() + APPLE_MUSIC_COUNT_BUDGET_MS;
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < pending.length && Date.now() < deadline) {
-      const item = pending[cursor++];
-      const budget = Math.max(300, Math.min(APPLE_MUSIC_COUNT_ATTEMPT_MS, deadline - Date.now()));
-      try {
-        const answer = await Promise.race([
-          requester('playlistTrackCount', { playlistId: item.id, limit: 1, offset: 0 }),
-          new Promise((resolve) => { const timer = setTimeout(() => resolve(null), budget); if (timer.unref) timer.unref(); }),
-        ]);
-        const total = answer && answer.ok === true && answer.data ? answer.data.total : null;
-        if (Number.isSafeInteger(total) && total >= 0) item.trackCount = total;
-      } catch (_) { /* 读不到就保持 0 */ }
-    }
-  };
-  await Promise.all([worker(), worker()]);
+  // 严格串行：并发只会让更多请求在超时后被"放弃"，全都留在通道里。
+  // Strictly sequential: concurrency only creates more abandoned-but-still-running calls.
+  for (const id of wanted) {
+    if (Date.now() >= deadline) break;
+    const budget = Math.max(400, Math.min(APPLE_MUSIC_COUNT_ATTEMPT_MS, deadline - Date.now()));
+    try {
+      const answer = await Promise.race([
+        requester('playlistTrackCount', { playlistId: id, limit: 1, offset: 0 }),
+        new Promise((resolve) => { const timer = setTimeout(() => resolve(null), budget); if (timer.unref) timer.unref(); }),
+      ]);
+      const total = answer && answer.ok === true && answer.data ? answer.data.total : null;
+      if (Number.isSafeInteger(total) && total >= 0) counts[id] = total;
+    } catch (_) { /* 读不到就不写，前端保持原样 */ }
+  }
+  return { provider: 'applemusic', counts };
 }
+
+// Folia 的在线集合是"缓存优先"：曲目/歌单存在本地，键没变就直接渲染、后台再刷新
+// （`onlineCollectionCache.service.ts`）。companion 的请求要串行过 WebView2，往返一次几百毫秒
+// 到十几秒，反复开关歌单时这份往返完全没必要。这里做一层短 TTL 的进程内缓存：同一个
+// requester + 同一页，20 秒内直接复用。requester 变了（换实例/测试）就整体作废。
+// Folia renders online collections from a local cache first; the same idea here, in-process:
+// a 20 s TTL for repeated opens of the same page.
+const APPLE_MUSIC_PLAYLISTS_CACHE_TTL_MS = 120000;
+let appleMusicPlaylistsCache = new Map();
+let appleMusicPlaylistsCacheRequester = null;
 
 async function handleAppleMusicPlaylists(requester, limit, offset) {
   limit = Math.max(1, Math.min(100, Number(limit) || 25));
@@ -188,6 +224,14 @@ async function handleAppleMusicPlaylists(requester, limit, offset) {
       message: 'Apple Music 组件尚未就绪。',
     };
   }
+  if (appleMusicPlaylistsCacheRequester !== requester) {
+    appleMusicPlaylistsCache = new Map();
+    appleMusicPlaylistsCacheRequester = requester;
+  }
+  const cacheKey = limit + '|' + offset;
+  const cached = appleMusicPlaylistsCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < APPLE_MUSIC_PLAYLISTS_CACHE_TTL_MS) return cached.payload;
+
   const result = await requester('playlists', { limit, offset });
   if (!result || result.ok !== true) {
     const error = (result && result.error) || 'request-failed';
@@ -202,8 +246,7 @@ async function handleAppleMusicPlaylists(requester, limit, offset) {
   const data = (result && result.data) || {};
   const items = Array.isArray(data.items) ? data.items : [];
   const playlists = items.map(mapAppleMusicPlaylist).filter(Boolean).slice(0, limit);
-  await fillAppleMusicPlaylistTrackCounts(requester, playlists);
-  return {
+  const payload = {
     provider: 'applemusic',
     configured: true,
     playlists,
@@ -213,6 +256,8 @@ async function handleAppleMusicPlaylists(requester, limit, offset) {
     hasMore: data.hasMore === true,
     total: Number.isFinite(data.total) ? data.total : null,
   };
+  appleMusicPlaylistsCache.set(cacheKey, { at: Date.now(), payload });
+  return payload;
 }
 
 // 🔴 歌单曲目必须用 `tracks` 这个名字：左栏详情与队列续页（06-lyrics/02-playlist-detail.js
@@ -352,6 +397,7 @@ module.exports = {
   handleAppleMusicSearch,
   handleAppleMusicPlaylists,
   handleAppleMusicPlaylistTracks,
+  handleAppleMusicPlaylistCounts,
   handleAppleMusicLyric,
   mapAppleMusicSong,
   mapAppleMusicPlaylist,

@@ -44,7 +44,13 @@ function playbackRestoreSongSnapshot(song) {
     'spotifyId', 'spotifyUri', 'spotifyUrl', 'uri', 'albumUri',
     'hash', 'fileHash', 'audioHash', 'albumId', 'album_id', 'albumMid', 'albummid', 'albumAudioId', 'album_audio_id', 'mixSongId', 'hqHash', 'sqHash', 'resHash',
     'name', 'title', 'artist', 'album', 'cover', 'duration', 'durationMs', 'dt', 'fee',
-    'playable', 'playbackMode', 'recommendationSource', 'programId', 'radioId', 'radioName', 'localKey', 'localFileId'
+    'playable', 'playbackMode', 'recommendationSource', 'programId', 'radioId', 'radioName', 'localKey', 'localFileId',
+    // 🔴 Apple Music 的播放 id 必须跟着快照走。资料库歌曲的 `id` 是 `a.<数字>`（不是 catalog id），
+    // 真正能喂给 MusicKit 的是 `catalogId`；以前没存它，重载后恢复出来的 AM 歌只剩 `a.xxx`，
+    // 一按播放就被判成"没有 catalog id"并弹「播放启动失败」（实测 2026-11-22）。
+    // Apple Music's playable id has to survive the snapshot: a library row stores `a.<digits>`
+    // as `id`, and only `catalogId` can be handed to MusicKit.
+    'catalogId', 'appleMusicId', 'providerSongId'
   ].forEach(function (key) {
     if (song[key] != null && song[key] !== '') snap[key] = song[key];
   });
@@ -98,6 +104,18 @@ function applyRestoredPlaybackProgressUi(snapshot) {
   var timeDisplay = document.getElementById('time-display');
   if (timeDisplay) timeDisplay.textContent = formatProgramTime(currentSec) + ' / ' + (durationSec > 0 ? formatProgramTime(durationSec) : '0:00');
 }
+// 旧存档里可能残留不可播的 Apple 条目（`a.xxx` 艺人 id、或根本没有 catalogId 的非歌曲行）。
+// 恢复时直接丢掉，否则一启动就卡在这首上反复失败（实测日志：am-start-rejected 连发）。
+// 注意 `a.<数字>` 是**新版资料库歌曲**的 id，不能和艺人条目一起丢掉。
+// Only catalog ids, library `i.` ids, and library `a.<digits>` rows are playable.
+function isUnplayableAppleMusicRow(song) {
+  if (!song) return false;
+  var isApple = song.provider === 'applemusic' || song.source === 'applemusic' || song.type === 'applemusic';
+  if (!isApple) return false;
+  var id = String(song.catalogId || song.appleMusicId || song.providerSongId || song.id || '');
+  return !(/^\d{1,40}$/.test(id) || /^i\.[A-Za-z0-9._-]{1,198}$/.test(id) || /^a\.\d{1,40}$/.test(id));
+}
+
 function restoreLastPlaybackSnapshot() {
   if (restoredLastPlaybackSnapshot) return false;
   var snapshot = readLastPlaybackSnapshot();
@@ -112,8 +130,16 @@ function restoreLastPlaybackSnapshot() {
     currentIdx = -1;
     playQueue = [];
   } else {
-    var queue = Array.isArray(snapshot.queue) ? snapshot.queue.map(function (song) { return hydrateCustomCover(Object.assign({}, song)); }).filter(function (song) { return song && (song.id || song.mid || song.name); }) : [];
+    var queue = Array.isArray(snapshot.queue) ? snapshot.queue.map(function (song) { return hydrateCustomCover(Object.assign({}, song)); }).filter(function (song) {
+      if (!song || !(song.id || song.mid || song.name)) return false;
+      return !isUnplayableAppleMusicRow(song);
+    }) : [];
     if (!queue.length) queue = [current];
+    if (isUnplayableAppleMusicRow(current)) {
+      // 「当前这首」也不能播：改用队列里第一首能播的，并把恢复进度归零（否则会拿旧进度去定位新歌）。
+      current = queue[0];
+      pendingPlaybackResumeAt = 0;
+    }
     var idx = Math.max(0, Math.min(queue.length - 1, Number(snapshot.currentIdx) || 0));
     if (!queue[idx] || queueItemKey(queue[idx]) !== queueItemKey(current)) {
       var found = -1;

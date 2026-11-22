@@ -160,10 +160,8 @@ function maybeShowUploadTipOnce() {
     return;
   }
   var loginModal = document.getElementById('login-modal');
-  var userModal = document.getElementById('user-modal');
   var coverModal = document.getElementById('cover-crop-modal');
   var hasModal = (loginModal && loginModal.classList.contains('show')) ||
-    (userModal && userModal.classList.contains('show')) ||
     (coverModal && coverModal.classList.contains('show'));
   if (hasModal) {
     uploadTipAttempts++;
@@ -455,8 +453,18 @@ window.addEventListener('mousemove', function (e) {
   var inFxFab = ex >= fabRect.left - 18 && ex <= fabRect.right + 18 && ey >= fabRect.top - 18 && ey <= fabRect.bottom + 18;
   var inFxBridge = fpOn && ex >= Math.min(fpRect.left, fabRect.left) - 18 && ex <= W && ey >= fpRect.bottom - 10 && ey <= fabRect.bottom + 18;
   if (!diyPlayerMode) inFxPanel = inFxFab = inFxBridge = false;
-  if (inFxFab || inFxPanel || inFxBridge) setPeek(fp, true, 'fx');
-  else if (fpOn) setPeek(fp, false, 'fx');
+  // 用户刚用圆钮把面板关掉：指针还在圆钮上时不要再自动打开，离开这片区域就解除抑制。
+  // The user just closed it with the launcher: do not re-open on hover; clear once the pointer leaves.
+  if (!inFxFab && !inFxPanel && !inFxBridge && typeof fxPanelClickClosed !== 'undefined' && fxPanelClickClosed) {
+    fxPanelClickClosed = false;
+  }
+  var fxSuppressed = typeof fxPanelClickClosed !== 'undefined' && fxPanelClickClosed;
+  if (!fxSuppressed && (inFxFab || inFxPanel || inFxBridge)) {
+    if (!fpOn) fxPanelPeekOpenedAt = Date.now();
+    setPeek(fp, true, 'fx');
+  } else if (!fxSuppressed && fpOn) {
+    setPeek(fp, false, 'fx');
+  }
   // 歌单/队列 DOM 面板只在左侧明确停留时出现，避免和右侧 3D 架抢焦点
   var ppOn = isPlaylistPanelActiveState(pp);
   var ppRect = pp.getBoundingClientRect();

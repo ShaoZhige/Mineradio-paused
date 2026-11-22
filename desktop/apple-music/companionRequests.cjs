@@ -11,14 +11,27 @@ const REQUEST_ID = /^[a-zA-Z0-9_-]{1,64}$/;
 const RESOURCE_ID = /^[a-zA-Z0-9._-]{1,200}$/;
 // Folia chooses the order; the companion may prepare a bounded tail but cannot invent next tracks.
 const PLAYBACK_COMMANDS = new Set(['playStation', 'playSong', 'pause', 'resume', 'seek', 'setVolume', 'prepareNext']);
-const OPERATIONS = new Set(['songOriginal', 'catalogSong', 'catalogAlbum', 'catalogAlbumTracks', 'catalogArtist', 'catalogArtistSongs', 'catalogArtistAlbums', 'libraryAlbums', 'librarySongs', 'libraryAlbumTracks', 'stations', 'station', 'personalFm', 'showWindow', 'hideWindow', 'logout', 'accountStatus', 'search', 'playlists', 'playlistTracks', 'playlistTrackCount', 'lyrics', 'playbackStatus', 'likeSong', 'addPlaylistTracks', ...PLAYBACK_COMMANDS]);
+// 操作表按 SP 注入桥的语义分三层（读 / 写命令 / 宿主控制），而不是一坨：
+//   · HOST   —— 只动宿主窗口，不碰页面（showWindow / hideWindow / warm / logout）
+//   · READ   —— 只读，幂等，可以随便重试（状态、歌单、搜索、歌词、账号）
+//   · CMD    —— 会改变播放状态（playSong / pause / resume / seek / setVolume / prepareNext）
+// 分层的意义在**语义**：只有 READ 允许无脑重试，CMD 重试可能造成重复播放。
+// Same three layers as the Spotify bridge: host control, reads, commands.
+const HOST_OPERATIONS = new Set(['showWindow', 'hideWindow', 'warm', 'logout']);
+const READ_OPERATIONS = new Set(['songOriginal', 'catalogSong', 'catalogAlbum', 'catalogAlbumTracks', 'catalogArtist', 'catalogArtistSongs', 'catalogArtistAlbums', 'libraryAlbums', 'librarySongs', 'libraryAlbumTracks', 'stations', 'station', 'personalFm', 'accountStatus', 'search', 'playlists', 'playlistTracks', 'playlistTrackCount', 'resolveSong', 'lyrics', 'playbackStatus']);
+const OPERATIONS = new Set([...HOST_OPERATIONS, ...READ_OPERATIONS, ...PLAYBACK_COMMANDS]);
+function operationKind(operation) {
+    if (HOST_OPERATIONS.has(operation)) return 'host';
+    if (PLAYBACK_COMMANDS.has(operation)) return 'command';
+    if (READ_OPERATIONS.has(operation)) return 'read';
+    return '';
+}
 
-function validateRequest(message) {
-    if (!message || typeof message !== 'object' || Array.isArray(message)) return null;
+function validateRequest(message) {    if (!message || typeof message !== 'object' || Array.isArray(message)) return null;
     const { id, operation, params = {} } = message;
     if (typeof id !== 'string' || !REQUEST_ID.test(id) || !OPERATIONS.has(operation)) return null;
     if (!params || typeof params !== 'object' || Array.isArray(params)) return null;
-    if (['showWindow', 'hideWindow', 'logout', 'accountStatus'].includes(operation)) return { id, operation, params: {} };
+    if (['showWindow', 'hideWindow', 'warm', 'logout', 'accountStatus'].includes(operation)) return { id, operation, params: {} };
     if (operation === 'stations') return { id, operation, params: { limit: 20, offset: 0 } };
     if (operation === 'station' || operation === 'playStation') {
         if (typeof params.stationId !== 'string' || !/^ra\.[a-zA-Z0-9._-]{1,196}$/.test(params.stationId)) return null;
@@ -39,6 +52,12 @@ function validateRequest(message) {
             || !Array.isArray(params.catalogIds) || params.catalogIds.length < 1 || params.catalogIds.length > 100
             || params.catalogIds.some(id => typeof id !== 'string' || !/^\d{1,40}$/.test(id))) return null;
         return { id, operation, params: { playlistId: params.playlistId, catalogIds: [...new Set(params.catalogIds)] } };
+    }
+    // 库内歌曲只有 `i.xxx` 这种 id，而 MusicKit 的 setQueue 只可靠地吃 catalog id
+    // （Apple 官方论坛：拿 i.xxx 去 setQueue 会静默不播）。所以播放前先把它换成 catalogId。
+    if (operation === 'resolveSong') {
+        if (typeof params.songId !== 'string' || !/^i\.[A-Za-z0-9._-]{1,198}$/.test(params.songId)) return null;
+        return { id, operation, params: { songId: params.songId } };
     }
     if (operation === 'likeSong') {
         if (typeof params.catalogId !== 'string' || !/^\d{1,40}$/.test(params.catalogId) || typeof params.liked !== 'boolean') return null;
@@ -87,7 +106,30 @@ function validateRequest(message) {
 }
 
 // This function runs inside the Apple page; return only fields required by the provider.
+// ⚠️ 这个函数会被 toString() 注入页面，所以它依赖的一切都必须写在**函数体内** ——
+//    模块作用域的辅助函数在页面里并不存在（实测：加了模块级 helper 后页面每个请求都抛
+//    ReferenceError，表现为"点歌没反应"）。
+// Everything this function uses must live inside its body: it is stringified into the page.
 async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTracks, readPersonalStation, alignStorefront) {
+    // MusicKit 的 promise 没有超时。setQueue / controlQueue / 账号查询都可能永远不 settle
+    // （曲目在 storefront 不可用、会话半失效、Apple 侧不答）。宿主串行处理请求，一次挂死
+    // 就会把之后所有请求（连 warm）堵到超时，界面表现是「没有报错但也不播 / 状态变未连接」。
+    // A hard deadline turns a hang into an ordinary failure the caller can act on.
+    const withMusickitDeadline = (promise, stage, budgetMs = 12000) => new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            const error = new Error('musickit-timeout:' + stage);
+            error.code = 'musickit-timeout';
+            error.stage = stage;
+            reject(error);
+        }, budgetMs);
+        Promise.resolve(promise).then(
+            (value) => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); },
+            (error) => { if (settled) return; settled = true; clearTimeout(timer); reject(error); }
+        );
+    });
     try {
         const mk = window.MusicKit?.getInstance();
         const modern = mk?.api?.v3;
@@ -98,6 +140,10 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             : typeof legacy?.music === 'function' ? (path, query, options) => options
                 ? legacy.music(path, query, options.fetchOptions) : legacy.music(path, query)
                 : null;
+        // `warm` 只用来把宿主拉起来（页面由宿主自己加载），不等 MusicKit、不碰 Apple 接口。
+        // 必须放在 `!call` 门禁之前：页面还没配好时它也要立刻答 ok，否则调用方又要重试。
+        // `warm` only nudges the host to exist and load its page; it never waits for MusicKit.
+        if (request.operation === 'warm') return { ok: true, data: {} };
         if (!call) return { ok: false, error: 'not-ready' };
         // Starts and prepared queues play in the account's region, whatever region the page is in.
         if (['playSong', 'playStation', 'prepareNext'].includes(request.operation)) {
@@ -175,7 +221,7 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             window.__foliaStart = null;
             let playbackStage = 'prepared-queue';
             try {
-                const reused = await controlQueue(mk, request.operation, request.params);
+                const reused = await withMusickitDeadline(controlQueue(mk, request.operation, request.params), 'prepared-queue');
                 if (reused) return reused;
                 // Folia supplies the prepared tail separately and remains responsible for order.
                 playbackStage = 'configure';
@@ -185,7 +231,11 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
                 playbackStage = 'queue';
                 console.info('[AppleMusic] Playback stage: queue');
                 window.__foliaLiveStation = '';
-                await mk.setQueue({ song: request.params.catalogId, startPlaying: false, startTime: request.params.startSec });
+                // 🔴 必须带上限：这一行是整个宿主唯一会"永久挂住"的地方（见文件头注释）。
+                await withMusickitDeadline(
+                    mk.setQueue({ song: request.params.catalogId, startPlaying: false, startTime: request.params.startSec }),
+                    'queue'
+                );
                 playbackStage = 'play';
                 console.info('[AppleMusic] Playback stage: play');
                 const attempt = { failed: false, cancelled: false, sought: false, pending: true, startedAt: Date.now() };
@@ -199,9 +249,18 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
                 }).catch(() => {
                     if (window.__foliaStart === attempt && !attempt.cancelled) attempt.failed = true;
                 }).finally(() => { attempt.pending = false; });
-            } catch {
-                console.warn('[AppleMusic] Playback command rejected', { operation: request.operation });
-                return { ok: false, error: 'playback-failed', playbackStage };
+            } catch (error) {
+                // 超时和"Apple 明确拒绝"要分开报：前者说明页面本身卡住了，父进程需要重启宿主；
+                // 后者只是这首歌播不了，重启没有意义。混成一个码会让上层反复重建 WebView2。
+                // A timeout means the page itself is wedged (restart the host); a rejection means this
+                // track cannot play (restart helps nothing). They must not share one code.
+                const timedOut = !!(error && error.code === 'musickit-timeout');
+                console.warn('[AppleMusic] Playback command rejected', {
+                    operation: request.operation,
+                    reason: timedOut ? 'musickit-timeout' : 'rejected',
+                    stage: playbackStage,
+                });
+                return { ok: false, error: timedOut ? 'playback-timeout' : 'playback-failed', playbackStage };
             }
             window.__foliaLastPlay = { requestKey: request.params.requestKey, catalogId: request.params.catalogId };
             // What the player says right after the start; the caller logs it once (ids, no words).
@@ -250,17 +309,48 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             }
             return { ok: true, data: {} };
         }
+        if (request.operation === 'resolveSong') {
+            // 库歌曲 → catalog id。读不到就返回空串，让上层按"无法播放"处理，不要瞎猜 id。
+            const songId = request.params.songId;
+            const answer = await call('v1/me/library/songs/' + encodeURIComponent(songId));
+            const attrs = answer?.data?.data?.[0]?.attributes || {};
+            const catalog = String(attrs.playParams?.catalogId || '');
+            return { ok: true, data: { catalogId: /^\d{1,40}$/.test(catalog) ? catalog : '' } };
+        }
         let account = window.__foliaStorefront;
+        let storefrontTimedOut = false;
         if (!account || request.operation === 'accountStatus') {
-            account = await call('v1/me/storefront');
+            // 🔴 这一行会挂住（Apple 侧不答、会话半失效都会这样）。它挂在宿主里就是 20s 超时，
+            // 而渲染层把"超时"读成"未登录" —— 用户看到 AM 变成未连接、歌单变未载入。
+            // 必须给上限，并且超时用 MusicKit 实例自己的授权态兜底（那是本地状态，不走网络）。
+            // This call can hang. A hang surfaces as a timeout, and a timeout reads as "signed out"
+            // in the renderer, which is exactly the wrong conclusion.
+            try {
+                account = await withMusickitDeadline(call('v1/me/storefront'), 'storefront');
+            } catch (error) {
+                storefrontTimedOut = !!(error && error.code === 'musickit-timeout');
+                account = null;
+            }
             const id = account?.data?.data?.[0]?.id;
             window.__foliaStorefront = typeof id === 'string' && /^[a-z]{2}$/.test(id) ? account : null;
         }
         const store = account?.data?.data?.[0]?.id;
         if (typeof store !== 'string' || !/^[a-z]{2}$/.test(store)) {
-            const status = Number(account?.status);
+            const status = Number(account?.status) || 0;
             // Apple answers 401 or 403 for a session it no longer accepts.
-            return { ok: false, error: status === 401 || status === 403 ? 'auth-required' : 'storefront-unavailable' };
+            if (status === 401 || status === 403) return { ok: false, error: 'auth-required' };
+            // 🔴 页面刚起来、MusicKit 还没配好时，`v1/me/storefront` 拿不到区域是**常态**，
+            // 而且此时 `mk.isAuthorized` 也还是 false（配置完成前它没有意义）。只有页面**真的
+            // 答上了**（HTTP 200）才敢把 authorized 当结论；其余（0/5xx/请求失败）一律回 null，
+            // 让上层保留缓存 —— 否则启动瞬间就会被判成"退出了"，歌单直接变未载入。
+            // Only an actual 200 answer makes mk.isAuthorized meaningful; anything else is "unknown".
+            const answered = status === 200;
+            let authorized = answered ? (mk.isAuthorized === true) : null;
+            // 超时是"问不到"，不是"没登录"：只把**明确为真**的授权态带出去，false 一律降成
+            // null（= 未知），让渲染层保留缓存而不是把账号清掉。
+            // A timeout is "no answer", never "signed out": only a definite true is reported.
+            if (storefrontTimedOut && mk.isAuthorized === true) authorized = true;
+            return { ok: false, error: 'storefront-unavailable', data: { authorized } };
         }
         if (request.operation === 'accountStatus') {
             // 名字的唯一权威来源就是社交档案：Apple 自己的账号菜单也只用
@@ -282,7 +372,15 @@ async function readFromPage(request, controlQueue, updateFavorite, addPlaylistTr
             };
             const text = value => (typeof value === 'string' ? value.trim().slice(0, 256) : '');
 
-            const profile = await call('v1/me/social-profile');
+            // 名字拿不到不该拖死整次查询：下面还有页面头像和 music-user-token 兜底。
+            // A missing name must not hang the whole status call; the page avatar and the music
+            // user token below are the fallbacks.
+            let profile = null;
+            try {
+                profile = await withMusickitDeadline(call('v1/me/social-profile'), 'social-profile');
+            } catch {
+                profile = null;
+            }
             const item = profile?.data?.data?.[0];
             debug.sources.socialProfile = Number(profile?.status) || 0;
             let identity = typeof item?.id === 'string' && item.id && item.id.length <= 512 ? item.id : '';
@@ -578,4 +676,4 @@ function createRequestDispatcher(getContents, timeoutMs = 20000, getGeneration =
     };
 }
 
-module.exports = { validateRequest, requestExpression, createRequestDispatcher };
+module.exports = { validateRequest, requestExpression, createRequestDispatcher, operationKind, HOST_OPERATIONS, READ_OPERATIONS };

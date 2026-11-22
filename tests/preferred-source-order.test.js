@@ -267,6 +267,8 @@ test('存了已下线的未知平台时退回默认源，而不是让设置失�
   // realm，deepStrictEqual 会因为 Array.prototype 不同而拒绝两个内容相同的数组。
   // Spotify must really be selectable (the reported issue). Compared via join because a sandbox array
   // comes from another realm and deepStrictEqual rejects two identical arrays across realms.
+  // Apple Music 在 2026-11-22 起也进这张表：首页推荐的歌要先匹配成 AM 版本再交给 companion，
+  // 没有这条路径就永远只能从 AM 歌单点播（用户报的"打开 MR 第一首听不了 AM"）。
   assert.equal(createSandbox({}).sandbox.preferredSourceOptions().map((o) => o.value).join(','),
-    'auto,netease,qq,kugou,qishui,spotify');
+    'auto,netease,qq,kugou,qishui,spotify,applemusic');
 });

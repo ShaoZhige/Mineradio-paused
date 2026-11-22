@@ -234,6 +234,10 @@ function normalizePlaybackProvider(provider) {
   if (provider === 'kugou') return 'kugou';
   if (provider === 'qishui') return 'qishui';
   if (provider === 'spotify') return 'spotify';
+  // 🔴 AM 不属于"拿 URL 播放"的一族，但它有自己的平台名。漏了这一行，AM 歌曲会被当成网易云：
+  // 去刷新网易云播放地址、弹网易云登录、把 AM 当作"当前源"参与换源（2026-11-22 全平台清点时发现）。
+  // Without this line every Apple Music song is classified as Netease.
+  if (provider === 'applemusic' || provider === 'appleMusic') return 'applemusic';
   return 'netease';
 }
 

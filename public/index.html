@@ -107,6 +107,8 @@
       <img id="wallpaper-engine-image" alt="">
       <canvas id="wallpaper-engine-freeze" aria-hidden="true"></canvas>
       <video id="wallpaper-engine-video" muted loop playsinline preload="metadata"></video>
+      <!-- 捕获渲染：本机 MJPEG 流（WE 播窗由后台进程抓，<video> 放不了 MJPEG，所以用 img） -->
+      <img id="wallpaper-engine-capture-image" alt="" aria-hidden="true">
     </div>
     <div id="wallpaper-engine-glass-sampler" aria-hidden="true">
       <video id="wallpaper-engine-glass-sampler-video" muted playsinline preload="none"></video>
@@ -539,7 +541,7 @@
           step="0.01"><output></output></div>
       <div class="fx-slider"><label data-i18n="fx_window_bg_transparent">&#31383;&#21475;&#32972;&#26223;&#36879;&#26126;</label><input id="fx-windowbgopacity" type="range" min="0" max="1"
           step="0.01"><output></output></div>
-      <div class="fx-slider"><label data-i18n="fx_window_corner_radius">&#31383;&#21475;&#22278;&#35282;</label><input id="fx-windowradius" type="range" min="0" max="48"
+      <div class="fx-slider"><label data-i18n="fx_window_corner_radius">&#31383;&#21475;&#22278;&#35282;</label><input id="fx-windowradius" type="range" min="0" max="120"
           step="1"><output></output></div>
       <div class="fx-slider"><label data-i18n="fx_glass_opacity">&#27611;&#29627;&#29827;&#36879;&#26126;</label><input id="fx-bgglassopacity" type="range" min="0" max="1"
           step="0.01"><output></output></div>
@@ -923,6 +925,9 @@
             <div class="fx-toggle" id="t-wallpaperEngineGlassSampler" onclick="toggleFx('wallpaperEngineGlassSampler')"
               title="抓壁纸真实像素给控制栏玻璃做底。Windows 10 无法关闭系统捕获黄框，因此默认关闭；手动打开后功能可用，但黄框会保留" data-i18n-title="fx_we_glass_title">
               <span data-i18n="fx_we_glass">WE 玻璃采样</span><span class="dot"></span></div>
+            <div class="fx-toggle" id="t-wallpaperEngineCaptureRender" onclick="toggleFx('wallpaperEngineCaptureRender')"
+              title="把壁纸窗口抓成视频流、画在自己的窗口里，绕开 Windows 跨窗口合成，拖动和动画更跟手；只对需要合成的壁纸（Scene / Web）生效，MR 自己播的视频壁纸不受影响。默认关闭" data-i18n-title="fx_we_capture_render_title">
+              <span><span data-i18n="fx_we_capture_render">WE 捕获渲染</span><em class="fx-dev-badge" data-i18n="dev_in_progress">试验</em></span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-windowsGameMode" onclick="toggleWindowsGameMode()"
               title="把 Mineradio 登记为 Windows 游戏，系统游戏模式会给它更好的电源计划与调度优先级（整活功能，只写 HKCU 不需要管理员；关闭时按备份原样还原）" data-i18n-title="fx_game_mode_title">
               <span><span data-i18n="fx_game_mode">Windows 游戏模式</span><em class="fx-dev-badge" data-i18n="dev_in_progress">试验</em></span><span class="dot"></span></div>
@@ -1765,6 +1770,19 @@
             <div id="login-modal-desc" class="desc" data-i18n="lg_netease_desc" data-i18n-attr="html">使用 <b>网易云音乐 App</b> 扫码，可同步歌单、红心与播客。</div>
             <div id="qr-status" data-i18n="lg_drag_hint">拖动接口到 MR 接入口后开始登录。</div>
           </div>
+          <div id="apple-music-wizard" class="apple-music-wizard" aria-hidden="true">
+            <div class="apple-music-progress">
+              <span data-am-progress="1"><i>1</i><b data-i18n="login_am_step_runtime">组件启动</b></span>
+              <span data-am-progress="2"><i>2</i><b data-i18n="login_am_step_page">页面就绪</b></span>
+              <span data-am-progress="3"><i>3</i><b data-i18n="login_am_step_account">账号确认</b></span>
+              <span data-am-progress="4"><i>4</i><b data-i18n="login_am_step_library">歌单自检</b></span>
+            </div>
+            <div class="apple-music-progress-foot">
+              <span id="apple-music-progress-note" data-i18n="login_am_setup_waiting">等待 Apple Music 组件…</span>
+              <button id="apple-music-progress-recheck" class="apple-music-recheck" type="button"
+                onclick="recheckAppleMusicSetup()" data-i18n="login_am_recheck">重新检测</button>
+            </div>
+          </div>
           <div class="login-auth-body">
             <div id="qr-shell" class="qr-shell">
               <img id="qr-img" src="" alt="">
@@ -1922,43 +1940,6 @@
         <div class="btn-row audio-output-workflow-actions">
           <button class="modal-btn" type="button" onclick="setAudioOutputDevice('', true)" data-i18n="out_system_default">系统默认</button>
           <button class="modal-btn primary" type="button" onclick="refreshAudioOutputDevices(true)" data-i18n="ar_refresh">刷新接口</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 用户模态 -->
-    <div id="user-modal" class="modal-mask">
-      <div class="modal dual-user-modal">
-        <h2 data-i18n="user_account_info">账号信息</h2>
-        <div id="account-provider-chip" class="account-provider-chip netease"><span
-            class="account-source-dot netease"></span><span data-i18n="track_netease_music">网易云音乐</span></div>
-        <img id="user-modal-avatar" src=""
-          style="width:72px;height:72px;border-radius:50%;margin:0 auto 12px;object-fit:cover;background:rgba(255,255,255,0.1);display:block">
-        <div id="user-modal-name" style="font-size:15px;margin-bottom:4px"></div>
-        <div id="user-modal-vip"
-          style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:20px;letter-spacing:.5px"></div>
-        <div class="user-platform-tabs" id="user-platform-tabs">
-          <button id="user-provider-netease" class="netease active" type="button"
-            onclick="setActiveAccountProvider('netease')" data-i18n="login_netease">网易云</button>
-          <button id="user-provider-qq" class="qq" type="button" onclick="setActiveAccountProvider('qq')" data-i18n="login_qq">QQ 音乐</button>
-          <button id="user-provider-kugou" class="kugou" type="button" onclick="setActiveAccountProvider('kugou')" data-i18n="provider_kugou">酷狗音乐</button>
-          <button id="user-provider-qishui" class="qishui" type="button" onclick="setActiveAccountProvider('qishui')" data-i18n="provider_qishui">汽水音乐</button>
-          <!-- Spotify 的 tab 配色早就写在样式里，按钮本身漏了；补回去才能在账号面板里切换和查看 -->
-          <!-- The Spotify tab colours already existed in CSS; only the button itself was missing. -->
-          <button id="user-provider-spotify" class="spotify" type="button" onclick="setActiveAccountProvider('spotify')" data-i18n="login_spotify">Spotify</button>
-          <button id="user-provider-both" class="both" type="button" onclick="enableDualAccountView()" data-i18n="login_both">我两个都要</button>
-        </div>
-        <div class="account-modal-actions">
-          <button id="account-add-netease" class="modal-btn" onclick="openProviderLogin('netease')" data-i18n="login_add_netease">补登网易云</button>
-          <button id="account-add-qq" class="modal-btn" onclick="openProviderLogin('qq')" data-i18n="login_add_qq">补登 QQ 音乐</button>
-          <button id="account-add-kugou" class="modal-btn" onclick="openProviderLogin('kugou')" data-i18n="ar_kugou_add">补登酷狗音乐</button>
-          <button id="account-add-qishui" class="modal-btn" onclick="openProviderLogin('qishui')" data-i18n="ar_qishui_login">登录汽水音乐</button>
-          <button id="account-add-spotify" class="modal-btn" onclick="openProviderLogin('spotify')" data-i18n="login_add_spotify">登录 Spotify</button>
-        </div>
-        <div id="account-hint" class="account-hint" data-i18n="login_qq_preview_hint">QQ 音乐真实登录暂未接入，当前先预览双平台账号交互。</div>
-        <div class="btn-row">
-          <button class="modal-btn" onclick="closeUserModal()" data-i18n="btn_close">关闭</button>
-          <button id="account-logout-btn" class="modal-btn primary" onclick="logoutActiveAccount()" data-i18n="logout_current">退出当前平台</button>
         </div>
       </div>
     </div>
@@ -2161,7 +2142,6 @@
         <div class="update-panel-inner">
           <div class="update-panel-head">
             <div>
-              <div class="update-kicker">MINERADIO</div>
               <div id="update-modal-title" class="update-title">New release</div>
               <div id="update-modal-version" class="update-version">v2.2.0</div>
             </div>

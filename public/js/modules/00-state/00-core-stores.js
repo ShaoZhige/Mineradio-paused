@@ -147,7 +147,7 @@ var AUDIO_INPUT_BRIDGE_STORE_KEY = 'mineradio-audio-input-bridge-v1';
 var PROVIDER_VIP_AUDIT_STORE_KEY = 'mineradio-provider-vip-audit-v1';
 var QQ_PLAYBACK_VIP_EVIDENCE_STORE_KEY = 'mineradio-qq-playback-vip-evidence-v1';
 var LOGIN_COOKIE_EXPORT_STORE_KEY = 'mineradio-login-cookie-export-v1';
-var PLAYBACK_QUALITY_DEFAULTS = { netease: 'hires', qq: 'lossless', kugou: 'lossless', qishui: 'standard', spotify: 'standard' };
+var PLAYBACK_QUALITY_DEFAULTS = { netease: 'hires', qq: 'lossless', kugou: 'lossless', qishui: 'standard', spotify: 'standard', applemusic: 'standard' };
 function playbackQualityOptionTable() {
   return {
   netease: [
@@ -168,6 +168,12 @@ function playbackQualityOptionTable() {
     { key: 'lossless', title: coreStoresText('quality_lossless_flac', '无损 FLAC'), sub: coreStoresText('quality_kugou_sq_sub') },
     { key: 'exhigh', title: '320k MP3', sub: coreStoresText('quality_kugou_high') },
     { key: 'standard', title: '128k MP3', sub: coreStoresText('quality_sub_compat_first') }
+  ],
+  // Apple Music 的音质由 Apple 账号与设备决定，客户端没有可选档位：只给一条说明，
+  // 免得界面上出现网易云那 5 档（用户选了什么都不会生效）。
+  // Apple Music decides its own quality; the picker only explains that.
+  applemusic: [
+    { key: 'standard', title: coreStoresText('quality_apple_music_auto', '由 Apple Music 决定'), sub: 'Apple Digital Master' }
   ],
   qishui: [
     { key: 'standard', title: coreStoresText('quality_qishui_match'), sub: coreStoresText('quality_qishui_sub') }

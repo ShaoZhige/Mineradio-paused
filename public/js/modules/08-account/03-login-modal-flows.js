@@ -254,7 +254,7 @@ function selectLoginProviderNode(provider) {
   setLoginAuthDrawerOpen(hasLoginWorkflowConnection(provider) || loginWorkflowPendingProvider === provider);
   updateLoginProviderUi();
   if (provider === 'applemusic' && !appleMusicLoginBusy) {
-    refreshAppleMusicLoginStatus().then(function () {
+    refreshAppleMusicLoginStatus(true).then(function () {
       if (loginProvider === 'applemusic') updateLoginProviderUi();
     });
   }
@@ -600,9 +600,6 @@ function updateLoginNodeGraphUi() {
   }
   scheduleLoginWorkflowEdges('node-ui');
 }
-function connectLoginProvider(provider) {
-  selectLoginProviderNode(provider);
-}
 function selectLoginMode(mode) {
   if (mode === 'cookie' && !loginProviderSupportsCookieMode(loginProvider)) {
     showToast(loginProvider === 'qishui' ? loginText('login_qishui_scan_only') : (loginProvider === 'applemusic' ? loginText('login_apple_music_sign_in_required') : loginText('login_spotify_oauth_note')));
@@ -798,33 +795,173 @@ function appleMusicLoginStatusText(info) {
   return loginText('login_apple_music_not_connected', '尚未连接 Apple Music');
 }
 
-async function refreshAppleMusicLoginStatus() {
-  var api = window.desktopWindow;
+// ── Apple Music 接入进度（对应 index.html 的 #apple-music-wizard）──────────────────
+// 与 Spotify 向导同一个思想：每一步都必须能由**真实回包**判断，不做假进度条。
+// 四步分别是：组件起来（任何非 runtime-unavailable 的应答）→ 页面就绪（不再是 not-ready）
+// → 账号确认（accountStatus 成功）→ 歌单自检（真的读到了歌单）。
+// Same idea as the Spotify wizard, but every stage is derived from a real reply.
+var appleMusicSetupStages = { runtime: false, page: false, account: false };
+
+function noteAppleMusicSetupResult(result) {
+  var error = result && result.ok === false ? String(result.error || '') : '';
+  if (error === 'runtime-unavailable') {
+    appleMusicSetupStages.runtime = false;
+    appleMusicSetupStages.page = false;
+    appleMusicSetupStages.account = false;
+    return;
+  }
+  appleMusicSetupStages.runtime = true;
+  if (error !== 'not-ready' && error !== 'request-failed') appleMusicSetupStages.page = true;
+  if (result && result.ok === true) appleMusicSetupStages.account = true;
+  else if (error === 'auth-required') appleMusicSetupStages.account = false;
+}
+
+function appleMusicSetupCompletion() {
+  return {
+    1: !!appleMusicSetupStages.runtime,
+    2: !!appleMusicSetupStages.page,
+    3: !!appleMusicSetupStages.account || !!(appleMusicLoginStatus && appleMusicLoginStatus.loggedIn),
+    4: !!(appleMusicPlaylists && appleMusicPlaylists.length)
+  };
+}
+
+function appleMusicSetupNote(step, done) {
+  if (!step) return loginModalUtilsText('login_am_setup_ready', '已就绪：组件、页面、账号、歌单都能读到。');
+  if (step === 1) return loginModalUtilsText('login_am_setup_runtime', '正在启动 Apple Music 组件，首次需要十几秒…');
+  if (step === 2) return loginModalUtilsText('login_am_setup_page', '组件已启动，正在加载 Apple Music 页面…');
+  if (step === 3) {
+    var error = appleMusicLoginStatus && appleMusicLoginStatus.error;
+    if (error === 'auth-required') return loginModalUtilsText('login_am_setup_signin', '页面已就绪，请在官方窗口里登录 Apple Music。');
+    return loginModalUtilsText('login_am_setup_account', '正在确认账号与地区…');
+  }
+  return loginModalUtilsText('login_am_setup_library', '账号已确认，正在读取歌单…');
+}
+
+function renderAppleMusicSetupWizard() {
+  var wizard = document.getElementById('apple-music-wizard');
+  if (!wizard) return;
+  var done = appleMusicSetupCompletion();
+  var current = 0;
+  for (var step = 1; step <= 4; step += 1) {
+    if (!done[step]) { current = step; break; }
+  }
+  [1, 2, 3, 4].forEach(function (index) {
+    var chip = wizard.querySelector('[data-am-progress="' + index + '"]');
+    if (!chip) return;
+    chip.classList.toggle('complete', !!done[index]);
+    chip.classList.toggle('current', index === current);
+  });
+  var note = document.getElementById('apple-music-progress-note');
+  if (note) note.textContent = appleMusicSetupNote(current, done);
+  var recheck = document.getElementById('apple-music-progress-recheck');
+  if (recheck) recheck.disabled = !!appleMusicLoginBusy;
+}
+
+function recheckAppleMusicSetup() {
+  if (typeof refreshAppleMusicLoginStatus !== 'function') return;
+  var recheck = document.getElementById('apple-music-progress-recheck');
+  if (recheck) recheck.disabled = true;
+  Promise.resolve(refreshAppleMusicLoginStatus(true)).then(function () {
+    if (typeof refreshUserPlaylists === 'function') refreshUserPlaylists(true);
+    if (typeof updateLoginProviderUi === 'function') updateLoginProviderUi();
+  }).catch(function () { }).then(function () {
+    if (recheck) recheck.disabled = false;
+  });
+}
+
+// 🔴 未登录就**不碰** companion：Apple 的宿主是 WebView2，拉起来要十几秒、几百兆内存，
+// 给一个从没链过 Apple 的人付这份成本完全没必要。三个闸门：
+//   1. `force`（用户在登录界面里主动点了检测）——放行；
+//   2. 缓存说"登着"——放行（懒验证，见下）；
+//   3. 其余情况一律不发起请求，直接返回当前状态。
+// 另外加一层 TTL：验证过 5 分钟内不重复验证，反复开歌单不会每次都跑一次十几秒的 accountStatus。
+// Never touch the companion unless the account is (or was) signed in; also throttle re-checks.
+var APPLE_MUSIC_STATUS_TTL_MS = 5 * 60 * 1000;
+var appleMusicLoginStatusCheckedAt = 0;
+
+async function refreshAppleMusicLoginStatus(force) {
+  if (!force) {
+    var cachedLoggedIn = !!(appleMusicLoginStatus && appleMusicLoginStatus.loggedIn);
+    // 缓存说登着也要区分"还没验过"和"刚验过"：fromCache 表示还没验，值得跑一次；
+    // 已经验过就按 TTL 走。
+    var fresh = appleMusicLoginStatusCheckedAt
+      && (Date.now() - appleMusicLoginStatusCheckedAt) < APPLE_MUSIC_STATUS_TTL_MS
+      && !(appleMusicLoginStatus && appleMusicLoginStatus.fromCache);
+    if (!cachedLoggedIn || fresh) return appleMusicLoginStatus;
+  }
+  var status = await refreshAppleMusicLoginStatusCore();
+  // 只有"真的答上了"才记 TTL：热身/超时这种未知结果要允许下次再试，否则一次没答上
+  // 就会把状态按在缓存里五分钟。
+  // Only a definitive answer starts the TTL; unknown results must stay retryable.
+  if (!status || !status.fromCache) appleMusicLoginStatusCheckedAt = Date.now();
+  // 登录态的每次落定都记一笔：用户报"登录会掉"时，能看出是 Apple 回 401 还是我们这边没答上。
+  if (status && !status.fromCache && typeof logEvent === 'function') {
+    logEvent('account', 'apple-music-status', {
+      loggedIn: !!status.loggedIn, error: status.error || '', storefront: status.storefront || '',
+    }, status.loggedIn ? 'info' : 'warn');
+  }
+  renderAppleMusicSetupWizard();
+  return status;
+}
+// 传输层失败 = 我们压根没拿到 Apple 的答复（宿主卡死、超时、通道断开、服务端转发失败）。
+// 这类结果只说明"不知道"，**不能**当成"用户退出了"——只有 Apple 明确回 401/403 才算。
+// Transport failures mean "no answer", never "signed out"; only Apple's 401/403 does.
+// 错误码的**唯一**分类表在 08-account/tribute-to-steve-jobs.js 的 appleMusicErrorInfo()。
+// 这里只问一句"是不是传输层失败"，不再自己维护一份码表（以前两份码表就是这么分叉的）。
+// The only classification table lives in tribute-to-steve-jobs.js; this just asks the question.
+function isAppleMusicTransportFailure(result) {
+  if (!result || result.ok === true) return false;
+  if (typeof appleMusicErrorInfo === 'function') {
+    var info = appleMusicErrorInfo(result.error);
+    return info.kind === 'transport' && info.signedOut !== true;
+  }
+  return false;
+}
+async function refreshAppleMusicLoginStatusCore() {  var api = window.desktopWindow;
   if (!api || typeof api.appleMusicRequest !== 'function') {
     appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: false, error: 'runtime-unavailable' });
     return appleMusicLoginStatus;
   }
   try {
     var result = await api.appleMusicRequest('accountStatus', {});
-    if (result && result.ok === false && (result.error === 'auth-required' || result.error === 'storefront-unavailable')) {
-      // 只有这两种回包才等于"Apple 说没人登录"。companion 起不来、请求超时都只是我们这边没答上，
-      // 那时清缓存会把用户真实存在的登录态抹掉，下次还要重登一遍。
-      // Only these two replies mean "nobody is signed in". A companion that failed to start or a
-      // timed-out request is our side not answering; wiping the cache then throws away a real
-      // session and forces a fresh sign-in.
+    noteAppleMusicSetupResult(result);
+    // 🔴 只有 Apple 明确回 401/403 才算"没人登录"。`storefront-unavailable` 绝大多数是
+    // 页面还在热身（MusicKit 没配好、区域还没拿到），把它当登出会抹掉本地缓存的会话，
+    // 用户看到的就是"一启动登录掉了，过一会儿又回来"。现在用 companion 带回来的
+    // `authorized` 区分：明确 false 才清，其余一律当"还没答上来"。
+    // Only 401/403 means signed out. storefront-unavailable is normally "page still warming up";
+    // use MusicKit's own authorized flag to tell a real logout from that.
+    var storefrontUnknown = result && result.ok === false && result.error === 'storefront-unavailable';
+    var authorizedFlag = storefrontUnknown && result.data && typeof result.data.authorized === 'boolean'
+      ? result.data.authorized
+      : null;
+    var signedOut = result && result.ok === false
+      && (result.error === 'auth-required' || (storefrontUnknown && authorizedFlag === false));
+    if (signedOut) {
       appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: result.error });
       forgetCachedProviderLoginStatus('applemusic');
     } else if (result && result.ok === true) {
       appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: true, configured: true, data: result.data || {} });
       rememberProviderLoginStatus('applemusic', appleMusicLoginStatus);
+      // 「曾经链接过」的标记只增不清：显示缓存会因为登出/误判被删掉，但只要这个标记还在，
+      // 启动预热就仍然会跑，面板不会因为一次误清就永远停在"未载入"。
+      // A write-once "was linked" flag so a wiped status cache does not disable the startup warm-up.
+      try { window.localStorage.setItem('mr.applemusic.linked', '1'); } catch (e) { }
     } else if (appleMusicLoginStatus.fromCache) {
       // 我们这边没答上来（宿主未就绪 / 请求失败）：保留上次的状态，别让首帧跳一下。
       // Our side did not answer (host not ready, request failed): keep what we had.
+      return appleMusicLoginStatus;
+    } else if (isAppleMusicTransportFailure(result)) {
+      // 🔴 宿主卡死 / 超时 / 通道断开 ≠ 用户退出登录。以前这类结果会一路掉到下面的 else，
+      // 被判成未登录 —— 用户看到的就是"明明在 Apple Music 里登录着，MR 却显示未连接"。
+      // 一次询问没答上来只说明"不知道"，保留原状态，等下一次刷新。
+      // A hung host or a timeout is not a sign-out. Only Apple answering 401/403 is.
       return appleMusicLoginStatus;
     } else {
       appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: (result && result.error) || 'request-failed' });
     }
   } catch (e) {
+    noteAppleMusicSetupResult({ ok: false, error: 'request-failed' });
     if (appleMusicLoginStatus.fromCache) return appleMusicLoginStatus;
     appleMusicLoginStatus = normalizeAppleMusicLoginStatus({ loggedIn: false, configured: true, error: 'request-failed' });
   }
@@ -874,7 +1011,7 @@ async function openAppleMusicLogin() {
     // The window is music.apple.com itself and the Apple session lives in that page, so the user has
     // to press 登录 inside the window; the app can only poll for the account.
     if (!appleMusicLoginStatus.loggedIn) showToast(loginText('login_apple_music_sign_in_required', '请先在 Apple Music 窗口内登录。'));
-    await refreshAppleMusicLoginStatus();
+    await refreshAppleMusicLoginStatus(true);
     updateLoginProviderUi();
     // 只有"这一次真的问到了已登录"才收工。缓存顶上来的已登录不算：宿主可能还没答上来，
     // 直接 return 会让轮询根本不启动，用户在窗口里登完也看不到状态变化。
@@ -889,7 +1026,7 @@ async function openAppleMusicLogin() {
     var pollDeadline = Date.now() + 5 * 60 * 1000;
     while (Date.now() < pollDeadline) {
       await new Promise(function (resolve) { setTimeout(resolve, 2000); });
-      var status = await refreshAppleMusicLoginStatus();
+      var status = await refreshAppleMusicLoginStatus(true);
       updateLoginProviderUi();
       if (status.loggedIn) break;
     }
@@ -1336,6 +1473,10 @@ function updateLoginProviderUi() {
   if (loginDrawer) loginDrawer.classList.toggle('spotify-mode', isSpotify);
   if (loginModalPanel) loginModalPanel.classList.toggle('spotify-setup-open', isSpotify);
   if (spotifyWizard) spotifyWizard.setAttribute('aria-hidden', isSpotify ? 'false' : 'true');
+  if (loginDrawer) loginDrawer.classList.toggle('apple-music-mode', isAppleMusic);
+  var appleWizard = document.getElementById('apple-music-wizard');
+  if (appleWizard) appleWizard.setAttribute('aria-hidden', isAppleMusic ? 'false' : 'true');
+  if (isAppleMusic) renderAppleMusicSetupWizard();
   updateLoginNodeGraphUi();
   if (isAppleMusic) {
     if (neteaseBtn) neteaseBtn.classList.toggle('active', false);
@@ -1530,7 +1671,7 @@ async function refreshQr() {
     qrKey = null;
     var appleMusicImg = document.getElementById('qr-img');
     if (appleMusicImg) appleMusicImg.src = '';
-    var appleMusicInfo = await refreshAppleMusicLoginStatus();
+    var appleMusicInfo = await refreshAppleMusicLoginStatus(true);
     if (!isLoginRefreshCurrent(refreshProvider, refreshSeq)) return;
     updateLoginProviderUi();
     var appleMusicStatusEl = document.getElementById('qr-status');

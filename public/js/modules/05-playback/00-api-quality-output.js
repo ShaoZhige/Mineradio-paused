@@ -106,6 +106,8 @@ function playbackQualityLabel(value, provider) {
   value = normalizePlaybackQualityForProvider(value, provider);
   if (provider === 'spotify') return playbackOutputText('quality_spotify_match');
   if (provider === 'qishui') return playbackOutputText('out_qishui_quality');
+  // AM 没有客户端可选档位（音质由 Apple 账号/设备决定），别复用网易云的档位文案。
+  if (provider === 'applemusic') return playbackOutputText('quality_apple_music_auto', '由 Apple Music 决定');
   if (provider === 'qq') {
     if (value === 'hires') return 'Hi-Res FLAC';
     if (value === 'lossless') return playbackOutputText('quality_lossless_flac', '无损 FLAC');
@@ -131,6 +133,7 @@ function playbackQualityShortLabel(value, provider) {
   provider = normalizePlaybackProvider(provider || currentPlaybackQualityProvider());
   value = normalizePlaybackQualityForProvider(value, provider);
   if (provider === 'spotify') return 'SP';
+  if (provider === 'applemusic') return 'AM';
   if (provider === 'qishui') return 'QS';
   if (provider === 'qq') {
     if (value === 'hires') return 'QQ Hires';

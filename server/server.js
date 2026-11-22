@@ -170,7 +170,7 @@ const {
   handleSpotifySongUrl,
   handleSpotifyLyric,
 } = require('./spotify-api');
-const { handleAppleMusicSearch, handleAppleMusicPlaylists, handleAppleMusicPlaylistTracks, handleAppleMusicLyric } = require('./apple-music-api');
+const { handleAppleMusicSearch, handleAppleMusicPlaylists, handleAppleMusicPlaylistTracks, handleAppleMusicPlaylistCounts, handleAppleMusicLyric } = require('./apple-music-api');
 const {
   appendCuefieldFeedback,
   readCuefieldFeedbackStats,
@@ -786,10 +786,6 @@ function extractReleaseDownloadPages(body) {
     }
   }
   return normalizeUpdateDownloadPages(pages);
-}
-function extractReleaseDownloadPage(body) {
-  const pages = extractReleaseDownloadPages(body);
-  return pages.length ? pages[0].url : '';
 }
 function normalizeManifestUpdateInfo(data) {
   data = data || {};
@@ -1458,17 +1454,6 @@ function mapDiscoverPlaylist(pl, tag) {
     creator: creator.nickname || creator.name || '',
     tag: tag || pl.alg || '',
   };
-}
-
-function lowSignalText(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function isLowSignalPodcastItem(item) {
-  const name = lowSignalText(item && (item.name || item.title || item.radioName));
-  const sub = lowSignalText(item && (item.djName || item.category || item.desc || item.sub));
-  const text = name + ' ' + sub;
-  return /购买播客|付费精品|qzone|空间背景音乐|背景音乐|四只烤翅|试纸烤翅/i.test(text);
 }
 
 const QQ_LIKED_PLAYLIST_ID = 'liked';
@@ -2265,34 +2250,6 @@ function uniqueSongsByKey(songs) {
   return out;
 }
 
-function tagWeatherPoolSongs(songs, source) {
-  return (songs || []).map(song => ({ ...song, weatherSource: source }));
-}
-
-async function fetchWeatherPlaylistSongs(playlist, limit) {
-  const id = playlist && playlist.id;
-  if (!id) return [];
-  let rawTracks = [];
-  try {
-    if (typeof playlist_track_all === 'function') {
-      const all = await playlist_track_all({ id, limit: limit || 36, offset: 0, cookie: userCookie, timestamp: Date.now() });
-      rawTracks = (all.body && (all.body.songs || all.body.tracks)) || [];
-    }
-  } catch (e) {
-    console.warn('[WeatherRadio] playlist_track_all failed:', playlist && playlist.name, e.message);
-  }
-  if (!rawTracks.length && typeof playlist_detail === 'function') {
-    try {
-      const detail = await playlist_detail({ id, s: 0, cookie: userCookie, timestamp: Date.now() });
-      const pl = (detail.body && detail.body.playlist) || {};
-      rawTracks = pl.tracks || [];
-    } catch (e) {
-      console.warn('[WeatherRadio] playlist_detail failed:', playlist && playlist.name, e.message);
-    }
-  }
-  return rawTracks.map(mapSongRecord).filter(song => song.id && song.name).slice(0, limit || 36);
-}
-
 const NETEASE_PLAYLIST_SYNC_PAGE_SIZE = 200;
 const NETEASE_PLAYLIST_SYNC_MAX_PAGES = 80;
 const NETEASE_TRACK_SYNC_PAGE_SIZE = 500;
@@ -2558,27 +2515,6 @@ async function fetchNeteasePlaylistTracksPage(id, limit, offset) {
     nextOffset,
     hasMore: total ? nextOffset < total : rawTracks.length >= limit,
   };
-}
-
-async function filterLikelyPlayableWeatherSongs(songs) {
-  const source = uniqueSongsByKey(songs)
-    .filter(song => song && song.name && song.id && !isLowSignalWeatherSong(song))
-    .slice(0, 24);
-  const playable = [];
-  const fallback = source.slice(0, 24);
-  for (let i = 0; i < source.length; i += 4) {
-    const chunk = source.slice(i, i + 4);
-    const settled = await Promise.allSettled(chunk.map(async song => {
-      const info = await handleSongUrl(song.id, { loggedIn: !!userCookie }, 'standard');
-      return info && info.url ? song : null;
-    }));
-    settled.forEach((result, idx) => {
-      if (result.status === 'fulfilled' && result.value) playable.push(result.value);
-      else if (result.status === 'rejected') console.warn('[WeatherRadio] playable probe failed:', chunk[idx] && chunk[idx].name, result.reason && result.reason.message);
-    });
-    if (playable.length >= 12) break;
-  }
-  return (playable.length ? playable : fallback).slice(0, 24);
 }
 
 function isLowSignalWeatherSong(song) {
@@ -5041,6 +4977,19 @@ const server = http.createServer(async (req, res) => {
         commentsRead: qishuiCookieHasLogin(qishuiCookie), commentsWrite: qishuiCookieHasLogin(qishuiCookie),
         recentPlayReport: qishuiCookieHasLogin(qishuiCookie), listenReport: false,
       },
+      // 全平台清点（2026-11-22）：这张表以前只有四家，Spotify 与 Apple Music 整块缺失。
+      // 两家都不提供"点赞写入/专辑收藏/评论"，但歌单与点赞读取是有的；playback 走外部客户端。
+      // Spotify and Apple Music used to be missing from this table entirely.
+      spotify: {
+        playlists: true, likeRead: true, likeWrite: false, albumRead: true,
+        albumCollect: false, commentsRead: false, commentsWrite: false,
+        listenReport: false, externalPlayback: true,
+      },
+      applemusic: {
+        playlists: true, likeRead: true, likeWrite: true, albumRead: true,
+        albumCollect: false, commentsRead: false, commentsWrite: false,
+        listenReport: false, externalPlayback: true,
+      },
     });
     return;
   }
@@ -5363,6 +5312,19 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[AppleMusicPlaylists]', err && (err.code || err.message || err));
       sendJSON(res, { provider: 'applemusic', configured: !!appleMusicRequester, error: 'request-failed', playlists: [] }, 502);
+    }
+    return;
+  }
+
+  // 歌单曲目数单独一条路由：列表要立刻返回，计数慢慢补（见 apple-music-api.js 的说明）。
+  // Track counts live on their own route so the list itself never waits for them.
+  if (pn === '/api/apple-music/playlist/counts') {
+    try {
+      const ids = String(url.searchParams.get('ids') || '').split(',').filter(Boolean);
+      sendJSON(res, await handleAppleMusicPlaylistCounts(appleMusicRequester, ids));
+    } catch (err) {
+      console.error('[AppleMusicPlaylistCounts]', err && (err.code || err.message || err));
+      sendJSON(res, { provider: 'applemusic', counts: {}, error: 'request-failed' }, 502);
     }
     return;
   }

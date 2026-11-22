@@ -87,34 +87,6 @@ function queuePanelItemKey(song, fallback) {
   } catch (e) { }
   return song && (song.id || song.mid || song.localKey || song.name) || fallback;
 }
-function queuePanelListKey() {
-  var total = playQueue && playQueue.length || 0;
-  if (!total) return '0';
-  return [
-    total,
-    queuePanelItemKey(playQueue[0], 'first'),
-    queuePanelItemKey(playQueue[Math.max(0, total - 1)], 'last')
-  ].join('|');
-}
-function queuePanelVisibleLimit(total) {
-  total = Math.max(0, Number(total) || 0);
-  if (!total) {
-    queuePanelRenderLimit = QUEUE_PANEL_BATCH_SIZE;
-    queuePanelRenderKey = '0';
-    return 0;
-  }
-  var key = queuePanelListKey();
-  if (key !== queuePanelRenderKey) {
-    queuePanelRenderKey = key;
-    queuePanelRenderLimit = QUEUE_PANEL_BATCH_SIZE;
-  }
-  var base = Math.max(QUEUE_PANEL_BATCH_SIZE, queuePanelRenderLimit || QUEUE_PANEL_BATCH_SIZE);
-  if (currentIdx >= 0 && currentIdx < total) {
-    base = Math.max(base, Math.ceil((currentIdx + 1) / QUEUE_PANEL_BATCH_SIZE) * QUEUE_PANEL_BATCH_SIZE);
-  }
-  queuePanelRenderLimit = Math.min(total, base);
-  return queuePanelRenderLimit;
-}
 function bindMiniQueueLazyRender() {
   var list = document.getElementById('mini-queue-list');
   if (!list || miniQueueLazyBound) return;
@@ -191,6 +163,12 @@ function playlistPanelDetailRowsHtml(options) {
   var st = playlistPanelDetailState;
   var tracks = st.tracks || [];
   if (st.loading && !tracks.length) {
+    return playlistDetailText('pl_first_batch_html');
+  }
+  // 一整批都被过滤掉（例如整页条目暂时都不可播）但后面还有页时，不能说"没有歌"：
+  // 那会让用户以为歌单是空的，实际还在往下拉。继续显示加载态，等真的拉完再下结论。
+  // An all-filtered batch with pages left is not "empty playlist": keep the loading state.
+  if (!tracks.length && (st.hasMore || st.loadingMore)) {
     return playlistDetailText('pl_first_batch_html');
   }
   if (!tracks.length) return playlistPanelNoticeHtml(st.message || st.error || '', !!st.error);

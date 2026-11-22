@@ -25,110 +25,15 @@ function loggedProviderCount() {
   // 写死平台列表会让只用 Spotify 的会话算出 0，连带把下方的双账号模式判成关闭。
   return providerRegistryKeysWith('login').filter(function (key) { return hasPlatformLogin(key); }).length;
 }
-function updateUserModalUi() {
-  activeAccountProvider = firstLoggedProvider();
-  var st = platformStatus(activeAccountProvider);
-  var meta = platformMeta(activeAccountProvider);
-  var chip = document.getElementById('account-provider-chip');
-  var avatar = document.getElementById('user-modal-avatar');
-  var name = document.getElementById('user-modal-name');
-  var vipEl = document.getElementById('user-modal-vip');
-  var hint = document.getElementById('account-hint');
-  var logoutBtn = document.getElementById('account-logout-btn');
-  var addNetease = document.getElementById('account-add-netease');
-  var addQQ = document.getElementById('account-add-qq');
-  var addKugou = document.getElementById('account-add-kugou');
-  var addQishui = document.getElementById('account-add-qishui');
-  if (chip) {
-    chip.className = 'account-provider-chip ' + activeAccountProvider;
-    chip.innerHTML = '<span class="account-source-dot ' + meta.dot + '"></span><span>' + meta.label + '</span>';
-  }
-  if (avatar) avatar.src = providerAvatarSrc(activeAccountProvider, st);
-  if (name) name.textContent = (st && st.nickname) || meta.label;
-  if (vipEl) {
-    if (activeAccountProvider === 'netease') {
-      var neVipLevel = providerVipLevel('netease', st);
-      var vipLabel = neVipLevel === 'svip' ? accountPanelText('logout_netease_svip') : (neVipLevel === 'vip' ? accountPanelText('logout_netease_vip') : accountPanelText('logout_free_user'));
-      vipEl.textContent = 'UID: ' + ((st && st.userId) || '-') + '  /  ' + vipLabel;
-      vipEl.style.color = hasProviderVip('netease', st) ? 'rgba(244,210,138,0.86)' : 'rgba(255,255,255,0.5)';
-    } else if (activeAccountProvider === 'kugou') {
-      var kgVipLevel = providerVipLevel('kugou', st);
-      var kgVipLabel = kgVipLevel === 'svip' ? accountPanelText('logout_kugou_svip') : (kgVipLevel === 'vip' ? accountPanelText('logout_kugou_vip') : accountPanelText('logout_kugou_session'));
-      vipEl.textContent = 'UID: ' + ((st && st.userId) || '-') + '  /  ' + kgVipLabel;
-      vipEl.style.color = hasProviderVip('kugou', st) ? 'rgba(86,224,255,0.86)' : 'rgba(86,224,255,0.58)';
-    } else if (activeAccountProvider === 'qishui') {
-      var qishuiMode = st && st.webSession ? accountPanelText('logout_qishui_logged') : accountPanelText('logout_qishui_not_logged');
-      var qishuiSync = st && st.webSession ? accountPanelText('logout_qishui_sync') : accountPanelText('logout_scan_douyin');
-      vipEl.textContent = qishuiMode + '  /  ' + qishuiSync;
-      vipEl.style.color = 'rgba(69,214,143,0.78)';
-    } else if (activeAccountProvider === 'spotify') {
-      var spProduct = st && st.product === 'premium' ? 'Spotify Premium' : (st && st.product ? ('Spotify ' + String(st.product).toUpperCase()) : accountPanelText('logout_spotify_unknown'));
-      vipEl.textContent = 'ID: ' + ((st && st.userId) || '-') + '  /  ' + spProduct + accountPanelText('logout_spotify_sync');
-      vipEl.style.color = hasProviderVip('spotify', st) ? 'rgba(30,215,96,0.86)' : 'rgba(30,215,96,0.60)';
-    } else {
-      var qqVipLevel = providerVipLevel('qq', st);
-      var qqVipPending = qqLoginNeedsAuthorizationRefresh(st) || (typeof qqMembershipNeedsSync === 'function' && qqMembershipNeedsSync(st));
-      var qqVipLabel = qqVipPending ? accountPanelText('logout_qq_pending') : (qqVipLevel === 'svip' ? accountPanelText('logout_qq_svip') : (qqVipLevel === 'vip' ? accountPanelText('logout_qq_vip') : accountPanelText('logout_qq_session')));
-      vipEl.textContent = 'UID: ' + ((st && st.userId) || '-') + '  /  ' + qqVipLabel;
-      vipEl.style.color = qqVipPending ? 'rgba(255,232,174,0.86)' : (hasProviderVip('qq', st) ? 'rgba(0,245,212,0.82)' : 'rgba(0,245,212,0.58)');
-    }
-  }
-  ['netease', 'qq', 'kugou', 'qishui', 'both'].forEach(function (key) {
-    var btn = document.getElementById('user-provider-' + key);
-    if (btn) btn.classList.toggle('active', key === 'both' ? dualAccountMode : (!dualAccountMode && activeAccountProvider === key));
-  });
-  if (addNetease) addNetease.style.display = hasPlatformLogin('netease') ? 'none' : '';
-  if (addQQ) addQQ.textContent = hasPlatformLogin('qq') ? accountPanelText('logout_view_qq') : accountPanelText('login_add_qq', '补登 QQ 音乐');
-  if (addKugou) addKugou.textContent = hasPlatformLogin('kugou') ? accountPanelText('logout_view_kugou') : accountPanelText('ar_kugou_add');
-  if (addQishui) addQishui.textContent = hasPlatformLogin('qishui') ? accountPanelText('logout_relogin_qishui') : accountPanelText('ar_qishui_login');
-  if (logoutBtn) logoutBtn.textContent =
-    activeAccountProvider === 'qq' ? accountPanelText('logout_qq') :
-    (activeAccountProvider === 'kugou' ? accountPanelText('logout_kugou') :
-    (activeAccountProvider === 'qishui' ? accountPanelText('logout_clear_qishui') :
-    (activeAccountProvider === 'spotify' ? accountPanelText('logout_spotify') :
-    (activeAccountProvider === 'applemusic' ? accountPanelText('logout_apple_music', '退出 Apple Music') : accountPanelText('logout_netease')))));
-  if (hint) hint.textContent = dualAccountMode
-    ? accountPanelText('account_switch_dual', '右上角已切换为双平台并排展示。')
-    : accountPanelText('account_switch_hint', '可切换右上角展示的平台；“我两个都要”会并排放两个登录状态。');
-}
-function showUserModal() {
-  if (!hasAnyPlatformLogin()) return showLoginModal();
-  updateUserModalUi();
-  openGsapModal(document.getElementById('user-modal'));
-  if (qqLoginStatus && qqLoginStatus.loggedIn && typeof refreshQQVipStatusNow === 'function') {
-    refreshQQVipStatusNow('account-modal')
-      .then(updateUserModalUi)
-      .catch(function (e) { console.warn('QQ VIP modal refresh failed:', e); });
-  }
-}
-function closeUserModal() { closeGsapModal(document.getElementById('user-modal')); }
-function setActiveAccountProvider(provider) {
-  provider = provider === 'qq' ? 'qq' : (provider === 'kugou' ? 'kugou' : (provider === 'qishui' ? 'qishui' : (provider === 'spotify' ? 'spotify' : 'netease')));
-  if (!hasPlatformLogin(provider)) {
-    openProviderLogin(provider);
-    return;
-  }
-  activeAccountProvider = provider;
-  dualAccountMode = false;
-  renderUserBtn();
-  updateUserModalUi();
-}
-function enableDualAccountView() {
-  if (loggedProviderCount() < 2) {
-    openProviderLogin(firstLoggedProvider() === 'netease' ? 'qq' : 'netease');
-    return;
-  }
-  dualAccountMode = true;
-  renderUserBtn();
-  updateUserModalUi();
-  showToast(accountPanelText('logout_multi_enabled'));
-}
-function requestDualLoginMode() {
-  enableDualAccountView();
-}
 function openProviderLogin(provider) {
-  provider = provider === 'qq' ? 'qq' : (provider === 'kugou' ? 'kugou' : (provider === 'qishui' ? 'qishui' : (provider === 'spotify' ? 'spotify' : 'netease')));
-  closeUserModal();
+  provider = provider === 'qq' ? 'qq' : (provider === 'kugou' ? 'kugou' : (provider === 'qishui' ? 'qishui' : (provider === 'spotify' ? 'spotify' : (provider === 'applemusic' ? 'applemusic' : 'netease'))));
+  // AM 没有账号密码/扫码表单：它的"登录"就是把伴生窗口调出来。以前这里把它归一化成网易云，
+  // 于是 AM 播不了时点"去登录"打开的是网易云登录框（2026-11-22 全平台清点发现）。
+  // Apple Music has no form here; signing in means showing its own window.
+  if (provider === 'applemusic' && typeof openAppleMusicLogin === 'function') {
+    openAppleMusicLogin();
+    return;
+  }
   loginProvider = provider;
   showLoginModal({ provider: provider });
 }
@@ -217,7 +122,6 @@ async function logoutAllAccountsAndResetEasterEgg() {
     resetAllProviderRendererLoginState();
     resetLoginEasterEggUiForReplay();
     closeCollectModal();
-    closeUserModal();
     closeLoginModal();
     updateLikeButtons();
     safeRenderQueuePanel('logout-all-reset', { scrollCurrent: miniQueueOpen });
@@ -262,8 +166,6 @@ function finishProviderLogout(provider, toastText) {
   // Kugou and QQ used to skip the shelf rebuild here: their entries stayed on the shelf after
   // signing out and only failed once opened. The shared tail fixes that gap too.
   safeShelfRebuild(provider + '-logout');
-  if (hasAnyPlatformLogin()) updateUserModalUi();
-  else closeUserModal();
   if (toastText) showToast(toastText);
 }
 async function logoutProviderAccount(provider) {
@@ -347,12 +249,6 @@ async function logoutProviderAccount(provider) {
   await doLogout();
   return true;
 }
-// 账号面板上的「退出登录」退的是当前展示的平台；登录弹窗里每个平台节点各退自己那个。
-// The account panel's button signs out the displayed provider; each login-node button signs out
-// its own.
-async function logoutActiveAccount() {
-  return logoutProviderAccount(activeAccountProvider);
-}
 async function doLogout() {
   await apiJson('/api/logout');
   try {
@@ -375,6 +271,5 @@ async function doLogout() {
   safeRenderQueuePanel('logout', { scrollCurrent: miniQueueOpen });
   renderUserBtn();
   safeShelfRebuild('logout');
-  closeUserModal();
   showToast(accountPanelText('logged_out', '已退出登录'));
 }

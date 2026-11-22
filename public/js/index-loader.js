@@ -65,6 +65,8 @@
     // The local-storage readers have to follow 00-core-stores: they use its STORE_KEY constants and
     // 00-core initialises those stores from their return values at top level.
     'js/modules/00-state/00b-local-readers.js',
+    // 渲染进程日志出口要尽早装好：后面的模块与全局错误处理都依赖 logEvent。
+    'js/modules/00-state/00c-log-client.js',
     'js/modules/00-state/01-perf-render-state.js',
     'js/modules/00-state/03-beat-dj-state.js',
     'js/modules/00-state/04-fx-defaults.js',
@@ -185,6 +187,10 @@
     // （旧的"深链接唤起客户端"模块已整体删除：它靠 window.open 投 spotify: 深链接，
     //   在带调试端口的客户端上每次页面加载只生效一次，已被注入桥取代。）
     'js/modules/08-account/pillager-spotify.js',
+    // Apple Music 远程播放部件（TributeToSteveJobs，对标 PillagerSpotify）：轮询、时钟、
+    // 命令宽限、结束收尾、错误分类全在这个父函数的闭包里，播放引擎只通过 AppleMusic 调用。
+    // The Apple Music counterpart of PillagerSpotify; the engine only talks to `AppleMusic`.
+    'js/modules/08-account/tribute-to-steve-jobs.js',
     'js/modules/08-account/04-user-modal-logout.js',
     'js/modules/08-account/05-startup-login-guide.js',
     'js/modules/09-idle-toast-libraries.js',

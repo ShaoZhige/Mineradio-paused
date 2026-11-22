@@ -84,7 +84,6 @@ function bindModalBackdropClose() {
   [
     ['track-detail-modal', closeTrackDetailModal],
     ['login-modal', closeLoginModal],
-    ['user-modal', closeUserModal],
     ['audio-output-workflow-modal', closeAudioOutputWorkflowPanel],
     ['custom-lyric-modal', closeCustomLyricModal],
     ['update-modal', closeUpdatePanel]
@@ -103,6 +102,12 @@ function onUserBtnClick() {
     topAccountPillClickSuppressed = false;
     return;
   }
+  // 胶囊点开一律是登录 / 平台管理弹窗（里面每个平台都有自己的退出按钮）。
+  // 2026-11-21：曾经把已登录分支改成弹 `#user-modal`（"账号信息"面板），用户看过之后
+  // 明确表示多余且难看 —— 那个面板跟登录弹窗的信息几乎重复，还要多维护一套平台 tab。
+  // 现在退回单一入口：点胶囊 = 打开登录弹窗。
+  // One entry only: the capsule always opens the login / platform-manager modal. The separate
+  // "account info" panel was redundant and was dropped at the user's request.
   showLoginModal({ provider: hasAnyPlatformLogin() ? firstLoggedProvider() : loginProvider, source: 'top-account' });
 }
 // 账号面板里的平台清单来自注册表的 login 能力，不再手抄一份。

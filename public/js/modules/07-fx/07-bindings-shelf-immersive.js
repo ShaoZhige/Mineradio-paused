@@ -108,7 +108,7 @@ function bindFxPanel() {
         updateCustomBackgroundControls();
       }
       if (pair[1] === 'windowCornerRadius') {
-        fx.windowCornerRadius = Math.round(clampRange(fx.windowCornerRadius, 0, 48));
+        fx.windowCornerRadius = Math.round(clampRange(fx.windowCornerRadius, 0, 120));
         el.value = fx.windowCornerRadius;
         if (typeof applyWindowCornerRadius === 'function') applyWindowCornerRadius();
       }
@@ -435,7 +435,7 @@ function toggleFx(key) {
   if (toggle) toggle.classList.toggle('on', fx[key]);
   if (key === 'lyricGlow' || key === 'lyricGlowBeat') updateLyricGlowControls();
   syncFxUniforms();
-  if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'lyricVerticalFloat' || key === 'lyricLiveViewportFit' || key === 'lyricContextHighQuality' || key === 'lyricBackdropAdapt' || key === 'coverBackdropAdapt' || key === 'backgroundStarRiver' || key === 'lyricPauseHold' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'aiDepth' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'sonicGroundFloatingEnabled' || key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep' || key === 'memoryAutoTrimApp' || key === 'memoryAutoTrimOnBackground' || key === 'memoryAutoSystemTrim' || key === 'memorySystemAutoElevate' || key === 'wallpaperEngineSilentWindows' || key === 'wallpaperEngineGlassSampler' || key === 'desktopWallpaperBackdrop' || key === 'beatAnalysis') saveLyricLayout({ user: true, reason: key });
+  if (key === 'lyricCameraLock' || key === 'lyricGlow' || key === 'lyricGlowBeat' || key === 'lyricGlowParticles' || key === 'lyricVerticalFloat' || key === 'lyricLiveViewportFit' || key === 'lyricContextHighQuality' || key === 'lyricBackdropAdapt' || key === 'coverBackdropAdapt' || key === 'backgroundStarRiver' || key === 'lyricPauseHold' || key === 'bloom' || key === 'edge' || key === 'cinema' || key === 'aiDepth' || key === 'desktopLyrics' || key === 'desktopLyricsClickThrough' || key === 'desktopLyricsCinema' || key === 'desktopLyricsHighlight' || key === 'wallpaperMode' || key === 'sonicGroundFloatingEnabled' || key === 'sonicAudioMonitorEnabled' || key === 'sonicAudioAutoTrack' || key === 'shelfShowPodcasts' || key === 'shelfMergeCollections' || key === 'liveBackgroundKeep' || key === 'memoryAutoTrimApp' || key === 'memoryAutoTrimOnBackground' || key === 'memoryAutoSystemTrim' || key === 'memorySystemAutoElevate' || key === 'wallpaperEngineSilentWindows' || key === 'wallpaperEngineGlassSampler' || key === 'wallpaperEngineCaptureRender' || key === 'desktopWallpaperBackdrop' || key === 'beatAnalysis') saveLyricLayout({ user: true, reason: key });
   // 自动节奏分析：关掉时要把已经排队的分析和预热一起撤掉，否则关闭后仍会跑完一次分析。
   // 打开时立刻给队列预热，不然要等到下一首切歌才看得到效果。
   // Off must drop both the queued analysis and the prefetch, or one more pass still runs after the
@@ -465,6 +465,21 @@ function toggleFx(key) {
   if (key === 'backgroundStarRiver') {
     if (typeof updateBackgroundStarRiverState === 'function') updateBackgroundStarRiverState(0.016, true);
     showToast(fx.backgroundStarRiver !== false ? bindingsShelfImmersiveText('bind_starfield_on') : bindingsShelfImmersiveText('bind_starfield_off'));
+  }
+  // 捕获渲染要重建壁纸层才生效（原生嵌入 vs 视频流是两条完全不同的启动路径）。
+  if (key === 'wallpaperEngineCaptureRender') {
+    // 用户手动切换 = 重新给捕获一次机会，清掉上一轮的回退标记。
+    try { wallpaperEngineCaptureRenderFallback = false; } catch (e) { }
+    try {
+      if (typeof wallpaperEngineSelection !== 'undefined'
+        && wallpaperEngineSelection && wallpaperEngineSelection.active
+        && typeof applyWallpaperEngineBackground === 'function') {
+        applyWallpaperEngineBackground(null, false);
+      }
+    } catch (e) { }
+    showToast(fx.wallpaperEngineCaptureRender
+      ? bindingsShelfImmersiveText('bind_we_capture_on', "壁纸捕获渲染已开启（重新应用壁纸后生效）")
+      : bindingsShelfImmersiveText('bind_we_capture_off', "壁纸捕获渲染已关闭"));
   }
   if (key === 'wallpaperMode') applyWallpaperModeState(true);
   if (key === 'shelfShowPodcasts' || key === 'shelfMergeCollections') {
@@ -551,6 +566,21 @@ function toggleFx(key) {
     showToast(fx.aiDepth ? bindingsShelfImmersiveText('bind_ai_depth_on') : bindingsShelfImmersiveText('bind_ai_depth_off'));
   }
 }
+// 用户用右下角圆钮**主动**关掉面板时置位：指针还停在圆钮上，不能让悬停逻辑立刻又把它打开。
+// 指针离开圆钮/面板范围后自动解除（见 10-shell/02-peek-panels-upload.js 的 mousemove）。
+// Set when the user closes the panel with the launcher itself; cleared once the pointer leaves.
+var fxPanelClickClosed = false;
+// 面板因悬停自动打开的时刻：刚打开那一下的点击应当算"打开"，不能立刻又关掉。
+var fxPanelPeekOpenedAt = 0;
+
+function closeFxPanelVisual(el, currentlyOpen) {
+  el.classList.remove('show', 'peek');
+  el.classList.toggle('closing', currentlyOpen);
+  setTimeout(function () { el.classList.remove('closing'); }, 280);
+  var fab = document.getElementById('fx-fab');
+  if (fab) fab.classList.remove('active');
+}
+
 function toggleFxPanel(force) {
   var el = document.getElementById('fx-panel');
   if (!el) return;
@@ -561,17 +591,46 @@ function toggleFxPanel(force) {
   var currentlyOpen = el.classList.contains('show') || el.classList.contains('peek');
   if (peekTimers && peekTimers.fx) { clearTimeout(peekTimers.fx); peekTimers.fx = null; }
   fxPanelPinned = false;
-  if (force === false) {
-    el.classList.remove('show', 'peek');
-    el.classList.toggle('closing', currentlyOpen);
-    setTimeout(function () { el.classList.remove('closing'); }, 280);
-    var fab = document.getElementById('fx-fab');
-    if (fab) fab.classList.remove('active');
+  // force === false 显式关闭；不给参数时变成**真开关** —— 开着就关（圆钮再点一下就收起）。
+  if (force === false || (force !== true && currentlyOpen)) {
+    closeFxPanelVisual(el, currentlyOpen);
+    // 注意：这里**不**置"用户主动关闭"标记。启动/切模式时代码会调 toggleFxPanel(false)，
+    // 若一并置位，指针刚好落在圆钮上时悬停就再也打不开面板了。抑制只由点击路径负责。
+    fxPanelClickClosed = false;
     return;
   }
+  fxPanelClickClosed = false;
   el.classList.remove('show', 'closing');
   setPeek(el, true, 'fx');
 }
+
+// 圆钮点击 = 开关面板（以前只能靠"鼠标移开自动收起"）。
+// 悬停本身就会把面板 peek 出来，所以刚打开 320ms 内的点击视作"打开"，避免一移上去点一下又关掉。
+function handleFxFabClick(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  var el = document.getElementById('fx-panel');
+  var open = !!(el && (el.classList.contains('show') || el.classList.contains('peek')));
+  if (open && Date.now() - (Number(fxPanelPeekOpenedAt) || 0) < 320) return;
+  if (open) {
+    toggleFxPanel(false);
+    // 只有"人用手点"这条路径才抑制悬停自动重开；指针离开圆钮/面板后解除（见 02-peek-panels-upload.js）。
+    fxPanelClickClosed = true;
+  } else {
+    toggleFxPanel(true);
+  }
+}
+
+(function bindFxFabClickToggle() {
+  function bind() {
+    var fab = document.getElementById('fx-fab');
+    if (!fab || fab.__fxClickBound) return;
+    fab.__fxClickBound = true;
+    fab.addEventListener('click', handleFxFabClick);
+  }
+  if (typeof document === 'undefined') return;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
+  else bind();
+})();
 function resetFx() {
   var savedCam = fx.cam;
   var savedGesturePlayerActions = fx.gesturePlayerActions;
@@ -593,6 +652,15 @@ function resetFx() {
   });
   applyCoverParticleResolution(fx.coverResolution, { reload: true });
   updateFxInputs();
+  // updateFxInputs() 只把数值写回滑块，**不触发任何 apply**。凡是"读 fx 再写 CSS 变量"的
+  // 视觉项，重置后必须在这里显式补一次，否则界面数字变了、画面不变（用户报：重置后圆角
+  // 数值回到 20 但窗口还是旧圆角，得再拖一下滑块才生效）。
+  // updateFxInputs only rewrites slider values; every CSS-variable-driven effect must be
+  // re-applied explicitly or the panel lies about the current look.
+  if (typeof applyWindowCornerRadius === 'function') applyWindowCornerRadius();
+  if (typeof applyControlGlassChromaticOffset === 'function') applyControlGlassChromaticOffset();
+  if (typeof applyPlaylistPanelFxSettings === 'function') applyPlaylistPanelFxSettings();
+  if (typeof updateCustomBackgroundControls === 'function') updateCustomBackgroundControls();
   syncFxUniforms();
   refreshStageLyricDisplayMode();
   applyDesktopLyricsState(true);
@@ -747,7 +815,6 @@ function closeImmersiveInterference() {
   toggleFxPanel(false);
   closeUploadTip(false);
   closeLoginModal();
-  closeUserModal();
   closeCollectModal();
   closeCoverCropModal();
   closeCustomLyricModal();

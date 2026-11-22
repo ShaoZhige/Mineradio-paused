@@ -48,12 +48,6 @@ function pruneLyricFallbackCache(cache, limit) {
   for (var i = 0; i < excess; i++) delete cache[keys[i]];
   return excess;
 }
-function pruneLyricFallbackCaches() {
-  pruneLyricFallbackCache(lyricPrimaryFallbackCache, LYRIC_FALLBACK_PAYLOAD_LIMIT);
-  pruneLyricFallbackCache(lyricTranslationFallbackCache, LYRIC_FALLBACK_PAYLOAD_LIMIT);
-  pruneLyricFallbackCache(lyricPrimaryFallbackMissCache, LYRIC_FALLBACK_MISS_LIMIT);
-  pruneLyricFallbackCache(lyricTranslationFallbackMissCache, LYRIC_FALLBACK_MISS_LIMIT);
-}
 function rememberLyricFallbackMiss(cache, key) {
   if (!cache || !key) return;
   cache[key] = Date.now();
@@ -97,7 +91,12 @@ function lyricEndpointForSong(songOrId) {
     // 贴进 song.catalogId，这里优先用它。
     // Apple's lyric resource is catalog-only (digits). A library `i.xxx` id addresses a different
     // resource and always 404s; mapAppleMusicSong already put playParams.catalogId on the song.
-    var appleCatalogId = song.catalogId || song.appleMusicId || song.providerSongId || song.id || '';
+    // 统一走 appleMusicCatalogIdOf（00-state/16-provider-registry.js）：数字 catalog id、
+    // 新版资料库 `a.<数字>` 都在那里归一化，调用点不再各写一份正则。
+    // One normalization point for every Apple id form.
+    var appleCatalogId = typeof appleMusicCatalogIdOf === 'function'
+      ? appleMusicCatalogIdOf(song)
+      : String(song.catalogId || song.appleMusicId || song.providerSongId || song.id || '');
     return '/api/apple-music/lyric?id=' + encodeURIComponent(appleCatalogId);
   }
   var songId = song ? song.id : songOrId;
@@ -540,9 +539,26 @@ async function fetchLyric(songOrId, token, attempt) {
     var r = await apiJson(lyricEndpointForSong(song || songOrId));
     var state = applyFetchedLyricResponse(song, token, r);
     if (!state) return;
+    if (!state.usableLyric && typeof logEvent === 'function') {
+      // "这首没歌词"分两种：上游确实没有（responseEmpty）与解析不出行（parseEmpty）。
+      // 前者无解，后者是 bug —— 必须能区分。
+      var hasRaw = !!(r && ((r.lyric && String(r.lyric).trim()) || (r.lrc && String(r.lrc).trim()) || (r.yrc && String(r.yrc).trim())));
+      logEvent('lyric', 'unavailable', {
+        provider: (function () { try { return String(songProviderKey(song) || ''); } catch (e) { return ''; } })(),
+        songId: String((song && (song.id || song.mid || song.hash)) || '').slice(0, 40),
+        reason: hasRaw ? 'parse-empty' : 'no-lyric-upstream',
+      }, 'warn');
+    }
     if (!state.usableLyric && shouldRetryStartupLyricFetch(song, token, attempt)) scheduleStartupLyricFetchRetry(song, token, attempt);
   } catch (e) {
     if (token !== trackSwitchToken) return;
+    if (typeof logEvent === 'function') {
+      logEvent('lyric', 'fetch-failed', {
+        provider: (function () { try { return String(songProviderKey(song) || ''); } catch (err) { return ''; } })(),
+        songId: String((song && (song.id || song.mid || song.hash)) || '').slice(0, 40),
+        message: String((e && e.message) || e || '').slice(0, 200),
+      }, 'warn');
+    }
     cancelPendingTrackFallbackLyrics();
     var fallbackLines = withLyricFallbackForSong(song || currentLyricSong(), []);
     setOriginalLyricsState(fallbackLines, false, 'fallback', [], 'none');
