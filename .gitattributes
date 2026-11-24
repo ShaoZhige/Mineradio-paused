@@ -21,3 +21,7 @@ public/** -text
 
 # 哈希清单按字节读取：CRLF 会让 `sha256sum -c` 把行尾当成路径的一部分。
 docs/PUBLIC-HASHES.txt -text
+
+# Rust 源码与清单固定 LF：否则 Windows 新克隆会拿到 CRLF，cargo fmt --check 立刻报一片红。
+*.rs text eol=lf
+*.toml text eol=lf

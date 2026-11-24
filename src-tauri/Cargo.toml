@@ -1,0 +1,19 @@
+[package]
+name = "mineradio-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Mineradio 的 Tauri 外壳：起本地服务 + 开窗口 + 注入 shim"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+mineradio-server = { path = "../crates/mineradio-server" }
+tokio = { workspace = true }
+
+[[bin]]
+name = "mineradio-desktop"
+path = "src/main.rs"

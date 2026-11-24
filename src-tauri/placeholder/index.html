@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mineradio placeholder</title>
+  </head>
+  <body>
+    <!--
+      这里故意只有一个占位页。
+
+      真实前端由 crate `mineradio-server` 从仓库的 public/ 目录直接用 HTTP 发出去，
+      窗口加载的是 http://127.0.0.1:&lt;port&gt;，不是这个文件。
+
+      之所以还要留一份：Tauri 的 `build.frontendDist` 是必填项，如果指向 ../public，
+      19 MB 前端会被塞进 exe 并让每次编译多花一大截时间，而 P1 根本用不到它。
+      P5 做发布链时再决定「内嵌还是随包附带」，见 docs/REWRITE-PLAN.md §9。
+    -->
+    <p>Mineradio 的 Tauri 外壳不从这里加载界面。见 src-tauri/README.md。</p>
+  </body>
+</html>

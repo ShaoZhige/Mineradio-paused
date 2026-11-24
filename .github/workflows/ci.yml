@@ -52,6 +52,10 @@ jobs:
       - name: public/ matches baseline hashes
         run: npm run hash:check
 
+      # shim 是从契约生成的，契约一变就必须重新生成（130 个桥项手写必漏）。
+      - name: desktopWindow shim matches contract
+        run: npm run shim:check
+
   required-gate:
     if: always()
     needs: [test-node]

@@ -189,27 +189,29 @@
 ```
 Mineradio-paused-main/
 ├── Cargo.toml                     # Cargo workspace（v1 没有，见 4.4）
+├── Cargo.lock                     # 二进制项目，锁进仓库
 ├── public/                        # 🔒 逐字节保留 + 哈希守卫
-├── src-tauri/
+├── src-tauri/                     # 壳：开窗、注入 shim、编排生命周期（✅ P1 已有）
 │   ├── Cargo.toml
-│   ├── tauri.conf.json            # 不用 frontendDist；窗口 url 指向内嵌服务器
-│   ├── capabilities/default.toml  # deny-by-default，逐项授权
+│   ├── tauri.conf.json            # frontendDist 指向 placeholder/（不嵌入 19 MB 前端）
+│   ├── capabilities/default.toml  # deny-by-default，逐项授权（P3 才开始需要）
 │   ├── build.rs
-│   ├── icons/
+│   ├── icons/icon.ico             # 复用 build/icon.ico
+│   ├── placeholder/index.html     # 只为满足 frontendDist，窗口不从 asset 协议加载
 │   └── src/
-│       ├── main.rs                # tauri::Builder
-│       ├── lib.rs
-│       ├── shell/                 # 窗口创建、托盘、热键、单实例、退出编排
-│       ├── server/                # axum 装配：静态 + /api + /internal
-│       ├── commands/              # 116 个 #[tauri::command]，按域拆文件
-│       ├── events/                # onXxx → tauri::Emitter
-│       └── bridge/shim.js         # 注入脚本：定义 window.desktopWindow（不在 public/）
+│       ├── main.rs                # tauri::Builder + 窗口 + 注入脚本
+│       ├── sysinfo.rs             # systemRelease（RtlGetVersion，不能用 GetVersionExW）
+│       ├── shell/                 # P3：托盘、热键、单实例、退出编排
+│       ├── commands/              # P3：116 个 #[tauri::command]，按域拆文件
+│       ├── events/                # P3：onXxx → tauri::Emitter
+│       └── bridge/                # shim.js（脚本生成）+ 占位符注入
 ├── crates/
-│   ├── mineradio-core/            # 纯逻辑：无 tauri、无网络语义，可单测（rust-anything 主战场）
-│   ├── mineradio-providers/       # 6 平台适配器：netease/qq/kugou/qishui/spotify/applemusic
-│   ├── mineradio-store/           # 设置、fx 存档、内置歌单、曲库索引、缓存、凭据
-│   ├── mineradio-native/          # windows-rs：窗口/DWM/壁纸/HID/游戏模式/桌面图标
-│   └── mineradio-log/             # 按 docs/LOGGING.md 的 JSONL 事件与脱敏
+│   ├── mineradio-server/          # ✅ P1 已有：axum 装配（静态 + /api 桩 + /internal），不依赖 tauri
+│   ├── mineradio-core/            # P2：纯逻辑，无 tauri、无网络语义，可单测（rust-anything 主战场）
+│   ├── mineradio-providers/       # P2：6 平台适配器：netease/qq/kugou/qishui/spotify/applemusic
+│   ├── mineradio-store/           # P2：设置、fx 存档、内置歌单、曲库索引、缓存、凭据
+│   ├── mineradio-native/          # P4：windows-rs：窗口/DWM/壁纸/HID/游戏模式/桌面图标
+│   └── mineradio-log/             # P2：按 docs/LOGGING.md 的 JSONL 事件与脱敏
 ├── apple-music-companion/         # D2：C# 外部进程（现有 build/apple-music-native）
 ├── cuefield/                      # D2：JS 外部进程
 └── docs/
@@ -217,6 +219,11 @@ Mineradio-paused-main/
     ├── API-CONTRACT.json          # P0 生成
     └── PUBLIC-HASHES.txt          # P0 生成
 ```
+
+**相对 4.1 原文的一处调整**：axum 装配没有放在 `src-tauri/src/server/`，而是独立成
+`crates/mineradio-server`。理由和 4.2 的约束一致 —— 放进 `src-tauri` 就绑死了 tauri 依赖，
+而"静态托管 + `/api`"这件事恰好是唯一能在无 GUI 环境下被 curl 全量验证的部分（P1 的第一道风险）。
+现在它既能被 `src-tauri` 调，也能 `cargo run -p mineradio-server` 单跑、`cargo test` 单测。
 
 ### 4.2 crate 划分（为什么不是 v1 的单一 `src-tauri/src/*`）
 
@@ -534,6 +541,26 @@ npm run hash:check          # public/ 逐字节不动，已接进 ci.yml
 5. 截图对照：首页、歌单面板、桌面歌词窗（透明 + 无边框）。
 
 **这一步渲染不出来，后面全部无意义。** 具体看四个点：`three.js` 着色器编译、`backdrop-filter` 玻璃效果、`@font-face` 本地字体、WebAudio 初始化。
+
+#### P1 进度（2026-11-24）
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | axum 绑 `127.0.0.1:0`、打印实际端口 | ✅ `crates/mineradio-server`，`ServerHandle::url()` |
+| 2 | 静态 `public/` 能 200 | ✅ 实测：`index.html` 200（182,287 B）、它直引的 **23** 个本地资源全 200、`index-loader` 引的 **124** 个模块全 200 |
+| 3 | 窗口 url 指向本地服务 | ✅ `src-tauri/src/main.rs`（`?startupAttempt=1`） |
+| 4 | shim 注入 116 方法返回 `NOT_IMPLEMENTED` | ✅ 由 `scripts/gen-shim.js` 生成，顶层键 **116**、桥项 **130**、`npm run shim:check` 进 CI |
+| 5 | 截图对照 | ⏳ 需要开窗肉眼确认（three.js / 玻璃 / 字体 / WebAudio） |
+
+P1 比原计划多做的两件事（都有明确理由）：
+
+- **`/api` 桩返回 501 + JSON 而不是 404**：前端大量代码是 `fetch(...).then(r => r.json())` 再按字段分支，
+  404 会变成"接口不存在"的假象，501 + `{ok:false, reason:'NOT_IMPLEMENTED', path}` 才能让它走自己的错误分支。
+- **Host / `Sec-Fetch-Site` / `/internal` token 三道守卫**：Electron 时代"只有自家窗口会访问这个端口"是隐式成立的，
+  换成 WebView2 + 本地 HTTP 后任何本机网页都能敲，必须显式挡住。
+
+已知风险（都在开窗那一刻才暴露）：`public/index.html` 直连 `https://fonts.googleapis.com`，
+断网时字体回退会改变排版观感，别误判成"样式坏了"。
 
 ---
 
