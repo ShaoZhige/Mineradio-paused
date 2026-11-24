@@ -1,5 +1,9 @@
 # Mineradio → Tauri 重写方案（2026-11-24）
 
+> ⚠️ **本文已被 `docs/REWRITE-PLAN.md`（v2，同日）取代**，保留为第一版决策记录，不再维护。
+> v2 复核了本文全部数字（两处更正：`installer.nsh` 实为 1,222 行、且是自定义语言页需换模板），
+> 并新增 rust-anything 的定位与用法、文件拖入路径、WebView2 分发、CI 映射、许可扫描、端口硬化、阶段止损条件。
+
 > 目标：**`public/` 现有 107,547 行 HTML/CSS/JS 逐字节保留**，其余（Electron 主进程、Node 服务、脚本、测试驱动、原生 Windows 助手）全部用 Rust 实现，采用 Tauri 2.x 标准形态。
 > 本文是方案与盘点，不是施工记录；动手前先看完 §0 的四个待定决策。
 > 基线：Electron 架构终版 v3.3.0（HEAD 随结档提交更新），Electron 45 + electron-builder 26，四道闸门全绿。

@@ -157,7 +157,7 @@ npm run check:budget # 资源边界
 
 项目正在迁移到 **Tauri 2.x（Rust 后端 + 系统 WebView2）**：`public/` 下全部视觉资产逐字节保留，
 其余 Electron/Node 层用 Rust 重写。方案、实测基线与分阶段计划见
-[`docs/TAURI-REWRITE-PLAN.md`](./docs/TAURI-REWRITE-PLAN.md)。当前发布版仍是 Electron，按上面的命令开发即可。
+[`docs/REWRITE-PLAN.md`](./docs/REWRITE-PLAN.md)。当前发布版仍是 Electron，按上面的命令开发即可。
 
 ## 与上游的关系
 
