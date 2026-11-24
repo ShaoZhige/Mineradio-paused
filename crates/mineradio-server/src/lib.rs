@@ -15,6 +15,7 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Context;
 use axum::extract::{Request, State};
@@ -28,6 +29,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 use mineradio_core::static_assets;
+use mineradio_log::{Fields, Level, Logger};
 
 /// 主进程 ↔ 服务的共享状态。端口和 token 在绑定后才知道，所以整体走 State 注入。
 #[derive(Clone)]
@@ -40,6 +42,17 @@ struct AppState {
     /// `/favicon.ico` 的实际文件。Electron 版把它指到 `build/icon.ico`（`public/` 里没有这个文件），
     /// 不照抄的话窗口控制台会多一条 404。
     favicon: Option<PathBuf>,
+    /// 日志出口；`None` = 这条链路没接日志（测试、裸跑服务）。
+    logger: Option<Arc<Logger>>,
+}
+
+impl AppState {
+    /// 写日志的便捷入口：没有 logger 时是纯空转，调用点不用套 `if let`。
+    fn log(&self, level: Level, event: &str, fields: Fields) {
+        if let Some(logger) = &self.logger {
+            logger.log(level, event, fields);
+        }
+    }
 }
 
 /// 服务句柄：调用方拿它拼 URL、并在退出时优雅关停。
@@ -48,6 +61,7 @@ pub struct ServerHandle {
     pub token: String,
     shutdown: Option<oneshot::Sender<()>>,
     join: tokio::task::JoinHandle<()>,
+    logger: Option<Arc<Logger>>,
 }
 
 impl ServerHandle {
@@ -57,6 +71,9 @@ impl ServerHandle {
 
     /// 关停并等任务退出。重复调用是安全的（第二次直接返回）。
     pub async fn shutdown(mut self) {
+        if let Some(logger) = &self.logger {
+            logger.info("server-stop", Fields::new());
+        }
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
@@ -69,11 +86,27 @@ impl ServerHandle {
 /// 只绑回环地址是刻意的：Electron 时代的服务也是本地私有的，Tauri 侧不能因为"反正本机"
 /// 就监听到 0.0.0.0 —— 那会把整个曲库接口暴露到局域网。
 pub async fn start(public_dir: PathBuf) -> anyhow::Result<ServerHandle> {
-    start_with_port(0, public_dir).await
+    start_inner(0, public_dir, None).await
+}
+
+/// 同上，但接一条 logger：`app` 作用域的 `<userdata>/app.log`。
+pub async fn start_with_logger(
+    public_dir: PathBuf,
+    logger: Option<Arc<Logger>>,
+) -> anyhow::Result<ServerHandle> {
+    start_inner(0, public_dir, logger).await
 }
 
 /// 同上，但可以指定端口（`0` = 系统分配）。指定端口只用于调试。
 pub async fn start_with_port(port: u16, public_dir: PathBuf) -> anyhow::Result<ServerHandle> {
+    start_inner(port, public_dir, None).await
+}
+
+async fn start_inner(
+    port: u16,
+    public_dir: PathBuf,
+    logger: Option<Arc<Logger>>,
+) -> anyhow::Result<ServerHandle> {
     if !public_dir.is_dir() {
         anyhow::bail!("静态目录不存在：{}", public_dir.display());
     }
@@ -89,6 +122,7 @@ pub async fn start_with_port(port: u16, public_dir: PathBuf) -> anyhow::Result<S
         token: random_token(),
         public_dir,
         favicon,
+        logger: logger.clone(),
     };
     let token = state.token.clone();
 
@@ -110,11 +144,17 @@ pub async fn start_with_port(port: u16, public_dir: PathBuf) -> anyhow::Result<S
         }
     });
 
+    if let Some(logger) = &logger {
+        // 只记端口：目录是绝对路径，落盘会被脱敏成 `…\public`，写了也没信息量。
+        logger.info("server-start", Fields::new().num("port", addr.port()));
+    }
+
     Ok(ServerHandle {
         addr,
         token,
         shutdown: Some(tx),
         join,
+        logger,
     })
 }
 
@@ -144,9 +184,16 @@ fn random_token() -> String {
 /// 前端大量代码是 `fetch('/api/...').then(r => r.json())` 再按字段判断，
 /// 所以这里给 **HTTP 501 + 完整 JSON 体**，而不是 404：前者能走到前端的错误分支，
 /// 后者会变成"接口不存在"的另一种假象，排查时分不清是没搬还是搬错了。
-async fn api_stub(req: Request) -> Response {
+async fn api_stub(State(state): State<AppState>, req: Request) -> Response {
     let path = req.uri().path().to_string();
     let method = req.method().as_str().to_string();
+    // debug 级别：默认 `min_level = info` 时一行都不落盘，把级别调下来就是一份
+    // "还差哪些接口没搬"的实时清单。别提到 info —— 首屏就要打 35 条。
+    state.log(
+        Level::Debug,
+        "api-not-implemented",
+        Fields::new().str("path", &path).str("method", &method),
+    );
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
@@ -323,6 +370,8 @@ fn httpdate(t: std::time::SystemTime) -> String {
 /// 任何本机网页都能敲这个端口，所以必须显式挡住。
 async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let port = state.port;
+    // 记路径不记整条 URL：query 里可能带 token，而脱敏只拦得住"看得出来的"。
+    let path = req.uri().path().to_string();
 
     let host_ok = req
         .headers()
@@ -334,6 +383,11 @@ async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Respo
         })
         .unwrap_or(false);
     if !host_ok {
+        state.log(
+            Level::Warn,
+            "guard-rejected",
+            Fields::new().str("reason", "bad-host").str("path", &path),
+        );
         return (StatusCode::FORBIDDEN, "bad host").into_response();
     }
 
@@ -343,6 +397,11 @@ async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Respo
         .and_then(|v| v.to_str().ok())
     {
         if site.eq_ignore_ascii_case("cross-site") {
+            state.log(
+                Level::Warn,
+                "guard-rejected",
+                Fields::new().str("reason", "cross-site").str("path", &path),
+            );
             return (StatusCode::FORBIDDEN, "cross-site blocked").into_response();
         }
     }
@@ -355,6 +414,11 @@ async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Respo
             .map(|got| constant_time_eq(got.as_bytes(), state.token.as_bytes()))
             .unwrap_or(false);
         if !token_ok {
+            state.log(
+                Level::Warn,
+                "guard-rejected",
+                Fields::new().str("reason", "bad-token").str("path", &path),
+            );
             return (StatusCode::FORBIDDEN, "bad token").into_response();
         }
     }
@@ -385,6 +449,7 @@ pub fn default_public_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mineradio_log::Scope;
     use std::io::Write as _;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -458,6 +523,35 @@ mod tests {
         let mut f = std::fs::File::create(dir.join("js").join("main.js")).unwrap();
         f.write_all(b"console.log(1);").unwrap();
         dir
+    }
+
+    #[tokio::test]
+    async fn logs_lifecycle_and_guard_rejections_into_app_scope() {
+        let dir = fixture_dir();
+        let log_dir = dir.join("logs");
+        let logger = Arc::new(Logger::for_scope(Scope::App, &log_dir));
+        let handle = start_with_logger(dir.clone(), Some(logger.clone()))
+            .await
+            .unwrap();
+        let port = handle.addr.port();
+
+        // 一次合法的 + 一次被 Host 守卫拒绝的
+        let (status, _, _) = request(port, &format!("127.0.0.1:{port}"), "/", &[]).await;
+        assert_eq!(status, 200);
+        let (status, _, _) = request(port, "evil.example:1234", "/", &[]).await;
+        assert_eq!(status, 403);
+
+        handle.shutdown().await;
+
+        let text = std::fs::read_to_string(log_dir.join("app.log")).unwrap();
+        assert!(text.contains("\"event\":\"server-start\""), "{text}");
+        assert!(text.contains("\"event\":\"guard-rejected\""), "{text}");
+        assert!(text.contains("\"reason\":\"bad-host\""), "{text}");
+        assert!(text.contains("\"event\":\"server-stop\""), "{text}");
+        // 静态请求不该产生日志（首屏几十条，提成 info 会把文件刷满）
+        assert!(!text.contains("static"), "{text}");
+        assert_eq!(text.lines().count(), 3, "只应有三条：{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

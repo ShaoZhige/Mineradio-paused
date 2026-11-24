@@ -661,6 +661,41 @@ Rust 侧照着 args 重建入参，不需要为用例写特判；`note` 字段�
 `paddingLength` 为负时 Node 的 `subarray` 会读成"到末尾"，这里直接判为解不出；
 `stsz` 的 `sample_count` 加了 1M 上限，防止恶意文件用 2 TB 分配把进程打死。
 
+#### P2 进度（2026-11-24，第四刀：`mineradio-log`）
+
+§5.6 要求"日志按 `docs/LOGGING.md`，Rust 侧实现 `mineradio-log` crate，字段校验写成单测"。
+这一刀**不是**搬某个 JS 文件，而是先把"后面每个 handler 都要用的那层"立起来 —— 越晚补，
+越多调用点要回头改。所以插在 `qq-vip-api` 之前做。
+
+| 项 | 落地 |
+|---|---|
+| 新 crate | `crates/mineradio-log`：`level` / `scope` / `sanitize` / `redact` / `timestamp` / `writer`，对外只有 `Logger` + `Fields` + `Scope` |
+| 依赖 | **只有 `serde_json`**。不引 `chrono`/`time`：全 crate 只有一处要日期，`civil_from_days` 三十行就够，而且能对着 `node -e "new Date(t).toISOString()"` 逐个钉死 |
+| 行为证明 | **47 条测试**（33 单测 + 13 行为 + 1 doctest）：调用顺序、4 线程并发各 50 条、滚动后 `.1` 内容、级别过滤、裁剪上限、脱敏红线、坏目录不 panic、非法文件名不越界写 |
+| 首个消费者 | `mineradio-server`：`server-start` / `server-stop` / `guard-rejected`(warn) / `api-not-implemented`(debug)；`src-tauri` 把 logger 建在 `%APPDATA%\Mineradio`（与 Electron 的 `userData` 同一路径，不新建目录） |
+| 闸门 | `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace` **70 passed** |
+
+**比 JS 版多的一层是脱敏。** `docs/LOGGING.md` §2 早就写了"禁止写 cookie / token / 密码 / 完整 URL /
+绝对路径"，但旧实现完全靠写日志的人自觉，`sanitize()` 只裁长度和深度。现在落盘前强制：
+
+1. 键名归一化（去非字母数字、转小写）后**完全相等或以敏感词结尾** → 整值替换成 `[redacted]`。
+   覆盖 `cookie`、`accessToken`、`X-Auth-Token`、`refresh_token`、`spade_a`。
+2. 值是 URL → 只留 `scheme://host[:port]`，路径与 query 全砍。
+3. 值是绝对路径 → 只留文件名（`…\app.log`）；嵌在消息里的也算。
+4. `Bearer xxx`、JWT（`eyJ…` 三段）、≥64 字符且字符分布像凭据的 hex/base64 块 → 替换。
+
+顺序是**先裁剪再脱敏**：裁剪把第 2 层以下折叠成 `[object]`、把串截到 400 字符，脱敏因此只需处理前两层。
+
+**顺手修掉的两个遗留问题：**
+
+- **滚动作废**：JS 的 `renameSync(target, target+'.1')` 在 Windows 上不能覆盖已存在的 `.1`，失败后它退化成
+  `unlinkSync(target)` —— 从第二次滚动起，最近的日志被整个删掉，`.1` 永远是第一次那份。现在先删 `.1` 再改名。
+- **字段名不统一**：`desktop/apple-music/companionClient.cjs` 写的是 `{type:'spawn'|'request'|'host'}`，
+  不是契约里的 `event`。Rust 侧统一成 `event`，`docs/LOGGING.md` 记了这条迁移债。
+
+刻意偏离（都是往更安全/更可查方向偏，模块头部有完整的差异表）：字段顺序变成字典序；保留键
+`at/level/scope/event` 不可被调用方覆写；事件名归一化成小写连字符（`pageFailed` → `pagefailed`）。
+
 
 ---
 

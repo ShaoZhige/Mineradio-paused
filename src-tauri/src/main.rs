@@ -15,8 +15,11 @@ mod bridge;
 mod sysinfo;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tauri::{RunEvent, WebviewUrl, WebviewWindowBuilder};
+
+use mineradio_log::{Fields, Logger, Scope};
 
 /// 打包后 `public/` 与 exe 同级（或 resources/ 下）；开发时退回仓库目录。
 fn locate_public_dir() -> PathBuf {
@@ -34,16 +37,40 @@ fn locate_public_dir() -> PathBuf {
         .join("public")
 }
 
+/// `userdata/` 的位置。必须与 Electron 时代的 `app.getPath('userData')` **完全相同**：
+/// Windows 上是 `%APPDATA%\Mineradio`（Electron 取 package.json 的 productName）。
+///
+/// 刻意不改成 Tauri 默认的 `<appdata>/<identifier>`：方案 §5.6 的红线是
+/// "userdata 布局一字不改"，改了等于所有用户都要重新登录。
+fn locate_user_data_dir() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|base| PathBuf::from(base).join("Mineradio"))
+}
+
 fn main() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("创建 tokio 运行时失败");
 
+    // 日志先于服务就位，这样服务启动失败也能留痕（否则只剩一个控制台 panic）。
+    let logger = locate_user_data_dir().map(|dir| Arc::new(Logger::for_scope(Scope::App, dir)));
+    if logger.is_none() {
+        eprintln!("[mineradio] 找不到 %APPDATA%，本次运行不落日志");
+    }
+
     let public_dir = locate_public_dir();
-    let server = match runtime.block_on(mineradio_server::start(public_dir.clone())) {
+    let server = match runtime.block_on(mineradio_server::start_with_logger(
+        public_dir.clone(),
+        logger.clone(),
+    )) {
         Ok(server) => server,
         Err(err) => {
+            if let Some(logger) = &logger {
+                logger.error(
+                    "server-start-failed",
+                    Fields::new().str("message", err.to_string()),
+                );
+            }
             eprintln!(
                 "[mineradio] 本地服务启动失败：{err}（public = {}）",
                 public_dir.display()

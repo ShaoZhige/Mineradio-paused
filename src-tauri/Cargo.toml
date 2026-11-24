@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 mineradio-server = { path = "../crates/mineradio-server" }
+mineradio-log = { path = "../crates/mineradio-log" }
 tokio = { workspace = true }
 
 [[bin]]

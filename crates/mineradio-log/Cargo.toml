@@ -1,0 +1,9 @@
+[package]
+name = "mineradio-log"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Mineradio 的 JSON Lines 日志：有序落盘、512KB 滚动、脱敏红线"
+
+[dependencies]
+serde_json = { workspace = true }

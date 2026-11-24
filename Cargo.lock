@@ -2032,10 +2032,18 @@ dependencies = [
 name = "mineradio-desktop"
 version = "0.1.0"
 dependencies = [
+ "mineradio-log",
  "mineradio-server",
  "tauri",
  "tauri-build",
  "tokio",
+]
+
+[[package]]
+name = "mineradio-log"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -2045,6 +2053,7 @@ dependencies = [
  "anyhow",
  "axum",
  "mineradio-core",
+ "mineradio-log",
  "serde",
  "serde_json",
  "tokio",

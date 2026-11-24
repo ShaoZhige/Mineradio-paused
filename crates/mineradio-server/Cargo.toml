@@ -14,6 +14,8 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 # 静态资源语义（MIME 表 / 弱 ETag / If-None-Match）搬在 core 里，server 只负责拼 HTTP。
 mineradio-core = { path = "../mineradio-core" }
+# 日志格式与脱敏规则由 mineradio-log 统一，server 只挑事件名。
+mineradio-log = { path = "../mineradio-log" }
 
 [[bin]]
 name = "mineradio-server"
