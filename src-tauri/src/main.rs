@@ -78,9 +78,13 @@ fn main() {
         .expect("构建 Tauri 应用失败")
         .run(move |_app, event| {
             if let RunEvent::Exit = event {
-                if let Some(handle) = server.take() {
-                    runtime.block_on(handle.shutdown());
-                }
+                // 这里**不能** `runtime.block_on(handle.shutdown())`。
+                //
+                // 实测（20:12）：走 WM_CLOSE 后 WebView2 子进程全部退出、窗口没了，但宿主进程
+                // 卡住不退，且本地服务仍在 LISTEN —— 说明阻塞在了 Exit 分支里等一个永远不会
+                // 完成的优雅关停。进程退出时操作系统本来就会释放端口，为此冒"退不出去"的风险
+                // 不值得：句柄直接 drop，socket 随进程消失。
+                drop(server.take());
             }
         });
 }
