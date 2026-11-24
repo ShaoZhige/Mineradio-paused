@@ -18,3 +18,6 @@ public/vendor/jieba-dict.txt -text
 # 行尾一旦被 autocrlf 转换，Linux CI 与 Windows 工作区就会算出不同的 sha256，
 # 所以整棵树禁止任何换行转换。规则放最后，覆盖上面的 *.js eol=lf。
 public/** -text
+
+# 哈希清单按字节读取：CRLF 会让 `sha256sum -c` 把行尾当成路径的一部分。
+docs/PUBLIC-HASHES.txt -text
