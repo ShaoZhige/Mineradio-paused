@@ -162,3 +162,7 @@ folia源代码/
 docs/ARCHITECTURE.md
 
 qa/.tmp/
+
+# Rust / Tauri 重写（见 docs/REWRITE-PLAN.md）
+/target/
+src-tauri/gen/schemas/

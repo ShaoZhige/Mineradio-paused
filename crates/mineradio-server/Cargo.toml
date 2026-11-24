@@ -1,0 +1,19 @@
+[package]
+name = "mineradio-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Mineradio 的本地 HTTP 服务：静态托管 public/ + /api + /internal（不依赖 tauri）"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+[[bin]]
+name = "mineradio-server"
+path = "src/main.rs"
