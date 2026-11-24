@@ -1562,6 +1562,9 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   [DllImport("user32.dll")]
   static extern bool IsWindow(IntPtr hWnd);
 
+  [DllImport("user32.dll")]
+  static extern bool IsWindowVisible(IntPtr hWnd);
+
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
 
@@ -1675,6 +1678,57 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   // every frame, softening the wallpaper and cropping its framing from the start.
   int visualScale = 1000000;
 
+  // 诊断快照：只在**离散状态点**输出（就绪 / 显隐命令 / 缩略图注册 / 退出），绝不进 FollowHost
+  // 每 100ms 的热路径 —— 逐拍打日志会刷爆文件，还会把跟手逻辑拖慢。字段带 diag:true 标记，
+  // 由 Node 侧识别后落盘到 userdata 的独立日志文件，出问题时不用在用户机器上挂调试器。
+  // Discrete-state-only diagnostic snapshot; never called from the 100ms FollowHost hot path.
+  static string JsonString(string value) {
+    if (value == null) return "\"\"";
+    return "\"" + value.Replace("\\", "/").Replace("\"", "'")
+      .Replace("\r", " ").Replace("\n", " ") + "\"";
+  }
+
+  void Diag(string stage, string command, string reason) {
+    try {
+      RECT surfaceRect, sourceRect, hostRect;
+      bool surfaceExists = IsWindow(Handle);
+      bool surfaceVisible = surfaceExists && IsWindowVisible(Handle);
+      bool sourceExists = IsWindow(sourceWindow);
+      bool sourceVisible = sourceExists && IsWindowVisible(sourceWindow);
+      bool hostExists = IsWindow(hostWindow);
+      string surfaceBox = surfaceExists && GetWindowRect(Handle, out surfaceRect)
+        ? surfaceRect.Left + "," + surfaceRect.Top + "," + surfaceRect.Right + "," + surfaceRect.Bottom : "none";
+      string sourceBox = sourceExists && GetWindowRect(sourceWindow, out sourceRect)
+        ? sourceRect.Left + "," + sourceRect.Top + "," + sourceRect.Right + "," + sourceRect.Bottom : "none";
+      string hostBox = hostExists && GetWindowRect(hostWindow, out hostRect)
+        ? hostRect.Left + "," + hostRect.Top + "," + hostRect.Right + "," + hostRect.Bottom : "none";
+      uint sourcePid;
+      GetWindowThreadProcessId(sourceWindow, out sourcePid);
+      Console.WriteLine("{\"diag\":true,\"stage\":" + JsonString(stage)
+        + ",\"command\":" + JsonString(command ?? "")
+        + ",\"reason\":" + JsonString(reason ?? "")
+        + ",\"os\":" + JsonString(Environment.OSVersion.Version.ToString())
+        + ",\"tick\":" + Environment.TickCount
+        + ",\"surfaceHwnd\":" + Handle.ToInt64()
+        + ",\"surfaceExists\":" + (surfaceExists ? "true" : "false")
+        + ",\"surfaceVisible\":" + (surfaceVisible ? "true" : "false")
+        + ",\"surfaceRect\":" + JsonString(surfaceBox)
+        + ",\"sourceHwnd\":" + sourceWindow.ToInt64()
+        + ",\"sourceExists\":" + (sourceExists ? "true" : "false")
+        + ",\"sourceVisible\":" + (sourceVisible ? "true" : "false")
+        + ",\"sourceRect\":" + JsonString(sourceBox)
+        + ",\"sourcePid\":" + sourcePid
+        + ",\"sourceTitle\":" + JsonString(sourceTitle)
+        + ",\"hostHwnd\":" + hostWindow.ToInt64()
+        + ",\"hostRect\":" + JsonString(hostBox)
+        + ",\"thumbnail\":" + (thumbnail == IntPtr.Zero ? "false" : "true")
+        + ",\"opacity\":" + visualOpacity
+        + ",\"scale\":" + visualScale
+        + "}");
+      Console.Out.Flush();
+    } catch { }
+  }
+
   MineradioWeDwmSurfaceHost(IntPtr host, IntPtr source, string expectedTitle, int cornerRadius,
       bool enableDesktopIconLayering, int initialOpacity, int initialPositionX,
       int initialPositionY, int initialScale) {
@@ -1733,7 +1787,14 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
         // Explorer reparenting and DPI changes can make one FollowHost tick
         // fail transiently. Keep the one DWM helper alive for a short bounded
         // window; invalid HWND/title identity still closes immediately.
-        if (!identityValid || consecutiveFollowFailures >= 8) Close();
+        if (!identityValid || consecutiveFollowFailures >= 8) {
+          // 只有真的要退出时才打诊断：瞬时失败不刷屏，但这个"为什么退出"的黑窗现场
+          // （identity 变化 / 连续 RECT 失败）正是用户机器上查不到的问题。
+          Diag("follow-abort", "tick", "identityValid=" + (identityValid ? "true" : "false")
+            + " failures=" + consecutiveFollowFailures + " error=" + error.GetType().Name
+            + ": " + error.Message);
+          Close();
+        }
       }
     };
   }
@@ -1876,6 +1937,8 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
               if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(delegate() {
                 // 只有缩略图注册成功才允许上屏：ActivateThumbnail 失败就保持隐藏。
                 // 用 SWP_SHOWWINDOW 而不是 Form.Show()，避免把焦点从 MR 主窗口抢走。
+                // Win11 黑窗的根因不在这里，而在 FollowHost 每拍摆底座时又带了一次
+                // SWP_SHOWWINDOW，把 V|0 的 Hide() 推翻（见 surfaceFlags 与 V| 分支）。
                 // Only a successfully registered thumbnail may make the surface visible; show it
                 // with SWP_SHOWWINDOW so it never takes focus away from the main window.
                 try {
@@ -1885,20 +1948,24 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
                   Console.WriteLine("{\"ok\":true,\"dwm\":true,\"active\":true,\"surfaceWindowHandle\":"
                     + Handle.ToInt64() + "}");
                   Console.Out.Flush();
+                  Diag("activate", "D", "thumbnail registered, surface shown");
                 } catch (Exception activationError) {
                   Console.WriteLine("{\"ok\":false,\"dwm\":true,\"active\":false,\"error\":\""
                     + activationError.GetType().Name + "\"}");
                   Console.Out.Flush();
+                  Diag("activate", "D", "FAILED: " + activationError.GetType().Name + ": " + activationError.Message);
                 }
               }));
             } catch { }
             continue;
           }
           // V|0 / V|1: hide or show the surface window itself.
-          // 抓帧渲染时壁纸由渲染进程自己画，这块底座没有内容可显示，留在屏幕上就是一块黑板
-          // （用户看到的 "Mineradio WE DWM Surface" 黑色窗口）。FollowHost 用的 SetWindowPos
-          // 标志里没有 SWP_SHOWWINDOW，所以 Hide() 之后不会被下一拍重新显示出来。
-          // The follow timer never passes SWP_SHOWWINDOW, so a Hide() here sticks.
+          // 抓帧 / 外部播放时壁纸由渲染进程自己画，这块底座没有内容可显示，留在屏幕上就是
+          // "Mineradio WE DWM Surface" 黑板，所以调用方会发 V|0。关键是 Hide() 必须留得住：
+          // FollowHost 摆底座已改用 surfaceFlags（不带 SWP_SHOWWINDOW），因此这里的隐藏
+          // 不会被下一拍重新显示出来；V|1 仍可正常恢复显示，原生壁纸模式不受影响。
+          // The follow timer no longer passes SWP_SHOWWINDOW to our own base, so a Hide()
+          // here sticks while V|1 can still bring the native wallpaper surface back.
           if (command.StartsWith("V|", StringComparison.Ordinal)) {
             string visibleValue = command.Substring(2);
             if (!String.Equals(visibleValue, "0", StringComparison.Ordinal)
@@ -1910,7 +1977,13 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
                   if (makeVisible) Show(); else Hide();
                   Console.WriteLine("{\"ok\":true,\"visible\":" + (makeVisible ? "true" : "false") + "}");
                   Console.Out.Flush();
-                } catch { }
+                  // 记录 Show/Hide **之后**的真实可见性：黑窗问题要的就是"发了 V|0 之后底座
+                  // 到底看不见了没有"，这条快照能直接回答，且不受 FollowHost 后续推翻影响
+                  // （surfaceFlags 已不带 SWP_SHOWWINDOW）。
+                  Diag("visibility", command, makeVisible ? "requested show" : "requested hide");
+                } catch (Exception visibilityError) {
+                  Diag("visibility", command, "FAILED: " + visibilityError.GetType().Name + ": " + visibilityError.Message);
+                }
               }));
             } catch { }
             continue;
@@ -2000,10 +2073,11 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
       + ",\"surfaceWindowHandle\":" + Handle.ToInt64() + ",\"desktopIconLayering\":"
       + (desktopIconLayeringEnabled ? "true" : "false") + "}");
     Console.Out.Flush();
+    Diag("ready", "", "helper started");
     // 默认隐藏：这块底座只有**缩略图注册成功**之后才允许出现在屏幕上（见 D 命令）。
     // 注册失败、源窗口不可见、抓帧模式、会话中途停止……所有失败路径都停在"看不见"，
-    // 不会再留下一块黑色 "Mineradio WE DWM Surface"。以前它一建出来就是可见的，
-    // 于是任何一次激活失败都等于屏幕上多一块黑板。
+    // 不会再留下一块黑色 "Mineradio WE DWM Surface"。原生壁纸模式下 D 命令会让它上屏，
+    // 外部播放 / 抓帧时 V|0 收起后也不会被 FollowHost 推翻（见 V| 与 surfaceFlags 分支）。
     // Hidden until a thumbnail has actually been registered; every failure path stays invisible.
     try {
       BeginInvoke(new Action(delegate() {
@@ -2013,6 +2087,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
   }
 
   protected override void OnFormClosed(FormClosedEventArgs eventArgs) {
+    Diag("closed", "", "helper exiting");
     followTimer.Stop();
     RemoveLocationHook();
     StopSourceMoveWorker();
@@ -2233,7 +2308,12 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
         }
       }
     }
+    // 摆 WE 播窗仍带 SWP_SHOWWINDOW（它必须是可见的合成源）；摆我们自己的底座绝不带，
+    // 否则 100ms 一拍的 follow tick 会把 Hide() 重新推翻，Win11 上就永久留一块黑板。
+    // The WE source needs SWP_SHOWWINDOW; our own base must never get it, or every follow
+    // tick would undo Hide() and leave the black surface visible on Win11.
     uint placementFlags = SWP_NOACTIVATE | SWP_SHOWWINDOW | (sizeChanged ? 0u : SWP_NOSIZE);
+    uint surfaceFlags = SWP_NOACTIVATE | SWP_NOZORDER | (sizeChanged ? 0u : SWP_NOSIZE);
     int placementWidth = sizeChanged ? width : 0;
     int placementHeight = sizeChanged ? height : 0;
     bool regionDirty = sizeChanged || radius != lastRadius;
@@ -2245,7 +2325,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
         // can never be left behind by WE's render thread.
         if (regionDirty) ApplyCornerRegion(Handle, width, height, radius);
         if (!SetWindowPos(Handle, surfaceInsertAfter, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
-            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            surfaceFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
         // WE 的窗口交给后台线程：可能阻塞的那一下留在那边，UI 线程这里绝不等待。
         // WE's window moves on the worker thread, so a slow CEF can never stall us.
         QueueSourceMove(hostRect.Left, hostRect.Top, width, height, sizeChanged, regionDirty, radius);
@@ -2261,7 +2341,7 @@ public sealed class MineradioWeDwmSurfaceHost : Form {
         if (!SetWindowPos(sourceWindow, surfaceInsertAfter, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
             placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
         if (!SetWindowPos(Handle, sourceWindow, hostRect.Left, hostRect.Top, placementWidth, placementHeight,
-            placementFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            surfaceFlags)) throw new Win32Exception(Marshal.GetLastWin32Error());
       }
     }
 
@@ -2504,6 +2584,12 @@ class WallpaperEngineRuntime {
     // Per-stage startup timings land here: guessing which stage is slow is how "optimisations"
     // end up doing nothing. Written on failure too, where the stages before the failure matter.
     this.startTimingLogPath = String(options.startTimingLogPath || '').trim();
+    // DWM 底座诊断：助手在就绪 / 显隐 / 激活 / 退出的离散状态点输出快照，Node 侧落盘到
+    // 这一份。Win11 黑窗这类"只在对方机器出现"的问题靠它取证，不许再靠猜。行有上限，
+    // 因为只有离散事件进得来，不会刷屏。
+    // DWM surface diagnostics: the helper emits snapshots at discrete state points and Node
+    // persists them here. Win11-only black-surface bugs need this evidence from the user's machine.
+    this.dwmSurfaceDiagLogPath = String(options.dwmSurfaceDiagLogPath || '').trim();
     this.frameDeltaPath = String(options.frameDeltaPath || '').trim();
     this.windowFrameDelta = readWindowFrameDelta(this.frameDeltaPath);
     this.windowController = typeof options.windowController === 'function'
@@ -2901,6 +2987,8 @@ class WallpaperEngineRuntime {
             if (!/^\{.*\}$/.test(trimmed)) continue;
             try {
               const result = JSON.parse(trimmed);
+              // 诊断快照先落盘再走协议判定：它字段独立，不会被下面的 ready/active 分支命中。
+              if (result && result.diag === true) this._logDwmDiag(result, session.sessionId);
               if (result && result.ok === true && result.dwm === true
                 && result.active === true && session.dwmSurfaceProcess === child
                 && Number(result.surfaceWindowHandle) === Number(session.dwmSurfaceWindowId)) {
@@ -2932,7 +3020,19 @@ class WallpaperEngineRuntime {
         });
         if (child.stderr && typeof child.stderr.on === 'function') {
           child.stderr.on('data', (chunk) => {
-            if (stderr.length < 4096) stderr = `${stderr}${String(chunk || '')}`.slice(0, 4096);
+            const text = String(chunk || '');
+            if (stderr.length < 4096) stderr = `${stderr}${text}`.slice(0, 4096);
+            // 助手的异常栈以前只留在内存里、只在启动失败时才打印，启动成功后的异常
+            // （例如 FollowHost 的 RECT_FAILED）永远看不到——这里按行落盘补上。
+            try {
+              if (this.dwmSurfaceDiagLogPath && text.trim()) {
+                const lines = text.split(/\r?\n/).filter(Boolean);
+                for (const line of lines) {
+                  appendLogLine(this.dwmSurfaceDiagLogPath,
+                    `${JSON.stringify({ ts: new Date().toISOString(), sessionId: String(session.sessionId || ''), stream: 'stderr', text: String(line).slice(0, 500) })}\n`);
+                }
+              }
+            } catch (_) { }
           });
         }
         if (typeof child.once === 'function') {
@@ -5045,6 +5145,20 @@ class WallpaperEngineRuntime {
       const line = `${new Date().toISOString()}\t${(Array.isArray(args) ? args : []).map((value) => String(value)).join(' ')}\n`;
       return appendLogLine(target, line);
     } catch (error) {
+      return false;
+    }
+  }
+
+  // 落盘一条 DWM 底座诊断快照。诊断是纯旁路：写失败就忽略，绝不能反过来影响壁纸/播放。
+  // Diagnosis is best-effort and must never affect the wallpaper or playback.
+  _logDwmDiag(result, sessionId = '') {
+    const target = this.dwmSurfaceDiagLogPath;
+    if (!target || !result || result.diag !== true) return false;
+    try {
+      const record = { ts: new Date().toISOString(), sessionId: String(sessionId || ''), ...result };
+      delete record.diag;
+      return appendLogLine(target, `${JSON.stringify(record)}\n`);
+    } catch (_) {
       return false;
     }
   }

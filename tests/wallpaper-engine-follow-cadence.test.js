@@ -170,7 +170,13 @@ check('黑底在 UI 线程同步跟随，WE 窗口在后台线程移动（阻塞
   assert.ok(!/Queue<|ConcurrentQueue|\.Enqueue\(/.test(queue), '不许排队，只保留最新目标');
   // 黑底：UI 线程上的同步 set，且在缩略图分支里也照样先动它。
   const blk = helper.slice(helper.indexOf('uint placementFlags'), helper.indexOf('lastWidth = width;'));
-  assert.match(blk, /SetWindowPos\(Handle,[^;]*placementFlags\)/s, '黑底必须同步跟随');
+  assert.match(blk, /SetWindowPos\(Handle,[^;]*surfaceFlags\)/s, '黑底必须同步跟随');
+  // Win11 上这块底座一旦带 SWP_SHOWWINDOW，每 100ms 一拍的 follow tick 都会把 Hide() 推翻，
+  // 桌面上就永久留一块黑色 "Mineradio WE DWM Surface"。黑底只用 surfaceFlags（不含 SHOWWINDOW）。
+  assert.match(blk, /uint surfaceFlags = SWP_NOACTIVATE \| SWP_NOZORDER/, '底座摆位不许带 SWP_SHOWWINDOW');
+  assert.ok(!/uint surfaceFlags = [^\n]*SWP_SHOWWINDOW/.test(blk), '底座摆位不许带 SWP_SHOWWINDOW');
+  // WE 播窗本身必须仍是可见的合成源，只有我们自己的底座收起；别把两者一起藏了。
+  assert.match(blk, /uint placementFlags = SWP_NOACTIVATE \| SWP_SHOWWINDOW/, 'WE 播窗仍须 SWP_SHOWWINDOW');
   assert.match(blk, /QueueSourceMove\(/, '缩略图激活后 source 交给后台线程');
   assert.match(blk, /StartSourceMoveWorker\(\)|QueueSourceMove\(/);
   // 启停在 OnShown / OnFormClosed 成对出现。
@@ -194,6 +200,28 @@ check('移动事件必须合并，否则队列里堆满重复的 FollowHost', ()
   assert.match(hook, /QueueFollowHost\(\)/);
   assert.ok(!/BeginInvoke\(new Action\(delegate\(\) \{ FollowHost\(\) \}\); \}\)/.test(hook),
     '钩子里不要保留裸 BeginInvoke(FollowHost)');
+});
+
+check('显隐命令必须双向可用，且隐藏要留得住', () => {
+  // Win11 黑窗根因：FollowHost 每拍用 SWP_SHOWWINDOW 摆底座，把 V|0 的 Hide() 推翻。
+  // 修法是摆底座去掉 SHOWWINDOW（上面的 surfaceFlags 断言），而不是把 V|1 也改成隐藏。
+  // 后者会连原生壁纸和玻璃采样一起干掉，属于拿功能换"看不见"。
+  const vAt = helper.indexOf('if (command.StartsWith("V|", StringComparison.Ordinal)) {');
+  const vBlock = helper.slice(vAt, helper.indexOf('if (command.StartsWith("I|"', vAt));
+  assert.match(vBlock, /bool makeVisible = String\.Equals\(visibleValue, "1"/, 'V|1 必须能恢复显示');
+  assert.match(vBlock, /if \(makeVisible\) Show\(\); else Hide\(\);/, 'V|0 隐藏、V|1 显示必须成对');
+  assert.match(vBlock, /\\"visible\\":\" \+ \(makeVisible \? "true" : "false"\)/, '回执要如实反映显隐状态');
+  // D 命令注册成功后必须让底座上屏，否则原生壁纸模式没有画布。
+  const dAt = helper.indexOf('if (String.Equals(command, "D", StringComparison.Ordinal)) {');
+  const dBlock = helper.slice(dAt, vAt);
+  assert.match(dBlock, /ActivateThumbnail\(\);/);
+  assert.match(dBlock, /SetWindowPos\(Handle, IntPtr\.Zero, 0, 0, 0, 0,\s*SWP_SHOW_NOACTIVATE/s,
+    'D 命令必须在缩略图注册成功后让底座上屏');
+  // OnShown 是异步隐藏（等 D 决定），不能同步 Hide 一次就再也不显示。
+  const onShownAt = helper.indexOf('protected override void OnShown(EventArgs eventArgs)');
+  const onShown = helper.slice(onShownAt, helper.indexOf('protected override void OnFormClosed', onShownAt));
+  assert.match(onShown, /BeginInvoke\(new Action\(delegate\(\) \{\s*try \{ if \(!IsDisposed && IsHandleCreated\) Hide\(\);/s,
+    'OnShown 必须异步默认隐藏，把上屏留给 D 命令');
 });
 
 check('底座必须是色彩键透明，不能涂纯黑', () => {

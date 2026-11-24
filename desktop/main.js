@@ -533,6 +533,8 @@ const wallpaperEngineRuntime = new WallpaperEngineRuntime({
   // 每个启动阶段的耗时分布。加载慢到底慢在哪一段，只能靠这份数据，不能靠猜。
   // Per-stage startup timings: "why is loading slow" needs this data, not guesswork.
   startTimingLogPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-start-timing.log'),
+  // DWM 底座显隐生命周期诊断（就绪 / V|0 / V|1 / 激活 / 退出），排查 Win11 黑窗用。
+  dwmSurfaceDiagLogPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-dwm-surface.log'),
   frameDeltaPath: path.join(STABLE_USER_DATA_PATH, 'wallpaper-engine-window-frame.json'),
   // 引擎就绪与签名校验的结论都落在用户数据目录：这两件事每次启用都要重做，而它们的结论
   // 只取决于进程集合与文件指纹。跨启动复用后，启用前只剩一次 tasklist。
