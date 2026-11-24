@@ -43,6 +43,15 @@ jobs:
       - name: Quick check (static analysis)
         run: npm run check:quick
 
+      # Tauri 重写期间的契约冻结：改 server.js / preload.js 必须同步更新
+      # docs/API-CONTRACT.json，否则这里红。（重写完成后连同这两个脚本一起删）
+      - name: API contract matches source
+        run: npm run contract:check
+
+      # public/ 在重写期间必须逐字节不动；有意改动要重跑 npm run hash:public 并在提交里说明。
+      - name: public/ matches baseline hashes
+        run: npm run hash:check
+
   required-gate:
     if: always()
     needs: [test-node]

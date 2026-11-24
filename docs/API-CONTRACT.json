@@ -1,0 +1,2900 @@
+{
+  "$schema": "mineradio-api-contract/1",
+  "_doc": [
+    "由 scripts/contract-extract.js 静态生成，请勿手改（portOrder 除外）。",
+    "CI: npm run contract:check —— 重新生成后与文件内容逐字节比对。",
+    "methods 为 [\"*\"] 表示该路由不检查请求方法。"
+  ],
+  "sources": {
+    "server": "server/server.js",
+    "preload": "desktop/preload.js",
+    "frontendGlob": "public/**/*.js"
+  },
+  "counts": {
+    "routes": 125,
+    "bridgeTopLevel": 116,
+    "bridgeEntries": 130,
+    "events": 10,
+    "frontendLiterals": 103
+  },
+  "routesByGroup": {
+    "album": 3,
+    "app": 1,
+    "apple-music": 6,
+    "artist": 1,
+    "audio": 1,
+    "beatmap": 2,
+    "cover": 1,
+    "cuefield": 2,
+    "custom-source": 1,
+    "discover": 1,
+    "kugou": 12,
+    "listen": 2,
+    "login": 5,
+    "logout": 1,
+    "lyric": 1,
+    "platform": 1,
+    "playlist": 4,
+    "podcast": 7,
+    "qishui": 20,
+    "qq": 11,
+    "search": 1,
+    "song": 5,
+    "spotify": 28,
+    "update": 5,
+    "user": 1,
+    "weather": 2
+  },
+  "bridgeByKind": {
+    "value": 2,
+    "invoke": 96,
+    "send": 18,
+    "event": 10,
+    "clipboard": 2,
+    "sendSync": 2
+  },
+  "events": [
+    "desktop-window-state",
+    "mineradio-custom-source-status",
+    "mineradio-desktop-lyrics-enabled-state",
+    "mineradio-desktop-lyrics-lock-state",
+    "mineradio-full-desktop-controller-hover",
+    "mineradio-global-hotkey",
+    "mineradio-local-library-changed",
+    "mineradio-wallpaper-engine-host-bounds-changed",
+    "mineradio-wallpaper-runtime-state",
+    "spotify-music-oauth-url"
+  ],
+  "routes": [
+    {
+      "path": "/api/album/detail",
+      "group": "album",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6556
+    },
+    {
+      "path": "/api/album/subscribe",
+      "group": "album",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6572
+    },
+    {
+      "path": "/api/album/subscribe/check",
+      "group": "album",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6590
+    },
+    {
+      "path": "/api/app/version",
+      "group": "app",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 4940
+    },
+    {
+      "path": "/api/apple-music/lyric",
+      "group": "apple-music",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5349
+    },
+    {
+      "path": "/api/apple-music/playlist/counts",
+      "group": "apple-music",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5321
+    },
+    {
+      "path": "/api/apple-music/playlist/tracks",
+      "group": "apple-music",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5332
+    },
+    {
+      "path": "/api/apple-music/playlists",
+      "group": "apple-music",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5307
+    },
+    {
+      "path": "/api/apple-music/request",
+      "group": "apple-music",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5274
+    },
+    {
+      "path": "/api/apple-music/search",
+      "group": "apple-music",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5294
+    },
+    {
+      "path": "/api/artist/detail",
+      "group": "artist",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 7066
+    },
+    {
+      "path": "/api/audio",
+      "group": "audio",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 7181
+    },
+    {
+      "path": "/api/beatmap/cache",
+      "group": "beatmap",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "guard": "branched",
+      "note": "按方法分支处理",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5138
+    },
+    {
+      "path": "/api/beatmap/cache/status",
+      "group": "beatmap",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5067
+    },
+    {
+      "path": "/api/cover",
+      "group": "cover",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 7153
+    },
+    {
+      "path": "/api/cuefield/feedback",
+      "group": "cuefield",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "guard": "branched",
+      "note": "按方法分支处理",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5115
+    },
+    {
+      "path": "/api/cuefield/transition",
+      "group": "cuefield",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5081
+    },
+    {
+      "path": "/api/custom-source/resolve",
+      "group": "custom-source",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": true,
+      "line": 4886
+    },
+    {
+      "path": "/api/discover/home",
+      "group": "discover",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5182
+    },
+    {
+      "path": "/api/kugou/login/cookie",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6188
+    },
+    {
+      "path": "/api/kugou/login/status",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6178
+    },
+    {
+      "path": "/api/kugou/logout",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6208
+    },
+    {
+      "path": "/api/kugou/lyric",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6163
+    },
+    {
+      "path": "/api/kugou/playlist/add-song",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6270
+    },
+    {
+      "path": "/api/kugou/playlist/tracks",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6224
+    },
+    {
+      "path": "/api/kugou/recommendations",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5263
+    },
+    {
+      "path": "/api/kugou/search",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5249
+    },
+    {
+      "path": "/api/kugou/song/like",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6253
+    },
+    {
+      "path": "/api/kugou/song/like/check",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6238
+    },
+    {
+      "path": "/api/kugou/song/url",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6138
+    },
+    {
+      "path": "/api/kugou/user/playlists",
+      "group": "kugou",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6214
+    },
+    {
+      "path": "/api/listen/report",
+      "group": "listen",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 4997
+    },
+    {
+      "path": "/api/listen/total",
+      "group": "listen",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5017
+    },
+    {
+      "path": "/api/login/cookie",
+      "group": "login",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6669
+    },
+    {
+      "path": "/api/login/qr/check",
+      "group": "login",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6748
+    },
+    {
+      "path": "/api/login/qr/create",
+      "group": "login",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6737
+    },
+    {
+      "path": "/api/login/qr/key",
+      "group": "login",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6727
+    },
+    {
+      "path": "/api/login/status",
+      "group": "login",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6804
+    },
+    {
+      "path": "/api/logout",
+      "group": "logout",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6811
+    },
+    {
+      "path": "/api/lyric",
+      "group": "lyric",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6987
+    },
+    {
+      "path": "/api/platform/capabilities",
+      "group": "platform",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 4957
+    },
+    {
+      "path": "/api/playlist/add-song",
+      "group": "playlist",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6930
+    },
+    {
+      "path": "/api/playlist/create",
+      "group": "playlist",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6911
+    },
+    {
+      "path": "/api/playlist/subscribe",
+      "group": "playlist",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6621
+    },
+    {
+      "path": "/api/playlist/tracks",
+      "group": "playlist",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 7114
+    },
+    {
+      "path": "/api/podcast/detail",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6478
+    },
+    {
+      "path": "/api/podcast/dj-beatmap",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6704
+    },
+    {
+      "path": "/api/podcast/hot",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6462
+    },
+    {
+      "path": "/api/podcast/my",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6514
+    },
+    {
+      "path": "/api/podcast/my/items",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6540
+    },
+    {
+      "path": "/api/podcast/programs",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6493
+    },
+    {
+      "path": "/api/podcast/search",
+      "group": "podcast",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6445
+    },
+    {
+      "path": "/api/qishui/album/collect",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6072
+    },
+    {
+      "path": "/api/qishui/feed",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5975
+    },
+    {
+      "path": "/api/qishui/login/check",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5821
+    },
+    {
+      "path": "/api/qishui/login/qrcode",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5796
+    },
+    {
+      "path": "/api/qishui/login/status",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5899
+    },
+    {
+      "path": "/api/qishui/logout",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5909
+    },
+    {
+      "path": "/api/qishui/lyric",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6127
+    },
+    {
+      "path": "/api/qishui/playlist/add-song",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6057
+    },
+    {
+      "path": "/api/qishui/playlist/collect",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6040
+    },
+    {
+      "path": "/api/qishui/playlist/tracks",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5996
+    },
+    {
+      "path": "/api/qishui/search",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5962
+    },
+    {
+      "path": "/api/qishui/signature/authorize",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5928
+    },
+    {
+      "path": "/api/qishui/signature/revoke",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5948
+    },
+    {
+      "path": "/api/qishui/signature/status",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5921
+    },
+    {
+      "path": "/api/qishui/song/comments",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "implicit",
+      "note": "只对某方法分支，其余方法走默认路径",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6089
+    },
+    {
+      "path": "/api/qishui/song/like",
+      "group": "qishui",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6021
+    },
+    {
+      "path": "/api/qishui/song/like/check",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6009
+    },
+    {
+      "path": "/api/qishui/song/url",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6109
+    },
+    {
+      "path": "/api/qishui/status",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5899
+    },
+    {
+      "path": "/api/qishui/user/playlists",
+      "group": "qishui",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5986
+    },
+    {
+      "path": "/api/qq/album/detail",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6414
+    },
+    {
+      "path": "/api/qq/artist/detail",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6397
+    },
+    {
+      "path": "/api/qq/login/cookie",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6336
+    },
+    {
+      "path": "/api/qq/login/status",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6324
+    },
+    {
+      "path": "/api/qq/logout",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6365
+    },
+    {
+      "path": "/api/qq/lyric",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6309
+    },
+    {
+      "path": "/api/qq/playlist/tracks",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6382
+    },
+    {
+      "path": "/api/qq/search",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5235
+    },
+    {
+      "path": "/api/qq/song/comments",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6430
+    },
+    {
+      "path": "/api/qq/song/url",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6288
+    },
+    {
+      "path": "/api/qq/user/playlists",
+      "group": "qq",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6371
+    },
+    {
+      "path": "/api/search",
+      "group": "search",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5224
+    },
+    {
+      "path": "/api/song/comments",
+      "group": "song",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 7003
+    },
+    {
+      "path": "/api/song/comments/like",
+      "group": "song",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 7046
+    },
+    {
+      "path": "/api/song/like",
+      "group": "song",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 6892
+    },
+    {
+      "path": "/api/song/like/check",
+      "group": "song",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6852
+    },
+    {
+      "path": "/api/song/url",
+      "group": "song",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6639
+    },
+    {
+      "path": "/api/spotify/album/detail",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5734
+    },
+    {
+      "path": "/api/spotify/album/like",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5643
+    },
+    {
+      "path": "/api/spotify/album/like/check",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5631
+    },
+    {
+      "path": "/api/spotify/client/cdp-status",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5414
+    },
+    {
+      "path": "/api/spotify/client/command",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5419
+    },
+    {
+      "path": "/api/spotify/client/launch",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5392
+    },
+    {
+      "path": "/api/spotify/client/media-key",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5485
+    },
+    {
+      "path": "/api/spotify/client/minimize",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5497
+    },
+    {
+      "path": "/api/spotify/client/play-track",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5439
+    },
+    {
+      "path": "/api/spotify/client/player",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5463
+    },
+    {
+      "path": "/api/spotify/client/probe",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5365
+    },
+    {
+      "path": "/api/spotify/client/state",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5405
+    },
+    {
+      "path": "/api/spotify/client/uia",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5473
+    },
+    {
+      "path": "/api/spotify/config",
+      "group": "spotify",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5533
+    },
+    {
+      "path": "/api/spotify/logout",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5572
+    },
+    {
+      "path": "/api/spotify/lyric",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5785
+    },
+    {
+      "path": "/api/spotify/playlist/add-song",
+      "group": "spotify",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5660
+    },
+    {
+      "path": "/api/spotify/playlist/collect",
+      "group": "spotify",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5701
+    },
+    {
+      "path": "/api/spotify/playlist/create",
+      "group": "spotify",
+      "methods": [
+        "POST"
+      ],
+      "guard": "post-only",
+      "note": "非该方法的请求被 405 拒绝",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5683
+    },
+    {
+      "path": "/api/spotify/playlist/tracks",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5721
+    },
+    {
+      "path": "/api/spotify/recommendations",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5759
+    },
+    {
+      "path": "/api/spotify/search",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5746
+    },
+    {
+      "path": "/api/spotify/setup/diagnostics",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5516
+    },
+    {
+      "path": "/api/spotify/song/like",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "ternary",
+      "note": "任意方法可达，只有 POST 读 body",
+      "readsBody": true,
+      "easterEggGuarded": false,
+      "line": 5606
+    },
+    {
+      "path": "/api/spotify/song/like/check",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5594
+    },
+    {
+      "path": "/api/spotify/song/url",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5770
+    },
+    {
+      "path": "/api/spotify/status",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5506
+    },
+    {
+      "path": "/api/spotify/user/playlists",
+      "group": "spotify",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5582
+    },
+    {
+      "path": "/api/update/download",
+      "group": "update",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5053
+    },
+    {
+      "path": "/api/update/download/status",
+      "group": "update",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5054
+    },
+    {
+      "path": "/api/update/latest",
+      "group": "update",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5040
+    },
+    {
+      "path": "/api/update/patch",
+      "group": "update",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5055
+    },
+    {
+      "path": "/api/update/patch/status",
+      "group": "update",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5056
+    },
+    {
+      "path": "/api/user/playlists",
+      "group": "user",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 6819
+    },
+    {
+      "path": "/api/weather/ip-location",
+      "group": "weather",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5213
+    },
+    {
+      "path": "/api/weather/radio",
+      "group": "weather",
+      "methods": [
+        "*"
+      ],
+      "guard": "none",
+      "note": "不检查方法",
+      "readsBody": false,
+      "easterEggGuarded": false,
+      "line": 5192
+    }
+  ],
+  "bridge": [
+    {
+      "name": "activateCustomSource",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-activate"
+      ],
+      "line": 175
+    },
+    {
+      "name": "activateWallpaperEngineDwmSurface",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-activate-dwm-surface"
+      ],
+      "line": 51
+    },
+    {
+      "name": "addBuiltInPlaylistTrack",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-add-track"
+      ],
+      "line": 77
+    },
+    {
+      "name": "addBuiltInPlaylistTracks",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-add-tracks"
+      ],
+      "line": 78
+    },
+    {
+      "name": "appleMusicRequest",
+      "kind": "invoke",
+      "channels": [
+        "invoke:apple-music-request"
+      ],
+      "line": 136
+    },
+    {
+      "name": "chooseCacheDirectory",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-cache-choose-directory"
+      ],
+      "line": 30
+    },
+    {
+      "name": "chooseWallpaperEngineDirectory",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-choose-directory"
+      ],
+      "line": 38
+    },
+    {
+      "name": "chooseWallpaperEngineProjectFile",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-choose-project-file"
+      ],
+      "line": 39
+    },
+    {
+      "name": "clearKugouMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:kugou-music-clear-login"
+      ],
+      "line": 114
+    },
+    {
+      "name": "clearNeteaseMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:netease-music-clear-login"
+      ],
+      "line": 110
+    },
+    {
+      "name": "clearQQMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:qq-music-clear-login"
+      ],
+      "line": 112
+    },
+    {
+      "name": "clearQishuiMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:qishui-music-clear-login"
+      ],
+      "line": 139
+    },
+    {
+      "name": "clearSpotifyMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:spotify-music-clear-login"
+      ],
+      "line": 122
+    },
+    {
+      "name": "close",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-close"
+      ],
+      "line": 103
+    },
+    {
+      "name": "configureGlobalHotkeys",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-hotkeys-configure-global"
+      ],
+      "line": 142
+    },
+    {
+      "name": "configureMemoryReduct",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-memory-configure-auto"
+      ],
+      "line": 26
+    },
+    {
+      "name": "copyText",
+      "kind": "clipboard",
+      "channels": [],
+      "line": 147
+    },
+    {
+      "name": "createBuiltInPlaylist",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-create"
+      ],
+      "line": 74
+    },
+    {
+      "name": "deactivateCustomSource",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-deactivate"
+      ],
+      "line": 176
+    },
+    {
+      "name": "deleteBuiltInPlaylist",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-delete"
+      ],
+      "line": 76
+    },
+    {
+      "name": "disableWindowsGameMode",
+      "kind": "invoke",
+      "channels": [
+        "invoke:minerado-windows-game-mode-disable"
+      ],
+      "line": 47
+    },
+    {
+      "name": "enableWindowsGameMode",
+      "kind": "invoke",
+      "channels": [
+        "invoke:minerado-windows-game-mode-enable"
+      ],
+      "line": 46
+    },
+    {
+      "name": "exitFullscreenWindowed",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-exit-fullscreen-windowed"
+      ],
+      "line": 21
+    },
+    {
+      "name": "exportJsonFile",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-export-json-file"
+      ],
+      "line": 162
+    },
+    {
+      "name": "exportLoginCookie",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-export-login-cookie"
+      ],
+      "line": 163
+    },
+    {
+      "name": "exportPlaylistFile",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-playlist-export-file"
+      ],
+      "line": 81
+    },
+    {
+      "name": "getAppMemoryMetrics",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-app-memory-metrics"
+      ],
+      "line": 25
+    },
+    {
+      "name": "getCacheSettings",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-cache-get-settings"
+      ],
+      "line": 29
+    },
+    {
+      "name": "getCloseBehavior",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-get-close-behavior"
+      ],
+      "line": 104
+    },
+    {
+      "name": "getGpuDiagnostics",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-get-gpu-diagnostics"
+      ],
+      "line": 23
+    },
+    {
+      "name": "getInstallerLanguage",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-installer-language"
+      ],
+      "line": 15
+    },
+    {
+      "name": "getLoginEasterEggStatus",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-login-easter-egg-status"
+      ],
+      "line": 106
+    },
+    {
+      "name": "getMemorySnapshot",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-memory-get-snapshot"
+      ],
+      "line": 24
+    },
+    {
+      "name": "getState",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-get-state"
+      ],
+      "line": 22
+    },
+    {
+      "name": "getWallpaperEngineProjectDetails",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-project-details"
+      ],
+      "line": 33
+    },
+    {
+      "name": "getWallpaperEngineRuntimeStatus",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-runtime-status"
+      ],
+      "line": 41
+    },
+    {
+      "name": "getWallpaperModeStatus",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-get-status"
+      ],
+      "line": 232
+    },
+    {
+      "name": "getWindowsGameModeStatus",
+      "kind": "invoke",
+      "channels": [
+        "invoke:minerado-windows-game-mode-status"
+      ],
+      "line": 45
+    },
+    {
+      "name": "halo.audioFrame",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-audio-frame"
+      ],
+      "line": 220
+    },
+    {
+      "name": "halo.clockStyle",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-clock-style"
+      ],
+      "line": 227
+    },
+    {
+      "name": "halo.connect",
+      "kind": "invoke",
+      "channels": [
+        "invoke:halo-sync-connect"
+      ],
+      "line": 217
+    },
+    {
+      "name": "halo.coverColor",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-cover-color"
+      ],
+      "line": 224
+    },
+    {
+      "name": "halo.getConfig",
+      "kind": "invoke",
+      "channels": [
+        "invoke:halo-sync-get-config"
+      ],
+      "line": 214
+    },
+    {
+      "name": "halo.listDevices",
+      "kind": "invoke",
+      "channels": [
+        "invoke:halo-sync-list-devices"
+      ],
+      "line": 218
+    },
+    {
+      "name": "halo.lyric",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-lyric"
+      ],
+      "line": 219
+    },
+    {
+      "name": "halo.manualHold",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-manual-hold"
+      ],
+      "line": 228
+    },
+    {
+      "name": "halo.playState",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-play-state"
+      ],
+      "line": 222
+    },
+    {
+      "name": "halo.scene",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-scene"
+      ],
+      "line": 225
+    },
+    {
+      "name": "halo.setConfig",
+      "kind": "invoke",
+      "channels": [
+        "invoke:halo-sync-set-config"
+      ],
+      "line": 215
+    },
+    {
+      "name": "halo.setEnabled",
+      "kind": "invoke",
+      "channels": [
+        "invoke:halo-sync-set-enabled"
+      ],
+      "line": 216
+    },
+    {
+      "name": "halo.song",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-song"
+      ],
+      "line": 223
+    },
+    {
+      "name": "halo.spectrum",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-spectrum"
+      ],
+      "line": 226
+    },
+    {
+      "name": "halo.volume",
+      "kind": "send",
+      "channels": [
+        "send:halo-sync-volume"
+      ],
+      "line": 221
+    },
+    {
+      "name": "hideWallpaperEngineDwmSurface",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-wallpaper-engine-hide-dwm-surface"
+      ],
+      "line": 52
+    },
+    {
+      "name": "importCustomSource",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-import"
+      ],
+      "line": 173
+    },
+    {
+      "name": "importJsonFile",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-import-json-file"
+      ],
+      "line": 164
+    },
+    {
+      "name": "importLocalMusicFiles",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-local-library-authorize",
+        "invoke:mineradio-local-library-import"
+      ],
+      "line": 83
+    },
+    {
+      "name": "importPlaylistFile",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-playlist-import-file"
+      ],
+      "line": 82
+    },
+    {
+      "name": "isDesktop",
+      "kind": "value",
+      "channels": [],
+      "line": 13
+    },
+    {
+      "name": "listBuiltInPlaylists",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlists-list"
+      ],
+      "line": 72
+    },
+    {
+      "name": "listCustomSources",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-list"
+      ],
+      "line": 172
+    },
+    {
+      "name": "listLocalMusicLibrary",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-local-library-list"
+      ],
+      "line": 64
+    },
+    {
+      "name": "listWallpaperEngineProjects",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-list"
+      ],
+      "line": 32
+    },
+    {
+      "name": "logEvent",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-log"
+      ],
+      "line": 138
+    },
+    {
+      "name": "minimize",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-minimize"
+      ],
+      "line": 17
+    },
+    {
+      "name": "onCustomSourceStatus",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-custom-source-status"
+      ],
+      "line": 183
+    },
+    {
+      "name": "onDesktopControllerHover",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-full-desktop-controller-hover"
+      ],
+      "line": 254
+    },
+    {
+      "name": "onDesktopLyricsEnabledState",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-desktop-lyrics-enabled-state"
+      ],
+      "line": 203
+    },
+    {
+      "name": "onDesktopLyricsLockState",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-desktop-lyrics-lock-state"
+      ],
+      "line": 197
+    },
+    {
+      "name": "onGlobalHotkey",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-global-hotkey"
+      ],
+      "line": 189
+    },
+    {
+      "name": "onLocalMusicLibraryChanged",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-local-library-changed"
+      ],
+      "line": 65
+    },
+    {
+      "name": "onSpotifyOAuthUrl",
+      "kind": "event",
+      "channels": [
+        "on:spotify-music-oauth-url"
+      ],
+      "line": 127
+    },
+    {
+      "name": "onStateChange",
+      "kind": "event",
+      "channels": [
+        "on:desktop-window-state"
+      ],
+      "line": 266
+    },
+    {
+      "name": "onWallpaperEngineHostBoundsChanged",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-wallpaper-engine-host-bounds-changed"
+      ],
+      "line": 58
+    },
+    {
+      "name": "onWallpaperModeState",
+      "kind": "event",
+      "channels": [
+        "on:mineradio-wallpaper-runtime-state"
+      ],
+      "line": 260
+    },
+    {
+      "name": "openKugouMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:kugou-music-open-login"
+      ],
+      "line": 113
+    },
+    {
+      "name": "openNeteaseMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:netease-music-open-login"
+      ],
+      "line": 109
+    },
+    {
+      "name": "openQQMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:qq-music-open-login"
+      ],
+      "line": 111
+    },
+    {
+      "name": "openSpotifyAuthUrl",
+      "kind": "invoke",
+      "channels": [
+        "invoke:spotify-music-open-auth-url"
+      ],
+      "line": 135
+    },
+    {
+      "name": "openSpotifyMusicLogin",
+      "kind": "invoke",
+      "channels": [
+        "invoke:spotify-music-open-login"
+      ],
+      "line": 120
+    },
+    {
+      "name": "openUpdatePage",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-open-update-page"
+      ],
+      "line": 140
+    },
+    {
+      "name": "openWallpaperEngineProjectDetails",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-open-project-details"
+      ],
+      "line": 34
+    },
+    {
+      "name": "prepareWallpaperEngineGlassCapture",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-prepare-glass-capture"
+      ],
+      "line": 50
+    },
+    {
+      "name": "purgeSystemMemory",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-memory-purge-system"
+      ],
+      "line": 28
+    },
+    {
+      "name": "readBuiltInPlaylist",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-page"
+      ],
+      "line": 73
+    },
+    {
+      "name": "readCurrentFxAutosaveSync",
+      "kind": "sendSync",
+      "channels": [
+        "sendSync:mineradio-current-fx-autosave-read-sync"
+      ],
+      "line": 165
+    },
+    {
+      "name": "readLocalMusicLyric",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-local-library-lyric"
+      ],
+      "line": 71
+    },
+    {
+      "name": "readLyricCache",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-cache-read-lyric"
+      ],
+      "line": 101
+    },
+    {
+      "name": "readText",
+      "kind": "clipboard",
+      "channels": [],
+      "line": 155
+    },
+    {
+      "name": "removeBuiltInPlaylistTrack",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-remove-track"
+      ],
+      "line": 79
+    },
+    {
+      "name": "removeCustomSource",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-remove"
+      ],
+      "line": 177
+    },
+    {
+      "name": "removeWallpaperEngineDirectory",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-remove-directory"
+      ],
+      "line": 40
+    },
+    {
+      "name": "renameBuiltInPlaylist",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-rename"
+      ],
+      "line": 75
+    },
+    {
+      "name": "reorderBuiltInPlaylistTrack",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-built-in-playlist-reorder-track"
+      ],
+      "line": 80
+    },
+    {
+      "name": "replaceCustomSource",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-replace"
+      ],
+      "line": 174
+    },
+    {
+      "name": "reportWallpaperEngineCaptureResult",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-capture-result"
+      ],
+      "line": 49
+    },
+    {
+      "name": "reportWallpaperEnginePointerActivity",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-wallpaper-engine-pointer-activity"
+      ],
+      "line": 56
+    },
+    {
+      "name": "requestDesktopKeyboardFocus",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-full-desktop-request-keyboard-focus"
+      ],
+      "line": 237
+    },
+    {
+      "name": "requestGestureCameraPermission",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-gesture-camera-request-permission"
+      ],
+      "line": 233
+    },
+    {
+      "name": "resetLoginEasterEgg",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-login-easter-egg-reset"
+      ],
+      "line": 108
+    },
+    {
+      "name": "restartApp",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-restart-app"
+      ],
+      "line": 141
+    },
+    {
+      "name": "restore",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-restore"
+      ],
+      "line": 18
+    },
+    {
+      "name": "saveCurrentFxAutosave",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-current-fx-autosave-save"
+      ],
+      "line": 167
+    },
+    {
+      "name": "saveCurrentFxAutosaveSync",
+      "kind": "sendSync",
+      "channels": [
+        "sendSync:mineradio-current-fx-autosave-save-sync"
+      ],
+      "line": 166
+    },
+    {
+      "name": "setCacheSettings",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-cache-set-settings"
+      ],
+      "line": 31
+    },
+    {
+      "name": "setCloseBehavior",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-set-close-behavior"
+      ],
+      "line": 105
+    },
+    {
+      "name": "setCustomSourceUpdateAlert",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-custom-source-set-update-alert"
+      ],
+      "line": 178
+    },
+    {
+      "name": "setDesktopControllerZone",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-full-desktop-controller-zone"
+      ],
+      "line": 248
+    },
+    {
+      "name": "setDesktopIconsVisible",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-full-desktop-set-icons-visible"
+      ],
+      "line": 236
+    },
+    {
+      "name": "setDesktopLyricsEnabled",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-desktop-lyrics-set-enabled"
+      ],
+      "line": 195
+    },
+    {
+      "name": "setDesktopSoftwareLocked",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-full-desktop-set-software-lock"
+      ],
+      "line": 235
+    },
+    {
+      "name": "setLocale",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-set-locale"
+      ],
+      "line": 14
+    },
+    {
+      "name": "setWallpaperMode",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-set-enabled"
+      ],
+      "line": 230
+    },
+    {
+      "name": "setWindowCornerRadius",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-window-corner-radius"
+      ],
+      "line": 55
+    },
+    {
+      "name": "startWallpaperEngineScene",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-start-scene"
+      ],
+      "line": 48
+    },
+    {
+      "name": "stopWallpaperEngineScene",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-stop-scene"
+      ],
+      "line": 57
+    },
+    {
+      "name": "systemRelease",
+      "kind": "value",
+      "channels": [],
+      "line": 16
+    },
+    {
+      "name": "toggleFullscreen",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-toggle-fullscreen"
+      ],
+      "line": 20
+    },
+    {
+      "name": "toggleMaximize",
+      "kind": "invoke",
+      "channels": [
+        "invoke:desktop-window-toggle-maximize"
+      ],
+      "line": 19
+    },
+    {
+      "name": "trimAppMemory",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-memory-trim-app"
+      ],
+      "line": 27
+    },
+    {
+      "name": "unlockLoginEasterEgg",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-login-easter-egg-unlock"
+      ],
+      "line": 107
+    },
+    {
+      "name": "updateDesktopIconShields",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-full-desktop-icon-shields"
+      ],
+      "line": 234
+    },
+    {
+      "name": "updateDesktopLyrics",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-desktop-lyrics-update"
+      ],
+      "line": 196
+    },
+    {
+      "name": "updateDesktopPointerRoute",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-full-desktop-pointer-route"
+      ],
+      "line": 241
+    },
+    {
+      "name": "updateWallpaperEngineGlassSurface",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-wallpaper-engine-glass-surface"
+      ],
+      "line": 53
+    },
+    {
+      "name": "updateWallpaperEngineVisualSettings",
+      "kind": "send",
+      "channels": [
+        "send:mineradio-wallpaper-engine-visual-settings"
+      ],
+      "line": 54
+    },
+    {
+      "name": "updateWallpaperMode",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-update"
+      ],
+      "line": 231
+    },
+    {
+      "name": "verifySpotifyMusicSetup",
+      "kind": "invoke",
+      "channels": [
+        "invoke:spotify-music-verify-setup"
+      ],
+      "line": 121
+    },
+    {
+      "name": "warmupWallpaperEngineRuntime",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-wallpaper-engine-warmup"
+      ],
+      "line": 44
+    },
+    {
+      "name": "writeLyricCache",
+      "kind": "invoke",
+      "channels": [
+        "invoke:mineradio-cache-write-lyric"
+      ],
+      "line": 102
+    }
+  ],
+  "frontend": {
+    "unmatchedLiterals": [],
+    "unreferencedRoutes": [
+      "/api/app/version",
+      "/api/apple-music/request",
+      "/api/listen/total",
+      "/api/platform/capabilities",
+      "/api/podcast/detail",
+      "/api/qishui/login/status",
+      "/api/qishui/signature/revoke",
+      "/api/qishui/signature/status",
+      "/api/spotify/client/cdp-status",
+      "/api/spotify/client/media-key",
+      "/api/spotify/client/minimize",
+      "/api/spotify/client/player",
+      "/api/spotify/client/probe",
+      "/api/spotify/client/uia",
+      "/api/spotify/logout",
+      "/api/update/download",
+      "/api/update/download/status",
+      "/api/update/patch",
+      "/api/update/patch/status",
+      "/api/weather/ip-location",
+      "/api/weather/radio"
+    ]
+  },
+  "portOrder": [
+    {
+      "rank": 1,
+      "wave": 0,
+      "unit": "static-assets.js",
+      "loc": 89,
+      "readiness": 96,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": []
+    },
+    {
+      "rank": 2,
+      "wave": 0,
+      "unit": "spotify-cdp-bridge.js",
+      "loc": 238,
+      "readiness": 92,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "json(low×1)"
+      ]
+    },
+    {
+      "rank": 3,
+      "wave": 0,
+      "unit": "qishui-audio-decryptor/",
+      "loc": 333,
+      "readiness": 81,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×1)",
+        "number-semantics(low×12)",
+        "exceptions(low×10)"
+      ]
+    },
+    {
+      "rank": 4,
+      "wave": 0,
+      "unit": "apple-music-lyrics.js",
+      "loc": 233,
+      "readiness": 68,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×7)",
+        "regex-syntax(high×2)",
+        "dynamic-regex(high×1)"
+      ]
+    },
+    {
+      "rank": 5,
+      "wave": 0,
+      "unit": "qq-vip-api.js",
+      "loc": 753,
+      "readiness": 59,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×1)",
+        "ordered-collections(medium×19)",
+        "async(medium×5)"
+      ]
+    },
+    {
+      "rank": 6,
+      "wave": 0,
+      "unit": "qishui-client-bridge.js",
+      "loc": 651,
+      "readiness": 42,
+      "status": "blocked",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×10)",
+        "regex-syntax(high×3)",
+        "dynamic-code(high×1)"
+      ]
+    },
+    {
+      "rank": 7,
+      "wave": 0,
+      "unit": "spotify-partner.js",
+      "loc": 551,
+      "readiness": 40,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×8)",
+        "regex-syntax(high×1)",
+        "dynamic-regex(high×1)"
+      ]
+    },
+    {
+      "rank": 8,
+      "wave": 0,
+      "unit": "qishui-auth-v6.js",
+      "loc": 574,
+      "readiness": 38,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×6)",
+        "async(medium×49)",
+        "ordered-collections(medium×10)"
+      ]
+    },
+    {
+      "rank": 9,
+      "wave": 0,
+      "unit": "dj-analyzer.js",
+      "loc": 813,
+      "readiness": 37,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×5)",
+        "regex-syntax(high×2)",
+        "async(medium×22)"
+      ]
+    },
+    {
+      "rank": 10,
+      "wave": 0,
+      "unit": "qishui-auth-v6/",
+      "loc": 279,
+      "readiness": 0,
+      "status": "keep",
+      "bridge": "keep-in-js",
+      "topRisks": [
+        "string-offsets(high×353)",
+        "regex-syntax(high×30)",
+        "dynamic-regex(high×3)"
+      ]
+    },
+    {
+      "rank": 11,
+      "wave": 0,
+      "unit": "kugou-api.js",
+      "loc": 2166,
+      "readiness": 0,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×21)",
+        "regex-syntax(high×6)",
+        "async(medium×83)"
+      ]
+    },
+    {
+      "rank": 12,
+      "wave": 1,
+      "unit": "dj-worker.js",
+      "loc": 64,
+      "readiness": 87,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "regex-syntax(high×1)",
+        "async(medium×5)",
+        "exceptions(low×4)"
+      ]
+    },
+    {
+      "rank": 13,
+      "wave": 1,
+      "unit": "dj-analyzer-host.js",
+      "loc": 138,
+      "readiness": 85,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "ordered-collections(medium×1)",
+        "async(medium×1)",
+        "exceptions(low×4)"
+      ]
+    },
+    {
+      "rank": 14,
+      "wave": 1,
+      "unit": "qishui-qr-login.js",
+      "loc": 169,
+      "readiness": 82,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "regex-syntax(high×1)",
+        "async(medium×6)",
+        "exceptions(low×4)"
+      ]
+    },
+    {
+      "rank": 15,
+      "wave": 1,
+      "unit": "apple-music-api.js",
+      "loc": 386,
+      "readiness": 61,
+      "status": "ready",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×6)",
+        "async(medium×12)",
+        "ordered-collections(medium×4)"
+      ]
+    },
+    {
+      "rank": 16,
+      "wave": 1,
+      "unit": "spotify-cdp.js",
+      "loc": 692,
+      "readiness": 45,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×4)",
+        "regex-syntax(high×1)",
+        "async(medium×53)"
+      ]
+    },
+    {
+      "rank": 17,
+      "wave": 1,
+      "unit": "spotify-api.js",
+      "loc": 2439,
+      "readiness": 0,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×14)",
+        "regex-syntax(high×5)",
+        "async(medium×129)"
+      ]
+    },
+    {
+      "rank": 18,
+      "wave": 1,
+      "unit": "qishui-api.js",
+      "loc": 3702,
+      "readiness": 0,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×37)",
+        "regex-syntax(high×23)",
+        "async(medium×114)"
+      ]
+    },
+    {
+      "rank": 19,
+      "wave": 2,
+      "unit": "server.js",
+      "loc": 6957,
+      "readiness": 0,
+      "status": "caution",
+      "bridge": "napi-rs",
+      "topRisks": [
+        "string-offsets(high×76)",
+        "regex-syntax(high×27)",
+        "dynamic-regex(high×1)"
+      ]
+    }
+  ],
+  "portOrderSource": {
+    "tool": "rust-anything analyze --json",
+    "version": "4.0.0",
+    "target": "server/"
+  }
+}
