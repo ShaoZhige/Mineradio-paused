@@ -20,7 +20,7 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器：搜索播放、歌�
 | 蓝奏云（备用） | 需要提取码 `9izq` | [前往下载](https://wwars.lanzouq.com/b014xlh7gb) |
 | GitHub Releases | 版本说明、源码与安装包 | [查看 Releases](https://github.com/ShaoZhige/Mineradio-paused/releases) |
 
-当前版本：**3.2.3**。安装时只需要下载并运行 `Mineradio-<版本>-Setup.exe`；`.blockmap`、`latest.yml`、`win-unpacked` 都不是正式安装包。
+当前版本：**3.3.0**（Electron 架构最终版）。安装时只需要下载并运行 `Mineradio-<版本>-Setup.exe`；`.blockmap`、`latest.yml`、`win-unpacked` 都不是正式安装包。
 
 ## 安装被拦截怎么办
 
@@ -152,6 +152,12 @@ npm run test:ci      # 全部单元 / 集成测试
 npm run check:quick  # 静态守卫（接线、契约、资源预算等）
 npm run check:budget # 资源边界
 ```
+
+### 重写方向
+
+项目正在迁移到 **Tauri 2.x（Rust 后端 + 系统 WebView2）**：`public/` 下全部视觉资产逐字节保留，
+其余 Electron/Node 层用 Rust 重写。方案、实测基线与分阶段计划见
+[`docs/TAURI-REWRITE-PLAN.md`](./docs/TAURI-REWRITE-PLAN.md)。当前发布版仍是 Electron，按上面的命令开发即可。
 
 ## 与上游的关系
 
