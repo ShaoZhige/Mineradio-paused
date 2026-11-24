@@ -367,54 +367,12 @@ function normalizeQishuiToken(value) {
   return token;
 }
 
-const QISHUI_COOKIE_ATTRIBUTE_NAMES = new Set(['path', 'domain', 'expires', 'max-age', 'samesite', 'secure', 'httponly']);
-
-function collectQishuiCookiePair(picked, key, value) {
-  key = String(key || '').trim();
-  if (!key || QISHUI_COOKIE_ATTRIBUTE_NAMES.has(key.toLowerCase())) return;
-  if (value === null || value === undefined) return;
-  picked.set(key, String(value).trim());
-}
-
-function collectQishuiCookieInput(input, picked) {
-  if (input === null || input === undefined) return;
-  if (Array.isArray(input)) {
-    input.forEach(item => collectQishuiCookieInput(item, picked));
-    return;
-  }
-  if (typeof input === 'object') {
-    if (input.name && Object.prototype.hasOwnProperty.call(input, 'value')) {
-      collectQishuiCookiePair(picked, input.name, input.value);
-      return;
-    }
-    Object.keys(input).forEach(key => {
-      const value = input[key];
-      if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'value')) {
-        collectQishuiCookiePair(picked, key, value.value);
-      } else if (typeof value !== 'object') {
-        collectQishuiCookiePair(picked, key, value);
-      }
-    });
-    return;
-  }
-  String(input).split(/\r?\n/).forEach(line => {
-    line.split(';').forEach(part => {
-      const raw = String(part || '').trim();
-      const idx = raw.indexOf('=');
-      if (idx <= 0) return;
-      collectQishuiCookiePair(picked, raw.slice(0, idx), raw.slice(idx + 1));
-    });
-  });
-}
-
-function normalizeQishuiCookieInput(input) {
-  const picked = new Map();
-  collectQishuiCookieInput(input, picked);
-  return Array.from(picked.entries())
-    .filter(([key, value]) => key && value != null && String(value) !== '')
-    .map(([key, value]) => `${key}=${value}`)
-    .join('; ');
-}
+// 归一化实现与 server.js 共用 server/cookie-header.js —— 原先这里是一份逐字复制
+// （只有函数名前缀不同），改一处忘一处的隐患。`normalizeQishuiCookieInput` 这个名字
+// 保留下来，因为下面有二十多处调用点。
+// Shared with server.js via server/cookie-header.js; it used to be a verbatim copy here.
+const { normalizeCookieHeader } = require('./cookie-header');
+const normalizeQishuiCookieInput = normalizeCookieHeader;
 
 function qishuiCookieObject(cookieText) {
   const out = {};

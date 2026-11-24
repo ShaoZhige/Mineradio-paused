@@ -1,0 +1,50 @@
+{"fn":"normalizeCookieHeader","args":[""],"ok":"","note":"空串"}
+{"fn":"normalizeCookieHeader","args":[";;;"],"ok":"","note":"只有分号"}
+{"fn":"normalizeCookieHeader","args":["MUSIC_U=abc; __csrf=def"],"ok":"MUSIC_U=abc; __csrf=def","note":"标准双键"}
+{"fn":"normalizeCookieHeader","args":["a=1; Path=/; Domain=.163.com; HttpOnly; Secure"],"ok":"a=1","note":"带 Set-Cookie 属性"}
+{"fn":"normalizeCookieHeader","args":["a=1; PATH=/; HTTPONLY; SameSite=Lax"],"ok":"a=1","note":"属性名大写也要丢"}
+{"fn":"normalizeCookieHeader","args":["MUSIC_U=X; music_u=Y"],"ok":"MUSIC_U=X; music_u=Y","note":"键名大小写不同算两个键"}
+{"fn":"normalizeCookieHeader","args":["a=1; b=2\nc=3; d=4"],"ok":"a=1; b=2; c=3; d=4","note":"LF 多行"}
+{"fn":"normalizeCookieHeader","args":["a=1; b=2\r\nc=3"],"ok":"a=1; b=2; c=3","note":"CRLF 多行"}
+{"fn":"normalizeCookieHeader","args":["a=; b=2"],"ok":"b=2","note":"空值被 filter 剔除"}
+{"fn":"normalizeCookieHeader","args":["=value; a=1"],"ok":"a=1","note":"缺键名（idx=0）丢弃"}
+{"fn":"normalizeCookieHeader","args":["  a  =  1  ;  b  =  2  "],"ok":"a=1; b=2","note":"键与值两侧空白"}
+{"fn":"normalizeCookieHeader","args":["a=1=2"],"ok":"a=1=2","note":"值里含等号"}
+{"fn":"normalizeCookieHeader","args":["a=1; b=2; a=3"],"ok":"a=3; b=2","note":"重复键后者覆盖、位置取首次"}
+{"fn":"normalizeCookieHeader","args":[["a=1","b=2"]],"ok":"a=1; b=2","note":"字符串数组"}
+{"fn":"normalizeCookieHeader","args":[["a=1",{"__object__":[["name","b"],["value","2"]]},{"__object__":[["c","3"]]}]],"ok":"a=1; b=2; c=3","note":"数组内混对象"}
+{"fn":"normalizeCookieHeader","args":[[["a=1"],["b=2"]]],"ok":"a=1; b=2","note":"嵌套数组"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["name","a"],["value","1"]]}],"ok":"a=1","note":"单个 name/value 对象"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a","1"],["b","2"]]}],"ok":"a=1; b=2","note":"扁平对象"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",{"__object__":[["value","1"]]}],["b",{"__object__":[["value","2"]]}]]}],"ok":"a=1; b=2","note":"DevTools 导出格式"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",{"__object__":[["value",null]]}],["b",{"__object__":[["value","2"]]}]]}],"ok":"b=2","note":"DevTools 格式但 value 为 null"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",{"__object__":[["other","x"]]}],["b","2"]]}],"ok":"b=2","note":"对象值没有 value 属性 → 丢弃"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",null],["b","2"]]}],"ok":"b=2","note":"对象值为 null → 丢弃"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",{"__undefined__":true}],["b","2"]]}],"ok":"b=2","note":"对象值为 undefined → 丢弃（走的是另一条分支）"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["z","1"],["a","2"],["m","3"]]}],"ok":"z=1; a=2; m=3","note":"对象键序决定输出序"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["1","b"],["2","a"],["x","c"]]}],"ok":"1=b; 2=a; x=c","note":"类数组下标键提前并按数值升序（Object.keys 规则）"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["9","b"],["01","a"]]}],"ok":"9=b; 01=a","note":"带前导零的键不是下标，保持插入序"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["9","4"],["10","2"],["z","1"],["y","3"]]}],"ok":"9=4; 10=2; z=1; y=3","note":"下标键与普通键混排"}
+{"fn":"normalizeCookieHeader","args":[["Path=/","a=1"]],"ok":"a=1","note":"数组里带属性名"}
+{"fn":"normalizeCookieHeader","args":["昵称=小马; a=1"],"ok":"昵称=小马; a=1","note":"中文值"}
+{"fn":"normalizeCookieHeader","args":[123],"ok":"","note":"数字输入"}
+{"fn":"normalizeCookieHeader","args":[true],"ok":"","note":"布尔输入"}
+{"fn":"normalizeCookieHeader","args":[null],"ok":"","note":"null 输入"}
+{"fn":"normalizeCookieHeader","args":[{"__undefined__":true}],"ok":"","note":"undefined 输入"}
+{"fn":"normalizeCookieHeader","args":[[]],"ok":"","note":"空数组"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[]}],"ok":"","note":"空对象"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["name",""],["value","1"]]}],"ok":"value=1","note":"name 为空串的对象不进 name/value 分支"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["name",0],["value","1"]]}],"ok":"name=0; value=1","note":"name 为 0 的对象不进 name/value 分支"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["name","0"],["value","1"]]}],"ok":"0=1","note":"name 为字符串 \"0\" 是 truthy，进 name/value 分支"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["name",[]],["value","1"]]}],"ok":"","note":"name 为数组（truthy），String([]) 是空串"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["name",{"__object__":[]}],["value","1"]]}],"ok":"[object Object]=1","note":"name 为对象（truthy），String({}) 是 [object Object]"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",1],["b",2]]}],"ok":"a=1; b=2","note":"数字值被 String() 化"}
+{"fn":"normalizeCookieHeader","args":[{"__object__":[["a",true],["b",false]]}],"ok":"a=true; b=false","note":"布尔值被 String() 化"}
+{"fn":"rawCookieFallback","args":["  a=1; b=2  "],"ok":"a=1; b=2","note":"字符串原样 trim"}
+{"fn":"rawCookieFallback","args":[["a=1","b=2"]],"ok":"a=1; b=2","note":"全字符串数组拼接"}
+{"fn":"rawCookieFallback","args":[["a=1",2]],"ok":"","note":"数组含非字符串 → 空串"}
+{"fn":"rawCookieFallback","args":[{"__object__":[["a","1"]]}],"ok":"","note":"对象 → 空串"}
+{"fn":"rawCookieFallback","args":[null],"ok":"","note":"null → 空串"}
+{"fn":"rawCookieFallback","args":[{"__undefined__":true}],"ok":"","note":"undefined → 空串"}
+{"fn":"rawCookieFallback","args":[[]],"ok":"","note":"空数组 → 空串"}
+{"fn":"rawCookieFallback","args":["some-raw-token-without-equals"],"ok":"some-raw-token-without-equals","note":"非 cookie 形状的裸 token 原样返回"}

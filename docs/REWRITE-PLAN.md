@@ -696,6 +696,57 @@ Rust 侧照着 args 重建入参，不需要为用例写特判；`note` 字段�
 刻意偏离（都是往更安全/更可查方向偏，模块头部有完整的差异表）：字段顺序变成字典序；保留键
 `at/level/scope/event` 不可被调用方覆写；事件名归一化成小写连字符（`pageFailed` → `pagefailed`）。
 
+#### P2 进度（2026-11-24，第五刀：`mineradio-http` 的 Cookie 底座）
+
+原计划这一刀是 `qq-vip-api`（786 行，C 级活网络）。改成先做请求层的原因：`qq-vip-api`、网易云、
+酷狗、汽水四家的 handler 全都要拼 `Cookie:` 头，先搬它会写四遍、再改四遍。
+
+只做了**能录制证明**的部分 —— Cookie 头归一化 + 跨平台 UA 常量。HTTP 客户端**故意没进来**，
+理由见本节末尾。
+
+| 项 | 结果 |
+|---|---|
+| 新 crate | `crates/mineradio-http`：`cookies`（`CookieInput` / `normalize_cookie_header` / `raw_cookie_fallback`）+ `ua`（`DESKTOP_CHROME_UA`）。**零运行时依赖** |
+| JS 侧去重 | 抽出 `server/cookie-header.js`。原先 `server.js` 有一份、`qishui-api.js` 有一份**逐字复制**（只有函数名前缀不同），两份并存的代价是"改一处忘一处" |
+| 行为证明 | `tests/cookies_recorded.rs` 回放 **50/50** 条录制（`normalize` 42 + `fallback` 8） |
+| 常驻闸门 | 新增 `npm run cookie:check`：重跑录制器与 fixture 逐字节比对，接进 CI 的 `test-node` 作业 |
+
+**为什么不能用 `rust-anything bridge`**：它要求导出函数的入参是"普通 JSON"，而这里的入参本身
+就是多态 JSON 形状 —— `undefined` 在 JSON 里**没有表示**，`{a: undefined}` 与 `{a: null}` 编码后
+会变成同一个东西，但它们在原实现里走的是不同分支。所以录制器自己写（`scripts/record-cookie-header.js`），
+用 `{"__undefined__":true}` / `{"__object__":[[k,v],…]}` 两种标记补上 JSON 表达不了的东西。
+
+**`__object__` 用数组而不是对象，是因为键序要保真**：归一化结果是一条按插入顺序拼接的字符串，
+而 JSON 对象的键序在 Rust 侧（`serde_json` 默认 `BTreeMap`）会被排序。
+
+六个照抄、不能"优化"的地方（模块头部有完整版）：
+
+1. **`Object.keys()` 会把类数组下标键提前并按数值升序**。`{2:'a',1:'b',x:'c'}` 归一化成
+   `1=b; 2=a; x=c`，不是 `2=a; 1=b; x=c`。带前导零的 `"01"` 不算下标。
+2. **键和值的 falsy 处理不对称**：键是 `String(key || '')`（`0` / `false` / `''` 塌成空串后被丢），
+   值是 `String(value).trim()`（`0` 变 `"0"`、`false` 变 `"false"`）。
+3. **`input.name` 要 truthy 才算 name/value 对**。`{name:'', value:'1'}` 不走那个分支，退化成
+   普通对象遍历，产出 `"value=1"`（`name` 空串被丢）—— 直觉上会以为结果是空。
+4. **`{name:0, value:'1'}` → `"name=0; value=1"`，而 `{name:'0', value:'1'}` → `"0=1"`**。
+   数字 `0` 是 falsy、字符串 `"0"` 是 truthy。这就是 `CookieInput` 必须把 `Number` 和 `Text`
+   分开的原因 —— 合并成一个变体就丢掉这个区别。
+5. **重复键取首次出现的位置 + 最后一次的值**（`Map.set` 语义）。`a=1; b=2; a=3` → `a=3; b=2`。
+6. **`typeof null === 'object'` 且 null 是 falsy**，所以 `{a:null}` 两个分支都不进；
+   而 `{a:undefined}` 会进 `collectCookiePair` 再被丢。结果一样，路径不同。
+
+一处**不可观测**的写法，特意留了注释：JS 的 `if (idx <= 0) return` 里 `== 0` 那半实际没有作用 ——
+把 Rust 侧对应的 `continue` 删掉，全部用例照样通过（`=value` 切出来的键是空串，后面
+`collect_cookie_pair` 的 `key.is_empty()` 会再挡一次）。保留它是为了逐行对应，不是唯一防线。
+这条是负向验证时发现的：第一次注入错误后测试仍绿，查清后才确认不是测试失效。
+
+另做了一次**有效**的负向验证：把 `set_keep_position` 改成"重复键移到末尾"，第 13 条立刻红并
+指名 `[重复键后者覆盖、位置取首次]`（`left: "b=2; a=3"` / `right: "a=3; b=2"`），改回才绿。
+
+**HTTP 客户端为什么没进这一刀**：Node 的 `req.setTimeout` 是**连接空闲超时**（只要还在收数据就
+永不超时），`reqwest` 的 `timeout()` 是**总超时**，两者对音频代理这种长连接的意义完全相反 ——
+按直觉换过去会让"慢但一直在传"的音频流被腰斩。要正确映射得用 per-read timeout 并配本地服务器
+对拍（Node 与 Rust 各发同一批请求，比超时时刻、错误形状、`err.statusCode` / `err.body` 的
+携带方式）。那是独立一刀的量，不该混在"纯函数移植"里稀释掉可验证性。
 
 ---
 

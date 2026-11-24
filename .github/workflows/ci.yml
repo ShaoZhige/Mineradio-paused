@@ -56,6 +56,11 @@ jobs:
       - name: desktopWindow shim matches contract
         run: npm run shim:check
 
+      # Rust 侧的 Cookie 头归一化是对着 fixture 回放的。JS 那边改了逻辑却不重录，
+      # 回放照样绿（它只证明"Rust 与旧 JS 一致"），所以这里必须比一遍。
+      - name: Cookie header fixture matches JS behaviour
+        run: npm run cookie:check
+
   required-gate:
     if: always()
     needs: [test-node]
