@@ -24,6 +24,7 @@
     "hash:check": "node scripts/public-hashes.js --check",
     "shim:gen": "node scripts/gen-shim.js",
     "shim:check": "node scripts/gen-shim.js --check",
+    "parity:static": "node scripts/static-parity.js",
     "archive:release": "node scripts/archive-release-build.mjs",
     "build:apple-music": "node build/build-apple-music.js",
     "prebuild:win": "npm run build:apple-music",

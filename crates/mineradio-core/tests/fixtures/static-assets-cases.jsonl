@@ -1,0 +1,23 @@
+{"fn":"staticEtag","args":[{"size":0,"mtimeMs":0}],"ok":"W/\"0-0\""}
+{"fn":"staticEtag","args":[{"size":255,"mtimeMs":1}],"ok":"W/\"ff-1\""}
+{"fn":"staticEtag","args":[{"size":4096,"mtimeMs":1700000000123}],"ok":"W/\"1000-18bcfe5687b\""}
+{"fn":"staticEtag","args":[{"size":1,"mtimeMs":1}],"ok":"W/\"1-1\""}
+{"fn":"staticEtag","args":[{"size":16,"mtimeMs":16}],"ok":"W/\"10-10\""}
+{"fn":"staticEtag","args":[{"size":182287,"mtimeMs":1732500000987}],"ok":"W/\"2c80f-193610c10db\""}
+{"fn":"staticEtag","args":[{"size":19000000,"mtimeMs":1700000000999.9}],"ok":"W/\"121eac0-18bcfe56be7\""}
+{"fn":"staticEtag","args":[{"size":0,"mtimeMs":1700000000001}],"ok":"W/\"0-18bcfe56801\""}
+{"fn":"etagMatches","args":["W/\"ff-1\"","W/\"ff-1\""],"ok":true}
+{"fn":"etagMatches","args":["W/\"ff-2\"","W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":["W/\"a-1\", W/\"ff-1\"","W/\"ff-1\""],"ok":true}
+{"fn":"etagMatches","args":["W/\"ff-1\",W/\"a-1\"","W/\"ff-1\""],"ok":true}
+{"fn":"etagMatches","args":["  W/\"ff-1\"  ","W/\"ff-1\""],"ok":true}
+{"fn":"etagMatches","args":["w/\"ff-1\"","W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":["\"ff-1\"","W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":["","W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":[null,"W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":["W/\"ff-1\", , W/\"b-2\"","W/\"ff-1\""],"ok":true}
+{"fn":"etagMatches","args":["W/\"ff-1\"; W/\"b-2\"","W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":["W/\"ff-1\"",""],"ok":false}
+{"fn":"etagMatches","args":["*","W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":[[],"W/\"ff-1\""],"ok":false}
+{"fn":"etagMatches","args":[123,"W/\"ff-1\""],"ok":false}

@@ -274,6 +274,10 @@ WebView2 (public/js fetch('/api/search'))
 - 端口选择：沿用现有逻辑（探测可用端口），窗口 URL 保持
   `http://127.0.0.1:<port>/?startupAttempt=<n>&startupAt=<ts>` —— 前端有基于这两个参数的缓存击穿逻辑，**必须保真**。
 - 静态：`GET /*` → `public/`，需实现 `Content-Type`（含 `.mjs` `.woff2` `.json`）、`Content-Length`、`Accept-Ranges: bytes`（音频拖动必需）、`Cache-Control`（`vendor/*` 长缓存 + hash/`?v=` 击穿）。
+  - **落地现状（P2）**：`Content-Type` / `Content-Length` / 弱 `ETag` / `Last-Modified` / `Cache-Control: no-cache` 已与 Electron 版逐字节对齐（`npm run parity:static` 11/11）。
+  - **`Accept-Ranges` 没有做，是故意的**：原 `server/static-assets.js` 本来就不支持 Range，而音频拖动走的是 `/api/audio` 代理（那一段在 P2 后续搬）。静态资源上加 Range 只会引入一处与旧行为不同的地方。
+  - MIME 表是**逐字节照抄**旧表的（14 项，`.js` 用 `application/javascript`）。`public/` 下实际只有 js/css/json/html/txt/gz/gif/bin/LICENCE 九种，其中 `.gz`/`.gif` 在旧实现里同样落到 `text/plain`——parity 保持一致；`preview.gif` 目前没有任何地方引用。
+  - 与旧实现的**唯一**差异：含 `..` 的路径一律 404（旧实现 `path.join` 不设防，`GET /../package.json` 能读到仓库根）。
 - CSP：由我们自己的响应头控制（不走 Tauri asset 协议），保持与 v3.3.0 一致的白名单，避免 three.js 着色器/`blob:` worker 被拦。
 - `/internal/*`：只给 shim 用（两个同步方法），见 5.2.4。
 - **硬化（新增，前端无感）**：
@@ -423,14 +427,26 @@ P6 阶段    ：删掉 napi 桥、删掉 Electron，crate 原样留下
 - axum handler 只做三件事：取参、调 crate、映射错误码 —— **业务逻辑一行都不许写在 handler 里**，否则录制覆盖不到；
 - `gate` 要求"没有未移植项"，对故意留在 JS 的函数用 `--keep "name: reason"` 显式声明，理由写进 `docs/API-CONTRACT.json`。
 
-### 6.6 试点（一天内判死活，别拖到 P2 中段）
+### 6.6 试点结果（2026-11-24 实跑，`server/static-assets.js`）— ✅ 通过
 
-按顺序做四件事，任一失败就降级方案（见 6.8）：
+原计划四步，实际跑完的结论：
 
-1. `rust-anything analyze server/` 能出计划表 → 说明它能读懂这套代码结构（含 `require('NeteaseCloudMusicApi')` 这类 npm 依赖）。
-2. 挑一个**纯函数**模块（`server/qq-vip-api.js` 的权益判定 或 `kugou` 签名）跑通 `bridge → record → diff` → 说明录制链能跑。
-3. 把 `.node` 在 **Electron 45 主进程**里 `require` 一次 → napi-rs 走 Node-API（ABI 稳定），理论上不用重编；但本仓库有 `node-hid` 需按 Electron ABI 重编的先例（`asarUnpack`），**必须实测**。
-4. `gate` 能在该 crate 上通过 → 说明能进 CI。
+| 步骤 | 结果 |
+|---|---|
+| ① `analyze` 读懂结构 | ⚠️ 能出排序表，但对 `static-assets.js` **误判为 Blocked**（"Uses dynamic code"）。该文件只有 `require('fs')` / `require('path')`，没有 eval/`new Function`/动态 import。必须 `--force` 才能继续 |
+| ② `bridge → record → diff` | ✅ 跑通。`bridge` 生成 napi 骨架（`ztest/ra-static-assets`），`diff` 结果 **23/23 一致** |
+| ③ `gate` 进 CI | ✅ 14 项检查全过（fmt / clippy / test / unsafe / lockfile / advisories / ported / size / error cases / panics / build / api / behavior） |
+| ④ `.node` 在 Electron 主进程 `require` | ⏸ 未做 —— 见下面「结论」，这一条已经不需要了 |
+
+**四条实跑教训（比结论更重要）：**
+
+1. **生成的输入对业务数据几乎没用。** `record --count 80` 编出 98 条用例，其中 12 条 `staticEtag` **全是**喂 `{}` / `null` / `true` 直接抛错，一条都没走到十六进制格式化；`etagMatches` 也只会喂 `"x","x"` 这种退化样本。必须自己写 `--inputs cases.jsonl`，而"写什么输入"正是需要人懂业务的地方。**这是 rust-anything 的真实边界：它给的是回放/比对/闸门这套机器，不是"自动知道该测什么"。**
+2. **桥接签名一律降级成 `serde_json::Value`。** JS 是弱类型，`bridge` 只能给 `Value` 进 `Value` 出。用来做验证够，拿来当生产代码不行——所以本项目的规矩是：**录制验证用桥，生产实现写强类型进 `crates/mineradio-core`，两边用同一份 `cases.jsonl` 对齐**。`crates/mineradio-core/tests/static_assets_recorded.rs` 就是这么做的。
+3. **回调风格 + 活对象没法桥。** `serveStatic(req, res, path)` 里 `res` 有 `writeHead`/`end`，`record` 一跑就在 `fs.stat` 回调里抛 `res.writeHead is not a function`，直接把进程带崩（未捕获异步异常）。用 `--keep "serveStatic: 理由"` 显式留在 JS 侧。
+4. **生成的 crate 会被仓库根 workspace 吸进去。** `cargo build` 报 "current package believes it's in a workspace when it's not"，往生成的 `Cargo.toml` 追加一行 `[workspace]` 即可。
+
+**结论：能用，但只当"尺子"。** 它对纯函数单元的 `record → diff → gate` 是真实可用的（23/23 + 14 项 gate），能进 CI 当"行为没变"的证明；但它不会替你决定测什么、不会替你写强类型接口，误判率也不低（Blocked 误报一次）。§6.5 的"桥到 P6 删、crate 永久留"因此被证实是对的：**价值在录到的 cases 和 crate，不在 `.node`。**
+
 
 ### 6.7 卫生红线（不做这几条会出事）
 
@@ -527,7 +543,8 @@ npm run hash:check          # public/ 逐字节不动，已接进 ci.yml
 
 **与方案第 3 章的差异**：`server.js` 自己就是最大的一块（6,957 行），说明"先搬 Top30 路由"这个切法不对 ——
 路由的处理体大量内联在 `server.js` 里，按文件切比按路由切更合理。P2 的第一刀改成
-**`static-assets.js` → `qishui-audio-decryptor` → `apple-music-lyrics` → `qq-vip-api`** 这四块。
+**`static-assets.js` → `qishui-audio-decryptor` → `apple-music-lyrics` → `qq-vip-api`** 这四块
+（实际执行时 qishui 与 apple-music 对调了，理由见 §7.2「第二刀」的表头）。
 
 
 ### 7.2 P1 的"第一刀"（唯一目标：证明能渲染）
@@ -550,7 +567,7 @@ npm run hash:check          # public/ 逐字节不动，已接进 ci.yml
 | 2 | 静态 `public/` 能 200 | ✅ 实测：`index.html` 200（182,287 B）、它直引的 **23** 个本地资源全 200、`index-loader` 引的 **124** 个模块全 200 |
 | 3 | 窗口 url 指向本地服务 | ✅ `src-tauri/src/main.rs`（`?startupAttempt=1`） |
 | 4 | shim 注入 116 方法返回 `NOT_IMPLEMENTED` | ✅ 由 `scripts/gen-shim.js` 生成，顶层键 **116**、桥项 **130**、`npm run shim:check` 进 CI |
-| 5 | 截图对照 | ⏳ 需要开窗肉眼确认（three.js / 玻璃 / 字体 / WebAudio） |
+| 5 | 截图对照 | ✅ 用 WebView2 的 CDP 实测（见下），three.js / 玻璃 / 字体 / canvas 全在 |
 
 P1 比原计划多做的两件事（都有明确理由）：
 
@@ -561,6 +578,89 @@ P1 比原计划多做的两件事（都有明确理由）：
 
 已知风险（都在开窗那一刻才暴露）：`public/index.html` 直连 `https://fonts.googleapis.com`，
 断网时字体回退会改变排版观感，别误判成"样式坏了"。
+
+**P1 验收实测（WebView2 CDP，不开肉眼）：** `<script src>` 131、样式表 19、`webgl2` 可用、
+font face 475、canvas 8、**JS 异常 0 条**；首屏调用 35 个桥方法全部走 `NOT_IMPLEMENTED` 且页面不崩。
+控制台 error 全是 `/api/*` 的 501（尚未搬移，预期内）+ 之前一条 `/favicon.ico` 404（P2 已修）。
+
+#### P2 进度（2026-11-24，第一刀：`static-assets`）
+
+| 项 | 落地 |
+|---|---|
+| 纯逻辑 crate | **`crates/mineradio-core`**（不依赖 tauri），`static_assets` 模块：MIME 表 / 弱 ETag / `If-None-Match` / 路径解析 |
+| 服务端接上 | `crates/mineradio-server` **不再用 `tower-http::ServeDir`**，改调 core。原因：`ServeDir` 的 ETag 是 `"<mtime>.<nanos>-<size>"`、`.js` 的 MIME 是 `text/javascript`，与 Electron 版**都不同**；要"行为一致"只能自己发头 |
+| 行为证明 | `crates/mineradio-core/tests/static_assets_recorded.rs` 回放 rust-anything 录到的 23 条 JS 输出 |
+| 端到端对照 | `scripts/static-parity.js`（`npm run parity:static`）：同一份 `public/`，原版 Node 服务与 Rust 服务并排比 —— **11/11 一致**（状态码 / Content-Type / Cache-Control / ETag / Last-Modified / Content-Length / 实体 sha256 / 304 往返） |
+| 顺带修掉的 | `/favicon.ico` 现在 200（`image/x-icon`，指向 `build/icon.ico`），窗口控制台少一条 404 |
+
+两处**故意**偏离原实现：
+
+1. **拒绝 `..`**：Node 版 `path.join(root,'public',pn)` 对 `GET /../package.json` 是不设防的（能读到仓库根），`resolve()` 直接返回 `None`。前端所有资源都是 `public/` 下的普通路径，不会走到这条分支。
+2. **mtime 用整数算毫秒**：`as_secs_f64()*1000.0` 在"刚好整毫秒"时可能算成 `x-ε`，floor 后差 1 就凭空换掉 ETag（表现是一次多余 200，之后自愈）。改 `as_secs()*1000 + subsec_millis()`。
+
+**顺手修掉的 P1 遗留 bug（`src-tauri`）：** 曾在 `RunEvent::Exit` 里 `runtime.block_on(handle.shutdown())`。
+实测关窗后 WebView2 子进程全部退出、窗口消失，但**宿主进程卡死不退**且服务仍在 LISTEN —— 阻塞在一个永不完成的优雅关停上。改成句柄直接 drop（进程退出时 OS 本来就会释放端口）。修完实测 WM_CLOSE → 6 秒内正常自退。
+
+#### P2 进度（2026-11-24，第二刀：`apple-music-lyrics`）
+
+> §7.1.1 定的顺序是 `static-assets → qishui-audio-decryptor → apple-music-lyrics`。
+> 实际把第 2、3 名对调了，原因是**工具的边界**而不是优先级：
+> `rust-anything bridge server/qishui-audio-decryptor/track-decryptor.js` 直接报
+> `exports no functions; bridge a unit with an exported function API` —— 那个单元只导出
+> `TrackDecryptor` 类，`bridge` 只认"导出函数"的模块。它的录制得自己写，所以先把能走
+> 标准链路的 `apple-music-lyrics` 做完，把"record → 写 Rust → 全绿"这条路坐实。
+
+| 项 | 落地 |
+|---|---|
+| 纯逻辑 crate | `crates/mineradio-core/src/apple_music_lyrics.rs`（251 行 JS → 一处 `regex` 依赖 + 无 unsafe） |
+| 唯一新增依赖 | `regex`（workspace 级）。用它而不是手写扫描器，是因为原实现每个切分都是**懒惰正则**，手写扫描器在 `<p>` 嵌套与属性引号上必然跑偏 |
+| 行为证明 | `tests/apple_music_lyrics_recorded.rs` 回放 **32/32** 条录制；fixture 与用例生成器在 `ztest/ra-am-lyrics/` |
+| 用例来源 | **手写 32 条**（`scripts/record-apple-music-lyrics.js`）：7 条直接取自 `tests/apple-music-lyrics.test.js` 的真实包裹形状，其余覆盖背景人声 / 注音 / 实体 / 三种时间写法 / 空行 / v1-v2 取舍 / 括号替换 / 行序打乱 / `<p>` 缺 begin / `end <= start` |
+| 闸门 | `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace` **21 passed** / `contract:check` / `hash:check` / `shim:check` 全绿 |
+
+**移植时真正会咬人的六处**（都写进了模块头部，改代码前先读）：
+
+1. JS 的 `\s` 含 `U+FEFF` 但不含 `U+0085`，Rust `regex` 的 `\s` 正好相反 —— 用显式字符类 `JS_WS`。
+2. JS 的 `\d` 只有 ASCII，Rust `regex` 的 `\d` 认全 Unicode 数字 —— 一律写 `[0-9]`。
+3. JS 的 `[\s\S]*?` 等价于 Rust 的 `(?s).*?`，不是 `.*?`。
+4. `.length` 是 UTF-16 码元数（`js_len`），不是字符数 —— 影响按字数估算的兜底时长。
+5. `Math.round` 是"向 +∞ 取半"，`f64::round` 是"远离零" —— 负数上差 1，写 `js_round`。
+6. `decodeTtmlEntities` 的替换顺序不能动：`&amp;` 最后解，否则 `&amp;lt;` 会先变成 `<` 再被当标签吃掉。
+
+刻意接受的偏差（另见模块头部）：代理区码点（`&#55296;`–`&#57343;`）JS 会产出孤立代理，
+Rust 的 `char` 表示不了，保留 `&#...;` 字面量。真实 TTML 里不会出现。
+
+#### P2 进度（2026-11-24，第三刀：`qishui-audio-decryptor`）
+
+这一块就是当初逼着把顺序对调的那个单元 —— `bridge` 不认只导出类的模块，所以**录制器自己写**：
+`scripts/record-qishui-decrypt.js` 直接 `require` 原模块跑真代码，输出沿用 `{fn,args,ok}` 形状，
+只多两条约定：**args 必须是可回放的原始入参**（不写人类说明），**二进制一律 `{"b64": "..."}`**。
+Rust 侧照着 args 重建入参，不需要为用例写特判；`note` 字段只给人看，不参与比对。
+
+| 项 | 落地 |
+|---|---|
+| 纯逻辑 crate | `crates/mineradio-core/src/qishui_decrypt.rs`：MP4 盒子解析 / `stsz`·`stsc`·`senc` / spade 解码 / AES-128-CTR / FLAC·M4A 回封 / 文件名清洗 |
+| 新依赖 | `aes` + `ctr`（RustCrypto，纯 Rust 无 C 依赖）；测试侧 `base64` 只在 dev-dependencies |
+| 行为证明 | `tests/qishui_decrypt_recorded.rs` 回放 **41/41**；用例由录制器生成，含 **2 条端到端**（m4a / flac）、**8 条错误分支**、**19 条单函数** |
+| 端到端怎么造的 | 录制器现场构造一个最小但合法的加密 MP4（`moov/senc/trak/mdia/minf/stbl/{stsd,stsz,stsc,stco}` + `mdat`），样本先用 AES-CTR 加密再写进 `mdat`，所以"解密成功"这件事是被真实验证的，不是拿明文冒充 |
+| 负向验证 | 故意把 `fLaC` 魔数改成 `fLbC` 跑一遍 → 测试立刻红并指名是哪条用例；改回来才绿。**证明回放不是空转** |
+| 闸门 | `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace` **22 passed** / `contract:check` / `hash:check` / `shim:check` 全绿 |
+
+**七个必须照抄、不能"优化"的点**（模块头部有完整版）：
+
+1. `bitCount` 是 32 位 popcount，且作用在**下标 i** 上，不是数据上。
+2. 负数归一化是 `+= 0xff`（mod 255），**不是** `+= 256`。
+3. `Buffer.from(hex,'hex')` 遇非法对**停下不抛**：`"zzzz"` → 空、`"abzz"` → `[0xab]`；只有奇数长度才抛。
+4. base64 解码**宽容**：Node 跳过所有非字母表字符，`"not/base64@#$"` 解出 6 字节。
+5. `spade_a = "AAAA"` 恰好全是十六进制字符，所以走"当成密钥"这条分支，最终报的是
+   **`Invalid key length`** 而不是"解不开" —— 这是录制里真实出现过的分支，别按直觉写。
+6. `senc` 只给 **8 字节** IV，要补 8 个零凑满 16；加密侧也是这么构造的。
+7. FLAC 分支丢掉 `dfLa` 内容的**头 4 字节**（full box 的 version/flags）再补 `fLaC` 魔数。
+
+刻意偏离（都只影响畸形输入）：越界 `read_u32` 在 Node 里抛 `RangeError`，这里按 0 处理并提前结束解析；
+`paddingLength` 为负时 Node 的 `subarray` 会读成"到末尾"，这里直接判为解不出；
+`stsz` 的 `sample_count` 加了 1M 上限，防止恶意文件用 2 TB 分配把进程打死。
+
 
 ---
 

@@ -1,0 +1,20 @@
+[package]
+name = "mineradio-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# 业务 crate 刻意**不依赖 tauri**：同一份逻辑要能被 axum、cargo test、以及
+# rust-anything 的桥接层三处共用。加 tauri 进来就锁死在窗口进程里了。
+[dependencies]
+# TTML 的解析规则是照 `server/apple-music-lyrics.js` 的正则一字一句搬的，
+# 用 regex 才能保持同样的懒惰匹配语义（手写扫描器会在 `<p>` 嵌套/属性引号上跑偏）。
+regex = { workspace = true }
+# 汽水音乐的加密音频是 aes-128-ctr；RustCrypto 的实现与 OpenSSL 逐字节一致（录制用例验证）。
+aes = { workspace = true }
+ctr = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"
+# 录制 fixture 里的二进制一律以 base64 存，测试侧解回来。
+base64 = "0.22"

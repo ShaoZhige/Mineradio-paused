@@ -25,3 +25,9 @@ docs/PUBLIC-HASHES.txt -text
 # Rust 源码与清单固定 LF：否则 Windows 新克隆会拿到 CRLF，cargo fmt --check 立刻报一片红。
 *.rs text eol=lf
 *.toml text eol=lf
+
+# 录制用例（JSONL）固定 LF：它是逐行比对的测试基准，行尾一变就整片红。
+*.jsonl text eol=lf
+
+# Cargo.lock 虽然不叫 .toml，但同样是文本清单，固定 LF 免得每次 checkout 都报行尾转换。
+Cargo.lock text eol=lf

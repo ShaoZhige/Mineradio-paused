@@ -9,10 +9,11 @@ description = "Mineradio 的本地 HTTP 服务：静态托管 public/ + /api + /
 [dependencies]
 axum = { workspace = true }
 tokio = { workspace = true }
-tower-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+# 静态资源语义（MIME 表 / 弱 ETag / If-None-Match）搬在 core 里，server 只负责拼 HTTP。
+mineradio-core = { path = "../mineradio-core" }
 
 [[bin]]
 name = "mineradio-server"
