@@ -748,6 +748,59 @@ Rust 侧照着 args 重建入参，不需要为用例写特判；`note` 字段�
 对拍（Node 与 Rust 各发同一批请求，比超时时刻、错误形状、`err.statusCode` / `err.body` 的
 携带方式）。那是独立一刀的量，不该混在"纯函数移植"里稀释掉可验证性。
 
+#### P2 进度（2026-11-24，第六刀：HTTP 客户端）
+
+上一节最后那段说的"独立一刀"，就是这一刀。
+
+| 项 | 结果 |
+|---|---|
+| 新增 | `crates/mineradio-http/src/client.rs`：`HttpClient` / `Request` / `HttpError`，`request_text` + `request_json` |
+| 对拍 | `scripts/http-parity.js`（`npm run parity:http`）：16 个用例，Node 用照抄的 `requestText`、Rust 用本 crate，**16/16 一致** |
+| 契约测试 | `tests/client_behaviour.rs` 9 条（纯 Rust 起服务器，`cargo test` 就能跑） |
+| 负向验证 | 把 `read_timeout` 换成 `timeout`（总超时），`timeout_is_idle_not_total` 立刻红，且整个套件从 0.51s 缩到 0.25s —— 正好是被 250ms 总超时斩断的证据 |
+
+**每个 reqwest 默认值几乎都是错的**，所以全部显式改写：
+
+| 项 | Node `https.request` | reqwest 默认 | 这里 |
+|---|---|---|---|
+| `Accept-Encoding` / 自动解压 | 不发、不解 | 启 gzip 才发/解 | 不启 |
+| 代理 | 不读环境变量与系统设置 | 启 `system-proxy` 才读 | `.no_proxy()` |
+| HTTP/2 协商 | 不发 ALPN | 发 | `native-tls-no-alpn` + 无 `http2` |
+| body 解码 | 强制 UTF-8（坏字节 → U+FFFD） | 启 `charset` 才按 Content-Type 解 | `.bytes()` + `from_utf8_lossy` |
+| **超时** | **socket 空闲** | `timeout()` = 总时长 | `read_timeout` + 补一段等头超时 |
+| **重定向** | **不跟随**（302 原样交回） | **最多跟 10 跳** | `Policy::none()` |
+| **请求体** | `req.write()` → **chunked** | 定长 body 自动算 `Content-Length` | `Body::wrap_stream` → chunked |
+
+后三条都是对拍**逼出来的**，不是事先想到的：
+
+- **重定向**：有的接口 302 到登录页，跟过去会得到"登录成功但拿不到数据"这种极难排查的现象。
+- **请求体 chunked**：`post-echo` 用例第一次跑就红 —— Node 侧服务器收到 `transfer-encoding: chunked`、
+  Rust 侧收到 `content-length: 14`。老式 PHP / Java 网关对 chunked 的支持并不可靠，反过来也有只认
+  chunked 的，所以必须一致。
+- **超时**：`slow-drip` 用例（每 120ms 一块、共 6 块、超时设 300ms）两边都是 ~750ms 成功。
+  这条是整个脚本存在的理由。
+
+超时是**两段拼起来**才等于 Node 的语义，这点容易漏：`read_timeout` 只管"读完一个 chunk 到下一个
+chunk 之间"，**等待响应头**那段它管不到（reqwest 没有单独的头超时 API）。所以 `request_text` 里
+还用 `tokio::time::timeout` 包住 `send()` —— 那是总时长但只覆盖到响应头（通常毫秒级），与"body
+一直有数据流动就永不超时"并不冲突。`hang` 与 `slow-first-byte` 两个用例盯的就是这一段。
+
+三个**已知偏差**（都写进 `client.rs` 头部，不偷偷吞掉）：
+
+1. **默认带 `Accept: */*`**。reqwest 在用户没设 accept 时补这一行，Node 什么也不加。对拍脚本把
+   服务器收到的头打出来比对，`accept` / `connection` 在允许差异名单里，其余差异一律算回归。
+2. **网络错误的 `code` 对不上**。Node 抛 `ECONNREFUSED` / `ENOTFOUND` 这类 libuv errno 字符串，
+   reqwest 底层是 hyper + schannel，不复现这些名字。`HttpError::Network` 只留 `detail` 文本，
+   **不要**当错误码用 —— `classifyUpdateError` 搬过去时要照文本正则改。
+3. **连接被拒时慢 2 秒**（本机实测）。`elapsedMs` 在报告里直接可见：Node 5ms、Rust 2055ms。
+   排查过：裸 `tokio::net::TcpStream::connect` 与 `std::net::TcpStream::connect` **都是 2.05s**，
+   所以与 tokio/reqwest 无关，是本机 Windows 网络栈在同步 `connect()` 路径上的行为（libuv 的
+   `ConnectEx` 异步路径不触发）。只影响"端口没开时多久报错"，不影响正确性。
+
+**没接进 CI**：`parity:http` 需要 Rust 工具链，而 `ci.yml` 目前只有 `test-node` 一个作业（Rust 的
+fmt / clippy / test 一直只在本地跑）。给 CI 加 rust 作业是独立决定，不该在搬模块的刀里顺手做。
+`cookie:check` 不需要编译，所以它已经在 CI 里了。
+
 ---
 
 ## 8. 测试策略

@@ -6,9 +6,12 @@ version.workspace = true
 publish = false
 description = "Mineradio 的出网底座：Cookie 头归一化、UA 常量，后续接 HTTP 客户端"
 
-# 目前是纯函数 + 常量，零运行时依赖。HTTP 客户端（reqwest）等真正开始搬 handler 时再加，
-# 那时才需要选 TLS 后端 —— 现在加进来只会让 cargo build 多编几十秒。
 [dependencies]
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+# 只用 tokio::time::timeout 补上"等待响应头"那一段超时（reqwest 没有单独的 API）。
+tokio = { workspace = true, features = ["time"] }
+futures-util = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

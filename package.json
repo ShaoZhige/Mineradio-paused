@@ -27,6 +27,7 @@
     "cookie:record": "node scripts/record-cookie-header.js --write",
     "cookie:check": "node scripts/record-cookie-header.js --check",
     "parity:static": "node scripts/static-parity.js",
+    "parity:http": "node scripts/http-parity.js",
     "archive:release": "node scripts/archive-release-build.mjs",
     "build:apple-music": "node build/build-apple-music.js",
     "prebuild:win": "npm run build:apple-music",

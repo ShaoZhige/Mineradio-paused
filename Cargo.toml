@@ -20,13 +20,20 @@ license = "GPL-3.0-only"
 
 [workspace.dependencies]
 axum = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "signal", "sync", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "signal", "sync", "io-util", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 regex = "1"
 aes = "0.8"
 ctr = "0.9"
+# HTTP 客户端。feature 组合是刻意挑的，见 crates/mineradio-http/src/client.rs 头部：
+#   native-tls-no-alpn → 走 Windows schannel（信任系统证书库，与 Node 的
+#                        applySystemCertificateAuthorities 意图一致），且不发 ALPN
+#   default-features = false → 关掉 http2 / charset / system-proxy / gzip
+#   stream → 只为了 Body::wrap_stream，让请求体走 chunked（Node 的 req.write 就是 chunked）
+reqwest = { version = "0.13", default-features = false, features = ["native-tls-no-alpn", "stream"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # 首次 cargo build 会把 tauri 全量编一遍，debug 也要几分种；发布版务必加 --release。
 [profile.dev.package."*"]
