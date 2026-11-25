@@ -801,6 +801,184 @@ chunk 之间"，**等待响应头**那段它管不到（reqwest 没有单独的�
 fmt / clippy / test 一直只在本地跑）。给 CI 加 rust 作业是独立决定，不该在搬模块的刀里顺手做。
 `cookie:check` 不需要编译，所以它已经在 CI 里了。
 
+#### P2 进度（2026-11-25，第七刀：`qq-vip-api`）
+
+786 行 → `crates/mineradio-core/src/qq_vip.rs`。
+
+方案正文的 P2 清单把这一刀标成"C 级活网络，只做契约快照"，但 §7.1.1 的 `analyze` 表里它本来就是
+**ready（59 分）**——工具是对的：模块把取数收成一个注入的 `requestProbe` 参数，整块都能录制，
+录的是"给定 payload → 给定结论"，一条网络请求都不发。真正拦路的不是网络，而是三件现成工具
+表达不了的东西：注入的函数、`Date.now()`、`process.env.TZ`。
+
+| 项 | 落地 |
+|---|---|
+| 结构 | `crates/mineradio-core/src/qq_vip.rs`（2043 行）+ `tests/qq_vip_recorded.rs` |
+| 用例 | **199 条**回放，覆盖 17 个导出函数，一次过 |
+| 新依赖 | `futures-util`（`Promise.allSettled` 的等价物）、`sha2`（会话缓存键）、`serde_json` |
+| 常驻闸门 | `npm run qqvip:check`（已接进 CI 的 `test-node`） |
+
+**录制器钉住两件事**（`scripts/record-qq-vip.js`）：
+
+- `process.env.TZ = 'UTC'`。`normalizedExpiryMs` 对字符串到期时间走 `Date.parse`，而无时区的
+  日期串在 V8 里按**本地时区**解释 —— 不钉住的话同一份 fixture 换台机器就红。
+- `Date.now = () => 1735689600000`。模块里有四处直接读墙钟，其中 `qqVipObjectExpiry` 与
+  `combineQQVipResults` 读得很隐蔽（后者在两行里各读一次）。Rust 侧把这些值收成 `now_ms`
+  显式参数，测试按 JS 的 `Number(x) || Date.now()` 语义把 `0` / 缺省映射回同一个冻结值。
+
+**状态对象为什么是 `Map` 不是结构体**：12 个字段是所有分支都有的，但 `combine` 多带
+`vipSource`/`rawCode`、`resolve` 再多带 11 个计数、`preserve` 又多带 5 个 stale 字段；
+`preserveQQVipStalePositive` 的语义还是 `{...cachedStatus, 若干覆盖}`，必须把缓存里**不认识的
+字段**原样带出来。用结构体就得为每个分支决定"发不发这个字段"，一处判断错就是线上 JSON
+多一个 `"vipSource": ""`。类型安全改由 199 条录制兜底。
+
+**八个照抄不能优化的点**：
+
+1. `Number()` 不是 `parseInt`：`Number('')` 是 `0`、`Number('0x10')` 是 `16`、`Number([])` 是 `0`、
+   `Number([5])` 是 `5`、`Number([1,2])` 是 `NaN`。`vip_type: [1]` 这种畸形输入真会被判成"有会员"。
+2. `String(v || '')` 会把 `0`/`false` 压成空串，而 `String(v).trim()` 会把它们变成 `"0"`/`"false"`
+   —— 同一个文件里两种写法并存，别统一。
+3. `primitiveMembershipSignal` 返回三值 `1 / 0 / null`，判定里 `signal === 0`（否定）与
+   `signal == null`（没证据）是两条不同的路，混用会把"说不清"当成"不是会员"。
+4. `Number.isFinite(numeric) && numeric > 0` 同时排除 `NaN`、`Infinity` 与非正数；只写 `> 0`
+   会让 `Infinity` 算成会员。
+5. 到期时间有**秒/毫秒自动判定**（`< 1e10` 当秒）与 **2000-01-01 的下限**。低于下限不是
+   "已过期"，而是"这个字段不算数" —— 差别在于前者会把会员判成非会员。
+6. `Math.max(1, ...[])` 是 `1`：`vipType` 兜底成 1 而不是 0。
+7. `negativeQuorum = min(2, max(1, probeCount))`：只有一支探测时，单支否定就算权威否定。
+   这是刻意放宽，改成固定 2 会让"只配一支探测"的用户永远判不出非会员。
+8. 到期了要**把肯定翻成否定并把类型清零**（`vipPositive = false; vipType = 0`），不是只标记
+   "过期" —— 后续 `combine` 只看 `vipPositive`，不清零的话过期会员会被合成成有效会员。
+
+**两处刻意偏差**（都写进模块头部）：
+
+1. **无时区的日期串按 UTC 解释**。JS 按本地时区，结果随机器而变。真实接口的到期字段都是数字秒，
+   这条只影响手写 payload。
+2. **墙钟改成显式参数**（见上）。
+
+**负向验证**：把 `negativeQuorum` 改成固定 2 之后，**5 条** `resolve` 用例立刻红并指名具体用例；
+改回才绿。另外第一次跑回放时 `qqVipPayloadScopesForUin` 的数组用例失败 —— 因为 serde_json 里
+数组不是对象，`if !value.is_object() { return }` 写在数组分支之前会把整枝漏掉。这个 bug 只在
+"数组里找账号作用域"时出现，靠测试才暴露出来，两处遍历函数都改了顺序。
+
+#### P2 进度（2026-11-25，第八刀：`spotify-partner`）
+
+551 行 → `crates/mineradio-core/src/spotify_partner.rs`（1,787 行）+ 9 条单测 + 68 条回放。
+§7.1.1 把它标成 **caution（readiness 40）**，实际不是算法难，而是**依赖全是注入的函数**：
+`createSpotifyPartner({requestJson, getAccessToken, refreshAccessToken, log, warn})`。
+`bridge` 只认"导出函数 + 普通 JSON 入参"，这种形状表达不了，所以录制器自己写。
+
+| 项 | 落地 |
+|---|---|
+| 分层 | **纯映射**（`pick_picture` / `id_from_uri` / `plain_text` / `artist_rows` / `song_of` / `playlist_track_count` / `playlist_card` / `album_card` / `library_variables`）+ **传输抽象**（`Transport` / `Auth` trait，RPITIT）+ **通道**（`Partner<T, A>`） |
+| 新文件 | `crates/mineradio-core/src/js.rs`：`js_number` / `js_string` / `js_truthy` / `num` 从 `qq_vip.rs` 搬出来共用（那边 `pub use` 保持公开路径不变，原有测试没改一行） |
+| 用例 | **68 条**回放，覆盖 15 个能力 + 6 条纯函数单测缺口 |
+| 常驻闸门 | `npm run spotifypartner:check`（已接进 CI 的 `test-node`） |
+| 新依赖 | **零**（`regex` + `serde_json` + `futures-util` 都是已有的） |
+
+**三个设计决定，每个都是被问题逼出来的：**
+
+1. **`responses` 用字典不用队列。** `readAccount` 用 `Promise.all` 并发发
+   `profileAttributes` 与 `product_state` 两个请求，谁先到传输层取决于微任务调度。按顺序录会在
+   换机器时翻车，所以按 `pathfinder:<operationName>` / `spclient:<path>` 归组，同 key 多次调用
+   按数组顺序消费。`requests` / `tokens` / `notes` 三项比较前**排序**，同样不把顺序当契约。
+2. **`PartnerError` 多带 `statusCode` 与 `body`。** 一开始我把传输层失败包成
+   `SPOTIFY_PARTNER_TRANSPORT` 并把状态码编进 `detail` 文本 —— 回放立刻有 2 条红。查原实现：
+   `call()` **不包装** `requestJson` 的 reject，上层的 `classifySpotifyError` 正是靠 `err.statusCode`
+   分 429 / 403 / 404。编进文本就再也解析不回来，所以错误结构扩字段、传输层错误原样透出
+   （`code` 为空串，与 JS 一致）。
+3. **`set_header` 的覆盖语义当前不可观测。** 见下面第二次负向验证。
+
+**两次负向验证，一次有效一次无效：**
+
+- ✅ 把 `pick_picture` 的 `width > best_width` 改成 `>=`（平局取后者）→ **3 条**立刻红，改回才绿。
+- ❌ 把 `set_header` 改成"总是追加"（丢掉 `Object.assign` 的覆盖语义）→ **68 条全绿**。
+  查清原因：默认头是 `Accept` / `Accept-Language` / `User-Agent`，而 `init.headers` 里唯一用到的
+  `app-platform` 只出现在 `lyrics()`，`Content-Type` 与 `Authorization` 也都是新键 ——
+  **没有任何调用点会覆盖已有键**。这不是测试失效，是分支真的走不到。处理方式：函数头写清
+  "不可观测 + 保留是为了逐行对应"，另加一条直接调 `set_header` 的单测兜住语义。
+  这条与 Cookie 那一刀的结论一模一样，以后遇到"注入后仍绿"先分这两种情况。
+
+**九个照抄不能优化的点**（模块头部有完整版）：`!answer.data` 是 JS 真值（`{}` 为真）；
+`following === true` 严格比较；`Object.assign` 的键序；空串 method / timeout 塌到默认；
+401 重试只在"令牌不是显式给的"时发生；`playlistTrackCount` 五条候选路径；`Number(width) || 0`
+让"没宽度"赢过"负宽度"；`new Set` 去重在校验前；`premium` 可能是 `undefined`（键整个不出现）。
+
+**三处刻意偏差**：`slice` 按码点切（JS 会切出孤立代理）；`init.body` 的"字符串原样发"分支没有
+调用点所以只有 JSON 变体；`offset` / `limit` 是 `i64`（JS 传 `undefined` 会让键消失）。
+
+#### P2 进度（2026-11-25，第九刀：`qishui-auth-v6`）
+
+610 行 → `crates/mineradio-core/src/qishui_auth.rs`（1,410 行）+ **38 条回放** + 11 条单测。
+§7.1.1 标 **caution（readiness 38）**，但真正的难点不是"算法复杂"，而是**这个文件 80% 是
+Electron API 调用**：开 `BrowserWindow`、挂 `session.webRequest` 四个钩子、往页面里
+`executeJavaScript` 塞字符串、再起一个本地 http 服务器供页面加载资产。整块搬过去等于用 Rust
+重写一遍 Electron，没有意义。
+
+切法：先问"哪几件事没有窗口就做不到"，答案只有四件（起窗口等 `bdms`、在页面里发请求、弹窗
+让用户二次验证、读/清分区 cookie），把这四件抽成 `AuthHost` trait；剩下全部搬进 Rust：
+
+| 项 | 落地 |
+|---|---|
+| 搬进来 | 设备身份补齐规则、每个请求的查询串 / 表单体 / 头部（含 `x-ss-stub` 的 md5）、`a_bogus` 与 `msToken` 的事后校验、二维码应答解析与扫码地址拼装、2046 状态机、`qrGeneration` 代次守卫、cookie 域名过滤与落盘 |
+| 留在宿主 | `AuthHost` 的 9 个方法（`initialize` / `request` / `second_verify` / `jar_cookies` / `clear_storage` / `render_qr` / `config` / `patch_config` / `hostname`）+ `last_passport_url`（签名证据） |
+| 新依赖 | `md-5` 0.10（与 `sha2` 共用 digest 0.10）+ `url` 2（WHATWG 百分号编码，手写必错） |
+| 常驻闸门 | `npm run qishuiauth:check`（已接进 CI 的 `test-node`） |
+
+**录制器的难题：目标模块在纯 Node 下 `require` 不起来。** 顶层就 `require('electron')` 与
+`require('qrcode')`。做法是接管 `Module._load` 换掉这两个，其余（`http` / `fs` / `crypto` / `os`）
+用真的 —— 于是 `ensureIdentity`、`commonParams`、URL 与表单编码、`x-ss-stub`、2046 分支、
+`persistSessionCookies` 全是**真代码**在跑，只有窗口、分区、页面、二维码绘制和随机源是桩。
+另外模块在**加载时**就把 `{ BrowserWindow, app, session }` 解构走了，所以桩必须是长期门面 +
+转发到"当前用例"，不能每轮换一个对象。
+
+**三个坑，都是这次才踩到的：**
+
+1. **窗口桩共用一个对象 → `isDestroyed()` 永远为真。** `clear()` 把窗口标记成 destroyed 之后，
+   下一个用例的 `initialize()` 每次调用都重跑一遍（窗口开三次、`msToken` 重生成三次）。
+   表现是某条用例莫名多出 2 条 `window:create` 日志。修法是每次 `BrowserWindow` 都造新对象。
+2. **`randoms` 必须剔除宿主自有的那两次。** `bytes(18)` 是资产服务器路径令牌、`bytes(88)` 是
+   `msToken`，二者都归宿主。不剔除的话"随机流必须一条不剩地用光"这条断言站不住（Rust 侧
+   不消费它们）。剔掉之后，多消费/少消费都会立刻报错。
+3. **签名注入是 `set` 不是 `append`。** 真实页面里 `bdms` 会**改写**查询串上的 `a_bogus` /
+   `msToken`；桩如果往后追加，`searchParams.get('msToken')` 拿到的还是原来那个，
+   "msToken 与运行时不一致"那条用例就永远绿。第一版就是这么写的，回放 38 条全绿才发现的。
+
+**六处负向验证，全部变红**（这是本刀唯一敢说"证明过"的地方）：
+
+| 注入 | 结果 |
+|---|---|
+| `x-ss-stub` 不再大写 | 红 **20 条**（所有 POST 用例的头部对不上） |
+| 重发时 body 覆盖 biz_params（方向反了） | 红 **4 条**（含"撞上 token"那条） |
+| 无条件写轮询日志 | 红 **3 条**（等待中 / status "1" / 空 token） |
+| 去掉代次守卫 | 红（单测 `stale_poll_never_persists`） |
+| 不再校验 `a_bogus` 长度 | 红 **4 条** ← **第一版是绿的**，见下 |
+| 不再过滤 cookie 域名 | 红 **2 条** |
+
+**那条"绿的"值得单独记一笔**：一开始只有一条用例踩 `a_bogus` 长度（43 位），但它同时把
+`msToken` 写错了 —— `msToken` 那条判断先抛，长度校验成了死代码。补两条**只**踩一个条件的用例
+（43 位 + 正确 msToken、空串 + 正确 msToken）之后才红。教训：**负向验证要"只改一个变量"**，
+否则前一个条件会把后一个遮住。
+
+还有一处是"录制覆盖不到"的私有分支：`buildCookieString` 的 `filter(name)`。本来以为空名字
+只可能来自 cookie 罐（理论情况），写单测时发现 `" =orphan"` 这一段的等号在下标 1（前面有空格），
+`index > 0` 成立 —— JS 会老老实实插一个空名字的键。所以它不是防御性代码，是**真实可达**的，
+单测里直接把这个形状钉住了。
+
+**JS 语义陷阱**（模块头有完整版）：`request_host` 是**双重编码**（`app%253A%252F%252F...`，
+看着像 bug 但改掉就不一致）；`Number(error_code) === 0` 把 `"0"` / `""` / `null` 都算 0，
+`undefined` 是 NaN；`verified.status !== true` 严格比较，`"true"` 算没通过；`{...body, ...bizParams}`
+是 Object.assign 语义（换值保位置）；`String(indexUrl || '')` 让空串走到 `new URL('')` 的
+`ERR_INVALID_URL`。
+
+**三处刻意偏差**：并发 `initialize()` 不做 promise 去重（宿主必须幂等，桥接层对登录流程本就是
+串行）；`disposeForQuit` 归窗口生命周期，不进这一层；二维码不逐像素比对（契约是"把这段文本画
+出来"，不是"产出同样的 PNG 字节"）。
+
+**这一刀之后 `qishui-auth-v6.js` 还剩什么**：`BrowserWindow` 创建与 `webPreferences`、
+四个 `webRequest` 钩子、本地资产服务器（token 前缀 + 6 个资产的 MIME 表）、三个页面脚本
+（`__qishuiRequest` / `__qishuiSecondVerify` / `__qishuiBrowserInfo`）、`disposeForQuit`。
+全是 P4（原生窗口层）的活，`qishui-auth-v6/` 那 279 行渲染层按工具判定继续 keep-in-js。
+
 ---
 
 ## 8. 测试策略
