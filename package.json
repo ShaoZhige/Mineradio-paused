@@ -30,6 +30,8 @@
     "qqvip:check": "node scripts/record-qq-vip.js --check",
     "spotifypartner:record": "node scripts/record-spotify-partner.js --write",
     "spotifypartner:check": "node scripts/record-spotify-partner.js --check",
+    "qishuiauth:record": "node scripts/record-qishui-auth.js --write",
+    "qishuiauth:check": "node scripts/record-qishui-auth.js --check",
     "parity:static": "node scripts/static-parity.js",
     "parity:http": "node scripts/http-parity.js",
     "archive:release": "node scripts/archive-release-build.mjs",

@@ -17,6 +17,10 @@ ctr = { workspace = true }
 futures-util = { workspace = true }
 # 会话缓存键的 sha256 —— 与 JS 的 crypto.createHash('sha256') 必须逐字节一致。
 sha2 = { workspace = true }
+# 登录请求体的 x-ss-stub。
+md-5 = { workspace = true }
+# 扫码地址与查询串的拼装（WHATWG URL 语义）。
+url = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

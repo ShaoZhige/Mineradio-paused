@@ -69,6 +69,10 @@ jobs:
       - name: Spotify pathfinder fixture matches JS behaviour
         run: npm run spotifypartner:check
 
+      # 汽水登录的 38 条回放同理：换了 SDK 版本或参数名，fixture 必须一起动。
+      - name: Qishui auth fixture matches JS behaviour
+        run: npm run qishuiauth:check
+
   required-gate:
     if: always()
     needs: [test-node]

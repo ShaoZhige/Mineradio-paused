@@ -36,6 +36,12 @@ reqwest = { version = "0.13", default-features = false, features = ["native-tls-
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # QQ 会员的会话缓存键要 sha256，与 JS 的 crypto.createHash('sha256') 必须逐字节一致。
 sha2 = "0.10"
+# 汽水登录的请求体要 `x-ss-stub: md5(body).toUpperCase()`。挑 0.10 是为了和 sha2 共用
+# digest 0.10，不额外多出一套 trait。
+md-5 = "0.10"
+# 汽水登录要在 Node 的 `new URL` / `URLSearchParams` 语义上拼扫码地址与查询串。
+# WHATWG URL 的百分号编码规则极其琐碎（`+`、`%`、`~` 各不相同），手写必错。
+url = "2"
 
 # 首次 cargo build 会把 tauri 全量编一遍，debug 也要几分种；发布版务必加 --release。
 [profile.dev.package."*"]
