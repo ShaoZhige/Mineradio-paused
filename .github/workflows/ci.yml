@@ -73,6 +73,10 @@ jobs:
       - name: Qishui auth fixture matches JS behaviour
         run: npm run qishuiauth:check
 
+      # 会话卡（扫码登录状态机）的 39 条同理。
+      - name: Qishui QR login fixture matches JS behaviour
+        run: npm run qishuiqr:check
+
   required-gate:
     if: always()
     needs: [test-node]

@@ -979,6 +979,53 @@ Electron API 调用**：开 `BrowserWindow`、挂 `session.webRequest` 四个钩
 （`__qishuiRequest` / `__qishuiSecondVerify` / `__qishuiBrowserInfo`）、`disposeForQuit`。
 全是 P4（原生窗口层）的活，`qishui-auth-v6/` 那 279 行渲染层按工具判定继续 keep-in-js。
 
+#### P2 进度（2026-11-25，第十刀：`qishui-qr-login`）
+
+190 行 → `crates/mineradio-core/src/qishui_qr_login.rs`（548 行）+ **39 条回放** + 6 条单测。
+§7.1.1 标 ready（readiness 82），实际上它确实是这批里最干净的一格：没有网络、没有随机、
+`auth` 本来就是构造参数注进来的。它做的只有三件事 —— 活动令牌、二维码代次、会话卡落盘。
+
+| 项 | 落地 |
+|---|---|
+| 搬进来 | 默认值补齐、BOM 剥离、坏配置回落 + 警告、合并语义、落盘格式（`JSON.stringify(v, null, 2)`）、`createQrCode` / `checkQrConnect` / `getStatus` / `getCookie` / `clear` 五个能力 |
+| 抽成接口 | `QrAuth`（出码 / 轮询 / 清分区，`qishui_auth::Runtime` 直接实现它）+ `QrConfigStore`（收发**明文**，加解密与临时文件归宿主） |
+| 新依赖 | **零**（`regex` 已存在） |
+| 常驻闸门 | `npm run qishuiqr:check`（已接进 CI 的 `test-node`） |
+| 一处签名调整 | `QrLogin::new` 多收一个 `warn`：JS 的 `readConfig` 在**构造函数里**跑，"坏配置"那条警告只可能在构造期发出来，`with_warn` 那套来不及 |
+
+**录制器只替换三样东西**：`auth`（本来就注入）、配置文件路径（固定成 `ztest/qishui-qr-config.json`）、
+`os.hostname`（钉成 `RECORDER-PC`，否则 fixture 会带上本机机器名）。`credential-crypto` **没有换桩** ——
+它没有 `safeStorage` 时自己就降级成明文，正好让落盘内容可读、可逐字节比对。
+
+**三个坑：**
+
+1. **`Object.keys` 的整数键序**：这个模块不涉及，但同一套 `preserve_order` 的假设在两处生效
+   （配置合并时"同名键换值保位置"）。实测 fixture 里 `fileAfter` 的键序就是
+   `deviceId → installId → verifyPortraitId → computerName → cookie → msToken`。
+2. **`confirmed` 要塞进 `data` 里，不是顶层**：`{...result, data: {...data, confirmed}}` 我第一版
+   写成了 `merged["confirmed"]`，13 条用例同时红，一眼就看出来了。
+3. **上游调用序列不能用一个全局游标重放**：`checkAfterRefresh` 那条里，嵌套的 `getQrCode` 是在
+   `checkQrConnect` **之后**才被请求的，单游标会拿错条目。改成按调用名分组后正常。
+
+**六处负向验证，全部变红：**
+
+| 注入 | 结果 |
+|---|---|
+| 去掉确认条件里的 `has_login_cookie` | 红 3 条（空 cookie / `xsessionid` / 值为空） |
+| 轮询里不再比代次 | 红 1 条（`checkAfterRefresh`）← 只有它，因为 `checkAfterClear` 还叠了"活动令牌被清空"这一层 |
+| 不再复用已确认的结果 | 红（第二次轮询会再打一次上游，脚本直接缺条目） |
+| 登录 cookie 少认 `uid_tt_ss` | 红 2 条（含纯函数矩阵那条） |
+| 令牌不做 `trim` | 红 3 条 |
+| `error_code` 缺键当 0 | 红（单测）← 回放里每条都带 `error_code`，**这条只有单测能抓** |
+
+最后一条值得记：`Number(undefined)` 是 `NaN`，写成"缺键算 0"会让"上游没给码"被误判成功。
+录制覆盖不到（真实上游总会带这个字段），所以单测 `error_code_zero_needs_the_key_to_exist`
+是唯一的守卫 —— 这类"当前路径走不到的分支"必须靠单测补，回放给不了。
+
+**三处刻意偏差**：`QrLogin` 不保证 `Send`（`AuthHost` 的 async 方法本身没有 `Send` 约束，
+硬加会在适配层炸掉；真要跨线程在 P3 桥接层包一层）；配置文件的加密完全不在这里；
+`getStatus()` 的 `configFile` 由宿主给，不读 `__dirname`。
+
 ---
 
 ## 8. 测试策略
