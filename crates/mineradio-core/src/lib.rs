@@ -7,4 +7,5 @@ pub mod apple_music_lyrics;
 pub mod js;
 pub mod qishui_decrypt;
 pub mod qq_vip;
+pub mod spotify_partner;
 pub mod static_assets;

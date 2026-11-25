@@ -28,6 +28,8 @@
     "cookie:check": "node scripts/record-cookie-header.js --check",
     "qqvip:record": "node scripts/record-qq-vip.js --write",
     "qqvip:check": "node scripts/record-qq-vip.js --check",
+    "spotifypartner:record": "node scripts/record-spotify-partner.js --write",
+    "spotifypartner:check": "node scripts/record-spotify-partner.js --check",
     "parity:static": "node scripts/static-parity.js",
     "parity:http": "node scripts/http-parity.js",
     "archive:release": "node scripts/archive-release-build.mjs",

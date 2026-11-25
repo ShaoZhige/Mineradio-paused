@@ -65,6 +65,10 @@ jobs:
       - name: QQ VIP fixture matches JS behaviour
         run: npm run qqvip:check
 
+      # 同理：spotify-partner 的 68 条用例（含请求形状与 headers 顺序）。
+      - name: Spotify pathfinder fixture matches JS behaviour
+        run: npm run spotifypartner:check
+
   required-gate:
     if: always()
     needs: [test-node]
