@@ -76,7 +76,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6556
+      "line": 6512
     },
     {
       "path": "/api/album/subscribe",
@@ -88,7 +88,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6572
+      "line": 6528
     },
     {
       "path": "/api/album/subscribe/check",
@@ -100,7 +100,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6590
+      "line": 6546
     },
     {
       "path": "/api/app/version",
@@ -112,7 +112,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 4940
+      "line": 4896
     },
     {
       "path": "/api/apple-music/lyric",
@@ -124,7 +124,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5349
+      "line": 5305
     },
     {
       "path": "/api/apple-music/playlist/counts",
@@ -136,7 +136,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5321
+      "line": 5277
     },
     {
       "path": "/api/apple-music/playlist/tracks",
@@ -148,7 +148,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5332
+      "line": 5288
     },
     {
       "path": "/api/apple-music/playlists",
@@ -160,7 +160,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5307
+      "line": 5263
     },
     {
       "path": "/api/apple-music/request",
@@ -172,7 +172,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5274
+      "line": 5230
     },
     {
       "path": "/api/apple-music/search",
@@ -184,7 +184,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5294
+      "line": 5250
     },
     {
       "path": "/api/artist/detail",
@@ -196,7 +196,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 7066
+      "line": 7022
     },
     {
       "path": "/api/audio",
@@ -208,7 +208,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 7181
+      "line": 7137
     },
     {
       "path": "/api/beatmap/cache",
@@ -221,7 +221,7 @@
       "note": "按方法分支处理",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5138
+      "line": 5094
     },
     {
       "path": "/api/beatmap/cache/status",
@@ -233,7 +233,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5067
+      "line": 5023
     },
     {
       "path": "/api/cover",
@@ -245,7 +245,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 7153
+      "line": 7109
     },
     {
       "path": "/api/cuefield/feedback",
@@ -258,7 +258,7 @@
       "note": "按方法分支处理",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5115
+      "line": 5071
     },
     {
       "path": "/api/cuefield/transition",
@@ -270,7 +270,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5081
+      "line": 5037
     },
     {
       "path": "/api/custom-source/resolve",
@@ -282,7 +282,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": true,
-      "line": 4886
+      "line": 4842
     },
     {
       "path": "/api/discover/home",
@@ -294,7 +294,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5182
+      "line": 5138
     },
     {
       "path": "/api/kugou/login/cookie",
@@ -306,7 +306,7 @@
       "note": "不检查方法",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6188
+      "line": 6144
     },
     {
       "path": "/api/kugou/login/status",
@@ -318,7 +318,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6178
+      "line": 6134
     },
     {
       "path": "/api/kugou/logout",
@@ -330,7 +330,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6208
+      "line": 6164
     },
     {
       "path": "/api/kugou/lyric",
@@ -342,7 +342,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6163
+      "line": 6119
     },
     {
       "path": "/api/kugou/playlist/add-song",
@@ -354,7 +354,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6270
+      "line": 6226
     },
     {
       "path": "/api/kugou/playlist/tracks",
@@ -366,7 +366,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6224
+      "line": 6180
     },
     {
       "path": "/api/kugou/recommendations",
@@ -378,7 +378,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5263
+      "line": 5219
     },
     {
       "path": "/api/kugou/search",
@@ -390,7 +390,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5249
+      "line": 5205
     },
     {
       "path": "/api/kugou/song/like",
@@ -402,7 +402,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6253
+      "line": 6209
     },
     {
       "path": "/api/kugou/song/like/check",
@@ -414,7 +414,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6238
+      "line": 6194
     },
     {
       "path": "/api/kugou/song/url",
@@ -426,7 +426,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6138
+      "line": 6094
     },
     {
       "path": "/api/kugou/user/playlists",
@@ -438,7 +438,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6214
+      "line": 6170
     },
     {
       "path": "/api/listen/report",
@@ -450,7 +450,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 4997
+      "line": 4953
     },
     {
       "path": "/api/listen/total",
@@ -462,7 +462,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5017
+      "line": 4973
     },
     {
       "path": "/api/login/cookie",
@@ -474,7 +474,7 @@
       "note": "不检查方法",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6669
+      "line": 6625
     },
     {
       "path": "/api/login/qr/check",
@@ -486,7 +486,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6748
+      "line": 6704
     },
     {
       "path": "/api/login/qr/create",
@@ -498,7 +498,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6737
+      "line": 6693
     },
     {
       "path": "/api/login/qr/key",
@@ -510,7 +510,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6727
+      "line": 6683
     },
     {
       "path": "/api/login/status",
@@ -522,7 +522,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6804
+      "line": 6760
     },
     {
       "path": "/api/logout",
@@ -534,7 +534,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6811
+      "line": 6767
     },
     {
       "path": "/api/lyric",
@@ -546,7 +546,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6987
+      "line": 6943
     },
     {
       "path": "/api/platform/capabilities",
@@ -558,7 +558,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 4957
+      "line": 4913
     },
     {
       "path": "/api/playlist/add-song",
@@ -570,7 +570,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6930
+      "line": 6886
     },
     {
       "path": "/api/playlist/create",
@@ -582,7 +582,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6911
+      "line": 6867
     },
     {
       "path": "/api/playlist/subscribe",
@@ -594,7 +594,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6621
+      "line": 6577
     },
     {
       "path": "/api/playlist/tracks",
@@ -606,7 +606,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 7114
+      "line": 7070
     },
     {
       "path": "/api/podcast/detail",
@@ -618,7 +618,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6478
+      "line": 6434
     },
     {
       "path": "/api/podcast/dj-beatmap",
@@ -630,7 +630,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6704
+      "line": 6660
     },
     {
       "path": "/api/podcast/hot",
@@ -642,7 +642,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6462
+      "line": 6418
     },
     {
       "path": "/api/podcast/my",
@@ -654,7 +654,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6514
+      "line": 6470
     },
     {
       "path": "/api/podcast/my/items",
@@ -666,7 +666,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6540
+      "line": 6496
     },
     {
       "path": "/api/podcast/programs",
@@ -678,7 +678,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6493
+      "line": 6449
     },
     {
       "path": "/api/podcast/search",
@@ -690,7 +690,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6445
+      "line": 6401
     },
     {
       "path": "/api/qishui/album/collect",
@@ -702,7 +702,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6072
+      "line": 6028
     },
     {
       "path": "/api/qishui/feed",
@@ -714,7 +714,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5975
+      "line": 5931
     },
     {
       "path": "/api/qishui/login/check",
@@ -726,7 +726,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5821
+      "line": 5777
     },
     {
       "path": "/api/qishui/login/qrcode",
@@ -738,7 +738,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5796
+      "line": 5752
     },
     {
       "path": "/api/qishui/login/status",
@@ -750,7 +750,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5899
+      "line": 5855
     },
     {
       "path": "/api/qishui/logout",
@@ -762,7 +762,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5909
+      "line": 5865
     },
     {
       "path": "/api/qishui/lyric",
@@ -774,7 +774,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6127
+      "line": 6083
     },
     {
       "path": "/api/qishui/playlist/add-song",
@@ -786,7 +786,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6057
+      "line": 6013
     },
     {
       "path": "/api/qishui/playlist/collect",
@@ -798,7 +798,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6040
+      "line": 5996
     },
     {
       "path": "/api/qishui/playlist/tracks",
@@ -810,7 +810,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5996
+      "line": 5952
     },
     {
       "path": "/api/qishui/search",
@@ -822,7 +822,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5962
+      "line": 5918
     },
     {
       "path": "/api/qishui/signature/authorize",
@@ -834,7 +834,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5928
+      "line": 5884
     },
     {
       "path": "/api/qishui/signature/revoke",
@@ -846,7 +846,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5948
+      "line": 5904
     },
     {
       "path": "/api/qishui/signature/status",
@@ -858,7 +858,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5921
+      "line": 5877
     },
     {
       "path": "/api/qishui/song/comments",
@@ -870,7 +870,7 @@
       "note": "只对某方法分支，其余方法走默认路径",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6089
+      "line": 6045
     },
     {
       "path": "/api/qishui/song/like",
@@ -882,7 +882,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6021
+      "line": 5977
     },
     {
       "path": "/api/qishui/song/like/check",
@@ -894,7 +894,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6009
+      "line": 5965
     },
     {
       "path": "/api/qishui/song/url",
@@ -906,7 +906,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6109
+      "line": 6065
     },
     {
       "path": "/api/qishui/status",
@@ -918,7 +918,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5899
+      "line": 5855
     },
     {
       "path": "/api/qishui/user/playlists",
@@ -930,7 +930,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5986
+      "line": 5942
     },
     {
       "path": "/api/qq/album/detail",
@@ -942,7 +942,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6414
+      "line": 6370
     },
     {
       "path": "/api/qq/artist/detail",
@@ -954,7 +954,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6397
+      "line": 6353
     },
     {
       "path": "/api/qq/login/cookie",
@@ -966,7 +966,7 @@
       "note": "不检查方法",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6336
+      "line": 6292
     },
     {
       "path": "/api/qq/login/status",
@@ -978,7 +978,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6324
+      "line": 6280
     },
     {
       "path": "/api/qq/logout",
@@ -990,7 +990,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6365
+      "line": 6321
     },
     {
       "path": "/api/qq/lyric",
@@ -1002,7 +1002,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6309
+      "line": 6265
     },
     {
       "path": "/api/qq/playlist/tracks",
@@ -1014,7 +1014,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6382
+      "line": 6338
     },
     {
       "path": "/api/qq/search",
@@ -1026,7 +1026,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5235
+      "line": 5191
     },
     {
       "path": "/api/qq/song/comments",
@@ -1038,7 +1038,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6430
+      "line": 6386
     },
     {
       "path": "/api/qq/song/url",
@@ -1050,7 +1050,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6288
+      "line": 6244
     },
     {
       "path": "/api/qq/user/playlists",
@@ -1062,7 +1062,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6371
+      "line": 6327
     },
     {
       "path": "/api/search",
@@ -1074,7 +1074,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5224
+      "line": 5180
     },
     {
       "path": "/api/song/comments",
@@ -1086,7 +1086,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 7003
+      "line": 6959
     },
     {
       "path": "/api/song/comments/like",
@@ -1098,7 +1098,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 7046
+      "line": 7002
     },
     {
       "path": "/api/song/like",
@@ -1110,7 +1110,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 6892
+      "line": 6848
     },
     {
       "path": "/api/song/like/check",
@@ -1122,7 +1122,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6852
+      "line": 6808
     },
     {
       "path": "/api/song/url",
@@ -1134,7 +1134,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6639
+      "line": 6595
     },
     {
       "path": "/api/spotify/album/detail",
@@ -1146,7 +1146,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5734
+      "line": 5690
     },
     {
       "path": "/api/spotify/album/like",
@@ -1158,7 +1158,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5643
+      "line": 5599
     },
     {
       "path": "/api/spotify/album/like/check",
@@ -1170,7 +1170,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5631
+      "line": 5587
     },
     {
       "path": "/api/spotify/client/cdp-status",
@@ -1182,7 +1182,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5414
+      "line": 5370
     },
     {
       "path": "/api/spotify/client/command",
@@ -1194,7 +1194,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5419
+      "line": 5375
     },
     {
       "path": "/api/spotify/client/launch",
@@ -1206,7 +1206,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5392
+      "line": 5348
     },
     {
       "path": "/api/spotify/client/media-key",
@@ -1218,7 +1218,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5485
+      "line": 5441
     },
     {
       "path": "/api/spotify/client/minimize",
@@ -1230,7 +1230,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5497
+      "line": 5453
     },
     {
       "path": "/api/spotify/client/play-track",
@@ -1242,7 +1242,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5439
+      "line": 5395
     },
     {
       "path": "/api/spotify/client/player",
@@ -1254,7 +1254,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5463
+      "line": 5419
     },
     {
       "path": "/api/spotify/client/probe",
@@ -1266,7 +1266,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5365
+      "line": 5321
     },
     {
       "path": "/api/spotify/client/state",
@@ -1278,7 +1278,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5405
+      "line": 5361
     },
     {
       "path": "/api/spotify/client/uia",
@@ -1290,7 +1290,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5473
+      "line": 5429
     },
     {
       "path": "/api/spotify/config",
@@ -1302,7 +1302,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5533
+      "line": 5489
     },
     {
       "path": "/api/spotify/logout",
@@ -1314,7 +1314,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5572
+      "line": 5528
     },
     {
       "path": "/api/spotify/lyric",
@@ -1326,7 +1326,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5785
+      "line": 5741
     },
     {
       "path": "/api/spotify/playlist/add-song",
@@ -1338,7 +1338,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5660
+      "line": 5616
     },
     {
       "path": "/api/spotify/playlist/collect",
@@ -1350,7 +1350,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5701
+      "line": 5657
     },
     {
       "path": "/api/spotify/playlist/create",
@@ -1362,7 +1362,7 @@
       "note": "非该方法的请求被 405 拒绝",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5683
+      "line": 5639
     },
     {
       "path": "/api/spotify/playlist/tracks",
@@ -1374,7 +1374,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5721
+      "line": 5677
     },
     {
       "path": "/api/spotify/recommendations",
@@ -1386,7 +1386,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5759
+      "line": 5715
     },
     {
       "path": "/api/spotify/search",
@@ -1398,7 +1398,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5746
+      "line": 5702
     },
     {
       "path": "/api/spotify/setup/diagnostics",
@@ -1410,7 +1410,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5516
+      "line": 5472
     },
     {
       "path": "/api/spotify/song/like",
@@ -1422,7 +1422,7 @@
       "note": "任意方法可达，只有 POST 读 body",
       "readsBody": true,
       "easterEggGuarded": false,
-      "line": 5606
+      "line": 5562
     },
     {
       "path": "/api/spotify/song/like/check",
@@ -1434,7 +1434,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5594
+      "line": 5550
     },
     {
       "path": "/api/spotify/song/url",
@@ -1446,7 +1446,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5770
+      "line": 5726
     },
     {
       "path": "/api/spotify/status",
@@ -1458,7 +1458,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5506
+      "line": 5462
     },
     {
       "path": "/api/spotify/user/playlists",
@@ -1470,7 +1470,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5582
+      "line": 5538
     },
     {
       "path": "/api/update/download",
@@ -1482,7 +1482,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5053
+      "line": 5009
     },
     {
       "path": "/api/update/download/status",
@@ -1494,7 +1494,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5054
+      "line": 5010
     },
     {
       "path": "/api/update/latest",
@@ -1506,7 +1506,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5040
+      "line": 4996
     },
     {
       "path": "/api/update/patch",
@@ -1518,7 +1518,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5055
+      "line": 5011
     },
     {
       "path": "/api/update/patch/status",
@@ -1530,7 +1530,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5056
+      "line": 5012
     },
     {
       "path": "/api/user/playlists",
@@ -1542,7 +1542,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 6819
+      "line": 6775
     },
     {
       "path": "/api/weather/ip-location",
@@ -1554,7 +1554,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5213
+      "line": 5169
     },
     {
       "path": "/api/weather/radio",
@@ -1566,7 +1566,7 @@
       "note": "不检查方法",
       "readsBody": false,
       "easterEggGuarded": false,
-      "line": 5192
+      "line": 5148
     }
   ],
   "bridge": [
