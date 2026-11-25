@@ -13,8 +13,15 @@ regex = { workspace = true }
 # 汽水音乐的加密音频是 aes-128-ctr；RustCrypto 的实现与 OpenSSL 逐字节一致（录制用例验证）。
 aes = { workspace = true }
 ctr = { workspace = true }
+# QQ 会员探测的并发聚合（Promise.allSettled 的等价物）。
+futures-util = { workspace = true }
+# 会话缓存键的 sha256 —— 与 JS 的 crypto.createHash('sha256') 必须逐字节一致。
+sha2 = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
-serde_json = "1"
+# resolve_qq_vip_from_probes 是 async，回放要在运行时里跑。
+tokio = { workspace = true, features = ["macros", "rt"] }
+serde_json = { workspace = true }
 # 录制 fixture 里的二进制一律以 base64 存，测试侧解回来。
 base64 = "0.22"

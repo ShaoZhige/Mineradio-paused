@@ -4,5 +4,7 @@
 //! 被 axum 直接调用、也能被 rust-anything 的录制回放验证。
 
 pub mod apple_music_lyrics;
+pub mod js;
 pub mod qishui_decrypt;
+pub mod qq_vip;
 pub mod static_assets;

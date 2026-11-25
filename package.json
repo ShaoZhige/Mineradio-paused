@@ -26,6 +26,8 @@
     "shim:check": "node scripts/gen-shim.js --check",
     "cookie:record": "node scripts/record-cookie-header.js --write",
     "cookie:check": "node scripts/record-cookie-header.js --check",
+    "qqvip:record": "node scripts/record-qq-vip.js --write",
+    "qqvip:check": "node scripts/record-qq-vip.js --check",
     "parity:static": "node scripts/static-parity.js",
     "parity:http": "node scripts/http-parity.js",
     "archive:release": "node scripts/archive-release-build.mjs",

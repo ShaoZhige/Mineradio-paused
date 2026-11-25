@@ -22,7 +22,7 @@ license = "GPL-3.0-only"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "signal", "sync", "io-util", "time"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
 regex = "1"
 aes = "0.8"
@@ -34,6 +34,8 @@ ctr = "0.9"
 #   stream → 只为了 Body::wrap_stream，让请求体走 chunked（Node 的 req.write 就是 chunked）
 reqwest = { version = "0.13", default-features = false, features = ["native-tls-no-alpn", "stream"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# QQ 会员的会话缓存键要 sha256，与 JS 的 crypto.createHash('sha256') 必须逐字节一致。
+sha2 = "0.10"
 
 # 首次 cargo build 会把 tauri 全量编一遍，debug 也要几分种；发布版务必加 --release。
 [profile.dev.package."*"]

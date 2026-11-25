@@ -61,6 +61,10 @@ jobs:
       - name: Cookie header fixture matches JS behaviour
         run: npm run cookie:check
 
+      # 同理：qq-vip-api 的 199 条回放用例也要与当前 JS 同步。
+      - name: QQ VIP fixture matches JS behaviour
+        run: npm run qqvip:check
+
   required-gate:
     if: always()
     needs: [test-node]
