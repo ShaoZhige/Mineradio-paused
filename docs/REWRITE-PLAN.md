@@ -1026,6 +1026,54 @@ Electron API 调用**：开 `BrowserWindow`、挂 `session.webRequest` 四个钩
 硬加会在适配层炸掉；真要跨线程在 P3 桥接层包一层）；配置文件的加密完全不在这里；
 `getStatus()` 的 `configFile` 由宿主给，不读 `__dirname`。
 
+#### P2 进度（2026-11-26，第十一刀：`dj-analyzer` 的纯计算层）
+
+864 行 → `crates/mineradio-core/src/dj_analyzer.rs`（1,510 行）+ **22 条回放** + 8 条单测
+（原文件重构后 886 行）。
+
+§7.1.1 对这一格标 caution，理由是它有一半是 `mpg123-decoder`（WASM）。所以**切成两刀**：
+这一刀只搬「不碰解码器」的部分 —— 解码与 HTTP 留在第二刀，走 trait 注入，
+只验「同样 PCM 喂进去得到的能量序列一致」（Rust 的 MP3 解码器不可能与 mpg123 逐字节相同）。
+
+| 项 | 落地 |
+|---|---|
+| 搬进来 | `buildBeatMapFromLowEnergy`（onset 检测 / 候选合并 / 速度直方图 / 相位搜索 / 分段变速 / 网格生成）、`planPodcastDjRangeWindows`、`buildRangeBeatsFromMaps`、`createPcmEnergyTap`、`percentile` / `median` / `makeBiquad` / `runBiquad` |
+| 没搬 | `decodePodcastDjEnergyRange` / `analyzePodcastDjStreamFull` 的 fetch 与 `MPEGDecoder` 调用；`analyzePodcastDjStream` 的三档分流 |
+| 新依赖 | **零** |
+| 常驻闸门 | `npm run dj:check`（已接进 CI 的 `test-node`） |
+| 比对强度 | PCM → 能量 **逐比特**（比 `to_bits()`）；能量 → 拍点 **1e-9 相对容差**（`pow/sin/cos/atan2` 不可复现） |
+
+**三处 JS 等价重构**（不做就没法单独录，行为不变，由回放兜底）：
+
+| 位置 | 改动 |
+|---|---|
+| `analyzePodcastDjRangeSamples` | 采样窗口规划抽成 `planPodcastDjRangeWindows`；`sampleMaps` 之后的合成抽成 `buildRangeBeatsFromMaps`（函数体整段切出来，不手抄） |
+| `decodePodcastDjEnergyRange` / `analyzePodcastDjStreamFull` | 两处**逐字相同**的 `initFilters` / `pushFrame` / `processDecoded` 合成 `createPcmEnergyTap`，顺带去掉了 30 行重复 |
+
+**四个坑（都会让回放红，已做敏感性验证）：**
+
+1. **`onset` 必须是 `Float32Array`**。JS 写 `onset[i] = 标量` 会先舍到 f32。改成 f64 后
+   `beats[7].impact` 相对偏差 **2.4e-7** —— 比容差大两个数量级，一定红。这个数组本来只为
+   省内存，"换成 f64 更准"是个陷阱。
+2. **滑窗不是连续滑动**。主循环从 `f = winN + 4` 起跑，窗口初值是 `[0, winN)`，每轮减
+   `onset[f - winN]` 加 `onset[f]` —— 第一次迭代后窗口是 `{0..winN-1} \ {4} ∪ {winN+4}`，
+   跳过了 4 号元素。既有行为，改成连续后 `beats[21].impact` 偏 **0.54**。
+3. **`cameraActive` 可能是 `null`**。JS 是 `a || b || (bestCand && c)`，`bestCand` 为 null 时
+   第三项求值成 `null` 而不是 `false`。所以 `beats[i].primary` / `.camera` 是**三态**，
+   Rust 侧必须是 `Option<bool>`；`cameraBeats` 的过滤也要用 `!= Some(false)` 而不是 truthy。
+   写成 `false` 会让 3 条用例的 `primary` 与 `visualBeatCount` 一起错。
+4. **分位数吃完整数组，`bandAt` 吃 `min(len)`**。`percentile(lowEnergy, ...)` 拿的是
+   `lowEnergy` 全长，而 `bandAt` 的索引上界是 `min(low.len, hit.len) - 1`。改成切片后
+   `debug.lowRef` 偏 **2.5e-3** —— 只有「low 比 hit 长 3 帧」那条能抓。
+
+负向验证用一次性脚本做的：改 **JS 侧**的同一个变量、跑录制器的输入、算最大相对差异。
+不改 Rust 是为了省掉每次半小时的编译 —— 差异远大于 1e-9 就足以证明 Rust 那边写错会红。
+
+**第二刀的边界**：`PcmEnergy` 已经与解码器无关（收 `&[f64]` 声道数据），
+第二刀只需要一个 `decode_frames(bytes) -> (samplesDecoded, sampleRate, left, right)` 的 trait，
+再加上 fetch / Range / 三档分流的编排。`plan_intro_trim` 也在这一刀，但只有单测
+（它内联在 `analyzePodcastDjIntro` 里，抽出来会牵动 `introSec` 的 clamp 顺序，不值得）。
+
 ---
 
 ## 8. 测试策略
