@@ -63,6 +63,89 @@ function runBiquad(st, x) {
   return y;
 }
 
+// PCM → 能量序列的累加器。
+//
+// decodePodcastDjEnergyRange 与 analyzePodcastDjStreamFull 里原来是两份**逐字相同**的
+// initFilters / pushFrame / processDecoded；这里合成一份，两个调用点都改用它。
+// 合成之后的行为与合并前一致（同样的 PCM 得到同样的 lowEnergy/hitEnergy），
+// 但能量层从此可以脱离解码器单独喂数据 —— Rust 侧的 PcmEnergy 就是对着它做回放的。
+//
+// 注意：这里给的是 f64 能量，f32 压缩必须留在 onset 那一侧（buildBeatMapFromLowEnergy
+// 里的 Float32Array）。提前压缩会让回放对不上。
+function createPcmEnergyTap(hopSec) {
+  const lowEnergy = [];
+  const hitEnergy = [];
+  let hp = null;
+  let lp = null;
+  let effectiveSr = 0;
+  let sampleStep = 1;
+  let hopSize = 0;
+  let frameSum = 0;
+  let framePeak = 0;
+  let frameCount = 0;
+  let effectiveSamples = 0;
+  let decodedSamples = 0;
+
+  function initFilters(sampleRate) {
+    if (effectiveSr) return;
+    sampleStep = sampleRate >= 44100 ? 4 : (sampleRate >= 32000 ? 3 : 2);
+    effectiveSr = sampleRate / sampleStep;
+    hopSize = Math.max(80, Math.floor(effectiveSr * hopSec));
+    hp = makeBiquad('highpass', 32, 0.72, effectiveSr);
+    lp = makeBiquad('lowpass', 178, 0.82, effectiveSr);
+  }
+
+  function pushFrame() {
+    const count = Math.max(1, frameCount);
+    lowEnergy.push(Math.sqrt(frameSum / count));
+    hitEnergy.push(framePeak);
+    frameSum = 0;
+    framePeak = 0;
+    frameCount = 0;
+  }
+
+  function processDecoded(result) {
+    if (!result || !result.samplesDecoded || !result.channelData || !result.channelData.length) return;
+    const sr = result.sampleRate || 44100;
+    initFilters(sr);
+    const left = result.channelData[0];
+    const right = result.channelData[1];
+    const n = Math.min(result.samplesDecoded, left ? left.length : 0, right ? right.length : (left ? left.length : 0));
+    decodedSamples += n;
+    for (let i = 0; i < n; i += sampleStep) {
+      const x = right ? ((left[i] || 0) + (right[i] || 0)) * 0.5 : (left[i] || 0);
+      const y = runBiquad(lp, runBiquad(hp, x));
+      const ay = Math.abs(y);
+      frameSum += y * y;
+      if (ay > framePeak) framePeak = ay;
+      frameCount++;
+      effectiveSamples++;
+      if (frameCount >= hopSize) pushFrame();
+    }
+  }
+
+  return {
+    lowEnergy,
+    hitEnergy,
+    processDecoded,
+    finish() {
+      if (frameCount > 0) pushFrame();
+    },
+    get decodedSamples() {
+      return decodedSamples;
+    },
+    get effectiveSamples() {
+      return effectiveSamples;
+    },
+    get effectiveSampleRate() {
+      return effectiveSr;
+    },
+    get sampleRate() {
+      return effectiveSr ? effectiveSr * sampleStep : 0;
+    },
+  };
+}
+
 function buildBeatMapFromLowEnergy(lowEnergy, hitEnergy, hopSec, durationSec) {
   const nFrames = Math.min(lowEnergy.length, hitEnergy.length);
   if (nFrames < 20) {
@@ -389,58 +472,9 @@ async function decodePodcastDjEnergyRange(audioUrl, opts) {
 
   const durationHint = Math.max(0, Number(opts.durationSec) || 0);
   const hopSec = durationHint > 4200 ? 0.0125 : 0.010;
-  const lowEnergy = [];
-  const hitEnergy = [];
-  let hp = null;
-  let lp = null;
-  let effectiveSr = 0;
-  let sampleStep = 1;
-  let hopSize = 0;
-  let frameSum = 0;
-  let framePeak = 0;
-  let frameCount = 0;
-  let effectiveSamples = 0;
-  let chunks = 0;
-  let decodedSamples = 0;
+  const tap = createPcmEnergyTap(hopSec);
   const limitSec = Math.max(0, Number(opts.limitSec) || 0);
-
-  function initFilters(sampleRate) {
-    if (effectiveSr) return;
-    sampleStep = sampleRate >= 44100 ? 4 : (sampleRate >= 32000 ? 3 : 2);
-    effectiveSr = sampleRate / sampleStep;
-    hopSize = Math.max(80, Math.floor(effectiveSr * hopSec));
-    hp = makeBiquad('highpass', 32, 0.72, effectiveSr);
-    lp = makeBiquad('lowpass', 178, 0.82, effectiveSr);
-  }
-
-  function pushFrame() {
-    const count = Math.max(1, frameCount);
-    lowEnergy.push(Math.sqrt(frameSum / count));
-    hitEnergy.push(framePeak);
-    frameSum = 0;
-    framePeak = 0;
-    frameCount = 0;
-  }
-
-  function processDecoded(result) {
-    if (!result || !result.samplesDecoded || !result.channelData || !result.channelData.length) return;
-    const sr = result.sampleRate || 44100;
-    initFilters(sr);
-    const left = result.channelData[0];
-    const right = result.channelData[1];
-    const n = Math.min(result.samplesDecoded, left ? left.length : 0, right ? right.length : (left ? left.length : 0));
-    decodedSamples += n;
-    for (let i = 0; i < n; i += sampleStep) {
-      const x = right ? ((left[i] || 0) + (right[i] || 0)) * 0.5 : (left[i] || 0);
-      const y = runBiquad(lp, runBiquad(hp, x));
-      const ay = Math.abs(y);
-      frameSum += y * y;
-      if (ay > framePeak) framePeak = ay;
-      frameCount++;
-      effectiveSamples++;
-      if (frameCount >= hopSize) pushFrame();
-    }
-  }
+  let chunks = 0;
 
   try {
     const headers = {
@@ -457,30 +491,30 @@ async function decodePodcastDjEnergyRange(audioUrl, opts) {
       if (done) break;
       if (!value || !value.length) continue;
       chunks++;
-      processDecoded(decoder.decode(value instanceof Uint8Array ? value : new Uint8Array(value)));
-      if (limitSec && effectiveSr && effectiveSamples / effectiveSr >= limitSec) {
+      tap.processDecoded(decoder.decode(value instanceof Uint8Array ? value : new Uint8Array(value)));
+      if (limitSec && tap.effectiveSampleRate && tap.effectiveSamples / tap.effectiveSampleRate >= limitSec) {
         try { await reader.cancel(); } catch (e) {}
         break;
       }
       if (chunks % 12 === 0) await new Promise(resolve => setImmediate(resolve));
     }
-    processDecoded(decoder.decode(new Uint8Array(0)));
-    if (frameCount > 0) pushFrame();
+    tap.processDecoded(decoder.decode(new Uint8Array(0)));
+    tap.finish();
   } finally {
     decoder.free();
   }
 
   return {
-    lowEnergy,
-    hitEnergy,
+    lowEnergy: tap.lowEnergy,
+    hitEnergy: tap.hitEnergy,
     hopSec,
-    duration: effectiveSr ? effectiveSamples / effectiveSr : 0,
+    duration: tap.effectiveSampleRate ? tap.effectiveSamples / tap.effectiveSampleRate : 0,
     decode: {
       chunks,
-      decodedSamples,
-      sampleRate: effectiveSr ? effectiveSr * sampleStep : 0,
-      effectiveSampleRate: effectiveSr,
-      frames: lowEnergy.length,
+      decodedSamples: tap.decodedSamples,
+      sampleRate: tap.sampleRate,
+      effectiveSampleRate: tap.effectiveSampleRate,
+      frames: tap.lowEnergy.length,
     },
   };
 }
@@ -517,61 +551,39 @@ async function analyzePodcastDjIntro(audioUrl, opts) {
   return map;
 }
 
-async function analyzePodcastDjRangeSamples(audioUrl, opts) {
-  opts = opts || {};
-  const duration = Math.max(0, Number(opts.durationSec) || 0);
-  if (!duration) throw new Error('Long podcast analysis needs duration');
-
-  let contentLength = 0;
-  try {
-    const head = await fetch(audioUrl, {
-      method: 'HEAD',
-      headers: {
-        'User-Agent': opts.userAgent || DEFAULT_UA,
-        'Referer': 'https://music.163.com/',
-      },
-    });
-    contentLength = Number(head.headers.get('content-length') || 0) || 0;
-  } catch (err) {
-    contentLength = 0;
-  }
-  if (!contentLength) {
-    return analyzePodcastDjStreamFull(audioUrl, opts);
-  }
-
+// 长播客的抽样窗口规划：只算位置，不发请求。
+//
+// 首个窗口从 0 开始（拿到完整头部与首帧），末个落在 88%，中间按 8%~88% 均分；
+// 非首窗口往前带一点 preroll，避免 Range 起点正好落在 MP3 帧中间、首个解码块解不出样本。
+// 独立成函数是为了让 Rust 侧能对着同一份数据回放（scripts/record-dj-analyzer.js）。
+function planPodcastDjRangeWindows(duration, contentLength) {
   const sampleCount = duration > 14400 ? 12 : (duration > 9000 ? 10 : 8);
-  const sampleStarts = [];
+  const sampleWindow = duration > 14400 ? 82 : (duration > 9000 ? 88 : 96);
+  const bytePerSec = contentLength / Math.max(1, duration);
+  const windows = [];
   for (let i = 0; i < sampleCount; i++) {
     const pos = sampleCount === 1 ? 0 : i / (sampleCount - 1);
     const shaped = i === 0 ? 0 : (i === sampleCount - 1 ? 0.88 : 0.08 + pos * 0.80);
-    sampleStarts.push(duration * shaped);
-  }
-  const sampleWindow = duration > 14400 ? 82 : (duration > 9000 ? 88 : 96);
-  const sampleMaps = [];
-  let totalChunks = 0;
-  let totalDecoded = 0;
-
-  for (let i = 0; i < sampleStarts.length; i++) {
-    const targetTime = Math.max(0, Math.min(duration - sampleWindow, sampleStarts[i]));
-    const bytePerSec = contentLength / Math.max(1, duration);
+    const targetTime = Math.max(0, Math.min(duration - sampleWindow, duration * shaped));
     const prerollBytes = i === 0 ? 0 : Math.min(384 * 1024, Math.floor(bytePerSec * 4));
     const startByte = Math.max(0, Math.floor(targetTime * bytePerSec) - prerollBytes);
     const windowBytes = Math.max(768 * 1024, Math.floor(sampleWindow * bytePerSec) + prerollBytes + 128 * 1024);
     const endByte = Math.min(contentLength - 1, startByte + windowBytes);
-    const approxOffset = startByte / contentLength * duration;
-    const decoded = await decodePodcastDjEnergyRange(audioUrl, {
-      durationSec: sampleWindow,
-      userAgent: opts.userAgent,
-      range: 'bytes=' + startByte + '-' + endByte,
+    windows.push({
+      windowSec: sampleWindow,
+      startByte,
+      endByte,
+      approxOffset: startByte / contentLength * duration,
     });
-    totalChunks += decoded.decode.chunks || 0;
-    totalDecoded += decoded.decode.decodedSamples || 0;
-    const map = buildBeatMapFromLowEnergy(decoded.lowEnergy, decoded.hitEnergy, decoded.hopSec, decoded.duration || sampleWindow);
-    if (map && map.visualBeatCount >= 8 && map.gridStep) {
-      sampleMaps.push({ offset: approxOffset, map });
-    }
   }
+  return windows;
+}
 
+// 把各采样段拼成一张全曲网格。
+//
+// 每段自带相位（phaseFromMap 的圆均值），按段边界线性插值能量画像，再在原位铺拍点。
+// decodeTotals 只进 debug 汇总，不参与计算。
+function buildRangeBeatsFromMaps(sampleMaps, duration, contentLength, decodeTotals) {
   if (!sampleMaps.length) {
     return {
       kicks: [],
@@ -732,9 +744,58 @@ async function analyzePodcastDjRangeSamples(audioUrl, opts) {
       samples: sampleMaps.length,
       profiles,
       contentLength,
-      decode: { chunks: totalChunks, decodedSamples: totalDecoded },
+      decode: { chunks: decodeTotals.chunks, decodedSamples: decodeTotals.decodedSamples },
     },
   };
+}
+
+// 抽样分段路径：HEAD 探长度 → 逐窗 Range 解码 → 拼网格。
+async function analyzePodcastDjRangeSamples(audioUrl, opts) {
+  opts = opts || {};
+  const duration = Math.max(0, Number(opts.durationSec) || 0);
+  if (!duration) throw new Error('Long podcast analysis needs duration');
+
+  let contentLength = 0;
+  try {
+    const head = await fetch(audioUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': opts.userAgent || DEFAULT_UA,
+        'Referer': 'https://music.163.com/',
+      },
+    });
+    contentLength = Number(head.headers.get('content-length') || 0) || 0;
+  } catch (err) {
+    contentLength = 0;
+  }
+  if (!contentLength) {
+    return analyzePodcastDjStreamFull(audioUrl, opts);
+  }
+
+  const windows = planPodcastDjRangeWindows(duration, contentLength);
+  const sampleMaps = [];
+  let totalChunks = 0;
+  let totalDecoded = 0;
+
+  for (let i = 0; i < windows.length; i++) {
+    const w = windows[i];
+    const decoded = await decodePodcastDjEnergyRange(audioUrl, {
+      durationSec: w.windowSec,
+      userAgent: opts.userAgent,
+      range: 'bytes=' + w.startByte + '-' + w.endByte,
+    });
+    totalChunks += decoded.decode.chunks || 0;
+    totalDecoded += decoded.decode.decodedSamples || 0;
+    const map = buildBeatMapFromLowEnergy(decoded.lowEnergy, decoded.hitEnergy, decoded.hopSec, decoded.duration || w.windowSec);
+    if (map && map.visualBeatCount >= 8 && map.gridStep) {
+      sampleMaps.push({ offset: w.approxOffset, map });
+    }
+  }
+
+  return buildRangeBeatsFromMaps(sampleMaps, duration, contentLength, {
+    chunks: totalChunks,
+    decodedSamples: totalDecoded,
+  });
 }
 
 async function analyzePodcastDjStream(audioUrl, opts) {
@@ -765,57 +826,8 @@ async function analyzePodcastDjStreamFull(audioUrl, opts) {
 
   const durationHint = Math.max(0, Number(opts.durationSec) || 0);
   const hopSec = durationHint > 9000 ? 0.0125 : 0.010;
-  const lowEnergy = [];
-  const hitEnergy = [];
-  let hp = null;
-  let lp = null;
-  let effectiveSr = 0;
-  let sampleStep = 1;
-  let hopSize = 0;
-  let frameSum = 0;
-  let framePeak = 0;
-  let frameCount = 0;
-  let effectiveSamples = 0;
+  const tap = createPcmEnergyTap(hopSec);
   let chunks = 0;
-  let decodedSamples = 0;
-
-  function initFilters(sampleRate) {
-    if (effectiveSr) return;
-    sampleStep = sampleRate >= 44100 ? 4 : (sampleRate >= 32000 ? 3 : 2);
-    effectiveSr = sampleRate / sampleStep;
-    hopSize = Math.max(80, Math.floor(effectiveSr * hopSec));
-    hp = makeBiquad('highpass', 32, 0.72, effectiveSr);
-    lp = makeBiquad('lowpass', 178, 0.82, effectiveSr);
-  }
-
-  function pushFrame() {
-    const count = Math.max(1, frameCount);
-    lowEnergy.push(Math.sqrt(frameSum / count));
-    hitEnergy.push(framePeak);
-    frameSum = 0;
-    framePeak = 0;
-    frameCount = 0;
-  }
-
-  function processDecoded(result) {
-    if (!result || !result.samplesDecoded || !result.channelData || !result.channelData.length) return;
-    const sr = result.sampleRate || 44100;
-    initFilters(sr);
-    const left = result.channelData[0];
-    const right = result.channelData[1];
-    const n = Math.min(result.samplesDecoded, left ? left.length : 0, right ? right.length : (left ? left.length : 0));
-    decodedSamples += n;
-    for (let i = 0; i < n; i += sampleStep) {
-      const x = right ? ((left[i] || 0) + (right[i] || 0)) * 0.5 : (left[i] || 0);
-      const y = runBiquad(lp, runBiquad(hp, x));
-      const ay = Math.abs(y);
-      frameSum += y * y;
-      if (ay > framePeak) framePeak = ay;
-      frameCount++;
-      effectiveSamples++;
-      if (frameCount >= hopSize) pushFrame();
-    }
-  }
 
   try {
     const resp = await fetch(audioUrl, {
@@ -831,25 +843,26 @@ async function analyzePodcastDjStreamFull(audioUrl, opts) {
       if (done) break;
       if (!value || !value.length) continue;
       chunks++;
-      processDecoded(decoder.decode(value instanceof Uint8Array ? value : new Uint8Array(value)));
+      tap.processDecoded(decoder.decode(value instanceof Uint8Array ? value : new Uint8Array(value)));
       if (chunks % 12 === 0) await new Promise(resolve => setImmediate(resolve));
     }
-    const tail = decoder.decode(new Uint8Array(0));
-    processDecoded(tail);
-    if (frameCount > 0) pushFrame();
+    // 空的尾块用来把解码器内部残留的样本挤出来。
+    tap.processDecoded(decoder.decode(new Uint8Array(0)));
+    tap.finish();
   } finally {
     decoder.free();
   }
 
-  const effectiveDuration = effectiveSr ? effectiveSamples / effectiveSr : 0;
+  const effectiveSr = tap.effectiveSampleRate;
+  const effectiveDuration = effectiveSr ? tap.effectiveSamples / effectiveSr : 0;
   const duration = effectiveDuration || durationHint;
-  const map = buildBeatMapFromLowEnergy(lowEnergy, hitEnergy, hopSec, duration);
+  const map = buildBeatMapFromLowEnergy(tap.lowEnergy, tap.hitEnergy, hopSec, duration);
   map.decode = {
     chunks,
-    decodedSamples,
-    sampleRate: effectiveSr ? effectiveSr * sampleStep : 0,
-    effectiveSampleRate: effectiveSr,
-    frames: lowEnergy.length,
+    decodedSamples: tap.decodedSamples,
+    sampleRate: tap.sampleRate,
+    effectiveSampleRate: tap.effectiveSampleRate,
+    frames: tap.lowEnergy.length,
     requestedDurationSec: durationHint,
     effectiveDurationSec: effectiveDuration,
     fullStreamQuality: !!opts.preferQualityFullStream,
@@ -861,4 +874,13 @@ module.exports = {
   analyzePodcastDjStream,
   analyzePodcastDjIntro,
   buildBeatMapFromLowEnergy,
+  // 下面三个原本内联在 analyzePodcastDjRangeSamples / decodePodcastDjEnergyRange 里，
+  // 抽出来只为让录制器能单独调；行为与抽取前逐字一致（scripts/record-dj-analyzer.js 回放验证）。
+  planPodcastDjRangeWindows,
+  buildRangeBeatsFromMaps,
+  createPcmEnergyTap,
+  // 两个分位/中位数工具原本只在本文件内用。它们的分位下标规则（floor(len*p) 而不是
+  // floor((len-1)*p)、取到 0 也算 0.001）是回放最容易抄错的地方，所以直接暴露出来单测。
+  percentile,
+  median,
 };

@@ -77,6 +77,11 @@ jobs:
       - name: Qishui QR login fixture matches JS behaviour
         run: npm run qishuiqr:check
 
+      # 播客锁拍的 22 条同理。其中 PCM→能量那三条是逐比特比对，滤波器系数或
+      # 分帧边界一动就必须重录。
+      - name: DJ analyzer fixture matches JS behaviour
+        run: npm run dj:check
+
   required-gate:
     if: always()
     needs: [test-node]

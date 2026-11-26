@@ -34,6 +34,8 @@
     "qishuiauth:check": "node scripts/record-qishui-auth.js --check",
     "qishuiqr:record": "node scripts/record-qishui-qr-login.js --write",
     "qishuiqr:check": "node scripts/record-qishui-qr-login.js --check",
+    "dj:record": "node scripts/record-dj-analyzer.js --write",
+    "dj:check": "node scripts/record-dj-analyzer.js --check",
     "parity:static": "node scripts/static-parity.js",
     "parity:http": "node scripts/http-parity.js",
     "archive:release": "node scripts/archive-release-build.mjs",
